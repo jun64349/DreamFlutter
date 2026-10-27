@@ -154,6 +154,14 @@ class AgentController extends ChangeNotifier {
   /// Runs a previous core process left unfinished.
   List<InterruptedRun> interruptedRuns = const [];
 
+  /// Memory candidates and skill proposals waiting for the user.
+  int pendingMemories = 0;
+  int pendingProposals = 0;
+
+  /// Bumped when memory, skills or templates change in the core, so open
+  /// pages reload.
+  final libraryRevision = ValueNotifier<int>(0);
+
   /// Short user-facing messages (errors, extension notifications).
   Stream<String> get toasts => _toasts.stream;
 
@@ -263,6 +271,7 @@ class AgentController extends ChangeNotifier {
     final blank = _runtimes.where((r) => r.isPristine && !r.incognito && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
     await _activate(blank ?? await _spawn());
     unawaited(refreshSessions());
+    unawaited(refreshPendingCounts());
   }
 
   /// Connects to the core; on failure records why and returns null.
@@ -346,6 +355,33 @@ class AgentController extends ChangeNotifier {
       case 'settings.changed':
         coreSettings = asJsonMap(message['settings']);
         _notify();
+      case 'memory.changed' || 'proposals.changed' || 'skills.changed' || 'templates.changed':
+        libraryRevision.value++;
+        unawaited(refreshPendingCounts());
+    }
+  }
+
+  /// Counts for the navigation badges.
+  Future<void> refreshPendingCounts() async {
+    try {
+      final memories = await backend.call('memory.list', {'status': 'candidate'});
+      final proposals = await backend.call('proposals.list', {'status': 'pending'});
+      pendingMemories = memories is List ? memories.length : 0;
+      pendingProposals = proposals is List ? proposals.length : 0;
+      _notify();
+    } catch (_) {}
+  }
+
+  /// Runs a task template in the active session (switching to a fresh one when busy).
+  Future<void> runTemplate(String name, Map<String, String> values) async {
+    try {
+      final result = asJsonMap(await backend.call('templates.command', {'name': name, 'values': values}));
+      final command = result['command'] as String?;
+      if (command == null) return;
+      if (isRunning) await newSession();
+      await send(command);
+    } catch (e) {
+      _toast('运行模板失败：${SessionRuntime.describeError(e)}');
     }
   }
 

@@ -303,9 +303,10 @@ void main() {
     await tester.tap(find.text('用量统计'));
     await waitFor(tester, 'usage loaded', () => find.text('按模型').evaluate().isNotEmpty && find.textContaining('deepseek').evaluate().isNotEmpty, agent);
     await shot(tester, '18_usage');
-    await tester.pageBack();
+    // Usage sits on top of settings: both have a back button.
+    await tester.tap(find.byTooltip('Back').last);
     await tester.pumpAndSettle();
-    await tester.pageBack();
+    await tester.tap(find.byTooltip('Back').last);
     await tester.pumpAndSettle();
 
     // 13. A temporary chat says so and is not saved.
