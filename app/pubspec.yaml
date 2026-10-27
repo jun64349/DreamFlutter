@@ -1,7 +1,7 @@
 name: dreamflutter
 description: "Personal AI agent desktop app on the Pi runtime"
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: ^3.13.7
@@ -16,6 +16,8 @@ dependencies:
   path: ^1.9.1
   shared_preferences: ^2.5.6
   url_launcher: ^6.3.3
+  window_manager: ^0.5.2
+  tray_manager: ^0.5.0
 
 dev_dependencies:
   flutter_test:
@@ -26,3 +28,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/tray_icon.ico

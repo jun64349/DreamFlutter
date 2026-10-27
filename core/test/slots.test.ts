@@ -1,0 +1,251 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { ALLOW, APPROVAL_TITLE, DENY, TRUST_ONCE, TRUST_TITLE, workspaceAllowLabel } from "../src/pi/dialogs.ts";
+import type { SlotInfo } from "../src/slots/slot.ts";
+import { dialogs, settledCount, startTestCore, type TestCore } from "./harness.ts";
+
+describe("session slots", () => {
+	let t: TestCore;
+
+	beforeEach(async () => {
+		t = await startTestCore();
+	});
+
+	afterEach(async () => {
+		await t.cleanup();
+	});
+
+	async function open(slotId = "s1", extra: Record<string, unknown> = {}): Promise<SlotInfo> {
+		return (await t.core.call("slot.open", { slotId, cwd: t.workspace, ...extra }, t.client)) as SlotInfo;
+	}
+
+	it("runs a prompt and streams Pi RPC records", async () => {
+		const info = await open();
+		assert.equal(info.cwd, t.workspace);
+		assert.ok(info.sessionFile, "a new session gets a file");
+
+		t.respond(fauxAssistantMessage("你好，我是测试模型。"));
+		await t.send("s1", { id: "p1", type: "prompt", message: "你好" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+
+		const records = t.records("s1");
+		const response = records.find((r) => r.type === "response" && r.id === "p1");
+		assert.equal(response?.success, true);
+		assert.ok(records.some((r) => r.type === "message_update"));
+		const end = records.find((r) => r.type === "message_end" && (r.message as { role?: string }).role === "assistant");
+		assert.ok(end, "assistant message_end");
+
+		const runs = t.core.runs.list({ sessionFile: info.sessionFile! });
+		assert.equal(runs.length, 1);
+		assert.equal(runs[0]!.status, "done");
+		assert.equal(runs[0]!.prompt, "你好");
+		assert.equal(runs[0]!.turns, 1);
+		assert.equal(runs[0]!.model, "faux/faux-1");
+	});
+
+	it("answers get_state and get_messages like RPC mode", async () => {
+		await open();
+		t.respond(fauxAssistantMessage("ok"));
+		await t.send("s1", { id: "p", type: "prompt", message: "hi" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		await t.send("s1", { id: "st", type: "get_state" });
+		await t.send("s1", { id: "msgs", type: "get_messages" });
+		const state = await t.waitFor(() => t.records("s1").find((r) => r.id === "st"));
+		const messages = await t.waitFor(() => t.records("s1").find((r) => r.id === "msgs"));
+		assert.equal((state.data as { isStreaming: boolean }).isStreaming, false);
+		const conversation = (messages.data as { messages: { role: string }[] }).messages.filter((m) => m.role !== "system");
+		assert.deepEqual(conversation.map((m) => m.role), ["user", "assistant"]);
+	});
+
+	it("asks before writing a file and runs the tool once allowed", async () => {
+		const info = await open();
+		const target = join(t.workspace, "note.txt");
+		t.respond(fauxAssistantMessage([fauxToolCall("write", { path: target, content: "hello" })], { stopReason: "toolUse" }), fauxAssistantMessage("写好了"));
+		await t.send("s1", { id: "p", type: "prompt", message: "写个文件" });
+
+		const dialog = await t.waitFor(() => dialogs(t.records("s1"))[0]);
+		assert.ok(String(dialog.title).startsWith(APPROVAL_TITLE));
+		assert.deepEqual((dialog.options as string[]).at(0), ALLOW);
+		const pending = t.core.confirmations.list({ status: "pending" });
+		assert.equal(pending.length, 1);
+		assert.equal(pending[0]!.kind, "approval");
+		assert.equal(pending[0]!.sessionFile, info.sessionFile);
+		// The window is attached, so no system notification.
+		assert.equal(t.notifier.sent.length, 0);
+
+		await t.core.call("confirm.answer", { id: dialog.id, response: { value: ALLOW } }, t.client);
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		assert.equal(readFileSync(target, "utf8"), "hello");
+		assert.equal(t.core.confirmations.get(String(dialog.id))!.status, "answered");
+		const run = t.core.runs.list()[0]!;
+		assert.equal(run.toolCalls, 1);
+		assert.deepEqual(run.files, [target]);
+		const steps = t.core.runs.steps(run.id);
+		assert.equal(steps[0]!.kind, "tool");
+		assert.equal(steps[0]!.status, "done");
+	});
+
+	it("blocks the tool when the user declines", async () => {
+		await open();
+		const target = join(t.workspace, "blocked.txt");
+		t.respond(fauxAssistantMessage([fauxToolCall("write", { path: target, content: "x" })], { stopReason: "toolUse" }), fauxAssistantMessage("好的，不写了"));
+		await t.send("s1", { id: "p", type: "prompt", message: "写个文件" });
+		const dialog = await t.waitFor(() => dialogs(t.records("s1"))[0]);
+		await t.send("s1", { type: "extension_ui_response", id: dialog.id, value: DENY });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		assert.equal(existsSync(target), false);
+		const run = t.core.runs.list()[0]!;
+		assert.equal(run.toolErrors, 1);
+	});
+
+	it("remembers a workspace-wide allow rule", async () => {
+		await open();
+		const first = join(t.workspace, "a.txt");
+		const second = join(t.workspace, "b.txt");
+		t.respond(
+			fauxAssistantMessage([fauxToolCall("write", { path: first, content: "a" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("ok"),
+			fauxAssistantMessage([fauxToolCall("write", { path: second, content: "b" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("ok"),
+		);
+		await t.send("s1", { id: "p1", type: "prompt", message: "one" });
+		const dialog = await t.waitFor(() => dialogs(t.records("s1"))[0]);
+		await t.send("s1", { type: "extension_ui_response", id: dialog.id, value: workspaceAllowLabel("write") });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		await t.send("s1", { id: "p2", type: "prompt", message: "two" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 2);
+		assert.equal(dialogs(t.records("s1")).length, 1, "second write needs no approval");
+		assert.ok(existsSync(second));
+	});
+
+	it("notifies when a dialog opens and no window watches the session", async () => {
+		await open();
+		await t.core.call("slot.detach", { slotId: "s1" }, t.client);
+		t.respond(fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }), fauxAssistantMessage("done"));
+		await t.core.slot("s1").handle({ id: "p", type: "prompt", message: "run" });
+		await t.waitFor(() => t.core.confirmations.list({ status: "pending" })[0]);
+		assert.equal(t.notifier.sent.length, 1);
+		assert.match(t.notifier.sent[0]!.title, /批准/);
+
+		// Re-attaching replays the pending dialog.
+		const attached = (await t.core.call("slot.attach", { slotId: "s1" }, t.client)) as { replay: Record<string, unknown>[] };
+		assert.equal(dialogs(attached.replay).length, 1);
+	});
+
+	it("reuses the slot that already has a session file open", async () => {
+		const info = await open("s1");
+		const again = (await t.core.call("slot.open", { slotId: "s2", cwd: t.workspace, sessionFile: info.sessionFile }, t.client)) as SlotInfo;
+		assert.equal(again.slotId, "s1");
+		assert.equal(t.core.slots.size, 1);
+	});
+
+	it("reaps idle slots nobody watches, keeps watched ones", async () => {
+		await open("watched");
+		await open("orphan");
+		await t.core.call("slot.detach", { slotId: "orphan" }, t.client);
+		await t.core.reapIdle(Date.now() + 60 * 60_000);
+		assert.deepEqual([...t.core.slots.keys()], ["watched"]);
+		assert.ok(t.messages.some((m) => m.event === "slot.closed" && m.slotId === "orphan"));
+	});
+
+	it("asks for workspace trust through the session's dialog channel", async () => {
+		mkdirSync(join(t.workspace, ".pi"), { recursive: true });
+		writeFileSync(join(t.workspace, ".pi", "settings.json"), JSON.stringify({ compaction: { keepRecentTokens: 1000 } }));
+		const opening = open("trusted");
+		const dialog = await t.waitFor(() => dialogs(t.records("trusted"))[0]);
+		assert.ok(String(dialog.title).startsWith(TRUST_TITLE));
+		const pending = t.core.confirmations.list({ status: "pending" });
+		assert.equal(pending[0]!.kind, "trust");
+		await t.send("trusted", { type: "extension_ui_response", id: dialog.id, value: TRUST_ONCE });
+		const info = await opening;
+		assert.equal(info.slotId, "trusted");
+
+		// "Trust once" holds for the rest of this core run: a second session does not ask again.
+		await open("second");
+		assert.equal(dialogs(t.records("second")).length, 0);
+	});
+
+	it("navigates the session tree in place (branch within one session)", async () => {
+		await open();
+		t.respond(fauxAssistantMessage("first answer"), fauxAssistantMessage("second answer"));
+		await t.send("s1", { id: "p1", type: "prompt", message: "first question" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		await t.send("s1", { id: "p2", type: "prompt", message: "second question" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 2);
+
+		await t.send("s1", { id: "fm", type: "get_fork_messages" });
+		const forkMessages = await t.waitFor(() => t.records("s1").find((r) => r.id === "fm"));
+		const second = (forkMessages.data as { messages: { entryId: string; text: string }[] }).messages.find((m) => m.text === "second question")!;
+		await t.send("s1", { id: "nav", type: "df_navigate_tree", entryId: second.entryId });
+		const nav = await t.waitFor(() => t.records("s1").find((r) => r.id === "nav"));
+		assert.equal((nav.data as { editorText: string }).editorText, "second question");
+
+		t.respond(fauxAssistantMessage("alternative answer"));
+		await t.send("s1", { id: "p3", type: "prompt", message: "second question, rephrased" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 3);
+		await t.send("s1", { id: "tree", type: "get_tree" });
+		const tree = await t.waitFor(() => t.records("s1").find((r) => r.id === "tree"));
+		const text = JSON.stringify(tree.data);
+		assert.ok(text.includes("second question, rephrased") && text.includes("second answer"), "both branches stay in the file");
+	});
+
+	it("exports the conversation as Markdown", async () => {
+		await open();
+		t.respond(fauxAssistantMessage("答案是 42"));
+		await t.send("s1", { id: "p", type: "prompt", message: "问题" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		const out = join(t.dir, "out.md");
+		await t.send("s1", { id: "x", type: "df_export", format: "markdown", outputPath: out });
+		await t.waitFor(() => t.records("s1").find((r) => r.id === "x"));
+		const markdown = readFileSync(out, "utf8");
+		assert.match(markdown, /## 用户\n\n问题/);
+		assert.match(markdown, /答案是 42/);
+	});
+});
+
+describe("recovery", () => {
+	it("marks runs and dialogs left by a dead core as interrupted / expired", async () => {
+		const first = await startTestCore();
+		await first.core.call("slot.open", { slotId: "s1", cwd: first.workspace }, first.client);
+		first.respond(fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }));
+		await first.send("s1", { id: "p", type: "prompt", message: "运行命令" });
+		await first.waitFor(() => first.core.confirmations.list({ status: "pending" })[0]);
+
+		// Simulate a crash: a second core opens the same data dir while the first never shut down.
+		const { startTestCore: again } = await import("./harness.ts");
+		const second = await again(first.dir);
+		try {
+			assert.equal(second.core.interruptedAtStartup.length, 1);
+			assert.equal(second.core.interruptedAtStartup[0]!.prompt, null);
+			const hello = (await second.core.call("core.hello", {}, second.client)) as { interruptedRuns: unknown[]; pendingConfirmations: unknown[] };
+			assert.equal(hello.interruptedRuns.length, 1);
+			assert.equal(hello.pendingConfirmations.length, 0);
+			assert.equal(second.core.confirmations.list({ status: "expired" }).length, 1);
+		} finally {
+			await first.core.shutdown();
+			await second.cleanup();
+		}
+	});
+});
+
+describe("settings", () => {
+	it("validates and persists updates", async () => {
+		const t = await startTestCore();
+		try {
+			t.core.settings.update({ approvalMode: "all", memoryBudgetTokens: -5, bogus: 1, fallbackModels: ["a/b"] });
+			assert.equal(t.core.settings.get().approvalMode, "all");
+			assert.equal(t.core.settings.get().memoryBudgetTokens, 1500);
+			assert.deepEqual(t.core.settings.get().fallbackModels, ["a/b"]);
+			assert.ok(t.messages.some((m) => m.event === "settings.changed"));
+			const reopened = await t.reopen();
+			assert.equal(reopened.core.settings.get().approvalMode, "all");
+			await reopened.cleanup();
+		} catch (error) {
+			await t.cleanup();
+			throw error;
+		}
+	});
+});

@@ -21,7 +21,6 @@ class _HomePageState extends State<HomePage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final agent = AgentScope.read(context);
-    agent.trustPrompt ??= (cwd) async => mounted ? showTrustDialog(context, cwd) : null;
     _toasts ??= agent.toasts.listen((message) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

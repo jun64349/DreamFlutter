@@ -5,15 +5,16 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
-/// Plays Pi's side of the protocol for one process: answers commands from a
+/// Plays Pi's side of the protocol for one core slot: answers commands from a
 /// real recording and can replay its event stream.
 class FakePi implements PiConnection {
-  FakePi(this.config) {
-    final index = config.extraArgs.indexOf('--session');
-    sessionFile = index == -1 ? _newSessionFile() : config.extraArgs[index + 1];
+  FakePi(this.target) : slotId = target.attachSlotId ?? 'slot-${++_slotCounter}' {
+    sessionFile = target.sessionPath ?? _newSessionFile();
   }
 
-  final PiLaunchConfig config;
+  final SessionTarget target;
+  final String slotId;
+  static var _slotCounter = 0;
   final _stdout = StreamController<List<int>>();
   final _done = Completer<int>();
   final commands = <Json>[];
@@ -91,8 +92,10 @@ class FakePi implements PiConnection {
     }
   }
 
-  void crash() {
-    _done.complete(1);
+  /// The slot closed (code 0) or the core connection dropped (-1).
+  void crash({int code = 1}) {
+    if (_done.isCompleted) return;
+    _done.complete(code);
     _stdout.close();
   }
 

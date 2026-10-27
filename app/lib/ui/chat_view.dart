@@ -20,8 +20,11 @@ class ChatView extends StatelessWidget {
       children: [
         const _TopBar(),
         const Divider(),
-        if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
+        if (agent.backendProblem != null && agent.status != ConnectionStatus.missingRuntime)
+          _ProblemBanner(status: ConnectionStatus.crashed, detail: agent.backendProblem!, reconnecting: true)
+        else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
           _ProblemBanner(status: agent.status, detail: agent.statusDetail),
+        for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
         Expanded(
           child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
@@ -184,10 +187,13 @@ class _MenuRow extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ProblemBanner extends StatelessWidget {
-  const _ProblemBanner({required this.status, required this.detail});
+  const _ProblemBanner({required this.status, required this.detail, this.reconnecting = false});
 
   final ConnectionStatus status;
   final String detail;
+
+  /// The core connection dropped and the controller is reconnecting by itself.
+  final bool reconnecting;
 
   @override
   Widget build(BuildContext context) {
@@ -210,7 +216,7 @@ class _ProblemBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(crashed ? 'Agent 进程出错了' : '缺少运行环境', style: context.text.titleSmall),
+                Text(reconnecting ? '后台连接中断' : crashed ? '会话已断开' : '后台服务没有启动', style: context.text.titleSmall),
                 const SizedBox(height: 4),
                 SelectableText(
                   detail,
@@ -219,14 +225,54 @@ class _ProblemBanner extends StatelessWidget {
               ],
             ),
           ),
-          if (crashed) ...[
+          if (crashed && !reconnecting) ...[
             const SizedBox(width: AppTokens.pad),
             OutlinedButton.icon(
               onPressed: AgentScope.read(context).restart,
               icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('重启'),
+              label: const Text('重新打开'),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A run the core was doing when it last stopped (crash, reboot): offer to
+/// pick it up again or dismiss it.
+class _InterruptedRunCard extends StatelessWidget {
+  const _InterruptedRunCard({required this.run});
+
+  final InterruptedRun run;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final agent = AgentScope.read(context);
+    final what = (run.prompt ?? '').replaceAll(RegExp(r's+'), ' ').trim();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
+      padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: AppTokens.gap),
+      decoration: BoxDecoration(
+        color: colors.warning.withValues(alpha: 0.08),
+        border: Border.all(color: colors.warning.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(AppTokens.radius),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.history_toggle_off, color: colors.warning, size: 20),
+          const SizedBox(width: AppTokens.pad),
+          Expanded(
+            child: Text(
+              what.isEmpty ? '有一个任务在后台停止时被中断了' : '任务被中断：$what',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(onPressed: () => agent.dismissInterrupted(run), child: const Text('忽略')),
+          const SizedBox(width: AppTokens.gap),
+          FilledButton.tonal(onPressed: () => agent.resumeInterrupted(run), child: const Text('继续')),
         ],
       ),
     );

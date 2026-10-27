@@ -24,10 +24,11 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
-    final prefs = agent.preferences;
     final colors = context.colors;
-    final info = agent.runtimeInfo();
-    final defaultModel = agent.models.where((m) => m.key == prefs.modelKey).firstOrNull;
+    final core = agent.coreInfo;
+    final agentDir = core['agentDir'] as String? ?? SessionStore.defaultAgentDir();
+    final defaultKey = agent.defaultModelKey;
+    final defaultModel = agent.models.where((m) => m.key == defaultKey).firstOrNull;
     final providers = <String, int>{};
     for (final m in agent.models) {
       providers[m.provider] = (providers[m.provider] ?? 0) + 1;
@@ -43,14 +44,14 @@ class SettingsPage extends StatelessWidget {
             children: [
               _Row(
                 title: '新会话默认模型',
-                subtitle: defaultModel == null ? '${prefs.modelKey}（当前不可用）' : defaultModel.key,
+                subtitle: defaultModel?.key ?? (defaultKey == null ? '未设置，由 Pi 决定' : '$defaultKey（当前不可用）'),
                 trailing: PopupMenuButton<PiModel>(
                   tooltip: '选择默认模型',
                   enabled: agent.models.isNotEmpty,
                   onSelected: agent.setDefaultModel,
                   itemBuilder: (_) => [
                     for (final m in agent.models)
-                      CheckedPopupMenuItem(value: m, checked: m.key == prefs.modelKey, child: Text('${m.name}  ·  ${m.provider}')),
+                      CheckedPopupMenuItem(value: m, checked: m.key == defaultKey, child: Text('${m.name}  ·  ${m.provider}')),
                   ],
                   child: _ValueChip(text: defaultModel?.name ?? '选择'),
                 ),
@@ -64,9 +65,9 @@ class SettingsPage extends StatelessWidget {
                   onSelected: agent.setDefaultThinkingLevel,
                   itemBuilder: (_) => [
                     for (final level in agent.thinkingLevels)
-                      CheckedPopupMenuItem(value: level, checked: level == prefs.thinkingLevel, child: Text(_levelNames[level] ?? level)),
+                      CheckedPopupMenuItem(value: level, checked: level == agent.defaultThinkingLevel, child: Text(_levelNames[level] ?? level)),
                   ],
-                  child: _ValueChip(text: _levelNames[prefs.thinkingLevel] ?? '跟随 Pi'),
+                  child: _ValueChip(text: _levelNames[agent.defaultThinkingLevel] ?? '跟随 Pi'),
                 ),
               ),
               _Row(
@@ -77,13 +78,13 @@ class SettingsPage extends StatelessWidget {
                 trailing: Wrap(
                   spacing: AppTokens.gap,
                   children: [
-                    OutlinedButton(onPressed: () => agent.revealInExplorer(info.agentDir), child: const Text('打开配置文件夹')),
+                    OutlinedButton(onPressed: () => agent.revealInExplorer(agentDir), child: const Text('打开配置文件夹')),
                     OutlinedButton(onPressed: agent.reloadIdleSessions, child: const Text('重新加载')),
                   ],
                 ),
               ),
               _Hint(
-                '模型和凭证由 Pi 管理：自定义服务商写在 ${p.join(info.agentDir, 'models.json')}，登录凭证在 auth.json。'
+                '模型和凭证由 Pi 管理：自定义服务商写在 ${p.join(agentDir, 'models.json')}，登录凭证在 auth.json。'
                 '改完后点「重新加载」，空闲的会话会用新配置重启，正在运行的会话不受影响。',
               ),
             ],
@@ -106,7 +107,7 @@ class SettingsPage extends StatelessWidget {
                   ],
                 ),
               ),
-              _Hint('审批由 Pi 扩展 dreamflutter-approval 完成，修改后立即生效，不需要重启会话。'),
+              _Hint('审批在后台完成，修改后立即生效；关掉窗口后，后台任务的确认请求会以系统通知提醒你。'),
             ],
           ),
           _Section(
@@ -118,7 +119,7 @@ class SettingsPage extends StatelessWidget {
                 trailing: const SizedBox(width: 260, child: WorkspaceSwitcher()),
               ),
               SwitchListTile(
-                value: prefs.autoCompaction,
+                value: agent.defaultAutoCompaction,
                 onChanged: agent.setDefaultAutoCompaction,
                 title: const Text('上下文快满时自动压缩'),
                 subtitle: const Text('自动把较早的对话总结成摘要，腾出空间。关闭后需要在状态栏的「上下文」里手动压缩。'),
@@ -126,8 +127,8 @@ class SettingsPage extends StatelessWidget {
               ),
               _Row(
                 title: '后台会话',
-                subtitle: '运行中的会话切走后会在后台继续；空闲超过 ${agent.idleGrace.inMinutes} 分钟的后台会话会自动释放进程（会话内容保留在磁盘上）。'
-                    '当前共 ${agent.runtimes.length} 个 Pi 进程，${agent.backgroundRunning} 个在后台运行。',
+                subtitle: '会话运行在后台服务里：切走、新建会话或关掉窗口，运行中的会话都会继续。空闲的会话过一段时间会自动释放（内容保留在磁盘上）。'
+                    '当前窗口连着 ${agent.runtimes.length} 个会话，${agent.backgroundRunning} 个在后台运行。',
               ),
             ],
           ),
@@ -164,17 +165,17 @@ class SettingsPage extends StatelessWidget {
           _Section(
             title: '运行环境',
             children: [
-              _InfoRow('Pi 版本', info.piVersion ?? '未找到'),
-              _InfoRow('Pi 程序', info.cliPath ?? '未找到（需要 runtime/node_modules）'),
-              _InfoRow('Node.js', info.nodePath ?? '未找到（需要 Node.js 22.19 以上）'),
-              _InfoRow('Bash', info.bashDir == null ? '使用 Pi 的默认查找顺序' : p.join(info.bashDir!, 'bash.exe')),
-              _InfoRow('审批扩展', info.extensionPath ?? '未找到'),
-              _InfoRow('会话存放位置', info.sessionsDir),
+              _InfoRow('后台服务', core.isEmpty ? '未连接' : 'v${core['version']}（进程 ${core['pid']}）'),
+              _InfoRow('Pi 版本', core['piVersion'] as String? ?? '未知'),
+              _InfoRow('Node.js', PiRuntimeLocator.findOnPath('node') ?? '未找到（需要 Node.js 22.19 以上）'),
+              _InfoRow('Bash', PiRuntimeLocator.findGitBashDir() == null ? '使用 Pi 的默认查找顺序' : p.join(PiRuntimeLocator.findGitBashDir()!, 'bash.exe')),
+              _InfoRow('后台数据', core['dataDir'] as String? ?? '未知'),
+              _InfoRow('会话存放位置', agent.sessionStore.sessionsDir),
               Padding(
                 padding: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.gap, AppTokens.padLg, 0),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: OutlinedButton(onPressed: () => agent.revealInExplorer(info.sessionsDir), child: const Text('打开会话文件夹')),
+                  child: OutlinedButton(onPressed: () => agent.revealInExplorer(agent.sessionStore.sessionsDir), child: const Text('打开会话文件夹')),
                 ),
               ),
             ],

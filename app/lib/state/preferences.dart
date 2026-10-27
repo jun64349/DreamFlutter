@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -42,15 +41,6 @@ class Preferences {
     return p.join(home, 'DreamFlutter');
   }
 
-  /// Folder for app-owned files shared with Pi (e.g. the approval settings).
-  static String appDataDir() {
-    final base = Platform.environment['APPDATA'] ?? Platform.environment['HOME'] ?? Directory.current.path;
-    return p.join(base, 'DreamFlutter');
-  }
-
-  /// JSON file read by `runtime/extensions/dreamflutter-approval.ts`.
-  static String bridgeFile() => p.join(appDataDir(), 'pi-settings.json');
-
   // --- Workspace -----------------------------------------------------------
 
   String? get workspace => _prefs.getString('workspace');
@@ -66,35 +56,22 @@ class Preferences {
     recentWorkspaces.where((w) => p.normalize(w).toLowerCase() != p.normalize(value).toLowerCase()).toList(),
   );
 
-  // --- Model ---------------------------------------------------------------
+  // --- Settings now owned by the core -----------------------------------------
+  //
+  // v0.1.0 kept these in the window; they are read once to seed the core's
+  // settings (see AgentController._migratePreferences).
 
   String get modelKey => _prefs.getString('modelKey') ?? defaultModelKey;
-  Future<void> setModelKey(String value) => _prefs.setString('modelKey', value);
-
   String? get thinkingLevel => _prefs.getString('thinkingLevel');
-  Future<void> setThinkingLevel(String value) => _prefs.setString('thinkingLevel', value);
-
-  // --- Agent behavior ------------------------------------------------------
-
   ApprovalMode get approvalMode => ApprovalMode.parse(_prefs.getString('approvalMode'));
-  Future<void> setApprovalMode(ApprovalMode mode) async {
-    await _prefs.setString('approvalMode', mode.id);
-    await writeBridgeFile();
-  }
-
   bool get autoCompaction => _prefs.getBool('autoCompaction') ?? true;
-  Future<void> setAutoCompaction(bool value) => _prefs.setBool('autoCompaction', value);
 
-  /// Writes the settings Pi-side extensions read. Safe to call often.
-  Future<void> writeBridgeFile() async {
-    try {
-      final file = File(bridgeFile());
-      await file.parent.create(recursive: true);
-      await file.writeAsString(jsonEncode({'approvalMode': approvalMode.id}));
-    } catch (_) {
-      // The extension falls back to its safe default when the file is missing.
-    }
-  }
+  bool get migratedToCore => _prefs.getBool('migratedToCore') ?? false;
+  Future<void> setMigratedToCore() => _prefs.setBool('migratedToCore', true);
+
+  /// The one-time "still running in the tray" notice was shown.
+  bool get trayHintShown => _prefs.getBool('trayHintShown') ?? false;
+  Future<void> setTrayHintShown() => _prefs.setBool('trayHintShown', true);
 
   // --- Appearance ----------------------------------------------------------
 

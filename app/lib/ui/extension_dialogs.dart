@@ -1,44 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
-import '../state/agent_controller.dart' show TrustChoice;
 import '../theme.dart';
 import 'agent_scope.dart';
-
-/// Asks whether to trust a workspace's own Pi configuration (see
-/// [ProjectTrust]). Returns null if dismissed.
-Future<TrustChoice?> showTrustDialog(BuildContext context, String cwd) {
-  final colors = context.colors;
-  return showDialog<TrustChoice>(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => AlertDialog(
-      icon: Icon(Icons.verified_user_outlined, color: colors.warning),
-      title: const Text('信任这个工作区的配置吗？'),
-      content: SizedBox(
-        width: 520,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SelectableText(cwd, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: AppTokens.pad),
-            const Text(
-              '这个文件夹里有 Pi 的项目配置，比如 .pi 目录里的设置、技能、扩展。信任后会加载它们，其中的扩展会以你的权限运行代码。'
-              '只信任你自己或可靠来源的项目。不信任的话，Agent 照常工作，只是不加载这些项目配置。',
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, TrustChoice.distrustRemember), child: Text(TrustChoice.distrustRemember.label)),
-        OutlinedButton(onPressed: () => Navigator.pop(context, TrustChoice.distrustOnce), child: Text(TrustChoice.distrustOnce.label)),
-        OutlinedButton(onPressed: () => Navigator.pop(context, TrustChoice.trustOnce), child: Text(TrustChoice.trustOnce.label)),
-        FilledButton(onPressed: () => Navigator.pop(context, TrustChoice.trustRemember), child: Text(TrustChoice.trustRemember.label)),
-      ],
-    ),
-  );
-}
 
 /// Shows extension dialogs (select / confirm / input / editor) of the active
 /// session one at a time. Tool approval from dreamflutter-approval arrives as
@@ -116,7 +80,12 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     Navigator.pop(context, answer);
   }
 
-  bool get _isApproval => widget.request.method == 'select' && widget.request.title.startsWith('Agent 请求执行操作');
+  // Title prefixes the core uses (core/src/pi/dialogs.ts).
+  static const approvalTitle = 'Agent 请求执行操作';
+  static const trustTitle = '信任此工作区？';
+
+  bool get _isApproval => widget.request.method == 'select' && widget.request.title.startsWith(approvalTitle);
+  bool get _isTrust => widget.request.method == 'select' && widget.request.title.startsWith(trustTitle);
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +103,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     final request = widget.request;
     return switch (request.method) {
       'select' when _isApproval => _approval(context),
+      'select' when _isTrust => _trust(context),
       'select' => _select(context),
       'confirm' => _confirm(context),
       _ => _input(context, multiline: request.method == 'editor'),
@@ -143,7 +113,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
   Widget _approval(BuildContext context) {
     final colors = context.colors;
     final request = widget.request;
-    final body = request.title.replaceFirst(RegExp(r'^Agent 请求执行操作\s*'), '');
+    final body = request.title.substring(approvalTitle.length).trimLeft();
     final newline = body.indexOf('\n');
     final heading = newline == -1 ? body : body.substring(0, newline);
     final detail = newline == -1 ? '' : body.substring(newline + 1);
@@ -173,9 +143,11 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
           ],
         ),
       ),
+      actionsOverflowButtonSpacing: AppTokens.gap,
       actions: [
-        if (options.length >= 3)
-          TextButton(onPressed: () => _answer(context, _Answer(value: options[1])), child: Text(options[1])),
+        // Options: allow, ..."always allow" variants..., deny.
+        for (final option in options.length >= 3 ? options.sublist(1, options.length - 1) : const <String>[])
+          TextButton(onPressed: () => _answer(context, _Answer(value: option)), child: Text(option)),
         OutlinedButton(
           onPressed: () => _answer(context, _Answer(value: options.last)),
           child: Text(options.isEmpty ? '拒绝' : options.last),
@@ -185,6 +157,42 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
           onPressed: () => _answer(context, _Answer(value: options.isEmpty ? '允许' : options.first)),
           child: Text(options.isEmpty ? '允许' : options.first),
         ),
+      ],
+    );
+  }
+
+  /// Workspace trust prompt from the core. Options, in order: trust once,
+  /// trust and remember, distrust once, distrust and remember.
+  Widget _trust(BuildContext context) {
+    final colors = context.colors;
+    final lines = widget.request.title.substring(trustTitle.length).trim().split('\n');
+    final cwd = lines.first.trim();
+    final options = widget.request.options;
+    String option(int i, String fallback) => i < options.length ? options[i] : fallback;
+    return AlertDialog(
+      icon: Icon(Icons.verified_user_outlined, color: colors.warning),
+      title: const Text('信任这个工作区的配置吗？'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SelectableText(cwd, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: AppTokens.pad),
+            const Text(
+              '这个文件夹里有 Pi 的项目配置，比如 .pi 目录里的设置、技能、扩展。信任后会加载它们，其中的扩展会以你的权限运行代码。'
+              '只信任你自己或可靠来源的项目。不信任的话，Agent 照常工作，只是不加载这些项目配置。',
+            ),
+          ],
+        ),
+      ),
+      actionsOverflowButtonSpacing: AppTokens.gap,
+      actions: [
+        TextButton(onPressed: () => _answer(context, _Answer(value: option(3, '不信任并记住'))), child: Text(option(3, '不信任并记住'))),
+        OutlinedButton(onPressed: () => _answer(context, _Answer(value: option(2, '这次不信任'))), child: Text(option(2, '这次不信任'))),
+        OutlinedButton(onPressed: () => _answer(context, _Answer(value: option(0, '仅这次信任'))), child: Text(option(0, '仅这次信任'))),
+        FilledButton(onPressed: () => _answer(context, _Answer(value: option(1, '信任并记住'))), child: Text(option(1, '信任并记住'))),
       ],
     );
   }

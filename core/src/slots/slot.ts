@@ -1,0 +1,510 @@
+import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import type { Db } from "../db.ts";
+import { now } from "../db.ts";
+import { createSessionRuntime, type OpenTarget, type PiHostConfig } from "../pi/host.ts";
+import { toJsonEvent } from "../pi/json-event.ts";
+import { UiBridge, type DialogOutcome, type UiRequest, type UiResponse } from "../pi/ui-bridge.ts";
+import { RunRecorder, type Run } from "../runs.ts";
+import { exportMarkdown } from "./export.ts";
+
+export interface SlotInfo {
+	slotId: string;
+	cwd: string;
+	sessionFile: string | null;
+	sessionId: string | null;
+	sessionName: string | null;
+	running: boolean;
+	compacting: boolean;
+	pendingDialogs: number;
+	lastActivity: number;
+	createdAt: number;
+	taskId: string | null;
+	/** Opened by the core itself (scheduler) rather than a window. */
+	unattended: boolean;
+	model: string | null;
+}
+
+export interface SlotHooks {
+	/** A record in Pi RPC wire format (event, response or extension UI request). */
+	record(slotId: string, record: Record<string, unknown>): void;
+	/** Slot state changed (running, dialogs, session file, name…). */
+	changed(slot: Slot): void;
+	dialogOpened?(slot: Slot, request: UiRequest): void;
+	dialogClosed?(slot: Slot, id: string, outcome: DialogOutcome, response?: UiResponse): void;
+	runStarted?(slot: Slot, run: Run): void;
+	runFinished?(slot: Slot, run: Run): void;
+	/** Raw session events for core services (indexing, memory extraction…). */
+	event?(slot: Slot, event: AgentSessionEvent): void;
+	sessionReplaced?(slot: Slot): void;
+	/** A blank session was started in place (`new_session`); apply defaults. */
+	sessionCreated?(slot: Slot): Promise<void>;
+}
+
+export interface SlotOptions {
+	slotId: string;
+	target: OpenTarget;
+	taskId?: string | null;
+	unattended?: boolean;
+}
+
+type Command = { id?: string; type: string } & Record<string, unknown>;
+
+/**
+ * One live Pi session runtime hosted by the core: the in-process equivalent
+ * of a `pi --mode rpc` child. It accepts the same command records and emits
+ * the same event/response records, plus a few DreamFlutter extensions
+ * (df_* commands) that RPC mode lacks.
+ */
+export class Slot {
+	readonly slotId: string;
+	readonly createdAt = now();
+	readonly ui: UiBridge;
+	readonly unattended: boolean;
+	taskId: string | null;
+	lastActivity = now();
+	running = false;
+	compacting = false;
+	private runtime!: AgentSessionRuntime;
+	private readonly hooks: SlotHooks;
+	private readonly recorder: RunRecorder;
+	private unsubscribe: (() => void) | undefined;
+	private disposed = false;
+	private readonly fallbackCwd: string;
+
+	private constructor(db: Db, options: SlotOptions, hooks: SlotHooks) {
+		this.slotId = options.slotId;
+		this.taskId = options.taskId ?? null;
+		this.unattended = options.unattended ?? false;
+		this.hooks = hooks;
+		this.fallbackCwd = options.target.cwd;
+		this.ui = new UiBridge({
+			emit: (record) => this.emit(record),
+			dialogOpened: (request) => {
+				this.hooks.dialogOpened?.(this, request);
+				this.hooks.changed(this);
+			},
+			dialogClosed: (id, outcome, response) => {
+				this.hooks.dialogClosed?.(this, id, outcome, response);
+				if (!this.disposed) this.hooks.changed(this);
+			},
+		});
+		this.recorder = new RunRecorder(
+			db,
+			{
+				slotId: this.slotId,
+				cwd: this.fallbackCwd,
+				sessionFile: () => this.sessionOrUndefined?.sessionFile,
+				sessionId: () => this.sessionOrUndefined?.sessionId,
+				taskId: () => this.taskId,
+			},
+			{
+				runStarted: (run) => this.hooks.runStarted?.(this, run),
+				runFinished: (run) => this.hooks.runFinished?.(this, run),
+			},
+		);
+	}
+
+	/**
+	 * Creates the slot; [start] then creates the Pi runtime. The two steps are
+	 * separate so the host can route dialog answers (the trust prompt) to a
+	 * slot whose runtime is still starting.
+	 */
+	static prepare(db: Db, options: SlotOptions, hooks: SlotHooks): Slot {
+		return new Slot(db, options, hooks);
+	}
+
+	get started(): boolean {
+		return (this.runtime as AgentSessionRuntime | undefined) !== undefined;
+	}
+
+	async start(config: PiHostConfig, target: OpenTarget): Promise<void> {
+		try {
+			this.runtime = await createSessionRuntime(config, { slotId: this.slotId }, this.ui, target);
+		} catch (error) {
+			this.ui.cancelAll();
+			throw error;
+		}
+		this.runtime.setRebindSession(async () => {
+			await this.rebind();
+			this.hooks.sessionReplaced?.(this);
+		});
+		await this.rebind();
+	}
+
+	get session(): AgentSession {
+		return this.runtime.session;
+	}
+
+	/** The session, or undefined while the runtime is still being created. */
+	private get sessionOrUndefined(): AgentSession | undefined {
+		return (this.runtime as AgentSessionRuntime | undefined)?.session;
+	}
+
+	get cwd(): string {
+		return this.sessionOrUndefined?.sessionManager.getCwd() ?? this.fallbackCwd;
+	}
+
+	get currentRun(): Run | undefined {
+		return this.recorder.current;
+	}
+
+	info(): SlotInfo {
+		const session = this.sessionOrUndefined;
+		const model = session?.model;
+		return {
+			slotId: this.slotId,
+			cwd: this.cwd,
+			sessionFile: session?.sessionFile ?? null,
+			sessionId: session?.sessionId ?? null,
+			sessionName: session?.sessionName ?? null,
+			running: this.running,
+			compacting: this.compacting,
+			pendingDialogs: this.ui.pendingCount,
+			lastActivity: this.lastActivity,
+			createdAt: this.createdAt,
+			taskId: this.taskId,
+			unattended: this.unattended,
+			model: model ? `${model.provider}/${model.id}` : null,
+		};
+	}
+
+	/**
+	 * Records that bring a client attaching mid-run up to date after it loaded
+	 * the completed history: the run start and the partial assistant message.
+	 */
+	liveSnapshot(): Record<string, unknown>[] {
+		if (!this.started || !this.running) return [];
+		const records: Record<string, unknown>[] = [{ type: "agent_start" }];
+		const partial = this.session.agent.state.streamingMessage;
+		if (partial) records.push({ type: "message_start", message: partial });
+		return records;
+	}
+
+	private emit(record: Record<string, unknown>): void {
+		if (this.disposed) return;
+		this.hooks.record(this.slotId, record);
+	}
+
+	private async rebind(): Promise<void> {
+		const session = this.runtime.session;
+		await session.bindExtensions({
+			uiContext: this.ui.context(),
+			mode: "rpc",
+			commandContextActions: {
+				waitForIdle: () => session.waitForIdle(),
+				newSession: async (options) => this.runtime.newSession(options),
+				fork: async (entryId, options) => {
+					const result = await this.runtime.fork(entryId, options);
+					return { cancelled: result.cancelled };
+				},
+				navigateTree: async (targetId, options) => {
+					const result = await this.runtime.session.navigateTree(targetId, options);
+					return { cancelled: result.cancelled };
+				},
+				switchSession: async (sessionPath, options) => this.runtime.switchSession(sessionPath, options),
+				reload: async () => {
+					await this.runtime.session.reload();
+				},
+			},
+			shutdownHandler: () => {},
+			onError: (err) => this.emit({ type: "extension_error", extensionPath: err.extensionPath, event: err.event, error: err.error }),
+		});
+		this.unsubscribe?.();
+		this.unsubscribe = session.subscribe((event) => this.onEvent(event));
+		this.hooks.changed(this);
+	}
+
+	private onEvent(event: AgentSessionEvent): void {
+		this.lastActivity = now();
+		this.recorder.handle(event);
+		let changed = false;
+		switch (event.type) {
+			case "agent_start":
+				changed = !this.running;
+				this.running = true;
+				break;
+			case "agent_settled":
+				changed = true;
+				this.running = false;
+				break;
+			case "compaction_start":
+				this.compacting = true;
+				changed = true;
+				break;
+			case "compaction_end":
+				this.compacting = false;
+				changed = true;
+				break;
+			case "session_info_changed":
+				changed = true;
+				break;
+		}
+		this.hooks.event?.(this, event);
+		this.emit(toJsonEvent(event));
+		if (changed) this.hooks.changed(this);
+	}
+
+	/** Handles one inbound record: a command or an extension UI response. */
+	async handle(record: Command): Promise<void> {
+		this.lastActivity = now();
+		if (record.type === "extension_ui_response") {
+			this.ui.answer(record as unknown as UiResponse);
+			return;
+		}
+		if (!this.started) {
+			this.emit(failure(record.id, record.type, "会话还在启动中"));
+			return;
+		}
+		try {
+			const response = await this.command(record);
+			if (response) this.emit(response);
+		} catch (error) {
+			this.emit(failure(record.id, record.type, error instanceof Error ? error.message : String(error)));
+		}
+	}
+
+	/** Sends a prompt on behalf of the core (tasks, schedules) and resolves when accepted. */
+	async prompt(message: string, options: { images?: unknown[] } = {}): Promise<void> {
+		this.lastActivity = now();
+		await new Promise<void>((resolve, reject) => {
+			let accepted = false;
+			this.session
+				.prompt(message, {
+					images: options.images as never,
+					streamingBehavior: this.session.isStreaming ? "followUp" : undefined,
+					source: "rpc",
+					preflightResult: () => {
+						accepted = true;
+						resolve();
+					},
+				})
+				.catch((error) => {
+					if (!accepted) reject(error);
+				});
+		});
+	}
+
+	private async replaceAndRebind<T extends { cancelled: boolean }>(operation: () => Promise<T>): Promise<T> {
+		const result = await operation();
+		if (!result.cancelled) {
+			await this.rebind();
+			this.hooks.sessionReplaced?.(this);
+		}
+		return result;
+	}
+
+	private async command(command: Command): Promise<Record<string, unknown> | undefined> {
+		const id = command.id;
+		const session = this.session;
+		const str = (key: string) => (typeof command[key] === "string" ? (command[key] as string) : undefined);
+		switch (command.type) {
+			case "prompt": {
+				let accepted = false;
+				void session
+					.prompt(String(command.message ?? ""), {
+						images: command.images as never,
+						streamingBehavior: command.streamingBehavior as never,
+						source: "rpc",
+						preflightResult: (disposition) => {
+							accepted = true;
+							this.emit(ok(id, "prompt", { disposition }));
+						},
+					})
+					.catch((error: unknown) => {
+						if (!accepted) this.emit(failure(id, "prompt", error instanceof Error ? error.message : String(error)));
+					});
+				return undefined;
+			}
+			case "steer":
+				return ok(id, "steer", { disposition: await session.steer(String(command.message ?? ""), command.images as never, { source: "rpc" }) });
+			case "follow_up":
+				return ok(id, "follow_up", { disposition: await session.followUp(String(command.message ?? ""), command.images as never, { source: "rpc" }) });
+			case "abort":
+				await session.abort();
+				return ok(id, "abort");
+			case "clear_queue":
+				return ok(id, "clear_queue", session.clearQueue());
+			case "new_session": {
+				const parentSession = str("parentSession");
+				const result = await this.replaceAndRebind(() => this.runtime.newSession(parentSession ? { parentSession } : undefined));
+				if (!result.cancelled) await this.hooks.sessionCreated?.(this);
+				return ok(id, "new_session", result);
+			}
+			case "get_state":
+				return ok(id, "get_state", {
+					model: session.model,
+					thinkingLevel: session.thinkingLevel,
+					isStreaming: session.isStreaming,
+					isCompacting: session.isCompacting,
+					steeringMode: session.steeringMode,
+					followUpMode: session.followUpMode,
+					sessionFile: session.sessionFile,
+					sessionId: session.sessionId,
+					sessionName: session.sessionName,
+					autoCompactionEnabled: session.autoCompactionEnabled,
+					messageCount: session.messages.length,
+					pendingMessageCount: session.pendingMessageCount,
+				});
+			case "set_model": {
+				const model = session.modelRuntime.getAvailableSnapshot().find((m) => m.provider === command.provider && m.id === command.modelId);
+				if (!model) return failure(id, "set_model", `Model not found: ${String(command.provider)}/${String(command.modelId)}`);
+				await session.setModel(model);
+				this.hooks.changed(this);
+				return ok(id, "set_model", model);
+			}
+			case "cycle_model":
+				return ok(id, "cycle_model", (await session.cycleModel()) ?? null);
+			case "get_available_models":
+				return ok(id, "get_available_models", { models: session.modelRuntime.getAvailableSnapshot() });
+			case "set_thinking_level":
+				session.setThinkingLevel(command.level as never);
+				return ok(id, "set_thinking_level");
+			case "cycle_thinking_level": {
+				const level = session.cycleThinkingLevel();
+				return ok(id, "cycle_thinking_level", level ? { level } : null);
+			}
+			case "get_available_thinking_levels":
+				return ok(id, "get_available_thinking_levels", { levels: session.getAvailableThinkingLevels() });
+			case "set_steering_mode":
+				session.setSteeringMode(command.mode as never);
+				return ok(id, "set_steering_mode");
+			case "set_follow_up_mode":
+				session.setFollowUpMode(command.mode as never);
+				return ok(id, "set_follow_up_mode");
+			case "compact":
+				return ok(id, "compact", await session.compact(str("customInstructions")));
+			case "set_auto_compaction":
+				session.setAutoCompactionEnabled(command.enabled === true);
+				return ok(id, "set_auto_compaction");
+			case "set_auto_retry":
+				session.setAutoRetryEnabled(command.enabled === true);
+				return ok(id, "set_auto_retry");
+			case "abort_retry":
+				session.abortRetry();
+				return ok(id, "abort_retry");
+			case "bash": {
+				const text = String(command.command ?? "");
+				const excludeFromContext = command.excludeFromContext === true;
+				const eventResult = await session.extensionRunner.emitUserBash({
+					type: "user_bash",
+					command: text,
+					excludeFromContext,
+					cwd: session.sessionManager.getCwd(),
+				});
+				if (eventResult?.result) {
+					session.recordBashResult(text, eventResult.result, { excludeFromContext });
+					return ok(id, "bash", eventResult.result);
+				}
+				const result = await session.executeBash(text, undefined, { excludeFromContext, id, operations: eventResult?.operations });
+				return ok(id, "bash", result);
+			}
+			case "abort_bash":
+				session.abortBash();
+				return ok(id, "abort_bash");
+			case "get_session_stats":
+				return ok(id, "get_session_stats", session.getSessionStats());
+			case "export_html":
+				return ok(id, "export_html", { path: await session.exportToHtml(str("outputPath")) });
+			case "switch_session": {
+				const result = await this.replaceAndRebind(() => this.runtime.switchSession(String(command.sessionPath ?? "")));
+				return ok(id, "switch_session", result);
+			}
+			case "fork": {
+				const result = await this.replaceAndRebind(() => this.runtime.fork(String(command.entryId ?? "")));
+				return ok(id, "fork", { text: result.selectedText, cancelled: result.cancelled });
+			}
+			case "clone": {
+				const leafId = session.sessionManager.getLeafId();
+				if (!leafId) return failure(id, "clone", "Cannot clone session: no current entry selected");
+				const result = await this.replaceAndRebind(() => this.runtime.fork(leafId, { position: "at" }));
+				return ok(id, "clone", { cancelled: result.cancelled });
+			}
+			case "get_fork_messages":
+				return ok(id, "get_fork_messages", { messages: session.getUserMessagesForForking() });
+			case "get_entries": {
+				let entries = session.sessionManager.getEntries();
+				const since = str("since");
+				if (since !== undefined) {
+					const index = entries.findIndex((entry) => entry.id === since);
+					if (index === -1) return failure(id, "get_entries", `Entry not found: ${since}`);
+					entries = entries.slice(index + 1);
+				}
+				return ok(id, "get_entries", { entries, leafId: session.sessionManager.getLeafId() });
+			}
+			case "get_tree":
+				return ok(id, "get_tree", { tree: session.sessionManager.getTree(), leafId: session.sessionManager.getLeafId() });
+			case "get_last_assistant_text":
+				return ok(id, "get_last_assistant_text", { text: session.getLastAssistantText() });
+			case "set_session_name": {
+				const name = String(command.name ?? "").trim();
+				if (!name) return failure(id, "set_session_name", "Session name cannot be empty");
+				session.setSessionName(name);
+				this.hooks.changed(this);
+				return ok(id, "set_session_name");
+			}
+			case "get_messages":
+				return ok(id, "get_messages", { messages: session.messages });
+			case "get_commands": {
+				const commands: Record<string, unknown>[] = [];
+				for (const registered of session.extensionRunner.getRegisteredCommands()) {
+					commands.push({ name: registered.invocationName, description: registered.description, source: "extension", sourceInfo: registered.sourceInfo });
+				}
+				for (const template of session.promptTemplates) {
+					commands.push({ name: template.name, description: template.description, source: "prompt", sourceInfo: template.sourceInfo });
+				}
+				for (const skill of session.resourceLoader.getSkills().skills) {
+					commands.push({ name: `skill:${skill.name}`, description: skill.description, source: "skill", sourceInfo: skill.sourceInfo });
+				}
+				return ok(id, "get_commands", { commands });
+			}
+
+			// ---- DreamFlutter extensions ------------------------------------------------
+			case "df_navigate_tree": {
+				const entryId = String(command.entryId ?? "");
+				const result = await session.navigateTree(entryId, {
+					summarize: command.summarize === true,
+					customInstructions: str("customInstructions"),
+				});
+				return ok(id, "df_navigate_tree", { cancelled: result.cancelled, editorText: result.editorText ?? null });
+			}
+			case "df_set_label":
+				session.sessionManager.appendLabelChange(String(command.entryId ?? ""), str("label"));
+				return ok(id, "df_set_label");
+			case "df_export": {
+				const format = str("format") ?? "markdown";
+				const outputPath = str("outputPath");
+				if (format === "html") return ok(id, "df_export", { path: await session.exportToHtml(outputPath) });
+				if (format === "jsonl") return ok(id, "df_export", { path: session.exportToJsonl(outputPath) });
+				return ok(id, "df_export", { path: exportMarkdown(session, outputPath) });
+			}
+			case "df_reload":
+				await session.reload();
+				return ok(id, "df_reload");
+			case "df_context_usage":
+				return ok(id, "df_context_usage", session.getContextUsage() ?? null);
+			default:
+				return failure(id, command.type, `Unknown command: ${command.type}`);
+		}
+	}
+
+	async dispose(): Promise<void> {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.ui.cancelAll();
+		this.recorder.interrupt();
+		this.unsubscribe?.();
+		try {
+			await this.runtime?.dispose();
+		} catch {
+			// Disposal errors are not actionable.
+		}
+	}
+}
+
+function ok(id: string | undefined, command: string, data?: unknown): Record<string, unknown> {
+	return data === undefined ? { id, type: "response", command, success: true } : { id, type: "response", command, success: true, data };
+}
+
+function failure(id: string | undefined, command: string, message: string): Record<string, unknown> {
+	return { id, type: "response", command, success: false, error: message };
+}

@@ -1,0 +1,26 @@
+{
+  "name": "dreamflutter-core",
+  "private": true,
+  "version": "0.1.1",
+  "description": "DreamFlutter background service: hosts Pi sessions in-process and serves the desktop UI over a local WebSocket.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "croner": "9.1.0",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "1.4.0",
+    "@types/node": "22.18.0",
+    "@types/ws": "8.18.1",
+    "typescript": "5.9.3"
+  }
+}

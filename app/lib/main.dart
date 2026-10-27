@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'desktop_shell.dart';
 import 'state/agent_controller.dart';
 import 'state/preferences.dart';
 import 'theme.dart';
@@ -7,13 +8,14 @@ import 'ui/agent_scope.dart';
 import 'ui/home_page.dart';
 
 /// Shown in the settings page.
-const appVersion = '0.1.0';
+const appVersion = '0.1.1';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final controller = AgentController(preferences: await Preferences.load());
+  await DesktopShell(controller).init();
   runApp(DreamFlutterApp(controller: controller));
-  // Start Pi after the first frame, so the UI can answer a trust prompt.
+  // Connect after the first frame, so the UI can answer a trust prompt.
   WidgetsBinding.instance.addPostFrameCallback((_) => controller.init());
 }
 

@@ -1,5 +1,5 @@
-// End-to-end acceptance: the real app UI driving real Pi processes and a real
-// model. Run with:
+// End-to-end acceptance: the real app UI driving a real core (Pi sessions
+// hosted in the background service) and a real model. Run with:
 //   flutter test integration_test/e2e_test.dart -d windows
 // Screenshots are written to build/e2e_shots/. Keep the test window visible
 // (it may be covered, but not minimized: a minimized window renders no frames).
@@ -97,7 +97,7 @@ void main() {
     matching: find.textContaining(titleStart),
   );
 
-  testWidgets('M2 acceptance against real Pi', (tester) async {
+  testWidgets('v0.1.1 acceptance against the real core', (tester) async {
     final temp = Directory.systemTemp.createTempSync('df_e2e_');
     final workspace = Directory(p.join(temp.path, 'workspace'))..createSync();
     final otherWorkspace = Directory(p.join(temp.path, 'other'))..createSync();
@@ -114,16 +114,20 @@ void main() {
       'modelKey': model,
       'recentWorkspaces': [otherWorkspace.path],
     });
-    final agent = AgentController(
+    // An isolated core: own data dir and session dir, the user's Pi agent dir
+    // (for model credentials).
+    CoreBackend newBackend() => CoreBackend(dataDir: p.join(temp.path, 'core'), extraArgs: ['--session-dir', sessionsDir]);
+    var agent = AgentController(
       preferences: await Preferences.load(),
       sessionStore: SessionStore(sessionsDir: sessionsDir),
-      resolveConfig: (cwd, args) =>
-          AgentController.buildLaunchConfig(cwd, args, environment: {'PI_CODING_AGENT_SESSION_DIR': sessionsDir}),
+      backend: newBackend(),
     );
 
+    // Stop this test's core even when a step fails.
+    addTearDown(() => agent.shutdownCore());
     await tester.pumpWidget(RepaintBoundary(key: shotKey, child: DreamFlutterApp(controller: agent)));
     unawaited(agent.init());
-    // The workspace has project config: the GUI asks before Pi starts.
+    // The workspace has project config: the core asks through the window.
     await waitFor(tester, 'trust prompt', () => find.text('信任这个工作区的配置吗？').evaluate().isNotEmpty, agent);
     await shot(tester, '00_trust_prompt');
     await tester.tap(find.text('仅这次信任'));
@@ -237,6 +241,33 @@ void main() {
     expect(agent.transcript.items, isEmpty);
     await shot(tester, '12_other_workspace');
 
+    // 8. Close the window mid-run: the session keeps running in the core, and
+    //    a new window attaches to it and sees it finish.
+    await sendMessage(tester, '写一段 300 字左右关于星空的文字。直接写，不要使用任何工具。');
+    await waitFor(tester, 'C running', () => agent.isRunning, agent);
+    final sessionC = agent.currentSessionPath!;
+    agent.dispose(); // the window goes away; the core keeps the session
+    await tester.pumpWidget(const SizedBox());
+    await idle(tester, const Duration(seconds: 1));
+
+    agent = AgentController(
+      preferences: await Preferences.load(),
+      sessionStore: SessionStore(sessionsDir: sessionsDir),
+      backend: newBackend(),
+    );
+    await tester.pumpWidget(RepaintBoundary(key: shotKey, child: DreamFlutterApp(controller: agent)));
+    unawaited(agent.init());
+    final reattached = await (() async {
+      await waitFor(tester, 'reattached', () => agent.runtimes.any((r) => r.sessionPath != null && SessionStore.samePath(r.sessionPath!, sessionC)), agent);
+      return agent.runtimes.firstWhere((r) => SessionStore.samePath(r.sessionPath!, sessionC));
+    })();
+    await tester.runAsync(() => agent.openSession(sessionC));
+    await waitFor(tester, 'C finished in the new window', () => !reattached.isRunning && reattached.transcript.items.whereType<AssistantItem>().isNotEmpty, agent);
+    expect(reattached.transcript.items.whereType<UserItem>().last.text, contains('星空'));
+    expect(lastText(agent), isNotEmpty);
+    await shot(tester, '13_reattached_after_window_closed');
+
+    await agent.shutdownCore();
     agent.dispose();
     await idle(tester, const Duration(seconds: 2));
   }, timeout: const Timeout(Duration(minutes: 15)));

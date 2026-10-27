@@ -4,47 +4,41 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
-import 'preferences.dart';
-
 enum ConnectionStatus {
-  /// Launching Pi or switching sessions.
+  /// Opening the session in the core (or waiting on its trust prompt).
   starting,
   ready,
 
-  /// Pi exited unexpectedly; [SessionRuntime.statusDetail] has its stderr.
+  /// The session or the core went away; [SessionRuntime.statusDetail] says why.
   crashed,
 
-  /// Node.js or the pinned Pi runtime could not be found.
+  /// The core could not be started (Node.js or the core files are missing).
   missingRuntime,
 }
 
-typedef ConfigResolver = PiLaunchConfig? Function(String workingDirectory, List<String> extraArgs);
-typedef ClientLauncher = Future<PiRpcClient> Function(PiLaunchConfig config);
+/// Opens or attaches to a session. The real one runs it in the core; tests
+/// substitute a fake Pi.
+typedef ClientLauncher = LaunchedSession Function(SessionTarget target);
 
-/// One Pi process and the session it is showing: transcript, model and
-/// thinking selection, stats. Several runtimes can live side by side, so a
-/// session keeps running in the background while the user works in another.
+/// One session hosted by the core and what this window shows of it:
+/// transcript, model and thinking selection, stats. Several runtimes can live
+/// side by side, so a session keeps running in the background while the user
+/// works in another, and closing the window leaves it running in the core.
 class SessionRuntime extends ChangeNotifier {
   SessionRuntime({
     required this.workspace,
-    required this.preferences,
-    required this.resolveConfig,
     required this.launch,
     required this.onToast,
     this.onSettled,
     this.onAttention,
-    this.launchArgs = const [],
+    this.onModelChosen,
+    this.onThinkingChosen,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now,
        lastActivity = (clock ?? DateTime.now)();
 
-  /// The agent's working directory; fixed for the lifetime of the process.
+  /// The agent's working directory.
   final String workspace;
-
-  /// Extra CLI arguments for every launch (e.g. the project-trust decision).
-  final List<String> launchArgs;
-  final Preferences preferences;
-  final ConfigResolver resolveConfig;
   final ClientLauncher launch;
   final DateTime Function() _clock;
   final void Function(String message) onToast;
@@ -55,7 +49,12 @@ class SessionRuntime extends ChangeNotifier {
   /// Called when an extension dialog needs the user's answer.
   final void Function(SessionRuntime runtime, ExtensionUiRequest request)? onAttention;
 
+  /// The user picked a model / thinking level; it becomes the default for new sessions.
+  final void Function(PiModel model)? onModelChosen;
+  final void Function(String level)? onThinkingChosen;
+
   PiRpcClient? _client;
+  LaunchedSession? _launched;
   StreamSubscription<PiEvent>? _eventSub;
   StreamSubscription<ExtensionUiRequest>? _uiSub;
   Timer? _notifyTimer;
@@ -97,6 +96,9 @@ class SessionRuntime extends ChangeNotifier {
   bool get isReady => status == ConnectionStatus.ready;
   bool get isDisposed => _disposed;
 
+  /// The core slot hosting this session (null for test doubles).
+  String? get slotId => _launched?.slotId?.call();
+
   /// Session file path. Pi assigns it when the session is created, before the
   /// file is first written.
   String? get sessionPath => state?.sessionFile;
@@ -116,31 +118,31 @@ class SessionRuntime extends ChangeNotifier {
 
   // --- Lifecycle -----------------------------------------------------------
 
-  /// Starts Pi on a new session, or on [sessionPath] to resume one.
-  Future<void> start({String? sessionPath}) async {
+  /// Opens a new session, [sessionPath] to resume one, or attaches to the
+  /// live core slot [attachSlotId] (a session that kept running while no
+  /// window was open). The core applies the default model to new sessions.
+  Future<void> start({String? sessionPath, String? attachSlotId}) async {
     await _stopClient();
     transcript.clear();
+    pendingDialogs.clear();
     status = ConnectionStatus.starting;
     statusDetail = '';
     _notifyNow();
 
-    final config = resolveConfig(workspace, [...launchArgs, if (sessionPath != null) ...['--session', sessionPath]]);
-    if (config == null) {
-      status = ConnectionStatus.missingRuntime;
-      statusDetail = '找不到 Node.js 或 Pi 运行时（runtime/node_modules）。';
-      _notifyNow();
-      return;
-    }
     try {
-      final client = await launch(config);
+      final launched = launch(SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId));
+      final client = launched.client;
+      _launched = launched;
+      _client = client;
+      // Listen before awaiting: the trust prompt arrives while the session starts.
+      _eventSub = client.events.listen(_onEvent);
+      _uiSub = client.uiRequests.listen(_onUiRequest);
+      client.closed.then((_) => _onClientClosed(client));
+      await launched.ready;
       if (_disposed) {
         await client.dispose();
         return;
       }
-      _client = client;
-      _eventSub = client.events.listen(_onEvent);
-      _uiSub = client.uiRequests.listen(_onUiRequest);
-      client.closed.then((_) => _onClientClosed(client));
 
       final results = await Future.wait([client.getAvailableModels(), client.getAvailableThinkingLevels()]);
       models = results[0] as List<PiModel>;
@@ -150,12 +152,8 @@ class SessionRuntime extends ChangeNotifier {
       } catch (_) {
         commands = const [];
       }
-      if (!preferences.autoCompaction) await client.setAutoCompaction(false);
-      if (sessionPath == null) {
-        await _applyPreferredModel(client);
-      } else {
-        transcript.loadHistory(await client.getMessages());
-      }
+      if (sessionPath != null || attachSlotId != null) transcript.loadHistory(await client.getMessages());
+      launched.afterHistory();
       await _refreshState(client);
       status = ConnectionStatus.ready;
     } catch (e) {
@@ -164,14 +162,6 @@ class SessionRuntime extends ChangeNotifier {
     }
     _touch();
     _notifyNow();
-  }
-
-  Future<void> _applyPreferredModel(PiRpcClient client) async {
-    final preferred = preferences.modelKey;
-    final match = models.where((m) => m.key == preferred).firstOrNull;
-    if (match != null) await client.setModel(match.provider, match.id);
-    final level = preferences.thinkingLevel;
-    if (level != null && thinkingLevels.contains(level)) await client.setThinkingLevel(level);
   }
 
   Future<void> _refreshState(PiRpcClient client) async {
@@ -195,7 +185,7 @@ class SessionRuntime extends ChangeNotifier {
     status = ConnectionStatus.crashed;
     final tail = client.stderrTail;
     statusDetail = [
-      'Pi 进程意外退出（退出码 ${client.exitCode ?? '未知'}）。',
+      client.exitCode == -1 ? '与后台的连接断开了。' : '这个会话在后台被关闭了。',
       if (tail.isNotEmpty) ...tail.skip(tail.length > 12 ? tail.length - 12 : 0),
     ].join('\n');
     transcript.apply(const AgentSettledEvent({'type': 'agent_settled', 'aborted': true}, aborted: true));
@@ -204,8 +194,12 @@ class SessionRuntime extends ChangeNotifier {
     onSettled?.call(this);
   }
 
-  /// Restarts Pi on the same session (after a crash, for example).
-  Future<void> restart() => start(sessionPath: sessionPath);
+  /// Reopens the same session (after a crash or a core restart). A session
+  /// that was never written to disk starts fresh.
+  Future<void> restart() {
+    final path = sessionPath;
+    return start(sessionPath: path != null && File(path).existsSync() ? path : null);
+  }
 
   @override
   void dispose() {
@@ -444,7 +438,6 @@ class SessionRuntime extends ChangeNotifier {
     try {
       if (!await client.newSession()) return false;
       transcript.clear();
-      await _applyPreferredModel(client);
       await _refreshState(client);
       _touch();
       return true;
@@ -482,7 +475,7 @@ class SessionRuntime extends ChangeNotifier {
     if (client == null) return;
     try {
       await client.setModel(model.provider, model.id);
-      await preferences.setModelKey(model.key);
+      onModelChosen?.call(model);
       await _refreshState(client);
     } catch (e) {
       onToast('切换模型失败：${describeError(e)}');
@@ -495,7 +488,7 @@ class SessionRuntime extends ChangeNotifier {
     if (client == null) return;
     try {
       await client.setThinkingLevel(level);
-      await preferences.setThinkingLevel(level);
+      onThinkingChosen?.call(level);
       await _refreshState(client);
     } catch (e) {
       onToast('切换思考级别失败：${describeError(e)}');
@@ -503,8 +496,17 @@ class SessionRuntime extends ChangeNotifier {
     _notifyNow();
   }
 
+  /// Sends a Pi RPC command this class has no typed wrapper for (df_* extensions).
+  Future<Object?> command(String type, [Json params = const {}, Duration timeout = const Duration(seconds: 60)]) async {
+    final client = _client;
+    if (client == null) throw PiConnectionClosedException(type);
+    _touch();
+    return client.send(type, params, timeout);
+  }
+
   static String describeError(Object error) => switch (error) {
     PiRpcException(:final message) => message,
+    CoreException(:final message) => message,
     ProcessException(:final message) => message,
     _ => '$error',
   };

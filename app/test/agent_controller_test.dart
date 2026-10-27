@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dreamflutter/state/agent_controller.dart';
@@ -8,25 +7,23 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'fake_backend.dart';
 import 'fake_pi.dart';
 
 void main() {
+  late FakeBackend backend;
   late List<FakePi> pis;
   late Directory sessions;
   late DateTime now;
 
-  Future<AgentController> startController({bool runtimeAvailable = true}) async {
-    SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path});
+  Future<AgentController> startController({bool runtimeAvailable = true, Map<String, Object> prefs = const {}}) async {
+    SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path, ...prefs});
+    backend.available = runtimeAvailable;
+    pis = backend.pis;
     final controller = AgentController(
       preferences: await Preferences.load(),
       sessionStore: SessionStore(sessionsDir: sessions.path),
-      resolveConfig: (cwd, args) =>
-          runtimeAvailable ? PiLaunchConfig(cliPath: 'cli.js', workingDirectory: cwd, extraArgs: args) : null,
-      launch: (config) async {
-        final pi = FakePi(config);
-        pis.add(pi);
-        return PiRpcClient(pi);
-      },
+      backend: backend,
       clock: () => now,
     );
     await controller.init();
@@ -34,19 +31,33 @@ void main() {
   }
 
   setUp(() {
-    pis = [];
+    backend = FakeBackend();
     now = DateTime(2026, 10, 27, 12);
     sessions = Directory.systemTemp.createTempSync('df_sessions_');
   });
   tearDown(() => sessions.deleteSync(recursive: true));
 
   group('single session', () {
-    test('starts ready, loads models and applies the preferred model', () async {
-      final agent = await startController();
+    test('starts ready, loads models and moves v0.1.0 settings to the core once', () async {
+      final agent = await startController(prefs: {'approvalMode': 'all', 'modelKey': 'p/m', 'thinkingLevel': 'high'});
       expect(agent.status, ConnectionStatus.ready);
       expect(agent.models, isNotEmpty);
       expect(agent.thinkingLevels, contains('high'));
-      expect(pis.single.sent('set_model').single, contains(Preferences.defaultModelKey.split('/').last));
+      expect(pis.single.sent('set_model'), isEmpty, reason: 'the core applies the default model');
+      final migrated = backend.callsTo('settings.update').single;
+      expect(migrated, {'approvalMode': 'all', 'autoCompaction': true, 'defaultModel': 'p/m', 'defaultThinking': 'high'});
+      expect(agent.approvalMode, ApprovalMode.all);
+      expect(agent.defaultModelKey, 'p/m');
+      expect(agent.preferences.migratedToCore, isTrue);
+      agent.dispose();
+    });
+
+    test('choosing a model makes it the default for new sessions', () async {
+      final agent = await startController();
+      await agent.selectModel(agent.models.first);
+      expect(pis.single.sent('set_model'), hasLength(1));
+      await pumpEventQueue();
+      expect(backend.callsTo('settings.update').last, {'defaultModel': agent.models.first.key});
       agent.dispose();
     });
 
@@ -82,13 +93,63 @@ void main() {
       pis.single.crash();
       await pumpEventQueue();
       expect(agent.status, ConnectionStatus.crashed);
-      expect(agent.statusDetail, contains('退出码 1'));
+      expect(agent.statusDetail, contains('后台被关闭'));
       agent.dispose();
     });
 
-    test('missing runtime is reported instead of crashing', () async {
+    test('a missing core is reported instead of crashing', () async {
       final agent = await startController(runtimeAvailable: false);
       expect(agent.status, ConnectionStatus.missingRuntime);
+      expect(agent.statusDetail, contains('无法启动后台服务'));
+      agent.dispose();
+    });
+
+    test('when the core connection drops, sessions reopen after reconnecting', () async {
+      final agent = await startController();
+      final pi = pis.single
+        ..startRun('hello')
+        ..finishRun();
+      await pumpEventQueue();
+      final path = agent.currentSessionPath!;
+      File(path)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{}');
+      backend.dropConnection();
+      await pumpEventQueue(times: 50);
+      expect(pi.target.sessionPath, isNull);
+      expect(pis, hasLength(2));
+      expect(pis.last.target.sessionPath, path, reason: 'reopened from disk in the new core');
+      expect(agent.status, ConnectionStatus.ready);
+      expect(agent.backendProblem, isNull);
+      agent.dispose();
+    });
+
+    test('sessions still running in the core are attached on startup', () async {
+      backend = FakeBackend(liveSlots: [
+        {'slotId': 'bg-1', 'cwd': Directory.systemTemp.path, 'running': true},
+        {'slotId': 'sched', 'cwd': Directory.systemTemp.path, 'unattended': true},
+      ]);
+      final agent = await startController();
+      expect(pis.first.target.attachSlotId, 'bg-1');
+      expect(pis.where((p) => p.target.attachSlotId == 'sched'), isEmpty, reason: 'scheduled runs are not window sessions');
+      expect(agent.runtimes.map((r) => r.slotId), contains('bg-1'));
+      agent.dispose();
+    });
+
+    test('interrupted runs can be resumed or dismissed', () async {
+      final file = File(p.join(sessions.path, 'old.jsonl'))..writeAsStringSync('{}');
+      backend = FakeBackend(interruptedRuns: [
+        {'id': 'r1', 'sessionFile': file.path, 'cwd': Directory.systemTemp.path, 'prompt': '写报告', 'startedAt': 0},
+        {'id': 'r2', 'sessionFile': file.path, 'cwd': Directory.systemTemp.path, 'prompt': null, 'startedAt': 0},
+      ]);
+      final agent = await startController();
+      expect(agent.interruptedRuns.map((r) => r.id), ['r1', 'r2']);
+      await agent.dismissInterrupted(agent.interruptedRuns.last);
+      expect(backend.callsTo('runs.acknowledge').single, {'id': 'r2'});
+      await agent.resumeInterrupted(agent.interruptedRuns.single);
+      expect(agent.interruptedRuns, isEmpty);
+      expect(agent.currentSessionPath, file.path);
+      expect(pis.last.commands.lastWhere((c) => c['type'] == 'prompt')['message'], contains('中断'));
       agent.dispose();
     });
 
@@ -212,12 +273,23 @@ void main() {
       agent.dispose();
     });
 
-    test('approval mode is written to the file the Pi extension reads', () async {
+    test('approval mode is a core setting', () async {
       final agent = await startController();
       await agent.setApprovalMode(ApprovalMode.all);
-      final json = jsonDecode(File(Preferences.bridgeFile()).readAsStringSync()) as Map;
-      expect(json['approvalMode'], 'all');
-      await agent.setApprovalMode(ApprovalMode.changes);
+      expect(backend.callsTo('settings.update').last, {'approvalMode': 'all'});
+      expect(agent.approvalMode, ApprovalMode.all);
+      agent.dispose();
+    });
+
+    test('deleting a session closes it in the core first', () async {
+      final agent = await startController();
+      pis.single
+        ..startRun('doomed')
+        ..finishRun();
+      await pumpEventQueue();
+      final slot = pis.single.slotId;
+      await agent.deleteSession(agent.currentSessionPath!);
+      expect(backend.callsTo('slot.close').single, {'slotId': slot});
       agent.dispose();
     });
   });
@@ -294,7 +366,7 @@ void main() {
       final other = p.join(sessions.path, 'other.jsonl');
       await agent.openSession(other);
       expect(pis, hasLength(2));
-      expect(pis.last.config.extraArgs, ['--session', other]);
+      expect(pis.last.target.sessionPath, other);
       expect(pis.first.sent('abort'), isEmpty);
       agent.dispose();
     });

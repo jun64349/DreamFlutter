@@ -5,12 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
+import 'backend.dart';
 import 'preferences.dart';
-import 'project_trust.dart';
 import 'session_runtime.dart';
 
-export 'project_trust.dart' show ProjectTrust, TrustChoice;
-export 'session_runtime.dart' show ConfigResolver, ClientLauncher, ConnectionStatus, SessionRuntime;
+export 'backend.dart' show AgentBackend, CoreBackend;
+export 'session_runtime.dart' show ClientLauncher, ConnectionStatus, SessionRuntime;
 
 /// One row in the session sidebar: a persisted session, a live one, or both.
 class SidebarEntry {
@@ -43,72 +43,56 @@ class SidebarEntry {
   final bool isFork;
 }
 
-/// Where the pieces Pi needs were found on this machine (settings page).
-class RuntimeInfo {
-  const RuntimeInfo({
-    required this.cliPath,
-    required this.nodePath,
-    required this.bashDir,
-    required this.piVersion,
-    required this.extensionPath,
-    required this.sessionsDir,
-    required this.agentDir,
-  });
+/// A run the previous core process left unfinished (shown as a resume card).
+class InterruptedRun {
+  const InterruptedRun({required this.id, required this.sessionFile, required this.cwd, required this.prompt, required this.startedAt});
 
-  final String? cliPath;
-  final String? nodePath;
-  final String? bashDir;
-  final String? piVersion;
-  final String? extensionPath;
-  final String sessionsDir;
-  final String agentDir;
+  factory InterruptedRun.fromJson(Json json) => InterruptedRun(
+    id: json['id'] as String? ?? '',
+    sessionFile: json['sessionFile'] as String?,
+    cwd: json['cwd'] as String? ?? '',
+    prompt: json['prompt'] as String?,
+    startedAt: DateTime.fromMillisecondsSinceEpoch((json['startedAt'] as num?)?.toInt() ?? 0),
+  );
+
+  final String id;
+  final String? sessionFile;
+  final String cwd;
+  final String? prompt;
+  final DateTime startedAt;
 }
 
-/// Manages the sessions of the current workspace. Each session that is
-/// running (or recently used) has its own Pi process ([SessionRuntime]), so
-/// switching away from a running session or starting a new one never
-/// interrupts it.
+/// Manages the sessions shown in this window. Sessions live in the core (a
+/// background service), so a running session keeps going when the user
+/// switches away, starts another one, or closes the window.
 ///
-/// Process reuse rules keep the process count low:
-/// - New/open while the active session is idle: reuse its process in place.
+/// Reuse rules keep the number of live sessions low:
+/// - New/open while the active session is idle: reuse it in place.
 /// - New/open while it is running: leave it running in the background and
-///   start (or re-activate) another process.
-/// - Background processes that have been idle for [idleGrace] are closed;
-///   their sessions stay on disk and reopen on demand.
+///   open (or re-activate) another one.
+/// - Background sessions idle for [idleGrace] are let go of; the core closes
+///   them later, their files stay on disk and reopen on demand.
 class AgentController extends ChangeNotifier {
   AgentController({
     required this.preferences,
-    ConfigResolver? resolveConfig,
-    ClientLauncher? launch,
+    AgentBackend? backend,
     SessionStore? sessionStore,
     this.idleGrace = const Duration(minutes: 5),
     this.maxProcesses = 8,
     DateTime Function()? clock,
-    ProjectTrust? projectTrust,
-  }) : projectTrust = projectTrust ?? ProjectTrust(),
-       _resolveConfig = resolveConfig ?? buildLaunchConfig,
-       _launch = launch ?? PiRpcClient.launch,
+  }) : backend = backend ?? CoreBackend(),
        _clock = clock ?? DateTime.now,
        sessionStore = sessionStore ?? SessionStore();
 
   final Preferences preferences;
   final SessionStore sessionStore;
-  final ProjectTrust projectTrust;
-
-  /// Asks the user whether to trust a workspace's own Pi configuration. Set
-  /// by the UI; without it Pi decides on its own (and skips untrusted config).
-  Future<TrustChoice?> Function(String cwd)? trustPrompt;
-
-  /// Trust arguments decided during this app run, per workspace.
-  final Map<String, List<String>> _trustArgs = {};
-  final ConfigResolver _resolveConfig;
-  final ClientLauncher _launch;
+  final AgentBackend backend;
   final DateTime Function() _clock;
 
-  /// How long an idle background session keeps its process.
+  /// How long an idle background session stays attached.
   final Duration idleGrace;
 
-  /// Soft cap on live Pi processes; idle background ones are closed first.
+  /// Soft cap on attached sessions; idle background ones are let go first.
   final int maxProcesses;
 
   final List<SessionRuntime> _runtimes = [];
@@ -116,74 +100,26 @@ class AgentController extends ChangeNotifier {
   final Set<String> _unseen = {};
   final _toasts = StreamController<String>.broadcast();
   final _emptyTranscript = Transcript();
+  StreamSubscription<Json>? _backendEvents;
   Timer? _reaper;
   var _disposed = false;
+  var _reconnecting = false;
 
   SessionRuntime? _active;
   String workspace = '';
   List<SessionSummary> _diskSessions = const [];
 
-  static List<String> get _searchRoots => [p.dirname(Platform.resolvedExecutable), Directory.current.path];
+  /// Last `core.hello` (version, pid, data dir...), for the settings page.
+  Json coreInfo = const {};
 
-  /// The pinned `runtime/` folder, derived from the CLI path.
-  static String? runtimeDir(String cliPath) {
-    var dir = p.dirname(cliPath);
-    for (var i = 0; i < 6; i++) {
-      if (p.basename(dir) == 'node_modules') return p.dirname(dir);
-      dir = p.dirname(dir);
-    }
-    return null;
-  }
+  /// Agent settings owned by the core (approval mode, default model...).
+  Json coreSettings = const {};
 
-  static String? approvalExtensionPath(String cliPath) {
-    final runtime = runtimeDir(cliPath);
-    if (runtime == null) return null;
-    final path = p.join(runtime, 'extensions', 'dreamflutter-approval.ts');
-    return File(path).existsSync() ? path : null;
-  }
+  /// Why the core is unreachable (null when connected).
+  String? backendProblem;
 
-  /// Launch config: pinned Pi, the approval extension, and the settings file
-  /// it reads. [environment] entries are added on top (tests use this).
-  static PiLaunchConfig? buildLaunchConfig(
-    String workingDirectory,
-    List<String> extraArgs, {
-    Map<String, String> environment = const {},
-  }) {
-    final base = PiRuntimeLocator.defaultConfig(
-      workingDirectory: workingDirectory,
-      searchRoots: _searchRoots,
-      extraArgs: extraArgs,
-    );
-    if (base == null) return null;
-    final extension = approvalExtensionPath(base.cliPath);
-    return PiLaunchConfig(
-      cliPath: base.cliPath,
-      nodeExecutable: base.nodeExecutable,
-      workingDirectory: workingDirectory,
-      extraArgs: [...extraArgs, if (extension != null) ...['--extension', extension]],
-      environment: {...base.environment, 'DREAMFLUTTER_SETTINGS_FILE': Preferences.bridgeFile(), ...environment},
-    );
-  }
-
-  RuntimeInfo runtimeInfo() {
-    final cli = PiRuntimeLocator.findCli(_searchRoots);
-    String? version;
-    if (cli != null) {
-      try {
-        final pkg = File(p.join(p.dirname(cli), '..', '..', 'package.json')).readAsStringSync();
-        version = RegExp(r'"version"\s*:\s*"([^"]+)"').firstMatch(pkg)?.group(1);
-      } catch (_) {}
-    }
-    return RuntimeInfo(
-      cliPath: cli,
-      nodePath: PiRuntimeLocator.findOnPath('node'),
-      bashDir: PiRuntimeLocator.findGitBashDir(),
-      piVersion: version,
-      extensionPath: cli == null ? null : approvalExtensionPath(cli),
-      sessionsDir: sessionStore.sessionsDir,
-      agentDir: SessionStore.defaultAgentDir(),
-    );
-  }
+  /// Runs a previous core process left unfinished.
+  List<InterruptedRun> interruptedRuns = const [];
 
   /// Short user-facing messages (errors, extension notifications).
   Stream<String> get toasts => _toasts.stream;
@@ -193,8 +129,10 @@ class AgentController extends ChangeNotifier {
   SessionRuntime? get active => _active;
   List<SessionRuntime> get runtimes => List.unmodifiable(_runtimes);
   Transcript get transcript => _active?.transcript ?? _emptyTranscript;
-  ConnectionStatus get status => _active?.status ?? ConnectionStatus.starting;
-  String get statusDetail => _active?.statusDetail ?? '';
+  ConnectionStatus get status => backendProblem != null && _active == null
+      ? ConnectionStatus.missingRuntime
+      : _active?.status ?? ConnectionStatus.starting;
+  String get statusDetail => _active?.statusDetail ?? backendProblem ?? '';
   bool get isReady => _active?.isReady ?? false;
   bool get isRunning => _active?.isRunning ?? false;
   PiModel? get model => _active?.model;
@@ -206,7 +144,7 @@ class AgentController extends ChangeNotifier {
   String get sessionTitle => _active?.title ?? '新会话';
   List<SlashCommand> get commands => _active?.commands ?? const [];
   bool get isCompacting => (_active?.isCompacting ?? false) || transcript.isCompacting;
-  bool get autoCompactionEnabled => _active?.state?.autoCompactionEnabled ?? preferences.autoCompaction;
+  bool get autoCompactionEnabled => _active?.state?.autoCompactionEnabled ?? defaultAutoCompaction;
 
   /// The oldest extension dialog of the active session awaiting an answer.
   ExtensionUiRequest? get pendingDialog => _active?.pendingDialogs.firstOrNull;
@@ -221,7 +159,10 @@ class AgentController extends ChangeNotifier {
 
   ThemeMode get themeMode => preferences.themeMode;
   double get textScale => preferences.textScale;
-  ApprovalMode get approvalMode => preferences.approvalMode;
+  ApprovalMode get approvalMode => ApprovalMode.parse(coreSettings['approvalMode'] as String?);
+  bool get defaultAutoCompaction => coreSettings['autoCompaction'] != false;
+  String? get defaultModelKey => coreSettings['defaultModel'] as String?;
+  String? get defaultThinkingLevel => coreSettings['defaultThinking'] as String?;
 
   /// Recently used workspaces plus folders that have sessions, most recent first.
   List<String> recentWorkspaces = const [];
@@ -235,17 +176,16 @@ class AgentController extends ChangeNotifier {
   /// (a live session may not have a file yet), newest first.
   List<SidebarEntry> get sidebar {
     final byPath = <String, SidebarEntry>{};
-    String keyOf(String path) => Platform.isWindows ? p.normalize(path).toLowerCase() : p.normalize(path);
 
     for (final s in _diskSessions) {
-      byPath[keyOf(s.path)] = SidebarEntry(
+      byPath[_key(s.path)] = SidebarEntry(
         isFork: s.parentSession != null,
         path: s.path,
         title: s.title,
         modifiedAt: s.modifiedAt,
         isActive: false,
         isRunning: false,
-        hasUnseenResult: _unseen.contains(keyOf(s.path)),
+        hasUnseenResult: _unseen.contains(_key(s.path)),
         hasError: false,
       );
     }
@@ -254,9 +194,9 @@ class AgentController extends ChangeNotifier {
       if (path == null || !SessionStore.samePath(runtime.workspace, workspace)) continue;
       final isActive = runtime == _active;
       if (runtime.isPristine && !isActive) continue;
-      final disk = byPath[keyOf(path)];
-      final diskSummary = _diskSessions.where((s) => keyOf(s.path) == keyOf(path)).firstOrNull;
-      byPath[keyOf(path)] = SidebarEntry(
+      final disk = byPath[_key(path)];
+      final diskSummary = _diskSessions.where((s) => _key(s.path) == _key(path)).firstOrNull;
+      byPath[_key(path)] = SidebarEntry(
         needsAttention: runtime.pendingDialogs.isNotEmpty,
         isFork: diskSummary?.parentSession != null,
         path: path,
@@ -264,7 +204,7 @@ class AgentController extends ChangeNotifier {
         modifiedAt: disk == null || runtime.lastActivity.isAfter(disk.modifiedAt) ? runtime.lastActivity : disk.modifiedAt,
         isActive: isActive,
         isRunning: runtime.isRunning,
-        hasUnseenResult: _unseen.contains(keyOf(path)),
+        hasUnseenResult: _unseen.contains(_key(path)),
         hasError: runtime.status == ConnectionStatus.crashed,
       );
     }
@@ -275,19 +215,108 @@ class AgentController extends ChangeNotifier {
 
   Future<void> init() async {
     workspace = preferences.workspace ?? Preferences.defaultWorkspace();
-    _notify(); // show the workspace name while Pi starts (or a trust prompt waits)
+    _notify(); // show the workspace name while the core starts
     await Directory(workspace).create(recursive: true);
     await preferences.setWorkspace(workspace);
-    await preferences.writeBridgeFile();
+    _backendEvents = backend.events.listen(_onBackendEvent);
     _reaper = Timer.periodic(const Duration(seconds: 30), (_) => reapIdle());
-    await _activate(await _spawn());
+    final hello = await _connect();
+    if (hello == null) return;
+    await _attachLiveSlots(hello);
+    final blank = _runtimes.where((r) => r.isPristine && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
+    await _activate(blank ?? await _spawn());
     unawaited(refreshSessions());
+  }
+
+  /// Connects to the core; on failure records why and returns null.
+  Future<Json?> _connect() async {
+    try {
+      final hello = await backend.connect();
+      backendProblem = null;
+      _applyHello(hello);
+      await _migratePreferences();
+      unawaited(backend.disconnected.then((_) => _onBackendLost()));
+      _notify();
+      return hello;
+    } catch (e) {
+      backendProblem = '无法启动后台服务：${SessionRuntime.describeError(e)}';
+      _notify();
+      return null;
+    }
+  }
+
+  void _applyHello(Json hello) {
+    coreInfo = hello;
+    coreSettings = asJsonMap(hello['settings']);
+    interruptedRuns = [
+      for (final run in (hello['interruptedRuns'] as List? ?? const []))
+        if (run is Map) InterruptedRun.fromJson(run.cast<String, dynamic>()),
+    ];
+  }
+
+  /// Settings that used to live in the window move to the core once.
+  Future<void> _migratePreferences() async {
+    if (preferences.migratedToCore) return;
+    try {
+      await updateCoreSettings({
+        'approvalMode': preferences.approvalMode.id,
+        'autoCompaction': preferences.autoCompaction,
+        'defaultModel': preferences.modelKey,
+        'defaultThinking': ?preferences.thinkingLevel,
+      });
+      await preferences.setMigratedToCore();
+    } catch (_) {}
+  }
+
+  /// Sessions still open in the core from before this window started (they
+  /// kept running while no window was open).
+  Future<void> _attachLiveSlots(Json hello) async {
+    for (final slot in (hello['slots'] as List? ?? const []).whereType<Map>()) {
+      final info = slot.cast<String, dynamic>();
+      final slotId = info['slotId'] as String?;
+      final cwd = info['cwd'] as String?;
+      if (slotId == null || cwd == null || info['unattended'] == true) continue;
+      if (_runtimes.any((r) => r.slotId == slotId)) continue;
+      final runtime = _newRuntime(cwd);
+      await runtime.start(attachSlotId: slotId);
+      if (runtime.status != ConnectionStatus.ready) _close(runtime);
+    }
+  }
+
+  Future<void> _onBackendLost() async {
+    if (_disposed || _reconnecting) return;
+    _reconnecting = true;
+    backendProblem = '与后台的连接断开了，正在重新连接…';
+    _notify();
+    for (var attempt = 1; !_disposed; attempt++) {
+      final hello = await _connect();
+      if (hello != null) {
+        // A new core has none of the old sessions: reopen them from disk.
+        for (final runtime in List.of(_runtimes)) {
+          if (runtime.status == ConnectionStatus.crashed || !runtime.isReady) await runtime.restart();
+        }
+        await _attachLiveSlots(hello);
+        break;
+      }
+      await Future<void>.delayed(Duration(seconds: attempt.clamp(1, 10)));
+    }
+    _reconnecting = false;
+    _notify();
+  }
+
+  void _onBackendEvent(Json message) {
+    switch (message['event']) {
+      case 'settings.changed':
+        coreSettings = asJsonMap(message['settings']);
+        _notify();
+    }
   }
 
   @override
   void dispose() {
     _disposed = true;
     _reaper?.cancel();
+    _backendEvents?.cancel();
     for (final runtime in _runtimes) {
       runtime.dispose();
     }
@@ -296,26 +325,28 @@ class AgentController extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Creates a runtime for [workspace] and starts its process.
-  Future<SessionRuntime> _spawn({String? sessionPath, String? cwd}) async {
-    reapIdle(makeRoomForOne: true);
-    final dir = cwd ?? workspace;
-    final trustArgs = _trustArgs[_key(dir)] ??= await projectTrust.launchArgs(dir, trustPrompt);
+  SessionRuntime _newRuntime(String cwd) {
     final runtime = SessionRuntime(
-      workspace: dir,
-      launchArgs: trustArgs,
-      preferences: preferences,
-      resolveConfig: _resolveConfig,
-      launch: _launch,
+      workspace: cwd,
+      launch: backend.launch,
       onToast: _toast,
       onSettled: _onRuntimeSettled,
       onAttention: _onRuntimeAttention,
+      onModelChosen: (model) => unawaited(updateCoreSettings({'defaultModel': model.key}).catchError((_) {})),
+      onThinkingChosen: (level) => unawaited(updateCoreSettings({'defaultThinking': level}).catchError((_) {})),
       clock: _clock,
     );
     runtime.addListener(() => _onRuntimeChanged(runtime));
     _runtimes.add(runtime);
+    return runtime;
+  }
+
+  /// Opens a session for [cwd] (default: the workspace) in the core.
+  Future<SessionRuntime> _spawn({String? sessionPath, String? cwd}) async {
+    reapIdle(makeRoomForOne: true);
+    final runtime = _newRuntime(cwd ?? workspace);
     // Show the new session right away (with its startup spinner) instead of
-    // leaving the previous one on screen while Pi starts.
+    // leaving the previous one on screen while it opens.
     _active = runtime;
     final starting = runtime.start(sessionPath: sessionPath);
     _notify();
@@ -356,12 +387,12 @@ class AgentController extends ChangeNotifier {
     unawaited(refreshSessions());
   }
 
-  /// Closes idle background processes past [idleGrace]. With
-  /// [makeRoomForOne], also closes the oldest idle ones when at the cap.
+  /// Lets go of idle background sessions past [idleGrace]. With
+  /// [makeRoomForOne], also the oldest idle ones when at the cap.
   @visibleForTesting
   void reapIdle({bool makeRoomForOne = false}) {
     final now = _clock();
-    final idle = _runtimes.where((r) => r != _active && !r.isRunning).toList()
+    final idle = _runtimes.where((r) => r != _active && !r.isRunning && r.pendingDialogs.isEmpty).toList()
       ..sort((a, b) => a.lastActivity.compareTo(b.lastActivity));
     var live = _runtimes.length;
     for (final runtime in idle) {
@@ -373,11 +404,23 @@ class AgentController extends ChangeNotifier {
     }
   }
 
+  /// Stops showing [runtime]. The session stays in the core until it is idle
+  /// long enough for the core to close it.
   void _close(SessionRuntime runtime) {
     _runtimes.remove(runtime);
     _backgroundSignature.remove(runtime);
     runtime.dispose();
     _notify();
+  }
+
+  /// Closes the session in the core as well (delete, reload configuration).
+  Future<void> _closeInCore(SessionRuntime runtime) async {
+    final slotId = runtime.slotId;
+    _close(runtime);
+    if (slotId == null) return;
+    try {
+      await backend.call('slot.close', {'slotId': slotId});
+    } catch (_) {}
   }
 
   SessionRuntime? _liveRuntimeFor(String path) =>
@@ -431,9 +474,22 @@ class AgentController extends ChangeNotifier {
 
   Future<void> send(String text, {List<ImageBlock> images = const []}) async => _active?.send(text, images: images);
   Future<void> abort() async => _active?.abort();
-  Future<void> restart() async => _active?.restart();
   Future<void> selectModel(PiModel model) async => _active?.selectModel(model);
   Future<void> selectThinkingLevel(String level) async => _active?.selectThinkingLevel(level);
+
+  /// Reconnects to the core if needed and reopens the active session.
+  Future<void> restart() async {
+    if (!backend.isConnected) {
+      final hello = await _connect();
+      if (hello == null) return;
+    }
+    final active = _active;
+    if (active == null) {
+      await _activate(await _spawn());
+    } else {
+      await active.restart();
+    }
+  }
 
   Future<void> refreshSessions() async {
     try {
@@ -463,6 +519,29 @@ class AgentController extends ChangeNotifier {
     } catch (e) {
       _toast('无法打开文件夹：$e');
     }
+  }
+
+  // --- Interrupted runs ------------------------------------------------------
+
+  /// Reopens the session of an interrupted run and asks the agent to go on.
+  Future<void> resumeInterrupted(InterruptedRun run) async {
+    await dismissInterrupted(run);
+    final file = run.sessionFile;
+    if (file == null || !File(file).existsSync()) {
+      _toast('这个任务的会话文件已经不在了。');
+      return;
+    }
+    if (!SessionStore.samePath(run.cwd, workspace) && Directory(run.cwd).existsSync()) await setWorkspace(run.cwd);
+    await openSession(file);
+    await _active?.send('上次运行被中断了（后台重启或电脑关机）。请检查已经完成到哪一步，然后继续完成剩下的部分。');
+  }
+
+  Future<void> dismissInterrupted(InterruptedRun run) async {
+    interruptedRuns = interruptedRuns.where((r) => r.id != run.id).toList();
+    _notify();
+    try {
+      await backend.call('runs.acknowledge', {'id': run.id});
+    } catch (_) {}
   }
 
   // --- Extension dialogs ----------------------------------------------------
@@ -525,16 +604,14 @@ class AgentController extends ChangeNotifier {
     await refreshSessions();
   }
 
-  /// Moves a session file to the Recycle Bin, closing its process first.
+  /// Moves a session file to the Recycle Bin, closing it in the core first.
   Future<void> deleteSession(String path) async {
     final live = _liveRuntimeFor(path);
     final wasActive = live != null && live == _active;
     if (live != null) {
       if (live.isRunning) await live.abort();
-      _runtimes.remove(live);
-      _backgroundSignature.remove(live);
       if (wasActive) _active = null;
-      live.dispose();
+      await _closeInCore(live);
     }
     final deleted = await SessionStore.deleteSession(path);
     if (!deleted) _toast('删除失败：文件可能正被占用。');
@@ -548,6 +625,12 @@ class AgentController extends ChangeNotifier {
 
   // --- Settings ----------------------------------------------------------------
 
+  Future<void> updateCoreSettings(Json patch) async {
+    final result = await backend.call('settings.update', patch);
+    coreSettings = asJsonMap(result);
+    _notify();
+  }
+
   Future<void> setThemeMode(ThemeMode mode) async {
     await preferences.setThemeMode(mode);
     appearance.value = (mode, preferences.textScale);
@@ -560,41 +643,52 @@ class AgentController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> setApprovalMode(ApprovalMode mode) async {
-    await preferences.setApprovalMode(mode);
-    _notify();
-  }
+  Future<void> setApprovalMode(ApprovalMode mode) => _setting({'approvalMode': mode.id});
 
   /// Default for new sessions; also applied to the active session.
   Future<void> setDefaultAutoCompaction(bool enabled) async {
-    await preferences.setAutoCompaction(enabled);
+    await _setting({'autoCompaction': enabled});
     await _active?.setAutoCompaction(enabled);
-    _notify();
   }
 
-  Future<void> setDefaultModel(PiModel model) async {
-    await preferences.setModelKey(model.key);
-    _notify();
+  Future<void> setDefaultModel(PiModel model) => _setting({'defaultModel': model.key});
+
+  Future<void> setDefaultThinkingLevel(String level) => _setting({'defaultThinking': level});
+
+  Future<void> _setting(Json patch) async {
+    try {
+      await updateCoreSettings(patch);
+    } catch (e) {
+      _toast('保存设置失败：${SessionRuntime.describeError(e)}');
+    }
   }
 
-  Future<void> setDefaultThinkingLevel(String level) async {
-    await preferences.setThinkingLevel(level);
-    _notify();
-  }
-
-  /// Restarts idle sessions so they pick up changed Pi configuration (models,
+  /// Reopens idle sessions so they pick up changed Pi configuration (models,
   /// credentials, extensions). Running sessions are left alone.
   Future<void> reloadIdleSessions() async {
     for (final runtime in List.of(_runtimes)) {
       if (runtime.isRunning) continue;
       if (runtime == _active) {
+        final slotId = runtime.slotId;
+        if (slotId != null) {
+          try {
+            await backend.call('slot.close', {'slotId': slotId});
+          } catch (_) {}
+        }
         await runtime.restart();
       } else {
-        _close(runtime);
+        await _closeInCore(runtime);
       }
     }
     _toast('已重新加载 Pi 配置。');
     _notify();
+  }
+
+  /// Stops the core (and every session in it). Used by "quit and stop background work".
+  Future<void> shutdownCore() async {
+    try {
+      await backend.call('core.shutdown');
+    } catch (_) {}
   }
 
   void _toast(String message) {
