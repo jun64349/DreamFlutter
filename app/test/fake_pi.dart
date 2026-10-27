@@ -24,6 +24,12 @@ class FakePi implements PiConnection {
   /// What `get_messages` returns (history of the current session).
   List<Json> messages = [];
 
+  /// What `df_branches` returns.
+  List<Json> branches = [];
+
+  /// Editor text `df_navigate_tree` hands back.
+  String? navigateText;
+
   static var _sessionCounter = 0;
   static String _newSessionFile() => p.join(Directory.systemTemp.path, 'fake-sessions', 's${++_sessionCounter}.jsonl');
 
@@ -82,6 +88,9 @@ class FakePi implements PiConnection {
           ],
         },
         'fork' => {'cancelled': false, 'text': 'edited later'},
+        'df_branches' => {'branches': branches},
+        'df_navigate_tree' => {'cancelled': false, 'editorText': navigateText},
+        'df_export' => {'path': command['outputPath']},
         'compact' => {'tokensBefore': 150000, 'estimatedTokensAfter': 32000},
         'abort' || 'set_auto_compaction' || 'set_session_name' || 'set_thinking_level' => null,
         final type => _recorded(type as String),

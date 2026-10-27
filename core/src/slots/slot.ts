@@ -21,6 +21,8 @@ export interface SlotInfo {
 	taskId: string | null;
 	/** Opened by the core itself (scheduler) rather than a window. */
 	unattended: boolean;
+	/** Temporary chat: in memory only, no memory read or write. */
+	incognito: boolean;
 	model: string | null;
 }
 
@@ -60,6 +62,7 @@ export class Slot {
 	readonly createdAt = now();
 	readonly ui: UiBridge;
 	readonly unattended: boolean;
+	readonly incognito: boolean;
 	taskId: string | null;
 	lastActivity = now();
 	running = false;
@@ -75,6 +78,7 @@ export class Slot {
 		this.slotId = options.slotId;
 		this.taskId = options.taskId ?? null;
 		this.unattended = options.unattended ?? false;
+		this.incognito = options.target.inMemory === true;
 		this.hooks = hooks;
 		this.fallbackCwd = options.target.cwd;
 		this.ui = new UiBridge({
@@ -164,6 +168,7 @@ export class Slot {
 			createdAt: this.createdAt,
 			taskId: this.taskId,
 			unattended: this.unattended,
+			incognito: this.incognito,
 			model: model ? `${model.provider}/${model.id}` : null,
 		};
 	}
@@ -467,6 +472,8 @@ export class Slot {
 				});
 				return ok(id, "df_navigate_tree", { cancelled: result.cancelled, editorText: result.editorText ?? null });
 			}
+			case "df_branches":
+				return ok(id, "df_branches", { branches: userBranches(session), leafId: session.sessionManager.getLeafId() });
 			case "df_set_label":
 				session.sessionManager.appendLabelChange(String(command.entryId ?? ""), str("label"));
 				return ok(id, "df_set_label");
@@ -499,6 +506,49 @@ export class Slot {
 			// Disposal errors are not actionable.
 		}
 	}
+}
+
+export interface UserBranch {
+	/** The user message entry on the active branch. */
+	entryId: string;
+	/** Its position among sibling user messages (edited resends), oldest first. */
+	index: number;
+	total: number;
+	/** For each sibling: the entry to navigate to (its latest continuation). */
+	targets: string[];
+}
+
+type TreeEntry = { id: string; parentId: string | null; type: string; timestamp?: string; message?: { role?: string } };
+
+/**
+ * Branch info for each user message on the active path, oldest first: an
+ * edited and resent message is a sibling of the original under the same
+ * parent, so "‹ 2/3 ›" can switch between the versions in place.
+ */
+export function userBranches(session: AgentSession): UserBranch[] {
+	const manager = session.sessionManager;
+	const isUser = (e: TreeEntry) => e.type === "message" && e.message?.role === "user";
+	const byTime = (a: TreeEntry, b: TreeEntry) => String(a.timestamp ?? "").localeCompare(String(b.timestamp ?? ""));
+	const latestLeaf = (id: string): string => {
+		let current = id;
+		for (;;) {
+			const children = (manager.getChildren(current) as unknown as TreeEntry[]).slice().sort(byTime);
+			if (children.length === 0) return current;
+			current = children.at(-1)!.id;
+		}
+	};
+	const out: UserBranch[] = [];
+	for (const entry of manager.getBranch() as unknown as TreeEntry[]) {
+		if (!isUser(entry)) continue;
+		const siblings = entry.parentId ? (manager.getChildren(entry.parentId) as unknown as TreeEntry[]).filter(isUser).sort(byTime) : [entry];
+		out.push({
+			entryId: entry.id,
+			index: Math.max(0, siblings.findIndex((s) => s.id === entry.id)),
+			total: siblings.length,
+			targets: siblings.length > 1 ? siblings.map((s) => latestLeaf(s.id)) : [],
+		});
+	}
+	return out;
 }
 
 function ok(id: string | undefined, command: string, data?: unknown): Record<string, unknown> {

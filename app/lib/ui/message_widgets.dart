@@ -6,6 +6,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../state/session_runtime.dart' show MessageBranch;
 import '../theme.dart';
 import 'agent_scope.dart';
 
@@ -44,6 +45,8 @@ class _UserBubbleState extends State<_UserBubble> {
     final colors = context.colors;
     final agent = AgentScope.of(context);
     final item = widget.item;
+    final branch = agent.active?.branchFor(item);
+    final busy = agent.isRunning;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -82,31 +85,78 @@ class _UserBubbleState extends State<_UserBubble> {
             ),
           SizedBox(
             height: 26,
-            child: AnimatedOpacity(
-              opacity: _hovered ? 1 : 0,
-              duration: const Duration(milliseconds: 120),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  _BubbleAction(
-                    icon: Icons.copy_outlined,
-                    tooltip: '复制',
-                    onTap: () {
-                      Clipboard.setData(ClipboardData(text: item.text));
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
-                    },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                AnimatedOpacity(
+                  opacity: _hovered ? 1 : 0,
+                  duration: const Duration(milliseconds: 120),
+                  child: Row(
+                    children: [
+                      _BubbleAction(
+                        icon: Icons.copy_outlined,
+                        tooltip: '复制',
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: item.text));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
+                        },
+                      ),
+                      if (branch != null) ...[
+                        _BubbleAction(
+                          icon: Icons.edit_outlined,
+                          tooltip: busy ? '回复结束后才能编辑' : '编辑后重新发送（原来的版本会保留，可以切换回去）',
+                          onTap: busy ? null : () => AgentScope.read(context).editMessage(item),
+                        ),
+                        _BubbleAction(
+                          icon: Icons.refresh,
+                          tooltip: busy ? '回复结束后才能重新生成' : '重新生成回复（原来的回复会保留）',
+                          onTap: busy ? null : () => AgentScope.read(context).regenerate(item),
+                        ),
+                      ],
+                      _BubbleAction(
+                        icon: Icons.call_split,
+                        tooltip: busy ? '回复结束后才能分叉' : '分叉为新会话：保留这条消息之前的内容，并把这条消息放回输入框供你修改',
+                        onTap: busy ? null : () => AgentScope.read(context).forkFrom(item),
+                      ),
+                    ],
                   ),
-                  _BubbleAction(
-                    icon: Icons.call_split,
-                    tooltip: agent.isRunning ? '回复结束后才能分叉' : '从这里分叉：新建一个会话，保留这条消息之前的内容，并把这条消息放回输入框供你修改',
-                    onTap: agent.isRunning ? null : () => AgentScope.read(context).forkFrom(item),
-                  ),
-                ],
-              ),
+                ),
+                if (branch != null && branch.total > 1) _VersionSwitcher(item: item, branch: branch, enabled: !busy),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// "‹ 2/3 ›": switches between versions of an edited message in place.
+class _VersionSwitcher extends StatelessWidget {
+  const _VersionSwitcher({required this.item, required this.branch, required this.enabled});
+
+  final UserItem item;
+  final MessageBranch branch;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.read(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _BubbleAction(
+          icon: Icons.chevron_left,
+          tooltip: '上一个版本',
+          onTap: enabled && branch.index > 0 ? () => agent.switchVersion(item, branch.index - 1) : null,
+        ),
+        Text('${branch.index + 1}/${branch.total}', style: context.text.labelSmall?.copyWith(color: context.colors.muted)),
+        _BubbleAction(
+          icon: Icons.chevron_right,
+          tooltip: '下一个版本',
+          onTap: enabled && branch.index < branch.total - 1 ? () => agent.switchVersion(item, branch.index + 1) : null,
+        ),
+      ],
     );
   }
 }

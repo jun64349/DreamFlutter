@@ -15,6 +15,10 @@ class FakeBackend implements AgentBackend {
   final List<Json> liveSlots;
   final List<Json> interruptedRuns;
   final pis = <FakePi>[];
+
+  /// Rows for `sessions.list` (null = no index, the app falls back to files).
+  List<Json>? sessionRows;
+  List<Json> searchHits = const [];
   final calls = <({String method, Json params})>[];
   Json settings = {
     'approvalMode': 'changes',
@@ -74,6 +78,10 @@ class FakeBackend implements AgentBackend {
         settings = {...settings, ...params};
         _events.add({'event': 'settings.changed', 'settings': settings});
         return settings;
+      case 'sessions.list' when sessionRows != null:
+        return sessionRows;
+      case 'sessions.search':
+        return searchHits;
       case 'slot.close':
         for (final pi in pis.where((p) => p.slotId == params['slotId'])) {
           pi.crash(code: 0);

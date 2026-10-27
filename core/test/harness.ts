@@ -58,7 +58,7 @@ export async function startTestCore(existingDir?: string): Promise<TestCore> {
 		notifier,
 		modelRuntime: () => modelRuntime,
 	});
-	core.settings.update({ defaultModel: "faux/faux-1" });
+	core.settings.update({ defaultModel: "faux/faux-1", autoTitle: false, memoryAutoExtract: false });
 	await core.start();
 	const messages: Record<string, unknown>[] = [];
 	const client = core.addClient((message) => messages.push(message));

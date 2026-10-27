@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { ModelRuntime, type Model } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Core } from "../core.ts";
 import { textOf } from "../runs.ts";
 

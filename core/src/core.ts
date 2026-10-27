@@ -53,6 +53,8 @@ export interface OpenSlotOptions {
 	sessionFile?: string;
 	taskId?: string | null;
 	unattended?: boolean;
+	/** Temporary chat, kept only in memory. */
+	incognito?: boolean;
 	/** Client to attach before the runtime starts, so it sees the trust prompt. */
 	client?: Client;
 }
@@ -93,6 +95,8 @@ export class Core {
 	readonly interruptedAtStartup: Run[];
 	private readonly methods = new Map<string, Handler>();
 	private readonly modules: CoreModule[] = [];
+	/** Core-owned tools that never need approval (memory, desk bookkeeping...). */
+	private readonly exemptTools = new Set<string>();
 	private readonly hostConfig: PiHostConfig;
 	/** Slots whose runtime is still starting (possibly waiting on the trust prompt). */
 	private readonly opening = new Map<string, Slot>();
@@ -125,6 +129,10 @@ export class Core {
 		};
 		this.settings.onChange((settings, changed) => this.broadcast({ event: "settings.changed", settings, changed }));
 		this.registerBaseMethods();
+	}
+
+	exemptFromApproval(...tools: string[]): void {
+		for (const tool of tools) this.exemptTools.add(tool);
 	}
 
 	use(module: CoreModule): void {
@@ -196,7 +204,7 @@ export class Core {
 		const slotId = options.slotId ?? randomUUID();
 		if (this.slots.has(slotId) || this.opening.has(slotId)) throw new RpcError("conflict", `Slot ${slotId} already exists`);
 		options.client?.attached.add(slotId);
-		const target = { cwd: options.cwd, sessionFile: options.sessionFile };
+		const target = { cwd: options.cwd, sessionFile: options.incognito ? undefined : options.sessionFile, inMemory: options.incognito === true };
 		const slot = Slot.prepare(this.db, { slotId, target, taskId: options.taskId, unattended: options.unattended }, this.slotHooks());
 		this.opening.set(slotId, slot);
 		try {
@@ -305,6 +313,7 @@ export class Core {
 	private approval(): ExtensionFactory {
 		return approvalExtension({
 			mode: () => this.settings.get().approvalMode,
+			exempt: (tool) => this.exemptTools.has(tool),
 			workspaceAllowed: (cwd) => new Set(this.db.all<{ tool: string }>("SELECT tool FROM workspace_tool_rules WHERE cwd = ?", normalizeCwd(cwd)).map((r) => r.tool)),
 			allowInWorkspace: (cwd, tool) => {
 				this.db.run("INSERT OR IGNORE INTO workspace_tool_rules(cwd, tool, created_at) VALUES(?, ?, ?)", normalizeCwd(cwd), tool, now());
@@ -344,6 +353,7 @@ export class Core {
 				slotId: str(params.slotId),
 				cwd: requireStr(params.cwd, "cwd"),
 				sessionFile: str(params.sessionFile),
+				incognito: params.incognito === true,
 				client,
 			});
 			return slot.info();

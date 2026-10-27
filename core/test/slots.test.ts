@@ -192,6 +192,53 @@ describe("session slots", () => {
 		assert.ok(text.includes("second question, rephrased") && text.includes("second answer"), "both branches stay in the file");
 	});
 
+	it("reports edited messages as switchable versions", async () => {
+		await open();
+		t.respond(fauxAssistantMessage("a1"), fauxAssistantMessage("a2"), fauxAssistantMessage("a2 v2"));
+		await t.send("s1", { id: "p1", type: "prompt", message: "q1" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		await t.send("s1", { id: "p2", type: "prompt", message: "q2" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 2);
+
+		const branches = async (id: string) => {
+			await t.send("s1", { id, type: "df_branches" });
+			return ((await t.waitFor(() => t.records("s1").find((r) => r.id === id))).data as { branches: { entryId: string; index: number; total: number; targets: string[] }[] }).branches;
+		};
+		const before = await branches("b1");
+		assert.deepEqual(before.map((b) => b.total), [1, 1]);
+
+		// Edit q2: navigate to it, then send the edited text as a sibling.
+		await t.send("s1", { id: "nav", type: "df_navigate_tree", entryId: before[1]!.entryId });
+		await t.waitFor(() => t.records("s1").find((r) => r.id === "nav"));
+		await t.send("s1", { id: "p3", type: "prompt", message: "q2 edited" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 3);
+
+		const after = await branches("b2");
+		assert.equal(after.length, 2);
+		assert.deepEqual([after[1]!.index, after[1]!.total], [1, 2], "the edited version is current, 2 of 2");
+		assert.equal(after[1]!.targets.length, 2);
+
+		// Switch back to version 1: the leaf moves to the end of the original branch.
+		await t.send("s1", { id: "back", type: "df_navigate_tree", entryId: after[1]!.targets[0] });
+		await t.waitFor(() => t.records("s1").find((r) => r.id === "back"));
+		const original = await branches("b3");
+		assert.deepEqual([original[1]!.index, original[1]!.total], [0, 2]);
+		await t.send("s1", { id: "msgs", type: "get_messages" });
+		const msgs = (await t.waitFor(() => t.records("s1").find((r) => r.id === "msgs"))).data as { messages: { role: string; content: unknown }[] };
+		assert.match(JSON.stringify(msgs.messages.at(-1)!.content), /a2"/);
+	});
+
+	it("keeps temporary chats in memory only", async () => {
+		const info = (await t.core.call("slot.open", { slotId: "tmp", cwd: t.workspace, incognito: true }, t.client)) as SlotInfo;
+		assert.equal(info.incognito, true);
+		t.respond(fauxAssistantMessage("ok"));
+		await t.send("tmp", { id: "p", type: "prompt", message: "secret stuff" });
+		await t.waitFor(() => settledCount(t.records("tmp")) === 1);
+		const { readdirSync } = await import("node:fs");
+		const files = readdirSync(t.sessionDir, { recursive: true }).map(String).filter((f) => f.endsWith(".jsonl"));
+		assert.deepEqual(files, []);
+	});
+
 	it("exports the conversation as Markdown", async () => {
 		await open();
 		t.respond(fauxAssistantMessage("答案是 42"));

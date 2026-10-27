@@ -25,6 +25,19 @@ class ChatView extends StatelessWidget {
         else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
           _ProblemBanner(status: agent.status, detail: agent.statusDetail),
         for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
+        if (agent.active?.incognito ?? false)
+          Container(
+            margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
+            padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 6),
+            decoration: BoxDecoration(color: context.colors.border.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(AppTokens.radius)),
+            child: Row(
+              children: [
+                Icon(Icons.visibility_off_outlined, size: 16, color: context.colors.muted),
+                const SizedBox(width: AppTokens.gap),
+                Text('临时对话：不会保存记录，也不会读写长期记忆。关掉后内容就没了。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+              ],
+            ),
+          ),
         Expanded(
           child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))

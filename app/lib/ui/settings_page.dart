@@ -6,6 +6,8 @@ import '../main.dart' show appVersion;
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'providers_page.dart';
+import 'usage_page.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 
 class SettingsPage extends StatelessWidget {
@@ -33,6 +35,10 @@ class SettingsPage extends StatelessWidget {
     for (final m in agent.models) {
       providers[m.provider] = (providers[m.provider] ?? 0) + 1;
     }
+    final physical = agent.models.where((m) => m.provider != 'dreamflutter').toList();
+    final auxKey = agent.coreSettings['auxModel'] as String?;
+    final chain = (agent.coreSettings['fallbackModels'] as List? ?? const []).whereType<String>().toList();
+    String modelName(String key) => agent.models.where((m) => m.key == key).firstOrNull?.name ?? key;
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置'), scrolledUnderElevation: 0),
@@ -71,21 +77,61 @@ class SettingsPage extends StatelessWidget {
                 ),
               ),
               _Row(
+                title: '辅助模型',
+                subtitle: '生成会话标题、整理记忆等后台小任务用的模型，选便宜快速的即可',
+                trailing: PopupMenuButton<String>(
+                  tooltip: '选择辅助模型',
+                  onSelected: (key) => agent.updateCoreSettings({'auxModel': key.isEmpty ? null : key}),
+                  itemBuilder: (_) => [
+                    CheckedPopupMenuItem(value: '', checked: auxKey == null, child: const Text('跟随默认模型')),
+                    for (final m in physical) CheckedPopupMenuItem(value: m.key, checked: m.key == auxKey, child: Text('${m.name}  ·  ${m.provider}')),
+                  ],
+                  child: _ValueChip(text: auxKey == null ? '跟随默认模型' : modelName(auxKey)),
+                ),
+              ),
+              _Row(
+                title: '备用模型链',
+                subtitle: chain.isEmpty
+                    ? '未设置。设置后可以选择模型「自动（主模型 + 备用链）」：主模型出错或限流时自动换下一个，适合无人值守的定时任务。'
+                    : chain.map(modelName).join(' → '),
+                trailing: OutlinedButton(
+                  onPressed: () async {
+                    final result = await showDialog<List<String>>(context: context, builder: (_) => _ChainDialog(models: physical, chain: chain));
+                    if (result != null) await agent.updateCoreSettings({'fallbackModels': result});
+                  },
+                  child: const Text('编辑'),
+                ),
+              ),
+              SwitchListTile(
+                value: agent.coreSettings['autoTitle'] != false,
+                onChanged: (v) => agent.updateCoreSettings({'autoTitle': v}),
+                title: const Text('自动生成会话标题'),
+                subtitle: const Text('第一轮对话结束后，用辅助模型起一个简短标题。'),
+                dense: true,
+              ),
+              _Row(
                 title: '服务商与凭证',
                 subtitle: providers.isEmpty
-                    ? '还没有可用的模型。在 Pi 的配置文件里添加服务商后点「重新加载」。'
-                    : providers.entries.map((e) => '${e.key}（${e.value} 个模型）').join('、'),
+                    ? '还没有可用的模型，先添加一个服务商。'
+                    : providers.entries.where((e) => e.key != 'dreamflutter').map((e) => '${e.key}（${e.value} 个模型）').join('、'),
                 trailing: Wrap(
                   spacing: AppTokens.gap,
                   children: [
-                    OutlinedButton(onPressed: () => agent.revealInExplorer(agentDir), child: const Text('打开配置文件夹')),
+                    FilledButton.tonal(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ProvidersPage())),
+                      child: const Text('管理服务商'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const UsagePage())),
+                      child: const Text('用量统计'),
+                    ),
                     OutlinedButton(onPressed: agent.reloadIdleSessions, child: const Text('重新加载')),
                   ],
                 ),
               ),
               _Hint(
-                '模型和凭证由 Pi 管理：自定义服务商写在 ${p.join(agentDir, 'models.json')}，登录凭证在 auth.json。'
-                '改完后点「重新加载」，空闲的会话会用新配置重启，正在运行的会话不受影响。',
+                '服务商配置写在 Pi 自己的配置文件里（${p.join(agentDir, 'models.json')} 和 auth.json），在终端里用 Pi 也能看到。'
+                '新填写的 API Key 用你的 Windows 账户加密保存。',
               ),
             ],
           ),
@@ -317,6 +363,71 @@ class _ValueChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [Text(text), const SizedBox(width: 4), Icon(Icons.expand_more, size: 16, color: colors.muted)],
       ),
+    );
+  }
+}
+
+/// Ordered list of fallback models.
+class _ChainDialog extends StatefulWidget {
+  const _ChainDialog({required this.models, required this.chain});
+
+  final List<PiModel> models;
+  final List<String> chain;
+
+  @override
+  State<_ChainDialog> createState() => _ChainDialogState();
+}
+
+class _ChainDialogState extends State<_ChainDialog> {
+  late final List<String> _chain = [...widget.chain];
+
+  String _name(String key) => widget.models.where((m) => m.key == key).firstOrNull?.name ?? key;
+
+  @override
+  Widget build(BuildContext context) {
+    final available = widget.models.where((m) => !_chain.contains(m.key)).toList();
+    return AlertDialog(
+      title: const Text('备用模型链'),
+      content: SizedBox(
+        width: 460,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('按顺序尝试：第一个是主模型，出错或限流时换下一个。'),
+            const SizedBox(height: AppTokens.gap),
+            for (final (i, key) in _chain.indexed)
+              ListTile(
+                dense: true,
+                leading: Text('${i + 1}'),
+                title: Text(_name(key)),
+                subtitle: Text(key),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: '上移',
+                      onPressed: i == 0 ? null : () => setState(() => _chain.insert(i - 1, _chain.removeAt(i))),
+                      icon: const Icon(Icons.arrow_upward, size: 16),
+                    ),
+                    IconButton(tooltip: '移除', onPressed: () => setState(() => _chain.removeAt(i)), icon: const Icon(Icons.close, size: 16)),
+                  ],
+                ),
+              ),
+            PopupMenuButton<String>(
+              enabled: available.isNotEmpty,
+              tooltip: '添加模型',
+              onSelected: (key) => setState(() => _chain.add(key)),
+              itemBuilder: (_) => [for (final m in available) PopupMenuItem(value: m.key, child: Text('${m.name}  ·  ${m.provider}'))],
+              child: const Padding(padding: EdgeInsets.all(8), child: Text('＋ 添加模型')),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(onPressed: () => Navigator.pop(context, _chain), child: const Text('保存')),
+      ],
     );
   }
 }

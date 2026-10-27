@@ -193,7 +193,7 @@ void main() {
     //    exchange, with the essay request back in the input box.
     // The long essay pushed the request off screen; scroll up to it first.
     final messages = find.descendant(of: find.byType(SelectionArea), matching: find.byType(Scrollable)).first;
-    await tester.scrollUntilVisible(find.byIcon(Icons.call_split), -300, scrollable: messages);
+    await tester.scrollUntilVisible(find.byIcon(Icons.call_split).last, -300, scrollable: messages);
     await tester.pump();
     await tester.tap(find.byIcon(Icons.call_split).last);
     await waitFor(tester, 'forked', () => agent.currentSessionPath != sessionA && agent.active == runtimeA, agent);
@@ -266,6 +266,53 @@ void main() {
     expect(reattached.transcript.items.whereType<UserItem>().last.text, contains('星空'));
     expect(lastText(agent), isNotEmpty);
     await shot(tester, '13_reattached_after_window_closed');
+
+    // 9. Edit the message in place: the new version sits next to the old one.
+    final starRequest = agent.transcript.items.whereType<UserItem>().last;
+    await tester.runAsync(() => agent.editMessage(starRequest));
+    await idle(tester);
+    expect(tester.widget<TextField>(composer).controller!.text, contains('星空'));
+    await sendMessage(tester, '改成写月亮，100 字以内，直接写，不要使用任何工具。');
+    await waitFor(tester, 'moon reply', () => !agent.isRunning && lastText(agent).isNotEmpty && agent.transcript.items.whereType<UserItem>().last.text.contains('月亮'), agent);
+    await waitFor(tester, 'version switcher', () => find.text('2/2').evaluate().isNotEmpty, agent);
+    await shot(tester, '14_versions');
+    await tester.tap(find.byTooltip('上一个版本'));
+    await waitFor(tester, 'back to version 1', () => agent.transcript.items.whereType<UserItem>().last.text.contains('星空') && find.text('1/2').evaluate().isNotEmpty, agent);
+    await shot(tester, '15_version_1');
+
+    // 10. Full-text search across sessions.
+    final searchBox = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '搜索所有会话');
+    await tester.enterText(searchBox, '星空');
+    await waitFor(tester, 'search hit', () => find.textContaining('我：', findRichText: true).evaluate().isNotEmpty, agent);
+    await shot(tester, '16_search');
+    await tester.enterText(searchBox, '');
+    await idle(tester);
+
+    // 11. Providers page: the configured provider answers a connection test.
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('管理服务商'));
+    await waitFor(tester, 'providers listed', () => find.text('测试连接').evaluate().isNotEmpty, agent);
+    await tester.tap(find.text('测试连接').first);
+    await waitFor(tester, 'connection ok', () => find.textContaining('连接正常').evaluate().isNotEmpty, agent);
+    await shot(tester, '17_providers');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // 12. Usage statistics include today's model responses.
+    await tester.tap(find.text('用量统计'));
+    await waitFor(tester, 'usage loaded', () => find.text('按模型').evaluate().isNotEmpty && find.textContaining('deepseek').evaluate().isNotEmpty, agent);
+    await shot(tester, '18_usage');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // 13. A temporary chat says so and is not saved.
+    await tester.tap(find.byTooltip('临时对话：不保存记录，也不读写记忆'));
+    await waitFor(tester, 'temporary chat', () => agent.active?.incognito == true && agent.isReady, agent);
+    expect(find.textContaining('临时对话：不会保存记录'), findsOneWidget);
+    await shot(tester, '19_temporary_chat');
 
     await agent.shutdownCore();
     agent.dispose();

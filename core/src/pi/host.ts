@@ -71,6 +71,8 @@ export interface OpenTarget {
 	cwd: string;
 	/** Existing session file to open; omitted = new session. */
 	sessionFile?: string;
+	/** Temporary chat: never written to disk (and so never indexed or remembered). */
+	inMemory?: boolean;
 }
 
 /**
@@ -79,9 +81,11 @@ export interface OpenTarget {
  * fork in place, recreating cwd-bound services as needed.
  */
 export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdentity, ui: UiBridge, target: OpenTarget): Promise<AgentSessionRuntime> {
-	const sessionManager = target.sessionFile
-		? SessionManager.open(target.sessionFile, config.sessionDir)
-		: SessionManager.create(target.cwd, config.sessionDir);
+	const sessionManager = target.inMemory
+		? SessionManager.inMemory(target.cwd)
+		: target.sessionFile
+			? SessionManager.open(target.sessionFile, config.sessionDir)
+			: SessionManager.create(target.cwd, config.sessionDir);
 
 	const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
 		const needsTrust = hasTrustRequiringProjectResources(cwd);

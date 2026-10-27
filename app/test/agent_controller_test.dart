@@ -403,4 +403,84 @@ void main() {
       agent.dispose();
     });
   });
+
+  group('v0.1.1 session management', () {
+    Json row(String name, {bool pinned = false, bool archived = false, int modified = 0}) => {
+      'path': p.join(sessions.path, '$name.jsonl'),
+      'cwd': Directory.systemTemp.path,
+      'title': name,
+      'modifiedAt': modified,
+      'createdAt': 0,
+      'pinned': pinned,
+      'archived': archived,
+    };
+
+    test('the sidebar comes from the core index, with pinned and archived sessions', () async {
+      backend.sessionRows = [row('old-pinned', pinned: true, modified: 1), row('recent', modified: 5), row('done', archived: true)];
+      final agent = await startController();
+      await agent.refreshSessions();
+      final entries = agent.sidebar;
+      expect(entries.map((e) => e.title), containsAll(['old-pinned', 'recent']));
+      expect(entries.where((e) => e.title == 'done'), isEmpty, reason: 'archived sessions are listed separately');
+      expect(entries.singleWhere((e) => e.title == 'old-pinned').pinned, isTrue);
+      expect(agent.archivedSessions.single.title, 'done');
+
+      await agent.setPinned(entries.singleWhere((e) => e.title == 'recent').path, true);
+      expect(backend.callsTo('sessions.setPinned').single['pinned'], isTrue);
+      agent.dispose();
+    });
+
+    test('search results come from the core', () async {
+      backend.searchHits = [
+        {'path': p.join(sessions.path, 'a.jsonl'), 'cwd': Directory.systemTemp.path, 'title': '季度报告', 'role': 'user', 'snippet': '写【季度报告】'},
+      ];
+      final agent = await startController();
+      final hits = await agent.searchSessions('季度报告');
+      expect(hits.single.title, '季度报告');
+      expect(backend.callsTo('sessions.search').single['query'], '季度报告');
+      agent.dispose();
+    });
+
+    test('edited messages show versions and can be switched in place', () async {
+      final agent = await startController();
+      final pi = pis.single
+        ..messages = [
+          {'role': 'user', 'content': 'first', 'timestamp': 1},
+          {'role': 'user', 'content': 'second v2', 'timestamp': 2},
+        ]
+        ..branches = [
+          {'entryId': 'u1', 'index': 0, 'total': 1, 'targets': <String>[]},
+          {'entryId': 'u2b', 'index': 1, 'total': 2, 'targets': ['leaf-a', 'leaf-b']},
+        ];
+      pi
+        ..startRun('x')
+        ..finishRun();
+      await pumpEventQueue();
+      agent.active!.transcript.loadHistory(pi.messages.map(AgentMessage.fromJson));
+      final users = agent.transcript.items.whereType<UserItem>().toList();
+      expect(agent.active!.branchFor(users.first)!.total, 1);
+      final second = agent.active!.branchFor(users.last)!;
+      expect((second.index, second.total), (1, 2));
+
+      await agent.switchVersion(users.last, 0);
+      expect(pi.commands.lastWhere((c) => c['type'] == 'df_navigate_tree')['entryId'], 'leaf-a');
+
+      pi.navigateText = 'second v2';
+      await agent.editMessage(agent.transcript.items.whereType<UserItem>().last);
+      expect(pi.commands.lastWhere((c) => c['type'] == 'df_navigate_tree')['entryId'], 'u2b');
+      expect(agent.active!.editorText, 'second v2');
+      agent.dispose();
+    });
+
+    test('a temporary chat is never reused as the blank session', () async {
+      final agent = await startController();
+      await agent.newTemporarySession();
+      expect(pis.last.target.incognito, isTrue);
+      expect(agent.active!.incognito, isTrue);
+      expect(agent.sidebar.where((e) => e.isActive).single.incognito, isTrue);
+      await agent.newSession();
+      expect(agent.active!.incognito, isFalse, reason: 'new session leaves the temporary chat');
+      agent.dispose();
+    });
+  });
 }

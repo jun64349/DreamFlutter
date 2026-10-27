@@ -16,6 +16,28 @@ enum ConnectionStatus {
   missingRuntime,
 }
 
+/// Versions of one user message: an edited and resent message is a sibling of
+/// the original in Pi's session tree (`df_branches` in the core).
+class MessageBranch {
+  const MessageBranch({required this.entryId, required this.index, required this.total, required this.targets});
+
+  factory MessageBranch.fromJson(Json json) => MessageBranch(
+    entryId: json['entryId'] as String? ?? '',
+    index: (json['index'] as num?)?.toInt() ?? 0,
+    total: (json['total'] as num?)?.toInt() ?? 1,
+    targets: (json['targets'] as List? ?? const []).whereType<String>().toList(),
+  );
+
+  final String entryId;
+
+  /// 0-based position among the versions, oldest first.
+  final int index;
+  final int total;
+
+  /// Where to navigate to show each version (its latest continuation).
+  final List<String> targets;
+}
+
 /// Opens or attaches to a session. The real one runs it in the core; tests
 /// substitute a fake Pi.
 typedef ClientLauncher = LaunchedSession Function(SessionTarget target);
@@ -33,12 +55,16 @@ class SessionRuntime extends ChangeNotifier {
     this.onAttention,
     this.onModelChosen,
     this.onThinkingChosen,
+    this.incognito = false,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now,
        lastActivity = (clock ?? DateTime.now)();
 
   /// The agent's working directory.
   final String workspace;
+
+  /// Temporary chat: kept in memory only, never saved, indexed or remembered.
+  final bool incognito;
   final ClientLauncher launch;
   final DateTime Function() _clock;
   final void Function(String message) onToast;
@@ -96,6 +122,9 @@ class SessionRuntime extends ChangeNotifier {
   bool get isReady => status == ConnectionStatus.ready;
   bool get isDisposed => _disposed;
 
+  /// Versions of the user messages on the active branch, oldest first.
+  List<MessageBranch> branches = const [];
+
   /// The core slot hosting this session (null for test doubles).
   String? get slotId => _launched?.slotId?.call();
 
@@ -130,7 +159,9 @@ class SessionRuntime extends ChangeNotifier {
     _notifyNow();
 
     try {
-      final launched = launch(SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId));
+      final launched = launch(
+        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito),
+      );
       final client = launched.client;
       _launched = launched;
       _client = client;
@@ -155,6 +186,7 @@ class SessionRuntime extends ChangeNotifier {
       if (sessionPath != null || attachSlotId != null) transcript.loadHistory(await client.getMessages());
       launched.afterHistory();
       await _refreshState(client);
+      await _refreshBranches();
       status = ConnectionStatus.ready;
     } catch (e) {
       status = ConnectionStatus.crashed;
@@ -236,6 +268,7 @@ class SessionRuntime extends ChangeNotifier {
     if (client == null) return;
     try {
       await _refreshState(client);
+      await _refreshBranches();
     } catch (_) {}
     _notifyNow();
     onSettled?.call(this);
@@ -423,6 +456,93 @@ class SessionRuntime extends ChangeNotifier {
     _notifyNow();
   }
 
+  // --- Versions within the session (tree navigation) -------------------------
+
+  Future<void> _refreshBranches() async {
+    final client = _client;
+    if (client == null) return;
+    try {
+      final data = await client.send('df_branches');
+      branches = ((data as Map?)?['branches'] as List? ?? const []).whereType<Map>().map((b) => MessageBranch.fromJson(b.cast<String, dynamic>())).toList();
+    } catch (_) {
+      branches = const []; // older cores and test doubles have no tree info
+    }
+  }
+
+  /// Version info for [item]. History may be compacted, so the transcript's
+  /// user messages are matched to the active branch from the end.
+  MessageBranch? branchFor(UserItem item) {
+    final users = transcript.items.whereType<UserItem>().toList();
+    final fromEnd = users.length - 1 - users.indexOf(item);
+    if (fromEnd < 0 || fromEnd >= users.length) return null;
+    final index = branches.length - 1 - fromEnd;
+    return index >= 0 && index < branches.length ? branches[index] : null;
+  }
+
+  Future<bool> _navigate(String entryId) async {
+    final client = _client;
+    if (client == null || !isReady || isRunning) return false;
+    final data = (await client.send('df_navigate_tree', {'entryId': entryId}, const Duration(minutes: 2))) as Map?;
+    if (data?['cancelled'] == true) return false;
+    transcript.loadHistory(await client.getMessages());
+    await _refreshState(client);
+    await _refreshBranches();
+    final text = data?['editorText'];
+    if (text is String) _setEditorText(text);
+    _touch();
+    return true;
+  }
+
+  /// Shows another version of an edited message (and what followed it).
+  Future<void> switchVersion(UserItem item, int index) async {
+    final branch = branchFor(item);
+    if (branch == null || index < 0 || index >= branch.targets.length || index == branch.index) return;
+    try {
+      // Navigating to a leaf continues after it, so the editor stays empty.
+      await _navigate(branch.targets[index]);
+      _setEditorText('');
+    } catch (e) {
+      onToast('切换版本失败：${describeError(e)}');
+    } finally {
+      _notifyNow();
+    }
+  }
+
+  /// Puts [item] back in the input box to edit; sending it adds a new version
+  /// next to the original instead of replacing it.
+  Future<bool> editMessage(UserItem item) async {
+    final branch = branchFor(item);
+    if (branch == null) return false;
+    try {
+      return await _navigate(branch.entryId);
+    } catch (e) {
+      onToast('编辑失败：${describeError(e)}');
+      return false;
+    } finally {
+      _notifyNow();
+    }
+  }
+
+  /// Asks the same question again as a new version of [item].
+  Future<void> regenerate(UserItem item) async {
+    if (!await editMessage(item)) return;
+    final text = editorText;
+    _setEditorText('');
+    _notifyNow();
+    await send(text, images: item.images);
+  }
+
+  /// Writes the active branch to [outputPath] as Markdown, HTML or JSONL.
+  Future<String?> export(String format, String outputPath) async {
+    try {
+      final data = (await command('df_export', {'format': format, 'outputPath': outputPath})) as Map?;
+      return data?['path'] as String?;
+    } catch (e) {
+      onToast('导出失败：${describeError(e)}');
+      return null;
+    }
+  }
+
   Future<void> abort() async {
     try {
       await _client?.abort();
@@ -438,6 +558,7 @@ class SessionRuntime extends ChangeNotifier {
     try {
       if (!await client.newSession()) return false;
       transcript.clear();
+      branches = const [];
       await _refreshState(client);
       _touch();
       return true;
@@ -459,6 +580,7 @@ class SessionRuntime extends ChangeNotifier {
       if (!await client.switchSession(path)) return false;
       transcript.loadHistory(await client.getMessages());
       await _refreshState(client);
+      await _refreshBranches();
       _touch();
       return true;
     } catch (e) {

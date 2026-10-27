@@ -24,6 +24,8 @@ class SidebarEntry {
     required this.hasError,
     this.needsAttention = false,
     this.isFork = false,
+    this.pinned = false,
+    this.incognito = false,
   });
 
   final String path;
@@ -41,6 +43,33 @@ class SidebarEntry {
 
   /// Created by forking or cloning another session.
   final bool isFork;
+  final bool pinned;
+
+  /// Temporary chat (not saved).
+  final bool incognito;
+}
+
+/// A full-text search hit from the core's session index.
+class SearchHit {
+  const SearchHit({required this.path, required this.cwd, required this.title, required this.role, required this.snippet, this.modifiedAt});
+
+  factory SearchHit.fromJson(Json json) => SearchHit(
+    path: json['path'] as String? ?? '',
+    cwd: json['cwd'] as String?,
+    title: json['title'] as String? ?? '',
+    role: json['role'] as String? ?? '',
+    snippet: json['snippet'] as String? ?? '',
+    modifiedAt: json['modifiedAt'] is num ? DateTime.fromMillisecondsSinceEpoch((json['modifiedAt'] as num).toInt()) : null,
+  );
+
+  final String path;
+  final String? cwd;
+  final String title;
+  final String role;
+
+  /// Matched text; the match is wrapped in 【】.
+  final String snippet;
+  final DateTime? modifiedAt;
 }
 
 /// A run the previous core process left unfinished (shown as a resume card).
@@ -108,6 +137,10 @@ class AgentController extends ChangeNotifier {
   SessionRuntime? _active;
   String workspace = '';
   List<SessionSummary> _diskSessions = const [];
+  Set<String> _pinned = const {};
+
+  /// Archived sessions of the workspace (shown on request).
+  List<SessionSummary> archivedSessions = const [];
 
   /// Last `core.hello` (version, pid, data dir...), for the settings page.
   Json coreInfo = const {};
@@ -187,6 +220,7 @@ class AgentController extends ChangeNotifier {
         isRunning: false,
         hasUnseenResult: _unseen.contains(_key(s.path)),
         hasError: false,
+        pinned: _pinned.contains(_key(s.path)),
       );
     }
     for (final runtime in _runtimes) {
@@ -194,6 +228,7 @@ class AgentController extends ChangeNotifier {
       if (path == null || !SessionStore.samePath(runtime.workspace, workspace)) continue;
       final isActive = runtime == _active;
       if (runtime.isPristine && !isActive) continue;
+      if (!isActive && archivedSessions.any((a) => _key(a.path) == _key(path))) continue;
       final disk = byPath[_key(path)];
       final diskSummary = _diskSessions.where((s) => _key(s.path) == _key(path)).firstOrNull;
       byPath[_key(path)] = SidebarEntry(
@@ -206,6 +241,8 @@ class AgentController extends ChangeNotifier {
         isRunning: runtime.isRunning,
         hasUnseenResult: _unseen.contains(_key(path)),
         hasError: runtime.status == ConnectionStatus.crashed,
+        pinned: _pinned.contains(_key(path)),
+        incognito: runtime.incognito,
       );
     }
     return byPath.values.toList()..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
@@ -223,7 +260,7 @@ class AgentController extends ChangeNotifier {
     final hello = await _connect();
     if (hello == null) return;
     await _attachLiveSlots(hello);
-    final blank = _runtimes.where((r) => r.isPristine && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
+    final blank = _runtimes.where((r) => r.isPristine && !r.incognito && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
     await _activate(blank ?? await _spawn());
     unawaited(refreshSessions());
   }
@@ -277,7 +314,7 @@ class AgentController extends ChangeNotifier {
       final cwd = info['cwd'] as String?;
       if (slotId == null || cwd == null || info['unattended'] == true) continue;
       if (_runtimes.any((r) => r.slotId == slotId)) continue;
-      final runtime = _newRuntime(cwd);
+      final runtime = _newRuntime(cwd, incognito: info['incognito'] == true);
       await runtime.start(attachSlotId: slotId);
       if (runtime.status != ConnectionStatus.ready) _close(runtime);
     }
@@ -325,9 +362,10 @@ class AgentController extends ChangeNotifier {
     super.dispose();
   }
 
-  SessionRuntime _newRuntime(String cwd) {
+  SessionRuntime _newRuntime(String cwd, {bool incognito = false}) {
     final runtime = SessionRuntime(
       workspace: cwd,
+      incognito: incognito,
       launch: backend.launch,
       onToast: _toast,
       onSettled: _onRuntimeSettled,
@@ -342,9 +380,9 @@ class AgentController extends ChangeNotifier {
   }
 
   /// Opens a session for [cwd] (default: the workspace) in the core.
-  Future<SessionRuntime> _spawn({String? sessionPath, String? cwd}) async {
+  Future<SessionRuntime> _spawn({String? sessionPath, String? cwd, bool incognito = false}) async {
     reapIdle(makeRoomForOne: true);
-    final runtime = _newRuntime(cwd ?? workspace);
+    final runtime = _newRuntime(cwd ?? workspace, incognito: incognito);
     // Show the new session right away (with its startup spinner) instead of
     // leaving the previous one on screen while it opens.
     _active = runtime;
@@ -431,10 +469,12 @@ class AgentController extends ChangeNotifier {
   /// Starts a new session. A running session keeps running in the background.
   Future<void> newSession() async {
     final current = _active;
-    if (current != null && current.isPristine && current.isReady) return; // already on a blank session
-    final idleOther = _runtimes.where((r) => r != current && r.isPristine && r.isReady && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
+    if (current != null && current.isPristine && current.isReady && !current.incognito) return; // already on a blank session
+    final idleOther = _runtimes
+        .where((r) => r != current && r.isPristine && r.isReady && !r.incognito && SessionStore.samePath(r.workspace, workspace))
+        .firstOrNull;
     if (idleOther != null) return _activate(idleOther);
-    if (current != null && current.isReady && !current.isRunning && SessionStore.samePath(current.workspace, workspace)) {
+    if (current != null && current.isReady && !current.isRunning && !current.incognito && SessionStore.samePath(current.workspace, workspace)) {
       await current.newSessionInPlace();
       _notify();
       return;
@@ -493,9 +533,28 @@ class AgentController extends ChangeNotifier {
 
   Future<void> refreshSessions() async {
     try {
-      _diskSessions = await sessionStore.list(cwd: workspace);
+      final rows = await backend.call('sessions.list', {'cwd': workspace, 'archived': 'include'});
+      if (rows is! List) throw StateError('no index');
+      final all = rows.whereType<Map>().map((r) => r.cast<String, dynamic>()).toList();
+      SessionSummary summary(Json r) => SessionSummary(
+        path: r['path'] as String,
+        id: r['sessionId'] as String? ?? '',
+        cwd: r['cwd'] as String? ?? workspace,
+        title: r['title'] as String? ?? '新会话',
+        createdAt: DateTime.fromMillisecondsSinceEpoch((r['createdAt'] as num?)?.toInt() ?? 0),
+        modifiedAt: DateTime.fromMillisecondsSinceEpoch((r['modifiedAt'] as num?)?.toInt() ?? 0),
+        parentSession: r['parentSession'] as String?,
+      );
+      _diskSessions = [for (final r in all) if (r['archived'] != true) summary(r)];
+      archivedSessions = [for (final r in all) if (r['archived'] == true) summary(r)];
+      _pinned = {for (final r in all) if (r['pinned'] == true) _key(r['path'] as String)};
     } catch (_) {
-      _diskSessions = const [];
+      // No core index (older core, tests): read the files directly.
+      try {
+        _diskSessions = await sessionStore.list(cwd: workspace);
+      } catch (_) {
+        _diskSessions = const [];
+      }
     }
     try {
       final seen = <String>{};
@@ -520,6 +579,71 @@ class AgentController extends ChangeNotifier {
       _toast('无法打开文件夹：$e');
     }
   }
+
+  /// Starts a temporary chat: kept in memory only, never saved or remembered.
+  Future<void> newTemporarySession() async {
+    final runtime = await _spawn(incognito: true);
+    await _activate(runtime);
+  }
+
+  /// Full-text search over every session (all branches), newest workspace first.
+  Future<List<SearchHit>> searchSessions(String query, {bool thisWorkspaceOnly = false}) async {
+    if (query.trim().isEmpty) return const [];
+    try {
+      final hits = await backend.call('sessions.search', {'query': query.trim(), if (thisWorkspaceOnly) 'cwd': workspace});
+      return hits is List ? hits.whereType<Map>().map((h) => SearchHit.fromJson(h.cast<String, dynamic>())).toList() : const [];
+    } catch (e) {
+      _toast('搜索失败：${SessionRuntime.describeError(e)}');
+      return const [];
+    }
+  }
+
+  /// Opens a search hit, switching workspace when it belongs to another one.
+  Future<void> openSearchHit(SearchHit hit) async {
+    final cwd = hit.cwd;
+    if (cwd != null && !SessionStore.samePath(cwd, workspace) && Directory(cwd).existsSync()) await setWorkspace(cwd);
+    await openSession(hit.path);
+  }
+
+  Future<void> setPinned(String path, bool pinned) => _sessionFlag('sessions.setPinned', {'path': path, 'pinned': pinned});
+
+  Future<void> setArchived(String path, bool archived) async {
+    await _sessionFlag('sessions.setArchived', {'path': path, 'archived': archived});
+    if (archived && _active?.sessionPath != null && SessionStore.samePath(_active!.sessionPath!, path)) await newSession();
+  }
+
+  Future<void> _sessionFlag(String method, Json params) async {
+    try {
+      await backend.call(method, params);
+    } catch (e) {
+      _toast('操作失败：${SessionRuntime.describeError(e)}');
+    }
+    await refreshSessions();
+  }
+
+  /// Exports the session at [path] (opening it first if needed).
+  Future<String?> exportSession(String path, String format, String outputPath) async {
+    var runtime = _liveRuntimeFor(path);
+    if (runtime == null) {
+      await openSession(path);
+      runtime = _active;
+    }
+    return runtime?.export(format, outputPath);
+  }
+
+  Future<void> editMessage(UserItem item) async {
+    final runtime = _active;
+    if (runtime == null || runtime.isRunning) return;
+    await runtime.editMessage(item);
+  }
+
+  Future<void> regenerate(UserItem item) async {
+    final runtime = _active;
+    if (runtime == null || runtime.isRunning) return;
+    await runtime.regenerate(item);
+  }
+
+  Future<void> switchVersion(UserItem item, int index) async => _active?.switchVersion(item, index);
 
   // --- Interrupted runs ------------------------------------------------------
 

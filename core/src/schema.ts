@@ -110,4 +110,58 @@ export const MIGRATIONS: string[] = [
 	);
 	CREATE INDEX usage_records_at ON usage_records(at);
 	`,
+	// 3: long-term memory, memory blocks, snapshots; proposals waiting for the user.
+	`
+	CREATE TABLE memories (
+		id TEXT PRIMARY KEY,
+		scope TEXT NOT NULL,
+		cwd TEXT,
+		kind TEXT NOT NULL,
+		content TEXT NOT NULL,
+		source TEXT NOT NULL,
+		source_session TEXT,
+		status TEXT NOT NULL,
+		action TEXT,
+		target_id TEXT,
+		replaced_by TEXT,
+		reason TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+	CREATE INDEX memories_status ON memories(status, updated_at);
+
+	CREATE TABLE memory_blocks (
+		key TEXT PRIMARY KEY,
+		content TEXT NOT NULL DEFAULT '',
+		locked INTEGER NOT NULL DEFAULT 0,
+		updated_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE memory_snapshots (
+		session_id TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		content TEXT NOT NULL,
+		memory_ids TEXT NOT NULL,
+		PRIMARY KEY (session_id, created_at)
+	);
+
+	CREATE TABLE memory_extraction (
+		session_id TEXT PRIMARY KEY,
+		message_count INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE proposals (
+		id TEXT PRIMARY KEY,
+		kind TEXT NOT NULL,
+		title TEXT NOT NULL,
+		payload TEXT NOT NULL,
+		status TEXT NOT NULL,
+		source_session TEXT,
+		cwd TEXT,
+		created_at INTEGER NOT NULL,
+		resolved_at INTEGER
+	);
+	CREATE INDEX proposals_status ON proposals(status, created_at);
+	`,
 ];

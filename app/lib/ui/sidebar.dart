@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -33,13 +35,25 @@ class Sidebar extends StatelessWidget {
           const SizedBox(height: AppTokens.padLg),
           const WorkspaceSwitcher(),
           const SizedBox(height: AppTokens.gap),
-          FilledButton.tonalIcon(
-            onPressed: agent.status == ConnectionStatus.missingRuntime ? null : agent.newSession,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('新会话'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: agent.status == ConnectionStatus.missingRuntime ? null : agent.newSession,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('新会话'),
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton.filledTonal(
+                tooltip: '临时对话：不保存记录，也不读写记忆',
+                onPressed: agent.status == ConnectionStatus.missingRuntime ? null : agent.newTemporarySession,
+                icon: const Icon(Icons.visibility_off_outlined, size: 18),
+              ),
+            ],
           ),
-          const SizedBox(height: AppTokens.pad),
-          Expanded(child: _SessionList(entries: agent.sidebar)),
+          const SizedBox(height: AppTokens.gap),
+          const Expanded(child: _SessionPane()),
           const Divider(),
           const SizedBox(height: 4),
           _FooterButton(
@@ -193,10 +207,165 @@ class _WorkspaceRow extends StatelessWidget {
 // Session list
 // ---------------------------------------------------------------------------
 
+/// Search box above either the session list or the search results.
+class _SessionPane extends StatefulWidget {
+  const _SessionPane();
+
+  @override
+  State<_SessionPane> createState() => _SessionPaneState();
+}
+
+class _SessionPaneState extends State<_SessionPane> {
+  final _query = TextEditingController();
+  Timer? _debounce;
+  List<SearchHit>? _hits;
+  var _searching = false;
+  var _showArchived = false;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _query.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(String text) {
+    _debounce?.cancel();
+    if (text.trim().isEmpty) {
+      setState(() => _hits = null);
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      setState(() => _searching = true);
+      final hits = await AgentScope.read(context).searchSessions(text);
+      if (!mounted || _query.text != text) return;
+      setState(() {
+        _hits = hits;
+        _searching = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final colors = context.colors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 34,
+          child: TextField(
+            controller: _query,
+            onChanged: _onChanged,
+            style: context.text.bodySmall,
+            decoration: InputDecoration(
+              hintText: '搜索所有会话',
+              isDense: true,
+              prefixIcon: const Icon(Icons.search, size: 16),
+              prefixIconConstraints: const BoxConstraints(minWidth: 32),
+              suffixIcon: _query.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: '清除',
+                      iconSize: 14,
+                      onPressed: () {
+                        _query.clear();
+                        _onChanged('');
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+            ),
+          ),
+        ),
+        const SizedBox(height: AppTokens.gap),
+        Expanded(
+          child: _hits != null || _searching
+              ? _SearchResults(hits: _hits ?? const [], searching: _searching)
+              : _SessionList(entries: agent.sidebar, archived: _showArchived ? agent.archivedSessions : null),
+        ),
+        if (_hits == null && agent.archivedSessions.isNotEmpty)
+          TextButton.icon(
+            style: TextButton.styleFrom(alignment: Alignment.centerLeft, foregroundColor: colors.muted),
+            onPressed: () => setState(() => _showArchived = !_showArchived),
+            icon: Icon(_showArchived ? Icons.expand_less : Icons.inventory_2_outlined, size: 16),
+            label: Text(_showArchived ? '收起已归档' : '已归档（${agent.archivedSessions.length}）'),
+          ),
+      ],
+    );
+  }
+}
+
+class _SearchResults extends StatelessWidget {
+  const _SearchResults({required this.hits, required this.searching});
+
+  final List<SearchHit> hits;
+  final bool searching;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    if (searching && hits.isEmpty) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    if (hits.isEmpty) return Text('没有找到', style: context.text.bodySmall?.copyWith(color: colors.muted));
+    final agent = AgentScope.read(context);
+    return ListView(
+      children: [
+        for (final hit in hits)
+          InkWell(
+            borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+            onTap: () => agent.openSearchHit(hit),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(hit.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 2),
+                  _Snippet(text: hit.snippet, prefix: hit.role == 'user' ? '我：' : 'Agent：'),
+                  if (hit.cwd != null && !SessionStore.samePath(hit.cwd!, agent.workspace))
+                    Text('工作区：${p.basename(hit.cwd!)}', style: context.text.labelSmall?.copyWith(color: colors.muted)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Search snippet with the match (wrapped in 【】 by the core) highlighted.
+class _Snippet extends StatelessWidget {
+  const _Snippet({required this.text, required this.prefix});
+
+  final String text;
+  final String prefix;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final base = context.text.bodySmall?.copyWith(color: colors.muted);
+    final spans = <TextSpan>[TextSpan(text: prefix)];
+    final pattern = RegExp('【(.*?)】');
+    var last = 0;
+    for (final match in pattern.allMatches(text)) {
+      spans.add(TextSpan(text: text.substring(last, match.start)));
+      spans.add(TextSpan(text: match.group(1), style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600)));
+      last = match.end;
+    }
+    spans.add(TextSpan(text: text.substring(last)));
+    return Text.rich(TextSpan(style: base, children: spans), maxLines: 2, overflow: TextOverflow.ellipsis);
+  }
+}
+
 class _SessionList extends StatelessWidget {
-  const _SessionList({required this.entries});
+  const _SessionList({required this.entries, this.archived});
 
   final List<SidebarEntry> entries;
+
+  /// Archived sessions to list below the others (null = hidden).
+  final List<SessionSummary>? archived;
 
   static String _group(DateTime time) {
     final now = DateTime.now();
@@ -212,7 +381,8 @@ class _SessionList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (entries.isEmpty) {
+    final archived = this.archived;
+    if (entries.isEmpty && (archived?.isEmpty ?? true)) {
       return Padding(
         padding: const EdgeInsets.only(top: AppTokens.pad),
         child: Text('这个工作区还没有会话', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
@@ -220,8 +390,9 @@ class _SessionList extends StatelessWidget {
     }
     final rows = <Widget>[];
     String? lastGroup;
-    for (final entry in entries) {
-      final group = _group(entry.modifiedAt);
+    final ordered = [...entries.where((e) => e.pinned), ...entries.where((e) => !e.pinned)];
+    for (final entry in ordered) {
+      final group = entry.pinned ? '置顶' : _group(entry.modifiedAt);
       if (group != lastGroup) {
         rows.add(
           Padding(
@@ -233,14 +404,39 @@ class _SessionList extends StatelessWidget {
       }
       rows.add(_SessionTile(entry: entry));
     }
+    if (archived != null && archived.isNotEmpty) {
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(6, 14, 6, 4),
+          child: Text('已归档', style: context.text.labelSmall?.copyWith(color: context.colors.muted)),
+        ),
+      );
+      for (final s in archived) {
+        rows.add(
+          _SessionTile(
+            entry: SidebarEntry(
+              path: s.path,
+              title: s.title,
+              modifiedAt: s.modifiedAt,
+              isActive: false,
+              isRunning: false,
+              hasUnseenResult: false,
+              hasError: false,
+            ),
+            archived: true,
+          ),
+        );
+      }
+    }
     return ListView(children: rows);
   }
 }
 
 class _SessionTile extends StatefulWidget {
-  const _SessionTile({required this.entry});
+  const _SessionTile({required this.entry, this.archived = false});
 
   final SidebarEntry entry;
+  final bool archived;
 
   @override
   State<_SessionTile> createState() => _SessionTileState();
@@ -256,11 +452,23 @@ class _SessionTileState extends State<_SessionTile> {
     final choice = await showMenu<String>(
       context: context,
       position: RelativeRect.fromRect(position & const Size(1, 1), Offset.zero & overlay.size),
-      items: const [
-        PopupMenuItem(value: 'rename', child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('重命名'))),
-        PopupMenuItem(value: 'clone', child: ListTile(dense: true, leading: Icon(Icons.copy_all_outlined), title: Text('复制为新会话'))),
-        PopupMenuDivider(),
-        PopupMenuItem(value: 'delete', child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除（移到回收站）'))),
+      items: [
+        if (!entry.incognito) ...[
+          PopupMenuItem(
+            value: 'pin',
+            child: ListTile(dense: true, leading: Icon(entry.pinned ? Icons.push_pin : Icons.push_pin_outlined), title: Text(entry.pinned ? '取消置顶' : '置顶')),
+          ),
+          const PopupMenuItem(value: 'rename', child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('重命名'))),
+          const PopupMenuItem(value: 'clone', child: ListTile(dense: true, leading: Icon(Icons.copy_all_outlined), title: Text('复制为新会话'))),
+          const PopupMenuItem(value: 'export_md', child: ListTile(dense: true, leading: Icon(Icons.description_outlined), title: Text('导出为 Markdown'))),
+          const PopupMenuItem(value: 'export_html', child: ListTile(dense: true, leading: Icon(Icons.html_outlined), title: Text('导出为网页（HTML）'))),
+          PopupMenuItem(
+            value: 'archive',
+            child: ListTile(dense: true, leading: const Icon(Icons.inventory_2_outlined), title: Text(widget.archived ? '取消归档' : '归档')),
+          ),
+          const PopupMenuDivider(),
+        ],
+        const PopupMenuItem(value: 'delete', child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除（移到回收站）'))),
       ],
     );
     if (!mounted || choice == null) return;
@@ -272,6 +480,26 @@ class _SessionTileState extends State<_SessionTile> {
         await agent.cloneSession(entry.path);
       case 'delete':
         if (await _confirmDelete(context, entry.title)) await agent.deleteSession(entry.path);
+      case 'pin':
+        await agent.setPinned(entry.path, !entry.pinned);
+      case 'archive':
+        await agent.setArchived(entry.path, !widget.archived);
+      case 'export_md' || 'export_html':
+        final markdown = choice == 'export_md';
+        final location = await getSaveLocation(
+          suggestedName: '${entry.title.replaceAll(RegExp(r'[\\/:*?"<>|\s]+'), '_')}.${markdown ? 'md' : 'html'}',
+          acceptedTypeGroups: [markdown ? const XTypeGroup(label: 'Markdown', extensions: ['md']) : const XTypeGroup(label: '网页', extensions: ['html'])],
+        );
+        if (location == null) return;
+        final path = await agent.exportSession(entry.path, markdown ? 'markdown' : 'html', location.path);
+        if (path != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('已导出：$path'),
+              action: SnackBarAction(label: '打开所在文件夹', onPressed: () => agent.revealInExplorer(p.dirname(path))),
+            ),
+          );
+        }
     }
   }
 
@@ -319,6 +547,10 @@ class _SessionTileState extends State<_SessionTile> {
                 padding: const EdgeInsets.fromLTRB(8, 7, 4, 7),
                 child: Row(
                   children: [
+                    if (entry.incognito) ...[
+                      Tooltip(message: '临时对话，不会保存', child: Icon(Icons.visibility_off_outlined, size: 14, color: colors.muted)),
+                      const SizedBox(width: 4),
+                    ],
                     if (entry.isFork) ...[
                       Tooltip(message: '从其他会话分叉或复制而来', child: Icon(Icons.call_split, size: 14, color: colors.muted)),
                       const SizedBox(width: 4),
