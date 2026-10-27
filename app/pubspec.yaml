@@ -1,0 +1,28 @@
+name: dreamflutter
+description: "Personal AI agent desktop app on the Pi runtime"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  pi_rpc:
+    path: ../packages/pi_rpc
+  file_selector: ^1.1.0
+  flutter_markdown_plus: ^1.0.12
+  path: ^1.9.1
+  shared_preferences: ^2.5.6
+  url_launcher: ^6.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

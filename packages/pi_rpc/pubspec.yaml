@@ -1,0 +1,14 @@
+name: pi_rpc
+description: Typed Dart client for the Pi agent RPC protocol (`pi --mode rpc`), plus transcript folding and session discovery.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  path: ^1.9.1
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.33.0

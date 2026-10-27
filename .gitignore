@@ -1,0 +1,6 @@
+node_modules/
+*.log
+# Flutter
+app/build/
+app/.dart_tool/
+packages/*/.dart_tool/
