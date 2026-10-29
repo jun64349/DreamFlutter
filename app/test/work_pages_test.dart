@@ -155,6 +155,52 @@ void main() {
     expect(agent.section, AppSection.memory);
   });
 
+  testWidgets('schedules: create with the editor, approve a proposal, run now', (tester) async {
+    await startApp(tester);
+    var schedules = <Json>[
+      {'id': 's1', 'name': '每天天气', 'prompt': '查天气', 'cwd': Directory.systemTemp.path, 'kind': 'report', 'trigger': {'type': 'cron', 'cron': '0 8 * * *'}, 'status': 'pending_approval', 'describe': '按日历：0 8 * * *', 'createdBy': 'agent'},
+      {'id': 's2', 'name': '看新闻', 'prompt': '看新闻', 'cwd': Directory.systemTemp.path, 'kind': 'task', 'trigger': {'type': 'interval', 'everyMs': 3600000}, 'status': 'active', 'describe': '每 1 小时', 'nextRunAt': 1},
+    ];
+    backend.handlers.addAll({
+      'schedules.list': (_) => schedules,
+      'schedules.defaults': (_) => {'timezone': 'Asia/Shanghai'},
+      'schedules.preview': (_) => {'error': null, 'next': [1, 2, 3]},
+      'schedules.save': (p) => {...p, 'id': 's3'},
+      'schedules.setStatus': (p) {
+        schedules = [for (final s in schedules) s['id'] == p['id'] ? {...s, 'status': p['status']} : s];
+        return {'ok': true};
+      },
+      'schedules.runNow': (_) => {'ok': true},
+    });
+    await tester.tap(find.text('任务').first);
+    await settle(tester);
+    await tester.tap(find.text('定时'));
+    await settle(tester);
+    expect(find.text('每天天气'), findsOneWidget);
+    expect(find.text('等你批准'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, '批准'));
+    await settle(tester);
+    expect(backend.callsTo('schedules.setStatus').single, {'id': 's1', 'status': 'active'});
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '立即运行').last);
+    await settle(tester);
+    expect(backend.callsTo('schedules.runNow').single, {'id': 's2'});
+
+    await tester.tap(find.text('新建定时任务'));
+    await settle(tester);
+    await tester.enterText(find.widgetWithText(TextField, '名称'), '周报提醒');
+    await tester.enterText(find.widgetWithText(TextField, '每次要做的事'), '提醒我写周报');
+    await tester.tap(find.text('工作日 9:00'));
+    await settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await settle(tester);
+    final saved = backend.callsTo('schedules.save').single;
+    expect(saved['name'], '周报提醒');
+    expect(saved['trigger'], {'type': 'cron', 'cron': '0 9 * * 1-5', 'timezone': 'Asia/Shanghai'});
+    expect(saved['allowedTools'], isNull);
+  });
+
   testWidgets('a limit notice from the core is announced', (tester) async {
     await startApp(tester);
     backend.push({

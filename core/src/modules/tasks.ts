@@ -164,6 +164,8 @@ export class TasksModule implements CoreModule {
 	private budgetOverrideDay = 0;
 	/** Runs already stopped by a limit (one card per run). */
 	private readonly stoppedRuns = new Set<string>();
+	/** Other modules' items for the inbox (e.g. schedules waiting for approval). */
+	private readonly inboxSources: (() => Record<string, unknown>[])[] = [];
 
 	constructor(core: Core) {
 		this.core = core;
@@ -606,6 +608,10 @@ export class TasksModule implements CoreModule {
 
 	// ---- inbox -------------------------------------------------------------------------
 
+	addInboxSource(source: () => Record<string, unknown>[]): void {
+		this.inboxSources.push(source);
+	}
+
 	/** Everything waiting for the user, newest first. */
 	inbox(): Record<string, unknown>[] {
 		const items: Record<string, unknown>[] = [];
@@ -622,6 +628,7 @@ export class TasksModule implements CoreModule {
 		for (const r of this.core.runs.unacknowledgedInterrupted()) {
 			items.push({ kind: "interrupted", id: r.id, title: r.prompt ?? "被中断的任务", createdAt: r.startedAt, cwd: r.cwd, sessionFile: r.sessionFile, data: r });
 		}
+		for (const source of this.inboxSources) items.push(...source());
 		return items.sort((a, b) => (b.createdAt as number) - (a.createdAt as number));
 	}
 

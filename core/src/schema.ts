@@ -246,4 +246,63 @@ export const MIGRATIONS: string[] = [
 	);
 	CREATE INDEX notices_status ON notices(status, created_at);
 	`,
+	// 5: scheduled tasks - schedules, their runs (one per claimed trigger) and deliveries.
+	`
+	CREATE TABLE schedules (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		prompt TEXT NOT NULL,
+		cwd TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		trigger TEXT NOT NULL,
+		missed_policy TEXT NOT NULL,
+		session_mode TEXT NOT NULL,
+		session_file TEXT,
+		allowed_tools TEXT,
+		state TEXT NOT NULL DEFAULT '{}',
+		status TEXT NOT NULL,
+		version INTEGER NOT NULL DEFAULT 1,
+		next_run_at INTEGER,
+		last_run_at INTEGER,
+		pending_at INTEGER,
+		created_by TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+	CREATE INDEX schedules_due ON schedules(status, next_run_at);
+
+	CREATE TABLE schedule_runs (
+		id TEXT PRIMARY KEY,
+		schedule_id TEXT NOT NULL,
+		trigger_key TEXT NOT NULL UNIQUE,
+		version INTEGER NOT NULL,
+		scheduled_at INTEGER,
+		started_at INTEGER,
+		ended_at INTEGER,
+		manual INTEGER NOT NULL DEFAULT 0,
+		catch_up INTEGER NOT NULL DEFAULT 0,
+		status TEXT NOT NULL,
+		attempt INTEGER NOT NULL DEFAULT 1,
+		retry_at INTEGER,
+		task_id TEXT,
+		session_file TEXT,
+		result TEXT,
+		error TEXT,
+		note TEXT,
+		external_effects INTEGER NOT NULL DEFAULT 0,
+		cost REAL NOT NULL DEFAULT 0
+	);
+	CREATE INDEX schedule_runs_schedule ON schedule_runs(schedule_id, scheduled_at);
+	CREATE INDEX schedule_runs_status ON schedule_runs(status, retry_at);
+
+	CREATE TABLE deliveries (
+		id TEXT PRIMARY KEY,
+		run_id TEXT NOT NULL,
+		channel TEXT NOT NULL,
+		status TEXT NOT NULL,
+		detail TEXT,
+		created_at INTEGER NOT NULL
+	);
+	CREATE INDEX deliveries_run ON deliveries(run_id);
+	`,
 ];

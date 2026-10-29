@@ -69,6 +69,8 @@ export interface CoreModule {
 	onSlotChanged?(slot: Slot): void;
 	/** Task id for a run in a slot without one; the first module returning a value wins. */
 	resolveTaskId?(slot: Slot): string | null | undefined;
+	/** Decides a tool call in [slot] without asking; the first module returning a value wins. */
+	toolPolicy?(slot: Slot, tool: string): "allow" | "deny" | undefined;
 	onSlotClosed?(slot: Slot): void;
 	start?(): void | Promise<void>;
 	stop?(): void | Promise<void>;
@@ -130,7 +132,7 @@ export class Core {
 			sessionDir: options.sessionDir,
 			modelRuntime: options.modelRuntime,
 			trustDecisions: new Map(),
-			extensions: (slot) => [this.approval(), ...this.modules.flatMap((m) => m.extensions?.(slot) ?? [])],
+			extensions: (slot) => [this.approval(slot.slotId), ...this.modules.flatMap((m) => m.extensions?.(slot) ?? [])],
 		};
 		this.settings.onChange((settings, changed) => this.broadcast({ event: "settings.changed", settings, changed }));
 		this.registerBaseMethods();
@@ -209,7 +211,7 @@ export class Core {
 		const slotId = options.slotId ?? randomUUID();
 		if (this.slots.has(slotId) || this.opening.has(slotId)) throw new RpcError("conflict", `Slot ${slotId} already exists`);
 		options.client?.attached.add(slotId);
-		const target = { cwd: options.cwd, sessionFile: options.incognito ? undefined : options.sessionFile, inMemory: options.incognito === true };
+		const target = { cwd: options.cwd, sessionFile: options.incognito ? undefined : options.sessionFile, inMemory: options.incognito === true, unattended: options.unattended === true };
 		const slot = Slot.prepare(this.db, { slotId, target, taskId: options.taskId, unattended: options.unattended }, this.slotHooks());
 		this.opening.set(slotId, slot);
 		try {
@@ -326,8 +328,18 @@ export class Core {
 
 	// ---- approval policy -------------------------------------------------------------
 
-	private approval(): ExtensionFactory {
+	private approval(slotId: string): ExtensionFactory {
 		return approvalExtension({
+			override: (tool) => {
+				if (this.exemptTools.has(tool)) return undefined;
+				const slot = this.slots.get(slotId) ?? this.opening.get(slotId);
+				if (!slot) return undefined;
+				for (const module of this.modules) {
+					const decision = module.toolPolicy?.(slot, tool);
+					if (decision) return decision;
+				}
+				return undefined;
+			},
 			mode: () => this.settings.get().approvalMode,
 			exempt: (tool) => this.exemptTools.has(tool),
 			workspaceAllowed: (cwd) => new Set(this.db.all<{ tool: string }>("SELECT tool FROM workspace_tool_rules WHERE cwd = ?", normalizeCwd(cwd)).map((r) => r.tool)),

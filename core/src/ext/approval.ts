@@ -12,6 +12,8 @@ export interface ApprovalPolicy {
 	allowInWorkspace(cwd: string, tool: string): void;
 	/** Tools that never need approval (e.g. the core's own bookkeeping tools). */
 	exempt?(tool: string): boolean;
+	/** A decision that skips the dialog (scheduled runs: allowed tools run, others are blocked). */
+	override?(tool: string): "allow" | "deny" | undefined;
 }
 
 export function describeToolCall(toolName: string, input: Record<string, unknown>): string {
@@ -47,6 +49,9 @@ export function approvalExtension(policy: ApprovalPolicy): ExtensionFactory {
 		});
 
 		pi.on("tool_call", async (event, ctx) => {
+			const decided = policy.override?.(event.toolName);
+			if (decided === "allow") return undefined;
+			if (decided === "deny") return { block: true, reason: "定时任务没有被允许使用这个工具（可以在定时任务设置里允许）" };
 			const mode = policy.mode();
 			if (mode === "off") return undefined;
 			if (policy.exempt?.(event.toolName)) return undefined;

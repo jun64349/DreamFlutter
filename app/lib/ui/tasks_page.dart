@@ -5,6 +5,7 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
+import 'schedules.dart';
 import 'task_widgets.dart';
 
 enum _Filter {
@@ -27,7 +28,7 @@ class TasksPage extends StatefulWidget {
 }
 
 class _TasksPageState extends State<TasksPage> with SingleTickerProviderStateMixin {
-  late final _tabs = TabController(length: 2, vsync: this);
+  late final _tabs = TabController(length: 3, vsync: this);
   late final AgentController _agent;
   List<InboxItem> _inbox = const [];
   List<TaskInfo> _tasks = const [];
@@ -89,6 +90,7 @@ class _TasksPageState extends State<TasksPage> with SingleTickerProviderStateMix
             tabs: [
               Tab(child: Badge(isLabelVisible: pending > 0, label: Text('$pending'), offset: const Offset(14, -4), child: const Text('待处理'))),
               const Tab(text: '全部任务'),
+              const Tab(text: '定时'),
             ],
           ),
           const Divider(),
@@ -97,7 +99,7 @@ class _TasksPageState extends State<TasksPage> with SingleTickerProviderStateMix
                 ? Center(child: Text(_error!, style: TextStyle(color: context.colors.danger)))
                 : _loading
                 ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : TabBarView(controller: _tabs, children: [_inboxTab(), _tasksTab()]),
+                : TabBarView(controller: _tabs, children: [_inboxTab(), _tasksTab(), const SchedulesTab()]),
           ),
         ],
       ),
@@ -189,10 +191,11 @@ class _InboxCardState extends State<InboxCard> {
       'memory' => ('候选记忆', Theme.of(context).colorScheme.primary, Icons.psychology_alt_outlined),
       'proposal' => ('技能建议', Theme.of(context).colorScheme.primary, Icons.auto_fix_high_outlined),
       'interrupted' => ('被中断的任务', colors.muted, Icons.history),
+      'schedule' => ('定时任务待批准', colors.warning, Icons.schedule),
       _ => (item.kind, colors.muted, Icons.inbox_outlined),
     };
     final lines = item.title.split('\n');
-    final headline = item.kind == 'memory' || item.kind == 'proposal' || item.kind == 'interrupted' ? item.title : lines.first;
+    final headline = item.kind == 'memory' || item.kind == 'proposal' || item.kind == 'interrupted' || item.kind == 'schedule' ? item.title : lines.first;
     final details = item.kind == 'approval' || item.kind == 'question' || item.kind == 'trust' ? lines.skip(1).join('\n').trim() : (item.body ?? '');
     return OutlinedCard(
       highlight: color,
@@ -278,6 +281,11 @@ class _InboxCardState extends State<InboxCard> {
         return FilledButton.tonal(onPressed: () => agent.showSection(AppSection.memory), child: const Text('去「记忆」确认'));
       case 'proposal':
         return FilledButton.tonal(onPressed: () => agent.showSection(AppSection.library), child: const Text('去「技能」查看'));
+      case 'schedule':
+        return Wrap(spacing: AppTokens.gap, children: [
+          FilledButton(onPressed: () => _run(() async => agent.backend.call('schedules.setStatus', {'id': item.id, 'status': 'active'})), child: const Text('批准')),
+          OutlinedButton(onPressed: () => _run(() async => agent.backend.call('schedules.setStatus', {'id': item.id, 'status': 'rejected'})), child: const Text('拒绝')),
+        ]);
       case 'interrupted':
         final run = InterruptedRun.fromJson(item.data);
         return Wrap(spacing: AppTokens.gap, children: [

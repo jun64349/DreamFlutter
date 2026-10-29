@@ -73,6 +73,8 @@ export interface OpenTarget {
 	sessionFile?: string;
 	/** Temporary chat: never written to disk (and so never indexed or remembered). */
 	inMemory?: boolean;
+	/** Opened by the scheduler: nobody can answer the trust prompt, so untrusted project resources stay off. */
+	unattended?: boolean;
 }
 
 /**
@@ -91,7 +93,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		const needsTrust = hasTrustRequiringProjectResources(cwd);
 		const stored = new ProjectTrustStore(agentDir).get(cwd);
 		const cached = config.trustDecisions.get(cwd.toLowerCase());
-		const mustAsk = needsTrust && cached === undefined && stored === null;
+		const mustAsk = needsTrust && cached === undefined && stored === null && !target.unattended;
 		const projectTrusted = !needsTrust || (cached ?? stored === true);
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: mustAsk ? false : projectTrusted });
 		const services = await createAgentSessionServices({

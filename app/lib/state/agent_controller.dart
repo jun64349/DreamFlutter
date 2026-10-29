@@ -378,9 +378,13 @@ class AgentController extends ChangeNotifier {
       case 'memory.changed' || 'proposals.changed' || 'skills.changed' || 'templates.changed':
         libraryRevision.value++;
         unawaited(refreshPendingCounts());
-      case 'tasks.changed' || 'desk.changed' || 'confirm.changed' || 'run.finished':
+      case 'tasks.changed' || 'desk.changed' || 'confirm.changed' || 'run.finished' || 'schedules.changed':
         workRevision.value++;
-        if (message['event'] == 'confirm.changed' || message['event'] == 'run.finished') unawaited(refreshPendingCounts());
+        if (message['event'] == 'confirm.changed' || message['event'] == 'run.finished' || message['event'] == 'schedules.changed') unawaited(refreshPendingCounts());
+      case 'schedules.delivered':
+        workRevision.value++;
+        final title = message['title'];
+        if (title is String) _toast(title);
       case 'notices.changed':
         workRevision.value++;
         unawaited(refreshPendingCounts());
