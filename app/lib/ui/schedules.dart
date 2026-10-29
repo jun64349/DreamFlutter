@@ -330,7 +330,7 @@ Future<void> showScheduleHistory(BuildContext context, ScheduleInfo schedule) as
                                   ),
                               ],
                             ),
-                            if ((r.note ?? '').isNotEmpty) Text(r.note!, style: muted),
+                            if ((r.note ?? '').isNotEmpty && r.note != '手动运行') Text(r.note!, style: muted),
                             if ((r.error ?? '').isNotEmpty) Text(r.error!, style: TextStyle(color: context.colors.danger)),
                             if ((r.result ?? '').isNotEmpty) ...[const SizedBox(height: 4), Text(r.result!, maxLines: 4, overflow: TextOverflow.ellipsis)],
                           ],
