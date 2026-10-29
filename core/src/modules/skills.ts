@@ -220,17 +220,19 @@ export class SkillsModule implements CoreModule {
 
 	/** Moves a skill folder into the core's trash (recoverable). */
 	removeSkill(filePath: string): void {
-		const dir = dirname(filePath);
+		assertSkillFile(filePath);
 		if (!existsSync(filePath)) throw new RpcError("not_found", "这个技能文件不存在");
-		const trash = join(this.core.paths.dataDir, "trash", `${Date.now()}-${dir.split(/[\\/]/).pop()}`);
+		// A skill folder (…/name/SKILL.md) moves as a whole; a standalone skill is one file.
+		const target = filePath.split(/[\\/]/).pop() === "SKILL.md" ? dirname(filePath) : filePath;
+		const trash = join(this.core.paths.dataDir, "trash", `${Date.now()}-${target.split(/[\\/]/).pop()}`);
 		mkdirSync(dirname(trash), { recursive: true });
-		renameSync(dir, trash);
+		renameSync(target, trash);
 		this.setSkillEnabled(filePath, true); // drop any exclusion entry
 		this.core.broadcast({ event: "skills.changed" });
 	}
 
 	readSkill(filePath: string): string {
-		if (!filePath.toLowerCase().endsWith(".md")) throw new RpcError("bad_request", "不是技能文件");
+		assertSkillFile(filePath);
 		return readFileSync(filePath, "utf8");
 	}
 
@@ -499,6 +501,14 @@ function toProposal(row: ProposalRow): Proposal {
 		createdAt: row.created_at,
 		resolvedAt: row.resolved_at,
 	};
+}
+
+/** Only Markdown files below a `skills` folder may be read or removed through the skill methods. */
+function assertSkillFile(filePath: string): void {
+	const parts = filePath.split(/[\\/]/);
+	if (!filePath.toLowerCase().endsWith(".md") || !parts.slice(0, -1).some((p) => p.toLowerCase() === "skills")) {
+		throw new RpcError("bad_request", "不是技能文件");
+	}
 }
 
 function copyDir(from: string, to: string): void {

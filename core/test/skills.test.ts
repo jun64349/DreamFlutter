@@ -19,6 +19,19 @@ describe("skills", () => {
 		await t.cleanup();
 	});
 
+	it("reads and removes only Markdown files below a skills folder", async () => {
+		const notes = join(t.workspace, "notes");
+		mkdirSync(notes, { recursive: true });
+		writeFileSync(join(notes, "README.md"), "private");
+		await assert.rejects(t.core.call("skills.read", { filePath: join(notes, "README.md") }), /不是技能文件/);
+		await assert.rejects(t.core.call("skills.remove", { filePath: join(notes, "README.md") }), /不是技能文件/);
+		assert.ok(existsSync(join(notes, "README.md")), "the folder was not moved");
+		const skill = join(t.agentDir, "skills", "weekly-report", "SKILL.md");
+		assert.match((await t.core.call("skills.read", { filePath: skill })) as string, /weekly-report/);
+		await t.core.call("skills.remove", { filePath: skill });
+		assert.ok(!existsSync(join(t.agentDir, "skills", "weekly-report")));
+	});
+
 	it("lists, disables and re-enables skills through Pi's settings", async () => {
 		const list = (await t.core.call("skills.list", { cwd: t.workspace })) as SkillInfo[];
 		const skill = list.find((s) => s.name === "weekly-report")!;
