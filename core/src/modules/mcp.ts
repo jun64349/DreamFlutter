@@ -123,7 +123,7 @@ export class McpModule {
 			if (!url || !/^https?:\/\//i.test(url)) throw new RpcError("bad_request", "请填写以 http:// 或 https:// 开头的网址");
 			if (/\/sse\/?$/i.test(url)) throw new RpcError("bad_request", "Pi 不支持旧的 SSE 连接方式，这类服务通常也提供 /mcp 地址");
 			entry.url = url;
-			const headers = await this.values(name, "header", form.headers, previous.headers as Json | undefined);
+			const headers = await this.values(name, previousName ?? name, "header", form.headers, previous.headers as Json | undefined);
 			if (Object.keys(headers).length) entry.headers = headers;
 			if (previous.oauth) entry.oauth = previous.oauth;
 		} else {
@@ -134,7 +134,7 @@ export class McpModule {
 			const args = (form.args ?? []).map((a) => a.trim()).filter(Boolean);
 			if (args.length) entry.args = args;
 			if (form.cwd?.trim()) entry.cwd = form.cwd.trim();
-			const env = await this.values(name, "env", form.env, previous.env as Json | undefined);
+			const env = await this.values(name, previousName ?? name, "env", form.env, previous.env as Json | undefined);
 			if (Object.keys(env).length) entry.env = env;
 		}
 		if (form.description?.trim()) entry.description = form.description.trim();
@@ -142,20 +142,26 @@ export class McpModule {
 		if (previous.toolExposure) entry.toolExposure = previous.toolExposure;
 		if (form.timeout && form.timeout > 0) entry.timeout = form.timeout;
 		if (form.enabled === false) entry.enabled = false;
-		if (previousName && previousName !== name) delete servers[previousName];
+		if (previousName && previousName !== name) {
+			this.removeSecrets(previousName, servers[previousName]);
+			delete servers[previousName];
+		}
 		servers[name] = entry;
 		this.write({ ...config, mcpServers: servers });
 	}
 
 	/** Env values / headers: secret ones are encrypted; an empty secret keeps the stored one. */
-	private async values(server: string, kind: string, form: Record<string, FormValue> | undefined, previous: Json | undefined): Promise<Json> {
+	private async values(server: string, previousServer: string, kind: string, form: Record<string, FormValue> | undefined, previous: Json | undefined): Promise<Json> {
 		const out: Json = {};
 		for (const [rawKey, field] of Object.entries(form ?? {})) {
 			const key = rawKey.trim();
 			if (!key) continue;
 			if (field.secret) {
 				if (field.value) out[key] = await this.secrets.put(`mcp-${server}-${kind}-${key}`, field.value);
-				else if (isSecretReference(previous?.[key])) out[key] = previous![key];
+				else if (isSecretReference(previous?.[key])) {
+					// Renamed: re-store under the new name, so the old name's blob can go and never aliases.
+					out[key] = previousServer === server ? previous![key] : await this.secrets.put(`mcp-${server}-${kind}-${key}`, await this.secrets.get(`mcp-${previousServer}-${kind}-${key}`));
+				}
 			} else if (field.value !== "") {
 				out[key] = field.value;
 			}
@@ -179,13 +185,17 @@ export class McpModule {
 		const servers = { ...this.servers(config) };
 		const entry = servers[name];
 		if (!entry) return;
+		this.removeSecrets(name, entry);
+		delete servers[name];
+		this.write({ ...config, mcpServers: servers });
+	}
+
+	private removeSecrets(name: string, entry: Json | undefined): void {
 		for (const kind of ["env", "headers"] as const) {
-			for (const [key, value] of Object.entries((entry[kind] as Json | undefined) ?? {})) {
+			for (const [key, value] of Object.entries((entry?.[kind] as Json | undefined) ?? {})) {
 				if (isSecretReference(value)) this.secrets.remove(`mcp-${name}-${kind === "env" ? "env" : "header"}-${key}`);
 			}
 		}
-		delete servers[name];
-		this.write({ ...config, mcpServers: servers });
 	}
 
 	/** Connects to every enabled server (as Pi would) and reports state, tools and errors. */

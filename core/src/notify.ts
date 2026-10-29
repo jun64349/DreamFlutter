@@ -43,7 +43,10 @@ export class WindowsNotifier implements Notifier {
 					windowsHide: true,
 				});
 				// Showing takes a second or two; a hung PowerShell counts as unknown.
-				const timer = setTimeout(() => resolve("unknown"), 20_000);
+				const timer = setTimeout(() => {
+					child.kill();
+					resolve("unknown");
+				}, 20_000);
 				timer.unref();
 				child.on("error", (error) => {
 					clearTimeout(timer);

@@ -13,7 +13,7 @@ export interface ApprovalPolicy {
 	/** Tools that never need approval (e.g. the core's own bookkeeping tools). */
 	exempt?(tool: string): boolean;
 	/** A decision that skips the dialog (scheduled runs: allowed tools run, others are blocked). */
-	override?(tool: string): "allow" | "deny" | undefined;
+	override?(tool: string, input: Record<string, unknown>): "allow" | "deny" | undefined;
 }
 
 export function describeToolCall(toolName: string, input: Record<string, unknown>): string {
@@ -49,7 +49,7 @@ export function approvalExtension(policy: ApprovalPolicy): ExtensionFactory {
 		});
 
 		pi.on("tool_call", async (event, ctx) => {
-			const decided = policy.override?.(event.toolName);
+			const decided = policy.override?.(event.toolName, (event.input ?? {}) as Record<string, unknown>);
 			if (decided === "allow") return undefined;
 			if (decided === "deny") return { block: true, reason: "定时任务没有被允许使用这个工具（可以在定时任务设置里允许）" };
 			const mode = policy.mode();
@@ -62,12 +62,12 @@ export function approvalExtension(policy: ApprovalPolicy): ExtensionFactory {
 
 			const session = alwaysAllowLabel(event.toolName);
 			const workspace = workspaceAllowLabel(event.toolName);
-			const choice = await ctx.ui.select(`${APPROVAL_TITLE}\n\n${describeToolCall(event.toolName, event.input as Record<string, unknown>)}`, [
-				ALLOW,
-				session,
-				workspace,
-				DENY,
-			]);
+			// Stopping the run dismisses the question (an unanswered question blocks the call).
+			const choice = await ctx.ui.select(
+				`${APPROVAL_TITLE}\n\n${describeToolCall(event.toolName, event.input as Record<string, unknown>)}`,
+				[ALLOW, session, workspace, DENY],
+				{ signal: ctx.signal },
+			);
 			if (choice === ALLOW) return undefined;
 			if (choice === session) {
 				sessionAllowed.add(event.toolName);

@@ -45,9 +45,18 @@ export function startServer(core: Core, options: ServerOptions): Promise<{ port:
 				client.send({ id: null, error: { code: "parse_error", message: "Invalid JSON" } });
 				return;
 			}
+			if (!request || typeof request !== "object" || Array.isArray(request)) {
+				client.send({ id: null, error: { code: "bad_request", message: "request must be an object" } });
+				return;
+			}
 			const id = request.id ?? null;
 			if (typeof request.method !== "string") {
 				client.send({ id, error: { code: "bad_request", message: "method is required" } });
+				return;
+			}
+			const params = request.params;
+			if (params !== undefined && params !== null && (typeof params !== "object" || Array.isArray(params))) {
+				client.send({ id, error: { code: "bad_request", message: "params must be an object" } });
 				return;
 			}
 			core

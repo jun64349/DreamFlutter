@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -135,6 +135,12 @@ describe("MCP servers", () => {
 		assert.deepEqual(listed.servers[0]!.headers.Authorization, { value: "", secret: true });
 		await t.core.call("mcp.save", { previousName: "gh", server: { name: "gh", transport: "http", url: "https://e.com/mcp", description: "改了说明", headers: { Authorization: { value: "", secret: true } } } });
 		assert.equal(JSON.parse(readFileSync(file(), "utf8")).mcpServers.gh.headers.Authorization, header);
+
+		// Renaming moves the encrypted value to the new name; the old name's blob is gone.
+		await t.core.call("mcp.save", { previousName: "gh", server: { name: "gh2", transport: "http", url: "https://e.com/mcp", headers: { Authorization: { value: "", secret: true } } } });
+		const renamed = JSON.parse(readFileSync(file(), "utf8")).mcpServers.gh2.headers.Authorization as string;
+		assert.match(renamed, /mcp-gh2-header-Authorization/);
+		assert.ok(!existsSync(join(t.dir, "data", "secrets", "mcp-gh-header-Authorization.dpapi")));
 	});
 
 	it("checks connections with Pi and reports failures", async () => {

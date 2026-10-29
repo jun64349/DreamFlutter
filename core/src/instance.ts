@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { linkSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import type { CorePaths } from "./paths.ts";
 
 export interface CoreInfo {
@@ -28,25 +28,55 @@ export function readInfo(paths: CorePaths): CoreInfo | undefined {
 }
 
 /**
- * Takes the single-instance lock (an exclusively created file holding our
- * pid). A lock whose pid is gone is stale and taken over. Returns the pid of
- * the running instance when the lock is held by a live process.
+ * Takes the single-instance lock: a file holding our pid, put in place with
+ * a hard link so it never exists half-written. A lock whose pid is gone is
+ * stale; it is moved aside with an atomic rename (only one process wins) and
+ * restored if what was moved turns out to belong to a live process. Returns
+ * the pid of the running instance when the lock is held by a live process.
  */
 export function acquireLock(paths: CorePaths): { ok: true } | { ok: false; pid: number } {
-	for (let attempt = 0; attempt < 2; attempt++) {
-		try {
-			const fd = openSync(paths.lockFile, "wx");
-			writeSync(fd, String(process.pid));
-			closeSync(fd);
-			return { ok: true };
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-			const holder = Number.parseInt(readFileSync(paths.lockFile, "utf8"), 10);
-			if (Number.isInteger(holder) && holder !== process.pid && pidAlive(holder)) return { ok: false, pid: holder };
-			rmSync(paths.lockFile, { force: true });
+	const temp = `${paths.lockFile}.${process.pid}.tmp`;
+	writeFileSync(temp, String(process.pid), "utf8");
+	try {
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				linkSync(temp, paths.lockFile);
+				return { ok: true };
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+			}
+			const holder = readPid(paths.lockFile);
+			if (holder !== undefined && holder !== process.pid && pidAlive(holder)) return { ok: false, pid: holder };
+			const aside = `${paths.lockFile}.${process.pid}.stale`;
+			try {
+				renameSync(paths.lockFile, aside);
+			} catch {
+				continue; // someone else moved it first
+			}
+			const moved = readPid(aside);
+			if (moved !== undefined && moved !== holder && moved !== process.pid && pidAlive(moved)) {
+				// Between our read and the rename a live process took the lock: give it back.
+				try {
+					linkSync(aside, paths.lockFile);
+				} catch {}
+				rmSync(aside, { force: true });
+				return { ok: false, pid: moved };
+			}
+			rmSync(aside, { force: true });
 		}
+		return { ok: false, pid: -1 };
+	} finally {
+		rmSync(temp, { force: true });
 	}
-	return { ok: false, pid: -1 };
+}
+
+function readPid(file: string): number | undefined {
+	try {
+		const pid = Number.parseInt(readFileSync(file, "utf8"), 10);
+		return Number.isInteger(pid) ? pid : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 export function releaseLock(paths: CorePaths): void {

@@ -37,6 +37,12 @@ export interface SlotIdentity {
 	slotId: string;
 }
 
+/** Whether [cwd]'s project resources may load: nothing needing trust, or trusted now or before. */
+export function isProjectTrusted(cwd: string, agentDir: string, decisions: Map<string, boolean>): boolean {
+	if (!hasTrustRequiringProjectResources(cwd)) return true;
+	return decisions.get(cwd.toLowerCase()) ?? new ProjectTrustStore(agentDir).get(cwd) === true;
+}
+
 /** The CLI's built-in extensions (not exported as a list by the package). */
 function builtInExtensions(): InlineExtension[] {
 	return [

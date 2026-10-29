@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { DefaultResourceLoader, SettingsManager, type ExtensionAPI, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { Core, CoreModule } from "../core.ts";
 import { RpcError, requireStr, samePath, str } from "../core.ts";
@@ -176,7 +176,8 @@ export class SkillsModule implements CoreModule {
 
 	async listSkills(cwd: string): Promise<SkillInfo[]> {
 		const disabled = this.disabledPaths();
-		const settingsManager = SettingsManager.create(cwd, this.core.agentDir, { projectTrusted: true });
+		// Untrusted projects stay unloaded here too (resolving project packages can run their code).
+		const settingsManager = SettingsManager.create(cwd, this.core.agentDir, { projectTrusted: this.core.isProjectTrusted(cwd) });
 		const loader = new DefaultResourceLoader({ cwd, agentDir: this.core.agentDir, settingsManager, noExtensions: true, noPromptTemplates: true, noThemes: true } as never);
 		await loader.reload();
 		const loaded = loader.getSkills().skills;
@@ -297,6 +298,8 @@ export class SkillsModule implements CoreModule {
 		if (!row || row.status !== "pending") throw new RpcError("gone", "这个建议已经处理过了");
 		const proposal = toProposal(row);
 		const payload = { ...proposal.payload, ...edited };
+		if (!SKILL_NAME.test(payload.name)) throw new RpcError("bad_request", "技能名只能用小写字母、数字和横线");
+		if (payload.scope !== "project") payload.scope = "user";
 		const path = this.skillPath(payload.name, payload.scope, proposal.cwd ?? undefined);
 		mkdirSync(dirname(path), { recursive: true });
 		writeFileSync(path, payload.content.startsWith("---") ? payload.content : skillMarkdown(payload.name, payload.description, payload.content), "utf8");
@@ -355,7 +358,8 @@ export class SkillsModule implements CoreModule {
 
 	saveTemplate(input: { name: string; description?: string; body: string; params?: TemplateParam[]; previousName?: string }): TemplateInfo {
 		const name = input.name.trim();
-		if (!/^[\p{L}\p{N}_-]{1,64}$/u.test(name)) throw new RpcError("bad_request", "模板名只能用文字、数字、横线和下划线（会成为 /命令名）");
+		assertTemplateName(name);
+		if (input.previousName) assertTemplateName(input.previousName);
 		if (!input.body.trim()) throw new RpcError("bad_request", "模板内容不能为空");
 		const { piBody, params } = compileTemplate(input.body.trim(), input.params ?? []);
 		const hint = params.map((p) => (p.default ? `[${p.name}]` : `<${p.name}>`)).join(" ");
@@ -377,6 +381,7 @@ export class SkillsModule implements CoreModule {
 	}
 
 	removeTemplate(name: string): void {
+		assertTemplateName(name);
 		rmSync(join(this.promptsDir, `${name}.md`), { force: true });
 		this.core.broadcast({ event: "templates.changed" });
 	}
@@ -505,10 +510,22 @@ function toProposal(row: ProposalRow): Proposal {
 
 /** Only Markdown files below a `skills` folder may be read or removed through the skill methods. */
 function assertSkillFile(filePath: string): void {
-	const parts = filePath.split(/[\\/]/);
-	if (!filePath.toLowerCase().endsWith(".md") || !parts.slice(0, -1).some((p) => p.toLowerCase() === "skills")) {
+	// Judge the real location: "..", symlinks and junctions must not lead out of a skills folder.
+	let real: string;
+	try {
+		real = realpathSync(resolve(filePath));
+	} catch {
+		throw new RpcError("not_found", "这个技能文件不存在");
+	}
+	const parts = real.split(/[\\/]/);
+	if (!real.toLowerCase().endsWith(".md") || !parts.slice(0, -1).some((p) => p.toLowerCase() === "skills")) {
 		throw new RpcError("bad_request", "不是技能文件");
 	}
+}
+
+/** Template names become file names and /commands: no separators or dots. */
+function assertTemplateName(name: string): void {
+	if (!/^[\p{L}\p{N}_-]{1,64}$/u.test(name)) throw new RpcError("bad_request", "模板名只能用文字、数字、横线和下划线（会成为 /命令名）");
 }
 
 function copyDir(from: string, to: string): void {

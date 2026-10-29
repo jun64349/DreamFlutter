@@ -166,6 +166,8 @@ export class TasksModule implements CoreModule {
 	private readonly stoppedRuns = new Set<string>();
 	/** Other modules' items for the inbox (e.g. schedules waiting for approval). */
 	private readonly inboxSources: (() => Record<string, unknown>[])[] = [];
+	/** Called when the user answers a limit card (before a continued run starts). */
+	private readonly noticeListeners: ((notice: Notice, action: "continue" | "stop", slot?: Slot) => void)[] = [];
 
 	constructor(core: Core) {
 		this.core = core;
@@ -304,7 +306,7 @@ export class TasksModule implements CoreModule {
 
 	/** Crash recovery: tasks left running by a previous core are interrupted. */
 	private recoverInterrupted(): void {
-		this.db.run("UPDATE tasks SET status = 'interrupted', current_step = NULL, updated_at = ? WHERE status IN ('running', 'needs_input', 'waiting') AND runs > 0", now());
+		this.db.run("UPDATE tasks SET status = 'interrupted', current_step = NULL, updated_at = ? WHERE status IN ('running', 'needs_input') OR (status = 'waiting' AND runs > 0)", now());
 	}
 
 	// ---- run lifecycle -----------------------------------------------------------------
@@ -397,7 +399,9 @@ export class TasksModule implements CoreModule {
 		}
 		const budget = settings.dailyBudgetUsd;
 		if (budget > 0 && this.budgetOverrideDay !== startOfToday()) {
-			const spent = this.core.runs.costSince(startOfToday());
+			// Finished runs are in the database; runs still going only know their cost in memory.
+			let spent = this.core.runs.costSince(startOfToday());
+			for (const s of this.core.slots.values()) spent += s.currentRun?.cost ?? 0;
 			if (spent >= budget) {
 				this.pauseRun(slot, run, "limit_budget", `今天的花费已达到上限（$${spent.toFixed(2)} / $${budget.toFixed(2)}）`, "任务已暂停。可以今天内不再限制并继续，或者到此为止。");
 			}
@@ -453,6 +457,7 @@ export class TasksModule implements CoreModule {
 		this.core.broadcast({ event: "notices.changed" });
 		if (action === "stop") {
 			if (notice.taskId) this.update(notice.taskId, { status: "interrupted" });
+			for (const listener of this.noticeListeners) listener(notice, "stop");
 			return { slotId: null };
 		}
 		let slot = notice.slotId ? this.core.slots.get(notice.slotId) : undefined;
@@ -466,6 +471,7 @@ export class TasksModule implements CoreModule {
 		} else {
 			this.budgetOverrideDay = startOfToday();
 		}
+		for (const listener of this.noticeListeners) listener(notice, "continue", slot);
 		await slot.prompt("请从刚才停下的地方继续，完成剩下的部分。");
 		return { slotId: slot.slotId };
 	}
@@ -607,6 +613,10 @@ export class TasksModule implements CoreModule {
 	}
 
 	// ---- inbox -------------------------------------------------------------------------
+
+	onNoticeResolved(listener: (notice: Notice, action: "continue" | "stop", slot?: Slot) => void): void {
+		this.noticeListeners.push(listener);
+	}
 
 	addInboxSource(source: () => Record<string, unknown>[]): void {
 		this.inboxSources.push(source);

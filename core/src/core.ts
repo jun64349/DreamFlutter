@@ -10,7 +10,7 @@ import type { Logger } from "./log.ts";
 import type { Notifier } from "./notify.ts";
 import type { CorePaths } from "./paths.ts";
 import { dialogKind } from "./pi/dialogs.ts";
-import type { PiHostConfig } from "./pi/host.ts";
+import { isProjectTrusted, type PiHostConfig } from "./pi/host.ts";
 import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
 import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
@@ -70,7 +70,7 @@ export interface CoreModule {
 	/** Task id for a run in a slot without one; the first module returning a value wins. */
 	resolveTaskId?(slot: Slot): string | null | undefined;
 	/** Decides a tool call in [slot] without asking; the first module returning a value wins. */
-	toolPolicy?(slot: Slot, tool: string): "allow" | "deny" | undefined;
+	toolPolicy?(slot: Slot, tool: string, input: Record<string, unknown>): "allow" | "deny" | undefined;
 	onSlotClosed?(slot: Slot): void;
 	start?(): void | Promise<void>;
 	stop?(): void | Promise<void>;
@@ -107,6 +107,10 @@ export class Core {
 	private readonly hostConfig: PiHostConfig;
 	/** Slots whose runtime is still starting (possibly waiting on the trust prompt). */
 	private readonly opening = new Map<string, Slot>();
+	/** Session files being opened (normalized path → the open in progress). */
+	private readonly openingFiles = new Map<string, Promise<Slot>>();
+	/** Slots closed while still starting. */
+	private readonly cancelledOpens = new Set<string>();
 	private reaper: NodeJS.Timeout | undefined;
 	private stopped = false;
 	private readonly shutdownListeners: (() => void)[] = [];
@@ -136,6 +140,11 @@ export class Core {
 		};
 		this.settings.onChange((settings, changed) => this.broadcast({ event: "settings.changed", settings, changed }));
 		this.registerBaseMethods();
+	}
+
+	/** Whether [cwd]'s project resources (.pi/ skills, packages…) may be loaded. */
+	isProjectTrusted(cwd: string): boolean {
+		return isProjectTrusted(cwd, this.agentDir, this.hostConfig.trustDecisions);
 	}
 
 	exemptFromApproval(...tools: string[]): void {
@@ -200,14 +209,31 @@ export class Core {
 	 * [sessionFile] open (two runtimes on one file would corrupt it).
 	 */
 	async openSlot(options: OpenSlotOptions): Promise<Slot> {
-		if (options.sessionFile) {
-			const existing = this.findSlotByFile(options.sessionFile);
-			if (existing) {
-				options.client?.attached.add(existing.slotId);
-				return existing;
-			}
-			if (!existsSync(options.sessionFile)) throw new RpcError("not_found", `会话文件不存在：${options.sessionFile}`);
+		if (!options.sessionFile) return this.openNewSlot(options);
+		const existing = this.findSlotByFile(options.sessionFile);
+		if (existing) {
+			options.client?.attached.add(existing.slotId);
+			return existing;
 		}
+		// Another open of this file is under way: share it rather than start a second runtime.
+		const key = normalizeCwd(options.sessionFile);
+		const pending = this.openingFiles.get(key);
+		if (pending) {
+			const slot = await pending;
+			options.client?.attached.add(slot.slotId);
+			return slot;
+		}
+		if (!existsSync(options.sessionFile)) throw new RpcError("not_found", `会话文件不存在：${options.sessionFile}`);
+		const opening = this.openNewSlot(options);
+		this.openingFiles.set(key, opening);
+		try {
+			return await opening;
+		} finally {
+			this.openingFiles.delete(key);
+		}
+	}
+
+	private async openNewSlot(options: OpenSlotOptions): Promise<Slot> {
 		const slotId = options.slotId ?? randomUUID();
 		if (this.slots.has(slotId) || this.opening.has(slotId)) throw new RpcError("conflict", `Slot ${slotId} already exists`);
 		options.client?.attached.add(slotId);
@@ -216,6 +242,11 @@ export class Core {
 		this.opening.set(slotId, slot);
 		try {
 			await slot.start(this.hostConfig, target);
+			if (this.cancelledOpens.has(slotId)) {
+				// Closed while it was starting (e.g. during the trust prompt): never publish it.
+				await slot.dispose();
+				throw new RpcError("cancelled", "会话在打开过程中被关闭了");
+			}
 			this.slots.set(slotId, slot);
 			slot.session.setAutoCompactionEnabled(this.settings.get().autoCompaction);
 			if (!options.sessionFile) await this.applyDefaultModel(slot);
@@ -226,6 +257,7 @@ export class Core {
 			throw error;
 		} finally {
 			this.opening.delete(slotId);
+			this.cancelledOpens.delete(slotId);
 		}
 	}
 
@@ -258,6 +290,13 @@ export class Core {
 	}
 
 	async closeSlot(slotId: string): Promise<void> {
+		const starting = this.opening.get(slotId);
+		if (starting && !this.slots.has(slotId)) {
+			this.cancelledOpens.add(slotId);
+			starting.ui.cancelAll();
+			for (const client of this.clients) client.attached.delete(slotId);
+			return;
+		}
 		const slot = this.slots.get(slotId);
 		if (!slot) return;
 		this.slots.delete(slotId);
@@ -330,12 +369,12 @@ export class Core {
 
 	private approval(slotId: string): ExtensionFactory {
 		return approvalExtension({
-			override: (tool) => {
-				if (this.exemptTools.has(tool)) return undefined;
+			// Modules decide first (a scheduled run restricts even core-exempt tools).
+			override: (tool, input) => {
 				const slot = this.slots.get(slotId) ?? this.opening.get(slotId);
 				if (!slot) return undefined;
 				for (const module of this.modules) {
-					const decision = module.toolPolicy?.(slot, tool);
+					const decision = module.toolPolicy?.(slot, tool, input);
 					if (decision) return decision;
 				}
 				return undefined;

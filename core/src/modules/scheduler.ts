@@ -259,6 +259,8 @@ export class SchedulerModule implements CoreModule {
 	private ticking: Promise<void> | undefined;
 	/** Slot → schedule run executing in it. */
 	private readonly active = new Map<string, string>();
+	/** Schedules whose run is being started (before its session is open). */
+	private readonly starting = new Set<string>();
 	readonly clock: () => number;
 
 	constructor(core: Core, tasks: TasksModule, clock: () => number = now) {
@@ -278,8 +280,23 @@ export class SchedulerModule implements CoreModule {
 				data: s,
 			})),
 		);
+		tasks.onNoticeResolved((notice, action, slot) => this.limitAnswered(notice.taskId, action, slot));
 		this.recover();
 		this.register();
+	}
+
+	/** A scheduled run paused by a run limit: stopping ends it, continuing tracks it again. */
+	private limitAnswered(taskId: string | null, action: "continue" | "stop", slot?: Slot): void {
+		if (!taskId) return;
+		const row = this.db.get<RunRow>("SELECT * FROM schedule_runs WHERE task_id = ? AND status = 'needs_input' ORDER BY started_at DESC LIMIT 1", taskId);
+		if (!row) return;
+		if (action === "continue" && slot) {
+			this.active.set(slot.slotId, row.id);
+			slot.taskId = taskId;
+			this.updateRun(row.id, { status: "running", note: "运行上限暂停后，用户选择继续" });
+		} else {
+			this.finishRun(row.id, "interrupted", { note: "运行上限暂停后，用户选择结束" });
+		}
 	}
 
 	start(): void {
@@ -467,8 +484,16 @@ export class SchedulerModule implements CoreModule {
 		return result.changes ? this.getRun(id) : undefined;
 	}
 
-	private busy(scheduleId: string): boolean {
-		return !!this.db.get("SELECT 1 FROM schedule_runs WHERE schedule_id = ? AND status IN ('running', 'needs_input')", scheduleId);
+	/**
+	 * Whether the schedule has a run going (or starting) other than [exceptRun].
+	 * A run waiting on a limit card only counts while it still has a session.
+	 */
+	private busy(scheduleId: string, exceptRun?: string): boolean {
+		if (this.starting.has(scheduleId)) return true;
+		const live = new Set(this.active.values());
+		return this.db
+			.all<{ id: string; status: string }>("SELECT id, status FROM schedule_runs WHERE schedule_id = ? AND status IN ('running', 'needs_input')", scheduleId)
+			.some((r) => r.id !== exceptRun && (r.status === "running" || live.has(r.id)));
 	}
 
 	/** Checks due schedules and retries; resolves once due runs have started. */
@@ -487,18 +512,15 @@ export class SchedulerModule implements CoreModule {
 		}
 		for (const schedule of this.list({ status: ["active"] })) {
 			if (schedule.nextRunAt === null || schedule.nextRunAt > at) continue;
-			// Every occurrence that came due, oldest first (capped).
-			const due: number[] = [];
-			for (let t: number | null = schedule.nextRunAt; t !== null && t <= at && due.length < 10_000; t = nextOccurrence(schedule.trigger, t)) due.push(t);
-			const latest = due[due.length - 1]!;
+			const { count, latest } = dueTimes(schedule.trigger, schedule.nextRunAt, at);
 			const missed = at - schedule.nextRunAt > MISSED_GRACE_MS;
 			const next = nextOccurrence(schedule.trigger, at);
-			const skippedCount = due.length - 1;
-			const note = skippedCount > 0 ? `错过了 ${due.length} 次，只补做最近一次` : missed ? "错过了原定时间，补做" : null;
+			const skippedCount = count - 1;
+			const note = skippedCount > 0 ? `错过了 ${count} 次，只补做最近一次` : missed ? "错过了原定时间，补做" : null;
 			// A trigger with no further times (a one-off, a cron that ended) is finished.
 			this.db.run("UPDATE schedules SET next_run_at = ?, status = ?, updated_at = ? WHERE id = ?", next, next === null ? "finished" : "active", at, schedule.id);
 			if (missed && schedule.kind === "report" && schedule.missedPolicy === "skip" && schedule.trigger.type !== "once") {
-				this.claim(schedule, latest, { status: "skipped", note: `错过了原定时间（${due.length} 次），按设置跳过` });
+				this.claim(schedule, latest, { status: "skipped", note: `错过了原定时间（${count} 次），按设置跳过` });
 				continue;
 			}
 			const scheduledAt = schedule.trigger.type === "once" ? schedule.nextRunAt : latest;
@@ -551,6 +573,20 @@ export class SchedulerModule implements CoreModule {
 			this.updateRun(run.id, { status: "skipped", ended_at: this.clock(), note: "计划已修改或删除，这次触发作废" });
 			return;
 		}
+		if (this.busy(schedule.id, run.id)) {
+			// Never two runs of one schedule at once: try again once the other is done.
+			this.updateRun(run.id, { status: "waiting", retry_at: this.clock() + 60_000 });
+			return;
+		}
+		this.starting.add(schedule.id);
+		try {
+			await this.launch(run, schedule);
+		} finally {
+			this.starting.delete(schedule.id);
+		}
+	}
+
+	private async launch(run: ScheduleRun, schedule: Schedule): Promise<void> {
 		const task = run.taskId ? this.tasks.get(run.taskId) : undefined;
 		const taskId = task?.id ?? this.tasks.create({ cwd: schedule.cwd, goal: schedule.prompt, title: `定时：${schedule.name}`, source: "schedule", scheduleId: schedule.id }).id;
 		let slot: Slot;
@@ -587,7 +623,9 @@ export class SchedulerModule implements CoreModule {
 	onSlotEvent(slot: Slot, event: AgentSessionEvent): void {
 		const runId = this.active.get(slot.slotId);
 		if (!runId || event.type !== "tool_execution_start") return;
-		if (!READ_ONLY_TOOLS.has(event.toolName) && !SCHEDULE_TOOLS.includes(event.toolName)) this.updateRun(runId, { external_effects: 1 });
+		// Memory candidates and skill proposals wait for the user: not external effects.
+		const internal = READ_ONLY_TOOLS.has(event.toolName) || SCHEDULE_TOOLS.includes(event.toolName) || event.toolName.startsWith("memory_") || event.toolName === "skill_propose";
+		if (!internal) this.updateRun(runId, { external_effects: 1 });
 	}
 
 	onSlotChanged(slot: Slot): void {
@@ -671,7 +709,13 @@ export class SchedulerModule implements CoreModule {
 		if (run.status === "no_change" || run.status === "skipped" || run.status === "waiting") return;
 		const schedule = this.get(run.scheduleId);
 		const title =
-			run.status === "failed" ? `定时任务失败：${schedule?.name}` : run.status === "needs_input" ? `定时任务需要你处理：${schedule?.name}` : `定时任务完成：${schedule?.name}`;
+			run.status === "failed"
+				? `定时任务失败：${schedule?.name}`
+				: run.status === "needs_input"
+					? `定时任务需要你处理：${schedule?.name}`
+					: run.status === "interrupted"
+						? `定时任务已中断：${schedule?.name}`
+						: `定时任务完成：${schedule?.name}`;
 		const body = (run.status === "failed" ? run.error : run.result)?.replace(/\s+/g, " ").slice(0, 200) ?? "";
 		const record = (channel: Delivery["channel"], status: DeliveryStatus, detail: string | null) =>
 			this.db.run("INSERT INTO deliveries(id, run_id, channel, status, detail, created_at) VALUES(?, ?, ?, ?, ?, ?)", `d_${randomUUID().slice(0, 8)}`, run.id, channel, status, detail, now());
@@ -701,11 +745,16 @@ export class SchedulerModule implements CoreModule {
 
 	// ---- tool policy and tools ---------------------------------------------------------
 
-	/** During a scheduled run only read-only tools and the schedule's allowed tools run, without dialogs. */
-	toolPolicy(slot: Slot, tool: string): "allow" | "deny" | undefined {
+	/**
+	 * During a scheduled run only read-only tools and the schedule's allowed
+	 * tools run, without dialogs. Memory tools may only propose (explicit=false
+	 * makes a candidate the user confirms); nobody asked the agent to remember.
+	 */
+	toolPolicy(slot: Slot, tool: string, input: Record<string, unknown> = {}): "allow" | "deny" | undefined {
 		const runId = this.active.get(slot.slotId);
 		if (!runId) return undefined;
-		if (READ_ONLY_TOOLS.has(tool) || SCHEDULE_TOOLS.includes(tool)) return "allow";
+		if (READ_ONLY_TOOLS.has(tool) || SCHEDULE_TOOLS.includes(tool) || tool === "skill_propose") return "allow";
+		if (tool.startsWith("memory_") && input.explicit !== true) return "allow";
 		const schedule = this.get(this.getRun(runId)?.scheduleId ?? "");
 		return schedule?.allowedTools?.includes(tool) ? "allow" : "deny";
 	}
@@ -839,4 +888,26 @@ export class SchedulerModule implements CoreModule {
 			return { ok: true };
 		});
 	}
+}
+
+/** How many times came due from [first] to [at], and the most recent one. */
+export function dueTimes(trigger: Trigger, first: number, at: number): { count: number; latest: number } {
+	if (trigger.type === "interval" && trigger.everyMs && trigger.everyMs > 0) {
+		const count = Math.floor((at - first) / trigger.everyMs) + 1;
+		return { count, latest: first + (count - 1) * trigger.everyMs };
+	}
+	let count = 0;
+	let latest = first;
+	for (let t: number | null = first; t !== null && t <= at; t = nextOccurrence(trigger, t)) {
+		latest = t;
+		count++;
+		if (count === 50_000) {
+			// Very long gap: skip ahead and find the latest time from two days back.
+			const near = nextOccurrence(trigger, Math.max(t, at - 2 * 86_400_000));
+			if (near === null || near > at) break;
+			t = near;
+			latest = near;
+		}
+	}
+	return { count, latest };
 }

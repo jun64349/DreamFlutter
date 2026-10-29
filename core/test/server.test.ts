@@ -57,6 +57,18 @@ describe("websocket server", () => {
 		socket.close();
 	});
 
+	it("answers malformed requests instead of throwing", async () => {
+		const socket = await connect(server.port, { Authorization: `Bearer ${token}` });
+		const next = () => new Promise<Record<string, unknown>>((resolve) => socket.once("message", (d: Buffer) => resolve(JSON.parse(d.toString()))));
+		for (const raw of ["null", "[1,2]", "42", '{"id":"x","method":"core.hello","params":[1]}']) {
+			const reply = next();
+			socket.send(raw);
+			assert.equal(((await reply).error as { code: string }).code, "bad_request", raw);
+		}
+		assert.ok((await call(socket, "core.hello")).result, "still serving");
+		socket.close();
+	});
+
 	it("rejects a wrong token", async () => {
 		await assert.rejects(connect(server.port, { Authorization: "Bearer wrong" }), /401/);
 	});

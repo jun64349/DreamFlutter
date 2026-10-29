@@ -74,6 +74,8 @@ export class Providers {
 		this.llm = llm;
 		this.secrets = new SecretStore(core.paths.dataDir);
 		this.register();
+		// Backups made before keys were redacted may still hold plain-text keys.
+		for (const path of [this.modelsPath, this.authPath]) redactBackup(`${path}.before-dreamflutter`);
 	}
 
 	private get modelsPath(): string {
@@ -234,10 +236,16 @@ export class Providers {
 		this.core.broadcast({ event: "providers.changed" });
 	}
 
-	/** Atomic write; the first change keeps a backup of the user's original file. */
+	/**
+	 * Atomic write; the first change keeps a backup of the user's original file,
+	 * with plain-text keys removed (they move to encrypted storage).
+	 */
 	private writeJson(path: string, value: Json): void {
 		const backup = `${path}.before-dreamflutter`;
-		if (existsSync(path) && !existsSync(backup)) copyFileSync(path, backup);
+		if (existsSync(path) && !existsSync(backup)) {
+			copyFileSync(path, backup);
+			redactBackup(backup);
+		}
 		const temp = `${path}.${process.pid}.tmp`;
 		writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 		renameSync(temp, path);
@@ -303,3 +311,30 @@ export function friendlyError(error: unknown): string {
 	if (/ENOTFOUND|ECONNREFUSED|connection|fetch failed|network/i.test(message)) return `连不上服务器（${message}）`;
 	return message;
 }
+
+const SECRET_FIELD = /^(api_?key|key|token|access_?token|refresh_?token|secret|password)$/i;
+
+/** Replaces plain-text credentials in a JSON backup (references like "!cmd" or "$VAR" stay). */
+export function redactBackup(path: string): void {
+	if (!existsSync(path)) return;
+	let data: unknown;
+	try {
+		data = JSON.parse(readFileSync(path, "utf8"));
+	} catch {
+		return;
+	}
+	let changed = false;
+	const walk = (value: unknown): void => {
+		if (!value || typeof value !== "object") return;
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+			if (typeof v === "string" && SECRET_FIELD.test(k) && v && !v.startsWith("!") && !v.startsWith("$") && v !== REDACTED) {
+				(value as Record<string, unknown>)[k] = REDACTED;
+				changed = true;
+			} else walk(v);
+		}
+	};
+	walk(data);
+	if (changed) writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+const REDACTED = "<已移除，DreamFlutter 不在备份里保存密钥>";
