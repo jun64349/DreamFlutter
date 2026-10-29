@@ -7,6 +7,7 @@ import '../state/agent_controller.dart' show AgentController;
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'mcp_page.dart';
 import 'providers_page.dart';
 import 'usage_page.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
@@ -125,6 +126,10 @@ class SettingsPage extends StatelessWidget {
                     OutlinedButton(
                       onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const UsagePage())),
                       child: const Text('用量统计'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const McpPage())),
+                      child: const Text('MCP 服务'),
                     ),
                     OutlinedButton(onPressed: agent.reloadIdleSessions, child: const Text('重新加载')),
                   ],
