@@ -40,6 +40,8 @@ export interface SlotHooks {
 	sessionReplaced?(slot: Slot): void;
 	/** A blank session was started in place (`new_session`); apply defaults. */
 	sessionCreated?(slot: Slot): Promise<void>;
+	/** The task a run belongs to when the slot has none yet (chat sessions are tasks too). */
+	resolveTaskId?(slot: Slot): string | null;
 }
 
 export interface SlotOptions {
@@ -65,6 +67,8 @@ export class Slot {
 	readonly incognito: boolean;
 	taskId: string | null;
 	lastActivity = now();
+	/** Text of the last prompt sent (the goal of a chat task). */
+	lastPrompt: string | null = null;
 	running = false;
 	compacting = false;
 	private runtime!: AgentSessionRuntime;
@@ -99,7 +103,7 @@ export class Slot {
 				cwd: this.fallbackCwd,
 				sessionFile: () => this.sessionOrUndefined?.sessionFile,
 				sessionId: () => this.sessionOrUndefined?.sessionId,
-				taskId: () => this.taskId,
+				taskId: () => this.taskId ?? (this.taskId = this.hooks.resolveTaskId?.(this) ?? null),
 			},
 			{
 				runStarted: (run) => this.hooks.runStarted?.(this, run),
@@ -129,6 +133,7 @@ export class Slot {
 			throw error;
 		}
 		this.runtime.setRebindSession(async () => {
+			this.taskId = null;
 			await this.rebind();
 			this.hooks.sessionReplaced?.(this);
 		});
@@ -271,6 +276,7 @@ export class Slot {
 	/** Sends a prompt on behalf of the core (tasks, schedules) and resolves when accepted. */
 	async prompt(message: string, options: { images?: unknown[] } = {}): Promise<void> {
 		this.lastActivity = now();
+		this.lastPrompt = message;
 		await new Promise<void>((resolve, reject) => {
 			let accepted = false;
 			this.session
@@ -292,6 +298,8 @@ export class Slot {
 	private async replaceAndRebind<T extends { cancelled: boolean }>(operation: () => Promise<T>): Promise<T> {
 		const result = await operation();
 		if (!result.cancelled) {
+			// Another session now: its task is looked up (or created) at its next run.
+			this.taskId = null;
 			await this.rebind();
 			this.hooks.sessionReplaced?.(this);
 		}
@@ -305,6 +313,7 @@ export class Slot {
 		switch (command.type) {
 			case "prompt": {
 				let accepted = false;
+				this.lastPrompt = String(command.message ?? "");
 				void session
 					.prompt(String(command.message ?? ""), {
 						images: command.images as never,

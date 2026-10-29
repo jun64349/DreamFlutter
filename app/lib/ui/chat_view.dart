@@ -5,7 +5,10 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'composer.dart';
+import 'common.dart';
 import 'context_dialog.dart';
+import 'library_page.dart' show showTemplateEditor;
+import 'run_summary.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 import 'message_widgets.dart';
 
@@ -25,6 +28,8 @@ class ChatView extends StatelessWidget {
         else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
           _ProblemBanner(status: agent.status, detail: agent.statusDetail),
         for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
+        if (agent.currentSessionPath != null && !(agent.active?.incognito ?? false))
+          TaskBanner(key: ValueKey('task-${agent.currentSessionPath}'), sessionFile: agent.currentSessionPath!),
         if (agent.active?.incognito ?? false)
           Container(
             margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
@@ -118,9 +123,90 @@ class _TopBar extends StatelessWidget {
             ],
             onSelected: agent.selectThinkingLevel,
           ),
+          const SizedBox(width: 4),
+          const _SessionMenu(),
         ],
       ),
     );
+  }
+}
+
+/// Top-bar menu: turn the conversation into a skill or template, and see or
+/// refresh the memory snapshot it was given.
+class _SessionMenu extends StatelessWidget {
+  const _SessionMenu();
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final hasContent = agent.isReady && !(agent.active?.isPristine ?? true);
+    final remembers = !(agent.active?.incognito ?? false) && agent.coreSettings['memoryEnabled'] != false;
+    return PopupMenuButton<String>(
+      tooltip: '更多操作',
+      icon: const Icon(Icons.more_horiz, size: 20),
+      position: PopupMenuPosition.under,
+      onSelected: (action) => _run(context, action),
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'skill',
+          enabled: hasContent && !agent.isRunning,
+          child: const ListTile(dense: true, leading: Icon(Icons.auto_fix_high_outlined), title: Text('存成技能'), subtitle: Text('把这次的做法整理成可复用的技能')),
+        ),
+        PopupMenuItem(
+          value: 'template',
+          enabled: hasContent,
+          child: const ListTile(dense: true, leading: Icon(Icons.post_add_outlined), title: Text('存为模板'), subtitle: Text('把最后一条请求存成任务模板')),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'snapshots',
+          enabled: remembers && agent.activeSessionId != null,
+          child: const ListTile(dense: true, leading: Icon(Icons.psychology_alt_outlined), title: Text('查看用到的记忆')),
+        ),
+        PopupMenuItem(
+          value: 'refresh',
+          enabled: remembers && hasContent,
+          child: const ListTile(dense: true, leading: Icon(Icons.refresh), title: Text('刷新记忆快照'), subtitle: Text('下一条消息带上最新的记忆')),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _run(BuildContext context, String action) async {
+    final agent = AgentScope.read(context);
+    switch (action) {
+      case 'skill':
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('正在用辅助模型整理这次的做法，大约需要几十秒…'), behavior: SnackBarBehavior.floating, width: 520),
+        );
+        await agent.draftSkillFromSession();
+      case 'template':
+        final draft = await agent.draftTemplateFromSession();
+        if (draft == null || !context.mounted) return;
+        final saved = await showTemplateEditor(
+          context,
+          name: draft['name'] as String? ?? '',
+          description: draft['description'] as String? ?? '',
+          body: draft['body'] as String? ?? '',
+        );
+        if (saved && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('模板已保存，可以在「技能」页运行，或在输入框里输入 /模板名。'), behavior: SnackBarBehavior.floating, width: 520),
+          );
+        }
+      case 'refresh':
+        await agent.refreshMemorySnapshot();
+      case 'snapshots':
+        final snapshots = await agent.memorySnapshots();
+        if (!context.mounted) return;
+        await showTextDialog(
+          context,
+          title: '这个会话用到的记忆',
+          text: snapshots.isEmpty
+              ? '这个会话还没有带上记忆快照（可能是记忆为空，或者还没发出第一条消息）。'
+              : [for (final s in snapshots) s['content'] as String? ?? ''].join('\n\n────────\n\n'),
+        );
+    }
   }
 }
 
@@ -364,15 +450,20 @@ class _MessageListState extends State<_MessageList> {
     final transcript = agent.transcript;
     final items = transcript.items;
     _followIfNeeded(transcript.revision);
+    final sessionFile = agent.currentSessionPath;
+    // The last run's summary (trace, cost, files) under the last reply.
+    final showSummary = sessionFile != null && !transcript.isRunning && !(agent.active?.incognito ?? false);
     return SelectionArea(
       child: ListView.builder(
         controller: _scroll,
         padding: const EdgeInsets.symmetric(vertical: AppTokens.padLg),
-        itemCount: items.length + (transcript.queuedSteering.isEmpty ? 0 : 1),
+        itemCount: items.length + (transcript.queuedSteering.isEmpty ? 0 : 1) + (showSummary ? 1 : 0),
         itemBuilder: (context, index) {
           final child = index < items.length
               ? TranscriptItemView(key: ValueKey(items[index].key), item: items[index], transcript: transcript)
-              : QueuedMessages(messages: transcript.queuedSteering);
+              : index == items.length && transcript.queuedSteering.isNotEmpty
+              ? QueuedMessages(messages: transcript.queuedSteering)
+              : RunSummaryCard(key: ValueKey(sessionFile), sessionFile: sessionFile!);
           return Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth),

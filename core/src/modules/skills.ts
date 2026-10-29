@@ -325,6 +325,7 @@ export class SkillsModule implements CoreModule {
 				"写通用的方法，不要写这次任务特有的细节。",
 			maxTokens: 2500,
 			timeoutMs: 90_000,
+			sessionModel: slot.info().model,
 		});
 		const draft = parseJsonAnswer<{ name?: string; description?: string; body?: string }>(answer);
 		if (!draft?.body) throw new RpcError("model", "没能整理出技能，可以换个模型再试");

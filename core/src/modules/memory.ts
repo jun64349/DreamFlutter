@@ -543,6 +543,7 @@ export class MemoryModule implements CoreModule {
 						'只输出 JSON 数组，例如 [{"action":"add","kind":"preference","scope":"global","content":"喜欢简洁的中文回答","reason":"用户说……"}]。没有就输出 []。' +
 						"kind 取 preference/background/experience；scope 取 global（任何场合都适用）或 workspace（只和当前项目有关）。content 用用户的语言，一条一件事。",
 					maxTokens: 1200,
+					sessionModel: slot.info().model,
 					timeoutMs: 60_000,
 				},
 			);

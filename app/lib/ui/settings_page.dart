@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../main.dart' show appVersion;
+import '../state/agent_controller.dart' show AgentController;
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -154,6 +155,31 @@ class SettingsPage extends StatelessWidget {
                 ),
               ),
               _Hint('审批在后台完成，修改后立即生效；关掉窗口后，后台任务的确认请求会以系统通知提醒你。'),
+              const _ToolRules(),
+            ],
+          ),
+          _Section(
+            title: '运行上限',
+            children: [
+              _Row(
+                title: '单次运行最多轮数',
+                subtitle: 'Agent 每调用一轮模型算一轮。超过后任务暂停，在「任务 › 待处理」里选择继续还是结束。',
+                trailing: SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 30, label: Text('30')),
+                    ButtonSegment(value: 60, label: Text('60')),
+                    ButtonSegment(value: 120, label: Text('120')),
+                    ButtonSegment(value: 0, label: Text('不限')),
+                  ],
+                  selected: {(agent.coreSettings['maxTurnsPerRun'] as num?)?.toInt() ?? 60},
+                  onSelectionChanged: (s) => agent.updateCoreSettings({'maxTurnsPerRun': s.first}),
+                ),
+              ),
+              _Row(
+                title: '每天花费上限',
+                subtitle: '所有任务当天的花费合计超过后暂停，可以选择当天不再限制。只统计填写了价格的模型。',
+                trailing: _BudgetField(value: (agent.coreSettings['dailyBudgetUsd'] as num?)?.toDouble() ?? 0),
+              ),
             ],
           ),
           _Section(
@@ -428,6 +454,99 @@ class _ChainDialogState extends State<_ChainDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(onPressed: () => Navigator.pop(context, _chain), child: const Text('保存')),
       ],
+    );
+  }
+}
+
+/// Tools the user chose to always allow in the current workspace.
+class _ToolRules extends StatefulWidget {
+  const _ToolRules();
+
+  @override
+  State<_ToolRules> createState() => _ToolRulesState();
+}
+
+class _ToolRulesState extends State<_ToolRules> {
+  List<String>? _tools;
+  String _workspace = '';
+
+  Future<void> _load(AgentController agent) async {
+    _workspace = agent.workspace;
+    try {
+      final rows = await agent.backend.call('workspace.toolRules', {'cwd': agent.workspace});
+      _tools = [for (final r in (rows as List).whereType<Map>()) r['tool'] as String];
+    } catch (_) {
+      _tools = const [];
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    if (_tools == null || _workspace != agent.workspace) {
+      _load(agent);
+      return const SizedBox();
+    }
+    if (_tools!.isEmpty) return const SizedBox();
+    return _Row(
+      title: '这个工作区里总是允许',
+      subtitle: '在审批时选了「在此工作区总是允许」的工具，不再询问。点 × 恢复询问。',
+      trailing: Wrap(
+        spacing: AppTokens.gap,
+        children: [
+          for (final tool in _tools!)
+            InputChip(
+              label: Text(tool),
+              onDeleted: () async {
+                await agent.backend.call('workspace.removeToolRule', {'cwd': agent.workspace, 'tool': tool});
+                await _load(agent);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BudgetField extends StatefulWidget {
+  const _BudgetField({required this.value});
+
+  final double value;
+
+  @override
+  State<_BudgetField> createState() => _BudgetFieldState();
+}
+
+class _BudgetFieldState extends State<_BudgetField> {
+  late final _controller = TextEditingController(text: widget.value == 0 ? '' : widget.value.toString());
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final value = double.tryParse(_controller.text.trim()) ?? 0;
+    AgentScope.read(context).updateCoreSettings({'dailyBudgetUsd': value < 0 ? 0.0 : value});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 160,
+      child: Focus(
+        onFocusChange: (focused) {
+          if (!focused) _save();
+        },
+        child: TextField(
+          controller: _controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(prefixText: '\$ ', hintText: '不限'),
+          onSubmitted: (_) => _save(),
+        ),
+      ),
     );
   }
 }

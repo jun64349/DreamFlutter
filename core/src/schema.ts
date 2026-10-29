@@ -164,4 +164,86 @@ export const MIGRATIONS: string[] = [
 	);
 	CREATE INDEX proposals_status ON proposals(status, created_at);
 	`,
+	// 4: tasks, the desk (notes, materials, artifacts) and limit cards. cwd_key = normalized cwd for lookups.
+	`
+	CREATE TABLE tasks (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		goal TEXT NOT NULL,
+		cwd TEXT NOT NULL,
+		cwd_key TEXT NOT NULL,
+		session_file TEXT,
+		source TEXT NOT NULL,
+		status TEXT NOT NULL,
+		note_id TEXT,
+		schedule_id TEXT,
+		materials TEXT NOT NULL DEFAULT '[]',
+		result TEXT,
+		error TEXT,
+		runs INTEGER NOT NULL DEFAULT 0,
+		turns INTEGER NOT NULL DEFAULT 0,
+		cost REAL NOT NULL DEFAULT 0,
+		duration_ms INTEGER NOT NULL DEFAULT 0,
+		current_step TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		ended_at INTEGER
+	);
+	CREATE INDEX tasks_cwd ON tasks(cwd_key, updated_at);
+	CREATE INDEX tasks_session ON tasks(session_file);
+	CREATE INDEX tasks_status ON tasks(status, updated_at);
+	CREATE INDEX tasks_note ON tasks(note_id);
+
+	CREATE TABLE notes (
+		id TEXT PRIMARY KEY,
+		cwd TEXT NOT NULL,
+		cwd_key TEXT NOT NULL,
+		title TEXT NOT NULL,
+		content TEXT NOT NULL DEFAULT '',
+		archived INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+	CREATE INDEX notes_cwd ON notes(cwd_key, updated_at);
+
+	CREATE TABLE materials (
+		id TEXT PRIMARY KEY,
+		cwd TEXT NOT NULL,
+		cwd_key TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		title TEXT NOT NULL,
+		path TEXT,
+		content TEXT,
+		created_at INTEGER NOT NULL
+	);
+	CREATE INDEX materials_cwd ON materials(cwd_key, created_at);
+
+	CREATE TABLE artifacts (
+		id TEXT PRIMARY KEY,
+		cwd TEXT NOT NULL,
+		cwd_key TEXT NOT NULL,
+		task_id TEXT,
+		note_id TEXT,
+		path TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		UNIQUE (task_id, path)
+	);
+	CREATE INDEX artifacts_cwd ON artifacts(cwd_key, updated_at);
+
+	CREATE TABLE notices (
+		id TEXT PRIMARY KEY,
+		kind TEXT NOT NULL,
+		title TEXT NOT NULL,
+		body TEXT,
+		slot_id TEXT,
+		session_file TEXT,
+		task_id TEXT,
+		cwd TEXT,
+		status TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		resolved_at INTEGER
+	);
+	CREATE INDEX notices_status ON notices(status, created_at);
+	`,
 ];

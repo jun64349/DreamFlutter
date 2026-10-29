@@ -63,7 +63,12 @@ export interface OpenSlotOptions {
 export interface CoreModule {
 	extensions?(slot: { slotId: string }): ExtensionFactory[];
 	onSlotEvent?(slot: Slot, event: AgentSessionEvent): void;
+	onRunStarted?(slot: Slot, run: Run): void;
 	onRunFinished?(slot: Slot, run: Run): void;
+	/** Running state, dialogs, session file or name changed. */
+	onSlotChanged?(slot: Slot): void;
+	/** Task id for a run in a slot without one; the first module returning a value wins. */
+	resolveTaskId?(slot: Slot): string | null | undefined;
 	onSlotClosed?(slot: Slot): void;
 	start?(): void | Promise<void>;
 	stop?(): void | Promise<void>;
@@ -279,6 +284,7 @@ export class Core {
 			},
 			changed: (slot) => {
 				if (this.slots.has(slot.slotId)) this.broadcast({ event: "slot.changed", info: slot.info() });
+				for (const module of this.modules) module.onSlotChanged?.(slot);
 			},
 			dialogOpened: (slot, request) => {
 				this.confirmations.opened({ slotId: slot.slotId, sessionFile: slot.info().sessionFile ?? undefined, cwd: slot.cwd }, request);
@@ -297,6 +303,16 @@ export class Core {
 				for (const module of this.modules) module.onSlotEvent?.(slot, event);
 			},
 			sessionCreated: (slot) => this.applyDefaultModel(slot),
+			resolveTaskId: (slot) => {
+				for (const module of this.modules) {
+					const id = module.resolveTaskId?.(slot);
+					if (id !== undefined) return id;
+				}
+				return null;
+			},
+			runStarted: (slot, run) => {
+				for (const module of this.modules) module.onRunStarted?.(slot, run);
+			},
 			runFinished: (slot, run) => {
 				this.broadcast({ event: "run.finished", run });
 				for (const module of this.modules) module.onRunFinished?.(slot, run);

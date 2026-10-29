@@ -19,6 +19,9 @@ class FakeBackend implements AgentBackend {
   /// Rows for `sessions.list` (null = no index, the app falls back to files).
   List<Json>? sessionRows;
   List<Json> searchHits = const [];
+
+  /// Canned answers for other core methods (memory, skills, templates...).
+  final handlers = <String, Object? Function(Json params)>{};
   final calls = <({String method, Json params})>[];
   Json settings = {
     'approvalMode': 'changes',
@@ -82,6 +85,8 @@ class FakeBackend implements AgentBackend {
         return sessionRows;
       case 'sessions.search':
         return searchHits;
+      case _ when handlers.containsKey(method):
+        return handlers[method]!(params);
       case 'slot.close':
         for (final pi in pis.where((p) => p.slotId == params['slotId'])) {
           pi.crash(code: 0);
@@ -91,6 +96,9 @@ class FakeBackend implements AgentBackend {
         return {'ok': true};
     }
   }
+
+  /// Pushes a core event (memory.changed, ...) to the window.
+  void push(Json event) => _events.add(event);
 
   @override
   Stream<Json> get events => _events.stream;

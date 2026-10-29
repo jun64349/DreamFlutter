@@ -9,7 +9,6 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'commands_dialog.dart';
-import 'settings_page.dart';
 
 class Sidebar extends StatelessWidget {
   const Sidebar({super.key});
@@ -60,11 +59,6 @@ class Sidebar extends StatelessWidget {
             icon: Icons.bolt_outlined,
             label: 'Skills 与命令',
             onTap: () => showCommandsDialog(context),
-          ),
-          _FooterButton(
-            icon: Icons.settings_outlined,
-            label: '设置',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
           ),
         ],
       ),

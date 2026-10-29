@@ -6,6 +6,7 @@ import { MemoryModule } from "./modules/memory.ts";
 import { Providers } from "./modules/providers.ts";
 import { SessionIndex } from "./modules/session-index.ts";
 import { SkillsModule } from "./modules/skills.ts";
+import { TasksModule } from "./modules/tasks.ts";
 
 /** Builds the core with every feature module wired in. */
 export function buildCore(options: CoreOptions): Core {
@@ -16,6 +17,7 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new AutoTitle(core, llm));
 	core.use(new MemoryModule(core, llm));
 	core.use(new SkillsModule(core, llm));
+	core.use(new TasksModule(core));
 	core.use({ extensions: () => [fallbackExtension(() => core.settings.get().fallbackModels)] });
 	return core;
 }

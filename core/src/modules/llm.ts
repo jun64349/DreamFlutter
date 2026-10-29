@@ -28,26 +28,31 @@ export class Llm {
 		});
 	}
 
-	/** The auxiliary model (settings.auxModel, else the default model, else any available). */
-	async auxModel(runtime?: ModelRuntime): Promise<Model<never> | undefined> {
+	/**
+	 * The auxiliary model: settings.auxModel, else the model of the session the
+	 * call is for ([sessionModel], provider/id), else the default model, else
+	 * any available one. Only models with usable credentials count.
+	 */
+	async auxModel(runtime?: ModelRuntime, sessionModel?: string | null): Promise<Model<never> | undefined> {
 		const rt = runtime ?? (await this.runtime());
 		const { auxModel, defaultModel } = this.core.settings.get();
-		for (const key of [auxModel, defaultModel]) {
+		const available = (await rt.getAvailable()) as Model<never>[];
+		for (const key of [auxModel, sessionModel, defaultModel]) {
 			if (!key) continue;
 			const slash = key.indexOf("/");
-			const model = rt.getModel(key.slice(0, slash), key.slice(slash + 1));
-			if (model && rt.hasConfiguredAuth(model.provider)) return model as Model<never>;
+			const model = available.find((m) => m.provider === key.slice(0, slash) && m.id === key.slice(slash + 1));
+			if (model) return model;
 		}
-		return (await rt.getAvailable())[0] as Model<never> | undefined;
+		return available.find((m) => m.provider !== "dreamflutter") ?? available[0];
 	}
 
 	/** Sends one user message and returns the text answer. */
 	async complete(
 		prompt: string,
-		options: { system?: string; model?: Model<never>; maxTokens?: number; timeoutMs?: number; runtime?: ModelRuntime } = {},
+		options: { system?: string; model?: Model<never>; sessionModel?: string | null; maxTokens?: number; timeoutMs?: number; runtime?: ModelRuntime } = {},
 	): Promise<string> {
 		const runtime = options.runtime ?? (await this.runtime());
-		const model = options.model ?? (await this.auxModel(runtime));
+		const model = options.model ?? (await this.auxModel(runtime, options.sessionModel));
 		if (!model) throw new Error("没有可用的模型");
 		const message = await runtime.completeSimple(
 			model,

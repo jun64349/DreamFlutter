@@ -38,6 +38,7 @@ export class AutoTitle implements CoreModule {
 			const raw = await this.llm.complete(`用户：${textOf(user.content).slice(0, 1500)}\n\n助手：${textOf(answer.content).slice(0, 1500)}`, {
 				system: SYSTEM,
 				maxTokens: 64,
+				sessionModel: slot.info().model,
 				timeoutMs: 30_000,
 			});
 			const title = cleanTitle(raw);

@@ -19,8 +19,10 @@ export interface CoreSettings {
 	/** Tokens of long-term memory injected at task start. */
 	memoryBudgetTokens: number;
 	autoTitle: boolean;
-	/** Daily spending cap for unattended (scheduled) runs, in USD; 0 = no cap. */
+	/** Daily spending cap for all runs, in USD; 0 = no cap. */
 	dailyBudgetUsd: number;
+	/** Turn cap for one run started from a window; 0 = no cap. */
+	maxTurnsPerRun: number;
 	/** Turn cap for one unattended run. */
 	maxTurnsUnattended: number;
 	notifications: boolean;
@@ -40,6 +42,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	memoryBudgetTokens: 1500,
 	autoTitle: true,
 	dailyBudgetUsd: 0,
+	maxTurnsPerRun: 60,
 	maxTurnsUnattended: 40,
 	notifications: true,
 	idleSessionMinutes: 10,
@@ -115,6 +118,8 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 		case "maxTurnsUnattended":
 		case "idleSessionMinutes":
 			return Number.isInteger(value) && (value as number) > 0;
+		case "maxTurnsPerRun":
+			return Number.isInteger(value) && (value as number) >= 0;
 		case "dailyBudgetUsd":
 			return (value as number) >= 0;
 		default:

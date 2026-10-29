@@ -8,9 +8,11 @@ import 'package:pi_rpc/pi_rpc.dart';
 import 'backend.dart';
 import 'preferences.dart';
 import 'session_runtime.dart';
+import 'work_models.dart';
 
-export 'backend.dart' show AgentBackend, CoreBackend;
+export 'backend.dart' show AgentBackend, CoreBackend, asJsonMap;
 export 'session_runtime.dart' show ClientLauncher, ConnectionStatus, SessionRuntime;
+export 'work_models.dart';
 
 /// One row in the session sidebar: a persisted session, a live one, or both.
 class SidebarEntry {
@@ -71,6 +73,9 @@ class SearchHit {
   final String snippet;
   final DateTime? modifiedAt;
 }
+
+/// Top-level pages of the window (the navigation rail).
+enum AppSection { chat, desk, tasks, memory, library }
 
 /// A run the previous core process left unfinished (shown as a resume card).
 class InterruptedRun {
@@ -158,12 +163,27 @@ class AgentController extends ChangeNotifier {
   int pendingMemories = 0;
   int pendingProposals = 0;
 
+  /// Approvals, questions, limit cards and interrupted runs waiting in the inbox.
+  int pendingInbox = 0;
+
+  /// Bumped when tasks, the desk or the inbox change in the core.
+  final workRevision = ValueNotifier<int>(0);
+
   /// Bumped when memory, skills or templates change in the core, so open
   /// pages reload.
   final libraryRevision = ValueNotifier<int>(0);
 
   /// Short user-facing messages (errors, extension notifications).
   Stream<String> get toasts => _toasts.stream;
+
+  /// The page shown next to the navigation rail.
+  AppSection section = AppSection.chat;
+
+  void showSection(AppSection value) {
+    if (section == value) return;
+    section = value;
+    _notify();
+  }
 
   // --- The active session, as the chat view sees it -------------------------
 
@@ -358,6 +378,14 @@ class AgentController extends ChangeNotifier {
       case 'memory.changed' || 'proposals.changed' || 'skills.changed' || 'templates.changed':
         libraryRevision.value++;
         unawaited(refreshPendingCounts());
+      case 'tasks.changed' || 'desk.changed' || 'confirm.changed' || 'run.finished':
+        workRevision.value++;
+        if (message['event'] == 'confirm.changed' || message['event'] == 'run.finished') unawaited(refreshPendingCounts());
+      case 'notices.changed':
+        workRevision.value++;
+        unawaited(refreshPendingCounts());
+        final notice = message['notice'];
+        if (notice is Map && notice['title'] is String) _toast('${notice['title']}。到「任务 › 待处理」里选择继续还是结束。');
     }
   }
 
@@ -368,6 +396,10 @@ class AgentController extends ChangeNotifier {
       final proposals = await backend.call('proposals.list', {'status': 'pending'});
       pendingMemories = memories is List ? memories.length : 0;
       pendingProposals = proposals is List ? proposals.length : 0;
+      try {
+        final inbox = await backend.call('inbox.list');
+        pendingInbox = jsonRows(inbox).map(InboxItem.fromJson).where((i) => i.isTaskItem).length;
+      } catch (_) {}
       _notify();
     } catch (_) {}
   }
@@ -378,10 +410,193 @@ class AgentController extends ChangeNotifier {
       final result = asJsonMap(await backend.call('templates.command', {'name': name, 'values': values}));
       final command = result['command'] as String?;
       if (command == null) return;
-      if (isRunning) await newSession();
-      await send(command);
+      await startTask(goal: command, title: '模板：$name', source: 'template');
     } catch (e) {
       _toast('运行模板失败：${SessionRuntime.describeError(e)}');
+    }
+  }
+
+  // --- Tasks and the desk -----------------------------------------------------
+
+  /// Creates a task in the core and runs it in a fresh session of the
+  /// current workspace (a running session keeps going in the background).
+  Future<void> startTask({
+    required String goal,
+    String? title,
+    String source = 'note',
+    String? noteId,
+    List<String> materialIds = const [],
+  }) async {
+    Json created;
+    try {
+      created = asJsonMap(await backend.call('tasks.create', {
+        'cwd': workspace,
+        'goal': goal,
+        'title': ?title,
+        'source': source,
+        'noteId': ?noteId,
+        'materialIds': materialIds,
+      }));
+    } catch (e) {
+      _toast('创建任务失败：${SessionRuntime.describeError(e)}');
+      return;
+    }
+    final taskId = asJsonMap(created['task'])['id'] as String?;
+    final prompt = created['prompt'] as String? ?? goal;
+    showSection(AppSection.chat);
+    await newSession();
+    final runtime = _active;
+    if (runtime == null || !runtime.isReady) return;
+    final slotId = runtime.slotId;
+    if (taskId != null && slotId != null) {
+      try {
+        await backend.call('tasks.bind', {'taskId': taskId, 'slotId': slotId});
+      } catch (_) {}
+    }
+    // Name the session after the task rather than its long composed prompt.
+    if (title != null) await runtime.rename(title);
+    await runtime.send(prompt);
+  }
+
+  /// Opens the session a task ran in.
+  Future<void> openTask(TaskInfo task) async {
+    final file = task.sessionFile;
+    if (file == null || !File(file).existsSync()) {
+      _toast('这个任务还没有会话记录，或者会话已经被删除。');
+      return;
+    }
+    showSection(AppSection.chat);
+    if (!SessionStore.samePath(task.cwd, workspace) && Directory(task.cwd).existsSync()) await setWorkspace(task.cwd);
+    await openSession(file);
+  }
+
+  /// Opens [sessionFile] (when given) and puts a "keep working on this"
+  /// request into the composer, for the user to complete and send.
+  Future<void> continueWork({String? sessionFile, String? cwd, required String text}) async {
+    showSection(AppSection.chat);
+    if (cwd != null && !SessionStore.samePath(cwd, workspace) && Directory(cwd).existsSync()) await setWorkspace(cwd);
+    if (sessionFile != null && File(sessionFile).existsSync()) {
+      await openSession(sessionFile);
+    } else {
+      await newSession();
+    }
+    insertIntoComposer(text);
+  }
+
+  /// Continue or stop a run a limit paused.
+  Future<void> resolveNotice(String id, {required bool continueRun}) async {
+    try {
+      await backend.call('notices.resolve', {'id': id, 'action': continueRun ? 'continue' : 'stop'}, const Duration(seconds: 120));
+    } catch (e) {
+      _toast('操作失败：${SessionRuntime.describeError(e)}');
+    }
+    await refreshPendingCounts();
+  }
+
+  /// Answers a confirmation card from the inbox (its session may be in the
+  /// background or not shown in this window).
+  Future<bool> answerConfirmation(String id, Json response) async {
+    for (final runtime in _runtimes) {
+      final request = runtime.pendingDialogs.where((r) => r.id == id).firstOrNull;
+      if (request != null) {
+        runtime.answerDialog(request, value: response['value'] as String?, confirmed: response['confirmed'] as bool?, cancelled: response['cancelled'] == true);
+        await refreshPendingCounts();
+        return true;
+      }
+    }
+    try {
+      await backend.call('confirm.answer', {'id': id, 'response': response});
+      await refreshPendingCounts();
+      return true;
+    } catch (e) {
+      _toast(SessionRuntime.describeError(e));
+      await refreshPendingCounts();
+      return false;
+    }
+  }
+
+  /// Opens a file with its default program.
+  Future<void> openFile(String path) async {
+    try {
+      await Process.start('cmd', ['/c', 'start', '', path], runInShell: false);
+    } catch (e) {
+      _toast('无法打开文件：$e');
+    }
+  }
+
+  /// Shows a file selected in Windows Explorer.
+  Future<void> revealFile(String path) async {
+    try {
+      await Process.start('explorer', ['/select,', path]);
+    } catch (e) {
+      _toast('无法打开文件夹：$e');
+    }
+  }
+
+  // --- Memory and skills from the chat ----------------------------------------
+
+  /// Pi session id of the active session (memory snapshots are keyed by it).
+  String? get activeSessionId {
+    final id = _active?.state?.sessionId;
+    return id == null || id.isEmpty ? null : id;
+  }
+
+  /// Asks the auxiliary model to turn the active session into a skill
+  /// proposal; returns true when one was created.
+  Future<bool> draftSkillFromSession() async {
+    final runtime = _active;
+    final slotId = runtime?.slotId;
+    if (runtime == null || slotId == null || runtime.isPristine) {
+      _toast('这个会话还没有内容。');
+      return false;
+    }
+    try {
+      await backend.call('skills.draftFromSession', {'slotId': slotId}, const Duration(seconds: 120));
+      _toast('技能草稿已生成，到「技能与模板」的「待确认」里查看并保存。');
+      return true;
+    } catch (e) {
+      _toast('整理技能失败：${SessionRuntime.describeError(e)}');
+      return false;
+    }
+  }
+
+  /// A template draft from the last message the user sent in the active
+  /// session (falls back to the message itself when the model fails).
+  Future<Json?> draftTemplateFromSession() async {
+    final last = transcript.items.whereType<UserItem>().lastOrNull;
+    if (last == null || last.text.trim().isEmpty) {
+      _toast('这个会话里还没有可以存成模板的请求。');
+      return null;
+    }
+    try {
+      return asJsonMap(await backend.call('templates.draft', {'text': last.text}, const Duration(seconds: 90)));
+    } catch (e) {
+      _toast('没能自动整理模板（${SessionRuntime.describeError(e)}），请手动修改。');
+      return {'name': '', 'description': '', 'body': last.text};
+    }
+  }
+
+  /// Rebuilds the memory snapshot at the next message of the active session.
+  Future<void> refreshMemorySnapshot() async {
+    final id = activeSessionId;
+    if (id == null) return;
+    try {
+      await backend.call('memory.refresh', {'sessionId': id});
+      _toast('下一条消息会带上最新的记忆。');
+    } catch (e) {
+      _toast('操作失败：${SessionRuntime.describeError(e)}');
+    }
+  }
+
+  /// Memory snapshots the active session was given, newest first.
+  Future<List<Json>> memorySnapshots() async {
+    final id = activeSessionId;
+    if (id == null) return const [];
+    try {
+      final rows = await backend.call('memory.snapshots', {'sessionId': id});
+      return rows is List ? rows.whereType<Map>().map((r) => r.cast<String, dynamic>()).toList() : const [];
+    } catch (_) {
+      return const [];
     }
   }
 
@@ -686,6 +901,7 @@ class AgentController extends ChangeNotifier {
   /// Reopens the session of an interrupted run and asks the agent to go on.
   Future<void> resumeInterrupted(InterruptedRun run) async {
     await dismissInterrupted(run);
+    showSection(AppSection.chat);
     final file = run.sessionFile;
     if (file == null || !File(file).existsSync()) {
       _toast('这个任务的会话文件已经不在了。');
