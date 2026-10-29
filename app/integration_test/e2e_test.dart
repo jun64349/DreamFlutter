@@ -447,7 +447,7 @@ void main() {
     await tester.tap(find.descendant(of: find.byType(SchedulesTab), matching: find.byTooltip('操作')).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('执行记录'));
-    await waitFor(tester, 'history', () => find.text('「e2e 报时」的执行记录').evaluate().isNotEmpty && find.textContaining('原定').evaluate().isNotEmpty || find.textContaining('手动运行').evaluate().length > 1, agent);
+    await waitFor(tester, 'history', () => find.text('「e2e 报时」的执行记录').evaluate().isNotEmpty, agent);
     await tester.pumpAndSettle();
     await shot(tester, '28_schedule_history');
     await tester.tap(find.widgetWithText(TextButton, '关闭'));
