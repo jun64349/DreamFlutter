@@ -1,7 +1,7 @@
 # DreamFlutter v0.1.1 开发交接
 
 更新时间：2026-10-29
-当前分支：`main`（v0.1.0 已打 tag；v0.1.1 功能已全部完成，**还没有打 tag**，等用户验收）
+当前分支：`main`（v0.1.0、v0.1.1 都已打 tag；下一阶段是 v0.2，计划见 [v0.2-plan.md](v0.2-plan.md)）
 
 ## 一句话现状
 
@@ -18,7 +18,7 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**视觉设计**。用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
+下一步：**v0.2**，从 [v0.2-plan.md](v0.2-plan.md) 的「阶段 0」开始（修图片输入 bug、AI 回复上的复制/重新生成/分叉、界面缩放），然后做设计稿让用户选。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
 
 ## 架构（沿用）
 
@@ -49,6 +49,17 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
   - `modules/web.ts`：`web_fetch` 工具（只读，免审批）。
   - `modules/mcp.ts`：表单编辑 Pi 的 `mcp.json`，密钥类值 DPAPI 加密，`pi mcp list --json` 检查连接。
   - 辅助模型修复：辅助模型 → 会话的模型 → 默认模型，只在有凭证的模型里选（之前会误用环境变量里的 Anthropic Key，导致自动标题和记忆整理全部失败）。
+
+## 怎么运行应用
+
+```bash
+cd app
+flutter run -d windows
+```
+
+如果编译时出现一大串 `'Matrix4' isn't a type`、`Undefined name 'immutable'` 之类的错误，是测试留下的编译缓存坏了，先 `flutter clean` 再运行（只删除生成的 build 和 .dart_tool）。关窗口不会停后台，换了后台代码后要从托盘完全退出一次。
+
+另外：这个环境里 WebSearch / WebFetch 用不了（它们走一个当前不可用的模型），查资料用内置浏览器（get_page_text）。
 
 ## 怎么跑测试
 
