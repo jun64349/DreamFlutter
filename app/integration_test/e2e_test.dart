@@ -14,6 +14,7 @@ import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/ui/desk_page.dart' show DeskPage;
 import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:dreamflutter/ui/memory_page.dart' show MemoryPage;
+import 'package:dreamflutter/ui/schedules.dart' show SchedulesTab;
 import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
 import 'package:dreamflutter/ui/tasks_page.dart' show TasksPage;
 import 'package:flutter/material.dart';
@@ -416,6 +417,54 @@ void main() {
     await shot(tester, '26_tasks');
     await tester.tap(nav('对话'));
     await tester.pumpAndSettle();
+
+    // 17. A scheduled task run on demand: it runs in the background (its own
+    // session), the run record shows the result and the delivery.
+    final schedule = asJsonMap(await agent.backend.call('schedules.save', {
+      'name': 'e2e 报时',
+      'prompt': '用一句话说出现在大概是一天中的什么时段（上午、下午或晚上）。不要使用任何工具。',
+      'cwd': agent.workspace,
+      'kind': 'report',
+      'trigger': {'type': 'interval', 'everyMs': 24 * 3600 * 1000},
+    }));
+    await tester.tap(nav('任务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('定时'));
+    await waitFor(tester, 'schedule listed', () => find.text('e2e 报时').evaluate().isNotEmpty, agent);
+    await tester.pumpAndSettle(); // the tab switch animates
+    await tester.tap(find.widgetWithText(OutlinedButton, '立即运行'));
+    String? runStatus;
+    await waitFor(tester, 'scheduled run done', () {
+      unawaited(agent.backend.call('schedules.get', {'id': schedule['id']}).then((v) {
+        final runs = asJsonMap(v)['runs'] as List? ?? const [];
+        runStatus = runs.isEmpty ? null : (runs.first as Map)['status'] as String?;
+      }));
+      return runStatus == 'done' || runStatus == 'failed';
+    }, agent);
+    expect(runStatus, 'done');
+    await idle(tester, const Duration(seconds: 1));
+    await shot(tester, '27_schedules');
+    await tester.tap(find.descendant(of: find.byType(SchedulesTab), matching: find.byTooltip('操作')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('执行记录'));
+    await waitFor(tester, 'history', () => find.text('「e2e 报时」的执行记录').evaluate().isNotEmpty && find.textContaining('原定').evaluate().isNotEmpty || find.textContaining('手动运行').evaluate().length > 1, agent);
+    await tester.pumpAndSettle();
+    await shot(tester, '28_schedule_history');
+    await tester.tap(find.widgetWithText(TextButton, '关闭'));
+    await tester.pumpAndSettle();
+    await agent.backend.call('schedules.remove', {'id': schedule['id']});
+
+    // 18. web_fetch reads a page without asking for approval.
+    await tester.tap(nav('对话'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.byIcon(Icons.add)));
+    await waitFor(tester, 'fresh session', () => agent.isReady && agent.transcript.items.isEmpty, agent);
+    await sendMessage(tester, '用 web_fetch 工具读取 https://example.com ，然后只回复页面的标题。');
+    await waitFor(tester, 'fetched', () => !agent.isRunning && lastText(agent).isNotEmpty, agent);
+    expect(find.text('Agent 请求执行操作'), findsNothing);
+    expect(agent.transcript.tools.values.where((r) => r.name == 'web_fetch' && r.status == ToolStatus.done), isNotEmpty, reason: describe(agent));
+    expect(lastText(agent).toLowerCase(), contains('example'));
+    await shot(tester, '29_web_fetch');
 
     await agent.shutdownCore();
     agent.dispose();
