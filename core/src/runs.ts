@@ -181,7 +181,8 @@ export class RunRecorder {
 		if (!this.run) return;
 		this.run.toolCalls++;
 		const input = (args ?? {}) as Record<string, unknown>;
-		if (FILE_TOOLS.has(toolName) && typeof input.path === "string") this.files.add(input.path);
+		const path = typeof input.file_path === "string" ? input.file_path : input.path;
+		if (FILE_TOOLS.has(toolName) && typeof path === "string") this.files.add(path);
 		const stepId = this.step("tool", toolName, summarizeArgs(toolName, input), "running");
 		this.toolSteps.set(toolCallId, { stepId, startedAt: now() });
 	}
@@ -394,7 +395,7 @@ export function textOf(content: unknown): string {
 
 function summarizeArgs(toolName: string, input: Record<string, unknown>): string {
 	const str = (key: string) => (typeof input[key] === "string" ? (input[key] as string) : undefined);
-	const first = str("command") ?? str("path") ?? str("pattern") ?? str("query") ?? str("url");
+	const first = str("command") ?? str("file_path") ?? str("path") ?? str("pattern") ?? str("query") ?? str("url") ?? str("cd") ?? str("job_id") ?? str("name");
 	const text = first ?? JSON.stringify(input);
 	const oneLine = text.replace(/\s+/g, " ").trim();
 	return oneLine.length > 160 ? `${oneLine.slice(0, 160)}…` : oneLine || toolName;

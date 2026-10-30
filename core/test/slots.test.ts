@@ -56,14 +56,14 @@ describe("session slots", () => {
 		const state = await t.waitFor(() => t.records("s1").find((r) => r.id === "st"));
 		const messages = await t.waitFor(() => t.records("s1").find((r) => r.id === "msgs"));
 		assert.equal((state.data as { isStreaming: boolean }).isStreaming, false);
-		const conversation = (messages.data as { messages: { role: string }[] }).messages.filter((m) => m.role !== "system");
+		const conversation = (messages.data as { messages: { role: string }[] }).messages.filter((m) => m.role === "user" || m.role === "assistant");
 		assert.deepEqual(conversation.map((m) => m.role), ["user", "assistant"]);
 	});
 
 	it("asks before writing a file and runs the tool once allowed", async () => {
 		const info = await open();
 		const target = join(t.workspace, "note.txt");
-		t.respond(fauxAssistantMessage([fauxToolCall("write", { path: target, content: "hello" })], { stopReason: "toolUse" }), fauxAssistantMessage("写好了"));
+		t.respond(fauxAssistantMessage([fauxToolCall("write", { file_path: target, content: "hello" })], { stopReason: "toolUse" }), fauxAssistantMessage("写好了"));
 		await t.send("s1", { id: "p", type: "prompt", message: "写个文件" });
 
 		const dialog = await t.waitFor(() => dialogs(t.records("s1"))[0]);
@@ -91,7 +91,7 @@ describe("session slots", () => {
 	it("blocks the tool when the user declines", async () => {
 		await open();
 		const target = join(t.workspace, "blocked.txt");
-		t.respond(fauxAssistantMessage([fauxToolCall("write", { path: target, content: "x" })], { stopReason: "toolUse" }), fauxAssistantMessage("好的，不写了"));
+		t.respond(fauxAssistantMessage([fauxToolCall("write", { file_path: target, content: "x" })], { stopReason: "toolUse" }), fauxAssistantMessage("好的，不写了"));
 		await t.send("s1", { id: "p", type: "prompt", message: "写个文件" });
 		const dialog = await t.waitFor(() => dialogs(t.records("s1"))[0]);
 		await t.send("s1", { type: "extension_ui_response", id: dialog.id, value: DENY });
@@ -106,9 +106,9 @@ describe("session slots", () => {
 		const first = join(t.workspace, "a.txt");
 		const second = join(t.workspace, "b.txt");
 		t.respond(
-			fauxAssistantMessage([fauxToolCall("write", { path: first, content: "a" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("write", { file_path: first, content: "a" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("ok"),
-			fauxAssistantMessage([fauxToolCall("write", { path: second, content: "b" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("write", { file_path: second, content: "b" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("ok"),
 		);
 		await t.send("s1", { id: "p1", type: "prompt", message: "one" });
@@ -124,7 +124,7 @@ describe("session slots", () => {
 	it("notifies when a dialog opens and no window watches the session", async () => {
 		await open();
 		await t.core.call("slot.detach", { slotId: "s1" }, t.client);
-		t.respond(fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }), fauxAssistantMessage("done"));
+		t.respond(fauxAssistantMessage([fauxToolCall("pwsh", { description: "Write a file", command: "Set-Content x.txt hi" })], { stopReason: "toolUse" }), fauxAssistantMessage("done"));
 		await t.core.slot("s1").handle({ id: "p", type: "prompt", message: "run" });
 		await t.waitFor(() => t.core.confirmations.list({ status: "pending" })[0]);
 		assert.equal(t.notifier.sent.length, 1);
@@ -267,7 +267,7 @@ describe("session slots", () => {
 		await open();
 		let seen: unknown;
 		t.respond((context) => {
-			seen = context.messages.at(-1)?.content;
+			seen = context.messages.findLast((m) => m.role === "user" && Array.isArray(m.content) && m.content.some((c) => c.type === "image"))?.content;
 			return fauxAssistantMessage("一张图");
 		});
 		// A valid 8x8 PNG: Pi decodes images to resize them.
@@ -286,7 +286,7 @@ describe("recovery", () => {
 	it("marks runs and dialogs left by a dead core as interrupted / expired", async () => {
 		const first = await startTestCore();
 		await first.core.call("slot.open", { slotId: "s1", cwd: first.workspace }, first.client);
-		first.respond(fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }));
+		first.respond(fauxAssistantMessage([fauxToolCall("pwsh", { description: "Write a file", command: "Set-Content x.txt hi" })], { stopReason: "toolUse" }));
 		await first.send("s1", { id: "p", type: "prompt", message: "运行命令" });
 		await first.waitFor(() => first.core.confirmations.list({ status: "pending" })[0]);
 

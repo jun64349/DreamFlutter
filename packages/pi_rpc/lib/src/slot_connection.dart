@@ -94,7 +94,7 @@ class SlotConnection implements PiConnection {
 
 /// What to open in the core.
 class SessionTarget {
-  const SessionTarget({required this.cwd, this.sessionPath, this.attachSlotId, this.incognito = false});
+  const SessionTarget({required this.cwd, this.sessionPath, this.attachSlotId, this.incognito = false, this.agentMode});
 
   /// Working directory for a new session.
   final String cwd;
@@ -107,6 +107,9 @@ class SessionTarget {
 
   /// Temporary chat: kept in memory only, never saved or remembered.
   final bool incognito;
+
+  /// Agent mode of a new session ("standard" or "minimal"); null = the core's default.
+  final String? agentMode;
 }
 
 /// A session client that may still be starting. Listen to [client] right away
@@ -147,6 +150,7 @@ LaunchedSession launchInCore(CoreClient core, SessionTarget target, {String Func
         'cwd': target.cwd,
         'sessionFile': ?target.sessionPath,
         if (target.incognito) 'incognito': true,
+        'agentMode': ?target.agentMode,
       }, const Duration(minutes: 30)), // may wait on the trust prompt
     );
     final actual = asString(info['slotId']);

@@ -40,6 +40,17 @@ def growth(this_week, last_week):
 > 下周重点：把上海新店的会员活动复制到南京和苏州。
 ''';
 
+const Json _todos = {
+  'todos': [
+    {'content': '读取销售表', 'status': 'completed'},
+    {'content': '汇总华东区', 'status': 'in_progress'},
+    {'content': '写周报和建议', 'status': 'pending'},
+  ],
+};
+const Json _command = {'description': 'Summarize sales for the east region', 'command': 'python scripts/summary.py --region 华东'};
+const Json _edit = {'file_path': 'reports/周报-W44.md', 'old_string': '华东：待补充', 'new_string': '华东：412.6 万，环比 +8.3%'};
+const Json _plan = {'plan': '# 周报计划\n\n1. 汇总华东区数据\n2. 写进 reports/周报-W44.md\n3. 给出三条建议'};
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -99,18 +110,23 @@ void main() {
     message({
       'content': [
         {'type': 'thinking', 'thinking': '先读销售表和目标表，再用脚本汇总华东区，最后写周报。'},
-        {'type': 'toolCall', 'id': 't1', 'name': 'read', 'arguments': {'path': 'data/sales_w44.xlsx'}},
-        {'type': 'toolCall', 'id': 't2', 'name': 'bash', 'arguments': {'command': 'python scripts/summary.py --region 华东'}},
+        {'type': 'toolCall', 'id': 't0', 'name': 'todo_write', 'arguments': _todos},
+        {'type': 'toolCall', 'id': 't1', 'name': 'read', 'arguments': {'file_path': 'data/sales_w44.csv'}},
+        {'type': 'toolCall', 'id': 't2', 'name': 'pwsh', 'arguments': _command},
       ],
     });
-    tool('t1', 'read', {'path': 'data/sales_w44.xlsx'}, '区域,本周,上周\n华东,412.6,381.0\n华南,301.2,307.7');
-    tool('t2', 'bash', {'command': 'python scripts/summary.py --region 华东'}, '华东  本周 412.6 万  环比 +8.3%  完成率 103.4%\n华南  本周 301.2 万  环比 -2.1%  完成率 94.0%', ms: 3100);
+    tool('t0', 'todo_write', _todos, 'Updated todo list: 1 pending, 1 in progress, 1 completed.');
+    pi.emit({'type': 'df_agent_state', 'planMode': false, 'todos': _todos['todos']});
+    tool('t1', 'read', {'file_path': 'data/sales_w44.csv'}, '<path>data/sales_w44.csv</path>\n<type>file</type>\n<content>\n1: 区域,本周,上周\n2: 华东,412.6,381.0\n\n(End of file - total 2 lines)\n</content>');
+    tool('t2', 'pwsh', _command, '华东  本周 412.6 万  环比 +8.3%  完成率 103.4%\n华南  本周 301.2 万  环比 -2.1%  完成率 94.0%', ms: 3100);
     message({
       'content': [
-        {'type': 'toolCall', 'id': 't3', 'name': 'edit', 'arguments': {'path': 'reports/周报-W44.md', 'edits': []}},
+        {'type': 'toolCall', 'id': 't3', 'name': 'edit', 'arguments': _edit},
+        {'type': 'toolCall', 'id': 't4', 'name': 'exit_plan_mode', 'arguments': _plan},
       ],
     });
-    tool('t3', 'edit', {'path': 'reports/周报-W44.md'}, 'ok', details: {'patch': '--- a\n+++ b\n@@ -1,3 +1,3 @@\n # 周报\n-华东：待补充\n+华东：412.6 万，环比 +8.3%\n 华南：301.2 万'});
+    tool('t3', 'edit', _edit, 'ok', details: {'patch': '--- a\n+++ b\n@@ -1,3 +1,3 @@\n # 周报\n-华东：待补充\n+华东：412.6 万，环比 +8.3%\n 华南：301.2 万'});
+    tool('t4', 'exit_plan_mode', _plan, 'Plan approved', details: {'approved': true});
     message({
       'stopReason': 'stop',
       'usage': {'input': 6400, 'output': 1100, 'cacheRead': 3200, 'totalTokens': 10700, 'cost': {'total': 0.012}},

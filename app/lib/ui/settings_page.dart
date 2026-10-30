@@ -7,6 +7,7 @@ import '../state/agent_controller.dart' show AgentController;
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'composer.dart' show agentModeHints, agentModeNames;
 import 'mcp_page.dart';
 import 'providers_page.dart';
 import 'usage_page.dart';
@@ -148,6 +149,22 @@ class SettingsPage extends StatelessWidget {
                 '服务商配置写在 Pi 自己的配置文件里（${p.join(agentDir, 'models.json')} 和 auth.json），在终端里用 Pi 也能看到。'
                 '新填写的 API Key 用你的 Windows 账户加密保存。',
               ),
+            ],
+          ),
+          _Section(
+            title: 'Agent 模式',
+            children: [
+              RadioGroup<String>(
+                groupValue: agent.defaultAgentMode,
+                onChanged: (m) => agent.updateCoreSettings({'agentMode': m!}),
+                child: Column(
+                  children: [
+                    for (final mode in agentModeNames.keys)
+                      RadioListTile<String>(value: mode, title: Text('${agentModeNames[mode]}模式'), subtitle: Text(agentModeHints[mode]!), dense: true),
+                  ],
+                ),
+              ),
+              _Hint('新会话用这个模式；已有的会话保持创建时的模式。两种模式都按 DeepSeek Harness 的设计实现，对 DeepSeek 模型最友好。'),
             ],
           ),
           _Section(

@@ -128,6 +128,7 @@ export function templateCommand(name: string, params: TemplateParam[], values: R
  * skills the agent suggests via `skill_propose` or drafted from a session.
  */
 export class SkillsModule implements CoreModule {
+	readonly modelFacing = true;
 	private readonly core: Core;
 	private readonly db: Db;
 	private readonly llm: Llm;

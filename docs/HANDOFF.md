@@ -18,13 +18,13 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**v0.2 阶段 3**（统一网关与仪表盘 + 设置重组，见 [v0.2-plan.md](v0.2-plan.md)；开始前先和用户确认网关方案、是否对外提供本地接口）。
+下一步：**v0.2 阶段 3b：统一网关 + 仪表盘 + 设置重组**（决定见 [v0.2-plan.md](v0.2-plan.md) 第五节）。阶段 3a（Agent 模式）已完成，见下面一节和 [agent-modes.md](agent-modes.md)。
 
-**同时在做、下次接着做的两件事（2026-10-30 用户提出，额度用完时中断）：**
+调研报告：[research/deepseek-harness.md](research/deepseek-harness.md)（Codex）、[research/showcard.md](research/showcard.md)（Antigravity，Showcard 放阶段 4）。名画主题：用 Agent Bridge 的 Antigravity 调研，阶段 5 落地。
 
-1. **按 DeepSeek Harness（dsh，`deepseek-ai/deepseek-harness`）优化我们的 agent 在 DeepSeek 上的表现**，交给 Codex 做。已确认：dsh 的「极简」预设 = DeepSeek 模型 RL 训练时的组合：系统提示词只有一句 `You are a helpful software engineer assistant.`（complete 模式，不注入任何运行时上下文），工具只有持久 shell（Windows 用持久 PowerShell，300 秒超时，固定的工具描述）+ `str_replace_editor`（绝对路径）+ 读图；「标准」预设是完整工具集 + 工具结果裁剪（超过 8192 字符保留头 4096、尾 1024）+ 压缩 + 计划模式等。设想：新增「Agent 模式：标准 / 极简」设置，外加对两种模式都有用的 DeepSeek 传输层修正（思考内容回传、缓存友好）。
-   - Codex 只读调研的提示词：[research/deepseek-harness-codex-prompt.md](research/deepseek-harness-codex-prompt.md)。中断时它正在写最终报告，输出到 `C:\Users\21669\AppData\Local\Temp\claude\E--claude-DreamFlutter\af32413f-878e-4995-8168-193829b053a3\scratchpad\delegates\codex-dsh-report.md`（日志 codex-dsh.log 同目录；dsh 源码稀疏检出在同一 scratchpad 的 `dsh-ref`）。下次：先看这份报告还在不在，不在就用同一提示词重跑（`codex exec -s read-only -C E:\claude\DreamFlutter -o <输出> - < 提示词`，codex.exe 在 `%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\`）；报告存进 `docs/research/deepseek-harness.md`，把改动清单给用户确认后再让 Codex 实现（实现要可写，agent-bridge 的项目根是毕设文件夹，且长任务会超时，所以直接调用 CLI）。
-2. **以世界名画/艺术品为主题的更多主题**，和 Antigravity 合作调研。提示词：[research/art-themes-agy-prompt.md](research/art-themes-agy-prompt.md)（8 个候选主题，含核实来源、公有领域、配色对比度、字体、蝴蝶画法、上线顺序）。第一次运行时 agy 在无人值守模式下要执行命令被拒、没有产出；用 `--dangerously-skip-permissions` 重跑被安全检查拦下。**等用户决定**：给 agy 加允许规则、由用户自己授权运行，或者改由 Claude 用内置浏览器调研。阶段 0、1、2 已完成（2026-10-30）：用户选了视觉方向 A「蛱蝶」（[v0.2-design.md](v0.2-design.md)，设计稿在 Artifact「DreamFlutter 视觉方向」 https://claude.ai/artifact/6YEFyrT1H7voDESb7SkvDf ），设计系统和对话页已按它重做，见下面各节。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
+分工（用户要求）：后端设计和实现、问题排查尽量交给 Codex；广泛搜索和调研交给 Antigravity；都经 Agent Bridge。Agent Bridge（毕设文件夹 `mcp/agent-bridge`）在 2026-10-30 加了后台任务：长任务传 `background: true`，再用 `job_status`（可带 `wait_sec`）取结果；`codex_run` 的 `cwd` 传 `E:\claude\DreamFlutter` 就在本项目里运行。改完需要重启 Claude 才加载。
+
+阶段 0、1、2 已完成（2026-10-30）：用户选了视觉方向 A「蛱蝶」（[v0.2-design.md](v0.2-design.md)，设计稿在 Artifact「DreamFlutter 视觉方向」 https://claude.ai/artifact/6YEFyrT1H7voDESb7SkvDf ），设计系统和对话页已按它重做，见下面各节。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
 
 ## 架构（沿用）
 
@@ -39,6 +39,22 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - 模块钩子（`CoreModule`）：`extensions`、`onSlotEvent`、`onSlotChanged`、`onRunStarted`、`onRunFinished`、`resolveTaskId`、`toolPolicy`、`start/stop`。
 - 数据库迁移 `core/src/schema.ts`（只能往后追加），目前第 5 版：1 设置/确认卡/运行记录，2 会话索引/用量，3 记忆/提案，4 任务/写笺/资料/产物/上限卡片，5 定时任务/执行记录/交付记录。
 - 窗口：`app/lib/state/agent_controller.dart`（会话、任务、收件箱计数、各页刷新信号 `libraryRevision` / `workRevision`），左侧导航 `app/lib/ui/home_page.dart`。
+
+## v0.2 阶段 3a：Agent 模式（2026-10-30）
+
+按 DeepSeek Harness 的标准 / 极简预设在 Pi 里复现两种模式，细节和与 dsh 的差异见 [agent-modes.md](agent-modes.md)。要点：
+
+- 后台：`core/src/agent/`（harness 扩展、dsh 原文、各工具）；`host.ts` 按会话模式加载；模式记在会话里（`df.agent_mode`），设置 `agentMode` 是新会话默认值；定时任务总用标准模式。
+- 不再写用户的 `~/.pi/agent/settings.json`：压缩、重试设置用 SettingsManager 实例覆盖；`set_auto_compaction` 命令不再改 Pi 设置（自动压缩是后台设置 `autoCompaction`）。
+- 审批：只读工具清单换成 dsh 的工具名；`pwsh` 按命令内容分类（`isReadOnlyCommand`）；定时任务里允许 `bash` 的旧计划同样允许 `pwsh`。
+- 新命令：`df_agent_state`（模式、计划模式、待办）、`df_set_plan_mode`；新记录 `df_agent_state`（待办或计划模式变化时推给窗口）；`slot.open` 和 `new_session` 接受 `agentMode`。
+- 窗口：输入框「标准 / 极简」切换、计划模式按钮、右栏待办、计划审阅和提问对话框、新工具的显示（pwsh 终端带用途说明、写入也显示差异、待办清单、计划卡片）；设置页「Agent 模式」。
+- **Bash 工具的沙箱里启动不了 PowerShell**（ENOENT）：跑后台测试和 `scripts/live-modes.ts` 用 PowerShell 工具。
+- 真实 DeepSeek 检查：`cd core; node --disable-warning=ExperimentalWarning scripts/live-modes.ts minimal standard [--task=twoturn]`。
+
+**E2E 状态（2026-10-30）**：真实窗口测试第 1–21 步（含新加的极简模式）用 DeepSeek 跑通；第 22 步（计划模式）因测试里的等待条件有竞争而失败，条件已修好但**还没重跑验证**：`cd app; flutter test integration_test/e2e_test.dart -d windows`。
+
+**待查问题（2026-10-30 用户报告，未修）**：切换工作区时，**整个应用窗口会短暂变黑**一下。用户是在看 E2E 测试跑的时候看到的（第 7 步从最近列表切换工作区，也可能是别的步骤），没看清具体时刻。已排除：主题没有变化；HomePage / ChatView 没有在切换时返回空组件的分支；会话启动中对话区显示转圈而不是空白。还没做：录屏定位。计划：写一个用假后台反复切换工作区的集成测试，同时用 PowerShell（System.Drawing CopyFromScreen）每 50 毫秒截屏，找出全黑的帧和对应的步骤；再看是不是 Windows 上 Flutter 窗口在某个原生操作（选文件夹对话框、窗口尺寸变化）后丢了一帧。
 
 ## v0.2 阶段 2 后半（2026-10-30）
 
@@ -97,7 +113,7 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：87 个，用 Pi 自带的假模型，不联网
+# 后台测试：106 个，用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
 cd core && npm test && npx tsc --noEmit
 # 窗口单元/组件测试：59 个
 cd app && flutter test test

@@ -5,7 +5,7 @@ import type { Core, CoreModule } from "../core.ts";
 import { num, RpcError, requireStr, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, now, parseJson } from "../db.ts";
-import { READ_ONLY_TOOLS } from "../ext/approval.ts";
+import { isReadOnlyCall, READ_ONLY_TOOLS, SHELL_TOOLS } from "../ext/approval.ts";
 import type { Run } from "../runs.ts";
 import { textOf } from "../runs.ts";
 import type { Slot } from "../slots/slot.ts";
@@ -252,6 +252,7 @@ function formatTime(at: number, timezone?: string): string {
  * the user approves.
  */
 export class SchedulerModule implements CoreModule {
+	readonly modelFacing = true;
 	private readonly core: Core;
 	private readonly db: Db;
 	private readonly tasks: TasksModule;
@@ -596,6 +597,8 @@ export class SchedulerModule implements CoreModule {
 				sessionFile: schedule.sessionMode === "bound" ? (schedule.sessionFile ?? undefined) : undefined,
 				taskId,
 				unattended: true,
+				// Scheduled runs report through schedule_state, a standard-mode tool.
+				agentMode: "standard",
 			});
 		} catch (error) {
 			this.finishRun(run.id, "failed", { error: error instanceof Error ? error.message : String(error) });
@@ -753,10 +756,13 @@ export class SchedulerModule implements CoreModule {
 	toolPolicy(slot: Slot, tool: string, input: Record<string, unknown> = {}): "allow" | "deny" | undefined {
 		const runId = this.active.get(slot.slotId);
 		if (!runId) return undefined;
-		if (READ_ONLY_TOOLS.has(tool) || SCHEDULE_TOOLS.includes(tool) || tool === "skill_propose") return "allow";
+		if (isReadOnlyCall(tool, input) || SCHEDULE_TOOLS.includes(tool) || tool === "skill_propose") return "allow";
 		if (tool.startsWith("memory_") && input.explicit !== true) return "allow";
 		const schedule = this.get(this.getRun(runId)?.scheduleId ?? "");
-		return schedule?.allowedTools?.includes(tool) ? "allow" : "deny";
+		const allowed = schedule?.allowedTools ?? [];
+		// Older schedules name the shell "bash" or "powershell"; the agent modes call it "pwsh".
+		const shellAllowed = SHELL_TOOLS.has(tool) && allowed.some((t) => SHELL_TOOLS.has(t));
+		return allowed.includes(tool) || shellAllowed ? "allow" : "deny";
 	}
 
 	extensions(slot: { slotId: string }): ExtensionFactory[] {

@@ -203,6 +203,12 @@ class AgentController extends ChangeNotifier {
   bool get isRunning => _active?.isRunning ?? false;
   PiModel? get model => _active?.model;
   String get thinkingLevel => _active?.thinkingLevel ?? 'off';
+
+  /// Agent mode of the open session; new sessions start in [defaultAgentMode].
+  String get agentMode => _active?.agentMode ?? defaultAgentMode;
+  String get defaultAgentMode => coreSettings['agentMode'] == 'minimal' ? 'minimal' : 'standard';
+  bool get planMode => _active?.planMode ?? false;
+  List<Object?> get todos => _active?.todos ?? const [];
   List<PiModel> get models => _active?.models ?? const [];
   List<String> get thinkingLevels => _active?.thinkingLevels ?? const [];
   SessionStats get stats => _active?.stats ?? SessionStats.empty;
@@ -626,10 +632,11 @@ class AgentController extends ChangeNotifier {
     super.dispose();
   }
 
-  SessionRuntime _newRuntime(String cwd, {bool incognito = false}) {
+  SessionRuntime _newRuntime(String cwd, {bool incognito = false, String? agentMode}) {
     final runtime = SessionRuntime(
       workspace: cwd,
       incognito: incognito,
+      requestedAgentMode: agentMode,
       launch: backend.launch,
       onToast: _toast,
       onSettled: _onRuntimeSettled,
@@ -644,9 +651,9 @@ class AgentController extends ChangeNotifier {
   }
 
   /// Opens a session for [cwd] (default: the workspace) in the core.
-  Future<SessionRuntime> _spawn({String? sessionPath, String? cwd, bool incognito = false}) async {
+  Future<SessionRuntime> _spawn({String? sessionPath, String? cwd, bool incognito = false, String? agentMode}) async {
     reapIdle(makeRoomForOne: true);
-    final runtime = _newRuntime(cwd ?? workspace, incognito: incognito);
+    final runtime = _newRuntime(cwd ?? workspace, incognito: incognito, agentMode: agentMode);
     // Show the new session right away (with its startup spinner) instead of
     // leaving the previous one on screen while it opens.
     _active = runtime;
@@ -779,6 +786,25 @@ class AgentController extends ChangeNotifier {
   Future<void> send(String text, {List<ImageBlock> images = const []}) async => _active?.send(text, images: images);
   Future<void> abort() async => _active?.abort();
   Future<void> selectModel(PiModel model) async => _active?.selectModel(model);
+
+  /// Switches to [mode] ("standard" or "minimal"). A session keeps the mode
+  /// it was created in, so this starts a new session in that mode (in place
+  /// when the open one is still blank) and makes it the default.
+  Future<void> selectAgentMode(String mode) async {
+    if (mode != 'standard' && mode != 'minimal') return;
+    unawaited(updateCoreSettings({'agentMode': mode}).catchError((_) {}));
+    final current = _active;
+    if (current != null && current.agentMode == mode) return;
+    if (current != null && current.isPristine && current.isReady && !current.incognito) {
+      await current.newSessionInPlace(agentMode: mode);
+      _notify();
+      return;
+    }
+    final runtime = await _spawn(agentMode: mode);
+    await _activate(runtime);
+  }
+
+  Future<void> setPlanMode(bool on) async => _active?.setPlanMode(on);
   Future<void> selectThinkingLevel(String level) async => _active?.selectThinkingLevel(level);
 
   /// Reconnects to the core if needed and reopens the active session.

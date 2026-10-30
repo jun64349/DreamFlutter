@@ -458,8 +458,11 @@ class _ComposerState extends State<Composer> {
                             onTap: agent.isReady && supportsImages ? _pickImages : null,
                           ),
                           _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
+                          if (agent.agentMode == 'standard') const _PlanToggle(),
                           const Spacer(),
-                          const _ModelChip(),
+                          const _ModeChip(),
+                          const SizedBox(width: 4),
+                          const Flexible(child: _ModelChip()),
                           const SizedBox(width: 4),
                           const _ThinkingChip(),
                           const SizedBox(width: 6),
@@ -534,12 +537,15 @@ class _Chip<T> extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 180),
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: context.text.bodySmall?.copyWith(color: enabled ? colors.ink : colors.muted),
+            Flexible(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 180),
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: context.text.bodySmall?.copyWith(color: enabled ? colors.ink : colors.muted),
+                ),
               ),
             ),
             const SizedBox(width: 2),
@@ -566,6 +572,77 @@ class _MenuRow extends StatelessWidget {
         Expanded(child: Text(title)),
         if (subtitle != null) ...[const SizedBox(width: 16), Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted))],
       ],
+    );
+  }
+}
+
+/// Names and one-line explanations of the agent modes.
+const agentModeNames = {'standard': '标准', 'minimal': '极简'};
+const agentModeHints = {
+  'standard': '完整的工具和上下文：文件、搜索、命令、待办、计划、记忆和技能',
+  'minimal': 'DeepSeek 训练时的环境：一句话提示词，只有一个 PowerShell、看图和工作目录',
+};
+
+/// The agent mode of the session. A session keeps its mode, so picking the
+/// other one starts a new session in it.
+class _ModeChip extends StatelessWidget {
+  const _ModeChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final current = agent.agentMode;
+    final blank = agent.active?.isPristine ?? true;
+    return _Chip<String>(
+      label: agentModeNames[current] ?? current,
+      tooltip: 'Agent 模式：${agentModeHints[current] ?? ''}${blank ? '' : '\n切换模式会新开一个会话'}',
+      enabled: agent.isReady && !agent.isRunning,
+      items: [
+        for (final mode in agentModeNames.keys)
+          PopupMenuItem(
+            value: mode,
+            child: SizedBox(
+              width: 300,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 22, child: mode == current ? const Icon(Icons.check, size: 16) : null),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${agentModeNames[mode]}模式${mode != current && !blank ? '（新会话）' : ''}'),
+                        Text(agentModeHints[mode]!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+      onSelected: agent.selectAgentMode,
+    );
+  }
+}
+
+/// Plan mode (standard mode): the agent explores and presents a plan for
+/// approval before changing anything.
+class _PlanToggle extends StatelessWidget {
+  const _PlanToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final colors = context.colors;
+    final on = agent.planMode;
+    return IconButton(
+      tooltip: on ? '计划模式已开启：Agent 先查看和规划，你批准后才动手。点击关闭' : '计划模式：先让 Agent 给出计划，你批准后再动手',
+      onPressed: agent.isReady ? () => agent.setPlanMode(!on) : null,
+      iconSize: 18,
+      visualDensity: VisualDensity.compact,
+      style: on ? IconButton.styleFrom(backgroundColor: colors.accentSoft, foregroundColor: colors.accent) : null,
+      icon: Icon(on ? Icons.map : Icons.map_outlined),
     );
   }
 }

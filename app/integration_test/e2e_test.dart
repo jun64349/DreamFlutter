@@ -185,15 +185,15 @@ void main() {
     expect(find.descendant(of: find.byType(Sidebar), matching: find.byType(BreathingDot)), findsOneWidget, reason: 'A runs in the background');
     await shot(tester, '02_background_running');
 
-    // 3. Work in B while A runs: a bash call needs approval in "changes" mode.
-    await sendMessage(tester, '用 bash 工具运行命令：echo approval-ok ，然后告诉我输出。');
+    // 3. Work in B while A runs: a command that writes needs approval in "changes" mode.
+    await sendMessage(tester, '用 pwsh 工具运行这条命令：Set-Content approval.txt approval-ok; Get-Content approval.txt ，然后告诉我输出。');
     await waitFor(tester, 'approval dialog', () => find.text('Agent 请求执行操作').evaluate().isNotEmpty, agent);
-    expect(find.textContaining('echo approval-ok'), findsWidgets);
+    expect(find.textContaining('Set-Content approval.txt'), findsWidgets);
     await shot(tester, '03_approval_dialog');
     await tester.tap(find.widgetWithText(FilledButton, '允许'));
     await tester.pump();
     await waitFor(tester, 'B reply', () => !agent.isRunning && lastText(agent).contains('approval-ok'), agent);
-    expect(agent.transcript.tools.values.singleWhere((r) => r.name == 'bash').status, ToolStatus.done);
+    expect(agent.transcript.tools.values.firstWhere((r) => r.name == 'pwsh').status, ToolStatus.done);
     await shot(tester, '04_parallel_sessions');
 
     // 4. Back to A: same process, still running or finished; stop it if needed.
@@ -535,6 +535,51 @@ void main() {
     await shot(tester, '31_zoom_125');
     await ctrl(LogicalKeyboardKey.digit0);
     expect(agent.zoom, 1.0);
+
+    // 21. Minimal mode: a new session with only the persistent PowerShell; state
+    // persists between commands; a read-only command needs no approval.
+    await agent.selectAgentMode('minimal');
+    await waitFor(tester, 'minimal session', () => agent.isReady && agent.agentMode == 'minimal' && agent.transcript.items.isEmpty, agent);
+    await sendMessage(tester, r'先用 pwsh 执行 $n = 6 * 7 ，再用另一次 pwsh 调用输出 $n 的值，最后只回复这个数字。');
+    // Assigning a variable is not read-only, so the commands may ask first.
+    final approve21 = find.widgetWithText(FilledButton, '允许');
+    while (agent.isRunning || approve21.evaluate().isNotEmpty || lastText(agent).isEmpty) {
+      await waitFor(tester, 'approval or minimal reply', () => approve21.evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
+      if (approve21.evaluate().isNotEmpty) {
+        await tester.tap(approve21.first);
+        await tester.pump();
+        await idle(tester);
+      }
+    }
+    expect(lastText(agent), contains('42'), reason: describe(agent));
+    expect(agent.transcript.tools.values.every((r) => r.name == 'pwsh'), isTrue, reason: describe(agent));
+    await shot(tester, '32_minimal_mode');
+
+    // 22. Plan mode (standard): the agent presents a plan for review instead of acting.
+    await agent.selectAgentMode('standard');
+    await waitFor(tester, 'standard session', () => agent.isReady && agent.agentMode == 'standard' && agent.transcript.items.isEmpty, agent);
+    await idle(tester); // let the composer redraw with the plan-mode button
+    await tester.tap(find.byTooltip('计划模式：先让 Agent 给出计划，你批准后再动手'));
+    await waitFor(tester, 'plan mode on', () => agent.planMode, agent);
+    await sendMessage(tester, '在工作区新建 plan-demo.txt，内容是 hello。');
+    // Not 'not running' alone: right after sending, the run has not started yet.
+    await waitFor(tester, 'plan review', () => find.text('请审阅 Agent 的计划').evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
+    expect(find.text('请审阅 Agent 的计划'), findsOneWidget, reason: describe(agent));
+    await shot(tester, '33_plan_review');
+    await tester.tap(find.widgetWithText(FilledButton, '批准，开始执行'));
+    await tester.pump();
+    final approve22 = find.widgetWithText(FilledButton, '允许');
+    while (agent.isRunning || approve22.evaluate().isNotEmpty) {
+      await waitFor(tester, 'approval or done', () => approve22.evaluate().isNotEmpty || !agent.isRunning, agent);
+      if (approve22.evaluate().isNotEmpty) {
+        await tester.tap(approve22.first);
+        await tester.pump();
+        await idle(tester);
+      }
+    }
+    expect(agent.planMode, isFalse);
+    expect(File(p.join(agent.workspace, 'plan-demo.txt')).existsSync(), isTrue, reason: describe(agent));
+    await shot(tester, '34_plan_done');
 
     await agent.shutdownCore();
     agent.dispose();

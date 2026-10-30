@@ -80,7 +80,10 @@ function charsetOf(contentType: string, head: Uint8Array): string {
 }
 
 /** Downloads [url] (http/https only, size-capped) and returns readable text. */
-export async function fetchPage(url: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<{ url: string; title: string; text: string; contentType: string }> {
+export async function fetchPage(
+	url: string,
+	options: { timeoutMs?: number; signal?: AbortSignal; allowHttpErrors?: boolean } = {},
+): Promise<{ url: string; title: string; text: string; contentType: string; status: number }> {
 	let parsed: URL;
 	try {
 		parsed = new URL(url);
@@ -98,7 +101,8 @@ export async function fetchPage(url: string, options: { timeoutMs?: number; sign
 			"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 		},
 	});
-	if (!response.ok) throw new Error(`网站返回 ${response.status} ${response.statusText}`);
+	if (!response.ok && !options.allowHttpErrors) throw new Error(`网站返回 ${response.status} ${response.statusText}`);
+	const status = response.status;
 	const contentType = response.headers.get("content-type") ?? "";
 	if (/^(image|audio|video)\/|application\/(pdf|zip|octet-stream)/i.test(contentType)) throw new Error(`这是 ${contentType.split(";")[0]} 文件，不是网页，无法转成文字`);
 	const reader = response.body?.getReader();
@@ -133,14 +137,14 @@ export async function fetchPage(url: string, options: { timeoutMs?: number; sign
 	const finalUrl = response.url || parsed.href;
 	if (/html|xml/i.test(contentType) || /^\s*</.test(body)) {
 		const { title, text } = htmlToText(body, finalUrl);
-		return { url: finalUrl, title, text, contentType };
+		return { url: finalUrl, title, text, contentType, status };
 	}
 	if (/json/i.test(contentType)) {
 		try {
-			return { url: finalUrl, title: "", text: JSON.stringify(JSON.parse(body), null, 2), contentType };
+			return { url: finalUrl, title: "", text: JSON.stringify(JSON.parse(body), null, 2), contentType, status };
 		} catch {}
 	}
-	return { url: finalUrl, title: "", text: body, contentType };
+	return { url: finalUrl, title: "", text: body, contentType, status };
 }
 
 /** The `web_fetch` tool: read a web page as text (read-only, no approval needed). */

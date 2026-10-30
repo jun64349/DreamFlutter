@@ -237,9 +237,10 @@ class PiRpcClient {
   Future<List<AgentMessage>> getMessages() async =>
       asJsonList(asJson(await send('get_messages'))['messages']).map(AgentMessage.fromJson).toList();
 
-  /// Returns false if an extension cancelled the switch.
-  Future<bool> newSession() async =>
-      !asBool(asJson(await send('new_session', const {}, const Duration(seconds: 60)))['cancelled']);
+  /// Returns false if an extension cancelled the switch. [agentMode] picks
+  /// the new session's agent mode ("standard" or "minimal").
+  Future<bool> newSession({String? agentMode}) async =>
+      !asBool(asJson(await send('new_session', {'agentMode': ?agentMode}, const Duration(seconds: 60)))['cancelled']);
 
   /// Returns false if an extension cancelled the switch.
   Future<bool> switchSession(String sessionPath) async => !asBool(

@@ -1,4 +1,6 @@
 import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import { AGENT_MODES, type AgentMode, recordedMode } from "../agent/harness.ts";
+import type { TodoItem } from "../agent/state.ts";
 import type { Db } from "../db.ts";
 import { now } from "../db.ts";
 import { createSessionRuntime, type OpenTarget, type PiHostConfig } from "../pi/host.ts";
@@ -24,6 +26,10 @@ export interface SlotInfo {
 	/** Temporary chat: in memory only, no memory read or write. */
 	incognito: boolean;
 	model: string | null;
+	/** Agent mode of the open session (null while starting). */
+	agentMode: AgentMode | null;
+	/** Standard mode: plan mode is on. */
+	planMode: boolean;
 }
 
 export interface SlotHooks {
@@ -49,6 +55,8 @@ export interface SlotOptions {
 	target: OpenTarget;
 	taskId?: string | null;
 	unattended?: boolean;
+	/** Mode for new sessions started in this slot. */
+	agentMode: AgentMode;
 }
 
 type Command = { id?: string; type: string } & Record<string, unknown>;
@@ -71,6 +79,11 @@ export class Slot {
 	lastPrompt: string | null = null;
 	running = false;
 	compacting = false;
+	/** Mode the next new session in this slot starts in. */
+	newSessionMode: AgentMode;
+	/** The harness's todo list and plan mode, as last reported. */
+	agentState: { todos: TodoItem[] | null; planMode: boolean } = { todos: null, planMode: false };
+	private config: PiHostConfig | undefined;
 	private runtime!: AgentSessionRuntime;
 	private readonly hooks: SlotHooks;
 	private readonly recorder: RunRecorder;
@@ -85,6 +98,7 @@ export class Slot {
 		this.incognito = options.target.inMemory === true;
 		this.hooks = hooks;
 		this.fallbackCwd = options.target.cwd;
+		this.newSessionMode = options.agentMode;
 		this.ui = new UiBridge({
 			emit: (record) => this.emit(record),
 			dialogOpened: (request) => {
@@ -126,6 +140,7 @@ export class Slot {
 	}
 
 	async start(config: PiHostConfig, target: OpenTarget): Promise<void> {
+		this.config = config;
 		try {
 			this.runtime = await createSessionRuntime(config, { slotId: this.slotId }, this.ui, target);
 		} catch (error) {
@@ -175,7 +190,17 @@ export class Slot {
 			unattended: this.unattended,
 			incognito: this.incognito,
 			model: model ? `${model.provider}/${model.id}` : null,
+			agentMode: session ? (recordedMode(session.sessionManager) ?? "standard") : null,
+			planMode: this.agentState.planMode,
 		};
+	}
+
+	/** The harness reported a new todo list or plan mode. */
+	setAgentState(state: { todos: TodoItem[] | null; planMode: boolean }): void {
+		const planChanged = state.planMode !== this.agentState.planMode;
+		this.agentState = state;
+		this.emit({ type: "df_agent_state", ...state });
+		if (planChanged) this.hooks.changed(this);
 	}
 
 	/**
@@ -340,6 +365,8 @@ export class Slot {
 				return ok(id, "clear_queue", session.clearQueue());
 			case "new_session": {
 				const parentSession = str("parentSession");
+				const mode = str("agentMode");
+				if (mode && AGENT_MODES.includes(mode as AgentMode)) this.newSessionMode = mode as AgentMode;
 				const result = await this.replaceAndRebind(() => this.runtime.newSession(parentSession ? { parentSession } : undefined));
 				if (!result.cancelled) await this.hooks.sessionCreated?.(this);
 				return ok(id, "new_session", result);
@@ -385,10 +412,16 @@ export class Slot {
 			case "set_follow_up_mode":
 				session.setFollowUpMode(command.mode as never);
 				return ok(id, "set_follow_up_mode");
-			case "compact":
-				return ok(id, "compact", await session.compact(str("customInstructions")));
+			case "compact": {
+				this.config?.manualCompactions?.add(this.slotId);
+				try {
+					return ok(id, "compact", await session.compact(str("customInstructions")));
+				} finally {
+					this.config?.manualCompactions?.delete(this.slotId);
+				}
+			}
 			case "set_auto_compaction":
-				session.setAutoCompactionEnabled(command.enabled === true);
+				// Automatic compaction is the core setting autoCompaction (settings.update), not a Pi setting.
 				return ok(id, "set_auto_compaction");
 			case "set_auto_retry":
 				session.setAutoRetryEnabled(command.enabled === true);
@@ -498,6 +531,14 @@ export class Slot {
 			case "df_reload":
 				await session.reload();
 				return ok(id, "df_reload");
+			case "df_agent_state":
+				return ok(id, "df_agent_state", { agentMode: recordedMode(session.sessionManager) ?? "standard", ...this.agentState });
+			case "df_set_plan_mode": {
+				const control = this.config?.harnessControls?.get(this.slotId);
+				if (!control?.setPlanMode) return failure(id, "df_set_plan_mode", "计划模式只在标准模式里可用");
+				control.setPlanMode(command.on === true);
+				return ok(id, "df_set_plan_mode", this.agentState);
+			}
 			case "df_context_usage":
 				return ok(id, "df_context_usage", session.getContextUsage() ?? null);
 			default:

@@ -141,7 +141,7 @@ describe("scheduler", () => {
 
 		const risky = await save({ name: "写文件", trigger: { type: "interval", everyMs: 10 * MIN }, allowedTools: ["write"] });
 		t.respond(
-			fauxAssistantMessage([fauxToolCall("write", { path: "x.txt", content: "x" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("write", { file_path: "x.txt", content: "x" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("", { stopReason: "error", errorMessage: "boom" }),
 		);
 		await tick(risky.nextRunAt!);
@@ -154,12 +154,12 @@ describe("scheduler", () => {
 
 	it("only allowed tools run, without dialogs", async () => {
 		const s = await save({ trigger: { type: "interval", everyMs: 10 * MIN } });
-		t.respond(fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }), fauxAssistantMessage("没能运行命令"));
+		t.respond(fauxAssistantMessage([fauxToolCall("pwsh", { description: "Write a file", command: "Set-Content x.txt hi" })], { stopReason: "toolUse" }), fauxAssistantMessage("没能运行命令"));
 		await tick(s.nextRunAt!);
 		await t.waitFor(() => doneRuns(s.id) === 1);
 		assert.equal(t.core.confirmations.list({}).length, 0, "no approval dialog in an unattended run");
 		const steps = t.core.runs.steps(t.core.runs.list({ limit: 1 })[0]!.id);
-		assert.equal(steps.find((x) => x.name === "bash")?.status, "error");
+		assert.equal(steps.find((x) => x.name === "pwsh")?.status, "error");
 	});
 
 	it("monitors keep state between runs and stay quiet when nothing changed", async () => {

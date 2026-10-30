@@ -3,6 +3,7 @@ import 'package:pi_rpc/pi_rpc.dart';
 
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'markdown_view.dart';
 
 /// Shows extension dialogs (select / confirm / input / editor) of the active
 /// session one at a time. Tool approval from dreamflutter-approval arrives as
@@ -83,9 +84,13 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
   // Title prefixes the core uses (core/src/pi/dialogs.ts).
   static const approvalTitle = 'Agent 请求执行操作';
   static const trustTitle = '信任此工作区？';
+  static const planTitle = '请审阅 Agent 的计划';
+  static const questionTitle = 'Agent 需要你补充信息：';
 
   bool get _isApproval => widget.request.method == 'select' && widget.request.title.startsWith(approvalTitle);
   bool get _isTrust => widget.request.method == 'select' && widget.request.title.startsWith(trustTitle);
+  bool get _isPlan => widget.request.method == 'select' && widget.request.title.startsWith(planTitle);
+  bool get _isQuestion => widget.request.title.startsWith(questionTitle);
 
   @override
   Widget build(BuildContext context) {
@@ -104,6 +109,8 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     return switch (request.method) {
       'select' when _isApproval => _approval(context),
       'select' when _isTrust => _trust(context),
+      'select' when _isPlan => _plan(context),
+      'select' when _isQuestion => _question(context),
       'select' => _select(context),
       'confirm' => _confirm(context),
       _ => _input(context, multiline: request.method == 'editor'),
@@ -197,6 +204,63 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     );
   }
 
+  /// A plan the agent presents for approval (exit_plan_mode), as Markdown.
+  Widget _plan(BuildContext context) {
+    final colors = context.colors;
+    final plan = widget.request.title.substring(planTitle.length).trim();
+    final options = widget.request.options;
+    return AlertDialog(
+      icon: Icon(Icons.map_outlined, color: colors.accent),
+      title: const Text(planTitle),
+      content: SizedBox(
+        width: 640,
+        child: Container(
+          constraints: const BoxConstraints(maxHeight: 460),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+          child: SingleChildScrollView(child: ReplyMarkdown(text: plan)),
+        ),
+      ),
+      actions: [
+        if (options.length > 1) TextButton(onPressed: () => _answer(context, _Answer(value: options[1])), child: Text(options[1])),
+        if (options.isNotEmpty) FilledButton(autofocus: true, onPressed: () => _answer(context, _Answer(value: options[0])), child: Text(options[0])),
+      ],
+    );
+  }
+
+  /// A question the agent asks (ask_user_question): its choices as cards,
+  /// "label — description" split into a title and a quiet line.
+  Widget _question(BuildContext context) {
+    final colors = context.colors;
+    final body = widget.request.title.substring(questionTitle.length).trim();
+    return AlertDialog(
+      icon: Icon(Icons.help_outline, color: colors.accent),
+      title: const Text('Agent 想问你'),
+      content: SizedBox(
+        width: 520,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Text(body, style: context.text.bodyLarge?.copyWith(height: 1.6)),
+            const SizedBox(height: AppTokens.gap),
+            for (final option in widget.request.options)
+              Builder(
+                builder: (context) {
+                  final split = option.indexOf(' — ');
+                  return ListTile(
+                    title: Text(split < 0 ? option : option.substring(0, split)),
+                    subtitle: split < 0 ? null : Text(option.substring(split + 3)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+                    onTap: () => _answer(context, _Answer(value: option)),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _select(BuildContext context) => AlertDialog(
     title: Text(widget.request.title),
     content: SizedBox(
@@ -226,16 +290,26 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
   );
 
   Widget _input(BuildContext context, {required bool multiline}) => AlertDialog(
-    title: Text(widget.request.title),
+    title: Text(_isQuestion ? 'Agent 想问你' : widget.request.title),
     content: SizedBox(
       width: 520,
-      child: TextField(
-        controller: _text,
-        autofocus: true,
-        minLines: multiline ? 6 : 1,
-        maxLines: multiline ? 16 : 1,
-        decoration: InputDecoration(hintText: widget.request.placeholder),
-        onSubmitted: multiline ? null : (v) => _answer(context, _Answer(value: v)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_isQuestion) ...[
+            Text(widget.request.title.substring(questionTitle.length).trim(), style: context.text.bodyLarge?.copyWith(height: 1.6)),
+            const SizedBox(height: AppTokens.gap),
+          ],
+          TextField(
+            controller: _text,
+            autofocus: true,
+            minLines: multiline ? 6 : 1,
+            maxLines: multiline ? 16 : 1,
+            decoration: InputDecoration(hintText: widget.request.placeholder),
+            onSubmitted: multiline ? null : (v) => _answer(context, _Answer(value: v)),
+          ),
+        ],
       ),
     ),
     actions: [

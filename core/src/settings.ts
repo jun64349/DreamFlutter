@@ -3,9 +3,14 @@ import { json, parseJson } from "./db.ts";
 
 export type ApprovalMode = "off" | "changes" | "all";
 
+/** Agent mode of new sessions (see agent/harness.ts). */
+export type AgentModeSetting = "standard" | "minimal";
+
 /** Agent-behaviour settings owned by the core so they also apply without a UI. */
 export interface CoreSettings {
 	approvalMode: ApprovalMode;
+	/** Mode new sessions start in. */
+	agentMode: AgentModeSetting;
 	autoCompaction: boolean;
 	/** provider/id the UI preselects for new sessions; null lets Pi decide. */
 	defaultModel: string | null;
@@ -32,6 +37,7 @@ export interface CoreSettings {
 
 export const DEFAULT_SETTINGS: CoreSettings = {
 	approvalMode: "changes",
+	agentMode: "standard",
 	autoCompaction: true,
 	defaultModel: null,
 	defaultThinking: null,
@@ -114,6 +120,8 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 	switch (key) {
 		case "approvalMode":
 			return value === "off" || value === "changes" || value === "all";
+		case "agentMode":
+			return value === "standard" || value === "minimal";
 		case "memoryBudgetTokens":
 		case "maxTurnsUnattended":
 		case "idleSessionMinutes":

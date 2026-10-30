@@ -35,7 +35,7 @@ describe("tasks and the desk", () => {
 	const tasks = async (params: Record<string, unknown> = {}) => (await t.core.call("tasks.list", params)) as Task[];
 
 	it("every chat session is a task that collects status, cost and artifacts", async () => {
-		t.respond(fauxAssistantMessage([fauxToolCall("write", { path: "out.md", content: "# 结果" })], { stopReason: "toolUse" }), fauxAssistantMessage("写好了"));
+		t.respond(fauxAssistantMessage([fauxToolCall("write", { file_path: "out.md", content: "# 结果" })], { stopReason: "toolUse" }), fauxAssistantMessage("写好了"));
 		await prompt("把结果写进 out.md");
 		const [task] = await tasks({ cwd: t.workspace });
 		assert.equal(task!.source, "chat");
@@ -95,7 +95,7 @@ describe("tasks and the desk", () => {
 
 		await t.core.call("tasks.bind", { taskId: task.id, slotId: "s1" });
 		const seen: string[] = [];
-		t.respond(fauxAssistantMessage([fauxToolCall("write", { path: "report.md", content: "# 报告" })], { stopReason: "toolUse" }), capture(seen, "报告写好了"));
+		t.respond(fauxAssistantMessage([fauxToolCall("write", { file_path: "report.md", content: "# 报告" })], { stopReason: "toolUse" }), capture(seen, "报告写好了"));
 		await prompt(text);
 
 		const all = await tasks();
@@ -165,7 +165,7 @@ describe("tasks and the desk", () => {
 
 	it("artifact paths outside the workspace are kept absolute", async () => {
 		const outside = join(t.dir, "elsewhere.txt");
-		t.respond(fauxAssistantMessage([fauxToolCall("write", { path: outside, content: "x" })], { stopReason: "toolUse" }), fauxAssistantMessage("ok"));
+		t.respond(fauxAssistantMessage([fauxToolCall("write", { file_path: outside, content: "x" })], { stopReason: "toolUse" }), fauxAssistantMessage("ok"));
 		await prompt("写到外面");
 		assert.ok(existsSync(outside));
 		assert.equal(readFileSync(outside, "utf8"), "x");

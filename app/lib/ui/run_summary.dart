@@ -7,7 +7,7 @@ import '../state/session_runtime.dart' show QuestionNode;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'artifact_widgets.dart';
-import 'message_widgets.dart' show ChatRow, ReplyRow, toolSubject;
+import 'message_widgets.dart' show ChatRow, ReplyRow, TodoList, todoItems, toolSubject;
 import 'motion.dart';
 import 'task_widgets.dart';
 import 'usage_page.dart' show formatCost, formatTokens;
@@ -118,6 +118,13 @@ class _RunPanelState extends State<RunPanel> {
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
                 children: [
                   if (task != null && task.source != 'chat') ...[_TaskCard(task: task), const SizedBox(height: 18)],
+                  if (agent.planMode) ...[_PlanModeNote(), const SizedBox(height: 18)],
+                  if (todoItems(agent.todos) case final todos when todos.isNotEmpty) ...[
+                    Text('待办', style: context.label),
+                    const SizedBox(height: 8),
+                    TodoList(todos: todos),
+                    const SizedBox(height: 18),
+                  ],
                   if (running)
                     ..._liveSteps(context, agent)
                   else if (run == null)
@@ -210,15 +217,44 @@ class _RunPanelState extends State<RunPanel> {
   static String _stepLabel(String tool, String? subject) {
     final verb = switch (tool) {
       'read' => '读取',
-      'grep' || 'find' => '搜索',
+      'read_image' => '看图',
+      'grep' || 'find' || 'glob' => '搜索',
       'ls' => '查看目录',
-      'bash' || 'powershell' => '运行',
+      'bash' || 'powershell' || 'pwsh' => '运行',
       'edit' => '修改',
       'write' => '写入',
       'web_fetch' => '读取网页',
+      'working_directory' => '工作目录',
+      'todo_write' => '更新待办',
+      'ask_user_question' => '向你提问',
+      'exit_plan_mode' => '提交计划',
+      'skill' => '载入技能',
+      'job_output' || 'job_list' || 'job_kill' => '后台任务',
       _ => tool,
     };
     return subject == null || subject.isEmpty ? verb : '$verb  $subject';
+  }
+}
+
+/// Plan mode is on: what that means, in one place.
+class _PlanModeNote extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: colors.accentSoft, borderRadius: BorderRadius.circular(AppTokens.radius)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.map_outlined, size: 16, color: colors.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('计划模式：Agent 只查看、不改动，写好计划后交给你审阅，批准后才开始动手。', style: context.text.bodySmall?.copyWith(color: colors.ink2, height: 1.6)),
+          ),
+        ],
+      ),
+    );
   }
 }
 

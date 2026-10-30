@@ -115,6 +115,7 @@ export function estimateTokens(text: string): number {
  * that the user confirms.
  */
 export class MemoryModule implements CoreModule {
+	readonly modelFacing = true;
 	private readonly core: Core;
 	private readonly db: Db;
 	private readonly llm: Llm;

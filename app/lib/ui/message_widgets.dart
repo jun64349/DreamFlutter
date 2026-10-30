@@ -681,15 +681,25 @@ class _WorkBlockState extends State<WorkBlock> {
 
   static String _verb(String tool) => switch (tool) {
     'read' => '读取',
-    'grep' || 'find' => '搜索',
+    'grep' || 'find' || 'glob' => '搜索',
     'ls' => '查看目录',
-    'bash' || 'powershell' => '运行',
+    'bash' || 'powershell' || 'pwsh' => '运行',
     'edit' => '修改',
     'write' => '写入',
     'web_fetch' => '读取网页',
+    'read_image' => '看图',
+    'working_directory' => '切换目录',
+    'job_output' || 'job_list' || 'job_kill' => '查看后台任务',
+    'skill' => '载入技能',
+    'todo_write' => '更新待办',
+    'ask_user_question' => '等你回答',
+    'exit_plan_mode' => '等你审阅计划',
     _ => '调用 $tool',
   };
 }
+
+/// Tools that only keep the agent's own bookkeeping (not counted as work).
+const _bookkeepingTools = {'todo_write', 'working_directory', 'job_list', 'job_output', 'ask_user_question', 'exit_plan_mode', 'skill'};
 
 String _seconds(int ms) => ms < 1000 ? '$ms 毫秒' : ms < 10000 ? '${(ms / 1000).toStringAsFixed(1)} 秒' : '${(ms / 1000).round()} 秒';
 
@@ -700,14 +710,16 @@ String workSummary(List<Object> steps) {
   final thoughtMs = thinking.fold<int>(0, (sum, t) => sum + (t.durationMs ?? 0));
   int count(bool Function(ToolRun) test) => tools.where(test).length;
   int files(String name) => tools.where((t) => t.name == name).map((t) => t.args['path'] ?? t.args['file_path'] ?? t.id).toSet().length;
-  const known = {'read', 'grep', 'find', 'ls', 'bash', 'powershell', 'edit', 'write', 'web_fetch'};
-  final searches = count((t) => t.name == 'grep' || t.name == 'find' || t.name == 'ls');
-  final commands = count((t) => t.name == 'bash' || t.name == 'powershell');
+  const known = {'read', 'read_image', 'grep', 'find', 'glob', 'ls', 'bash', 'powershell', 'pwsh', 'edit', 'write', 'web_fetch', 'job_kill', ..._bookkeepingTools};
+  final searches = count((t) => t.name == 'grep' || t.name == 'find' || t.name == 'glob' || t.name == 'ls');
+  final commands = count((t) => t.name == 'bash' || t.name == 'powershell' || t.name == 'pwsh');
   final pages = count((t) => t.name == 'web_fetch');
+  final images = files('read_image');
   final others = count((t) => !known.contains(t.name));
   return [
     if (thinking.isNotEmpty) thoughtMs >= 1000 ? '思考了 ${(thoughtMs / 1000).round()} 秒' : (thoughtMs > 0 ? '思考了片刻' : '思考过'),
     if (files('read') > 0) '读取 ${files('read')} 个文件',
+    if (images > 0) '看了 $images 张图',
     if (searches > 0) '搜索 $searches 次',
     if (commands > 0) '运行 $commands 条命令',
     if (files('edit') > 0) '修改 ${files('edit')} 个文件',
@@ -720,7 +732,20 @@ String workSummary(List<Object> steps) {
 /// The most telling argument of a tool call, on one line.
 String toolSubject(ToolRun run) {
   final args = run.args;
-  for (final key in ['command', 'path', 'file_path', 'pattern', 'query', 'url']) {
+  switch (run.name) {
+    case 'todo_write':
+      final todos = args['todos'];
+      if (todos is List) return '${todos.length} 项';
+    case 'ask_user_question':
+      final questions = args['questions'];
+      if (questions is List && questions.isNotEmpty && questions.first is Map) return '${(questions.first as Map)['question'] ?? ''}'.replaceAll('\n', ' ');
+    case 'exit_plan_mode':
+      final plan = args['plan'];
+      if (plan is String) return plan.trimLeft().split('\n').first.replaceFirst(RegExp(r'^#+\s*'), '');
+    case 'working_directory':
+      return args['cd'] is String ? args['cd'] as String : '查看当前目录';
+  }
+  for (final key in ['command', 'path', 'file_path', 'pattern', 'query', 'url', 'name', 'job_id']) {
     final value = args[key];
     if (value is String && value.isNotEmpty) return value.replaceAll('\n', ' ');
   }
@@ -834,9 +859,13 @@ class _ToolStepState extends State<ToolStep> {
       ToolStatus.done => Text(run.durationMs == null ? '' : _seconds(run.durationMs!), style: context.text.bodySmall?.copyWith(color: colors.muted)),
     };
     switch (run.name) {
-      case 'bash' || 'powershell':
+      case 'bash' || 'powershell' || 'pwsh':
         return _TerminalStep(run: run, trailing: trailing);
-      case 'edit':
+      case 'todo_write':
+        return _TodoStep(run: run, trailing: trailing);
+      case 'exit_plan_mode':
+        return _PlanStep(run: run, trailing: trailing);
+      case 'edit' || 'write' when run.name == 'edit' || run.details['patch'] is String:
         final open = _open ?? true;
         final diff = editDiff(run);
         final added = diff.where((l) => l.kind == DiffKind.added).length;
@@ -845,8 +874,8 @@ class _ToolStepState extends State<ToolStep> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _StepLine(
-              icon: Icons.edit_outlined,
-              verb: '修改',
+              icon: run.name == 'edit' ? Icons.edit_outlined : Icons.note_add_outlined,
+              verb: run.name == 'edit' ? '修改' : '写入',
               subject: toolSubject(run),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -885,13 +914,21 @@ class _ToolStepState extends State<ToolStep> {
       default:
         final (icon, verb) = switch (run.name) {
           'read' => (Icons.description_outlined, '读取'),
+          'read_image' => (Icons.image_outlined, '看图'),
           'grep' => (Icons.search, '搜索'),
-          'find' => (Icons.manage_search, '查找文件'),
+          'find' || 'glob' => (Icons.manage_search, '查找文件'),
           'ls' => (Icons.folder_open_outlined, '查看目录'),
           'web_fetch' => (Icons.language, '读取网页'),
+          'working_directory' => (Icons.drive_file_move_outlined, '工作目录'),
+          'job_output' || 'job_list' => (Icons.pending_outlined, '后台任务'),
+          'job_kill' => (Icons.stop_circle_outlined, '停止后台任务'),
+          'skill' => (Icons.auto_awesome_outlined, '载入技能'),
+          'ask_user_question' => (Icons.help_outline, '向你提问'),
           _ => (Icons.extension_outlined, run.name),
         };
-        final known = const {'read', 'grep', 'find', 'ls', 'web_fetch'}.contains(run.name);
+        final known = const {
+          'read', 'read_image', 'grep', 'find', 'glob', 'ls', 'web_fetch', 'working_directory', 'job_output', 'job_list', 'job_kill', 'skill', 'ask_user_question',
+        }.contains(run.name);
         return _Expandable(
           line: (open, toggle) => _StepLine(icon: icon, verb: verb, subject: toolSubject(run), trailing: trailing, onTap: toggle, open: open),
           body: Column(
@@ -930,6 +967,133 @@ class _ExpandableState extends State<_Expandable> {
       if (_open) Padding(padding: const EdgeInsets.only(left: 22, top: 4), child: widget.body),
     ],
   );
+}
+
+/// The agent's todo list (todo_write) as a small checklist.
+class _TodoStep extends StatelessWidget {
+  const _TodoStep({required this.run, required this.trailing});
+
+  final ToolRun run;
+  final Widget trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final todos = todoItems(run.args['todos']);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _StepLine(icon: Icons.checklist, verb: '待办', subject: toolSubject(run), trailing: trailing),
+        if (todos.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 22, top: 2, bottom: 2), child: TodoList(todos: todos)),
+        if (run.status == ToolStatus.error) _OutputBox(text: run.outputText, error: true),
+      ],
+    );
+  }
+}
+
+/// One item of the agent's todo list.
+typedef TodoItem = ({String content, String status});
+
+List<TodoItem> todoItems(Object? raw) => raw is List
+    ? [
+        for (final item in raw.whereType<Map>())
+          if (item['content'] is String) (content: item['content'] as String, status: item['status'] is String ? item['status'] as String : 'pending'),
+      ]
+    : const [];
+
+/// A checklist: done items struck through, the current one in the accent colour.
+class TodoList extends StatelessWidget {
+  const TodoList({super.key, required this.todos});
+
+  final List<TodoItem> todos;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final todo in todos)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Icon(
+                    switch (todo.status) {
+                      'completed' => Icons.check_circle,
+                      'in_progress' => Icons.radio_button_checked,
+                      _ => Icons.radio_button_unchecked,
+                    },
+                    size: 14,
+                    color: todo.status == 'pending' ? colors.muted : colors.accent,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    todo.content,
+                    style: context.text.bodySmall?.copyWith(
+                      color: todo.status == 'completed' ? colors.muted : colors.ink2,
+                      decoration: todo.status == 'completed' ? TextDecoration.lineThrough : null,
+                      fontWeight: todo.status == 'in_progress' ? FontWeight.w600 : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// A plan the agent presented for review (exit_plan_mode), shown as Markdown.
+class _PlanStep extends StatefulWidget {
+  const _PlanStep({required this.run, required this.trailing});
+
+  final ToolRun run;
+  final Widget trailing;
+
+  @override
+  State<_PlanStep> createState() => _PlanStepState();
+}
+
+class _PlanStepState extends State<_PlanStep> {
+  bool? _open;
+
+  @override
+  Widget build(BuildContext context) {
+    final run = widget.run;
+    final colors = context.colors;
+    final plan = run.args['plan'] is String ? run.args['plan'] as String : '';
+    final approved = run.details['approved'] == true;
+    final open = _open ?? !approved;
+    final status = switch (run.status) {
+      ToolStatus.done when approved => Text('已批准', style: context.text.bodySmall?.copyWith(color: colors.accent)),
+      ToolStatus.error => Text('继续修改', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+      _ => widget.trailing,
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _StepLine(icon: Icons.map_outlined, verb: '计划', subject: toolSubject(run), trailing: status, onTap: () => setState(() => _open = !open), open: open),
+        if (open && plan.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(left: 22, top: 4, bottom: 4),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            decoration: BoxDecoration(
+              border: Border(left: BorderSide(color: colors.accent, width: 2)),
+              color: colors.codeBackground,
+              borderRadius: BorderRadius.circular(AppTokens.radius),
+            ),
+            child: ReplyMarkdown(text: plan),
+          ),
+        if (run.status == ToolStatus.error && run.outputText.isNotEmpty) _OutputBox(text: run.outputText),
+      ],
+    );
+  }
 }
 
 /// Tool output in a quiet monospaced box; long output keeps its end.
@@ -985,6 +1149,7 @@ class _TerminalStepState extends State<_TerminalStep> {
     final colors = context.colors;
     final run = widget.run;
     final command = run.args['command'] is String ? run.args['command'] as String : run.argsDraft;
+    final purpose = run.args['description'] is String ? (run.args['description'] as String).trim() : '';
     final output = run.outputText.trimRight();
     final lines = output.isEmpty ? <String>[] : output.split('\n');
     const tail = 12;
@@ -996,6 +1161,7 @@ class _TerminalStepState extends State<_TerminalStep> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (purpose.isNotEmpty) Text('# $purpose', style: mono.copyWith(color: colors.terminalMuted, fontStyle: FontStyle.italic)),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

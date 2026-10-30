@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentSessionEvent, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { ConfirmationStore } from "./confirmations.ts";
 import { Db, now } from "./db.ts";
+import { AGENT_MODES, type AgentMode } from "./agent/harness.ts";
 import { approvalExtension } from "./ext/approval.ts";
 import type { Logger } from "./log.ts";
 import type { Notifier } from "./notify.ts";
@@ -57,11 +58,15 @@ export interface OpenSlotOptions {
 	incognito?: boolean;
 	/** Client to attach before the runtime starts, so it sees the trust prompt. */
 	client?: Client;
+	/** Agent mode for a new session; default: the settings' agentMode. */
+	agentMode?: AgentMode;
 }
 
 /** Feature modules plug in through these. */
 export interface CoreModule {
 	extensions?(slot: { slotId: string }): ExtensionFactory[];
+	/** Its extensions change what the model sees (tools, context): left out of minimal-mode sessions. */
+	readonly modelFacing?: boolean;
 	onSlotEvent?(slot: Slot, event: AgentSessionEvent): void;
 	onRunStarted?(slot: Slot, run: Run): void;
 	onRunFinished?(slot: Slot, run: Run): void;
@@ -136,7 +141,15 @@ export class Core {
 			sessionDir: options.sessionDir,
 			modelRuntime: options.modelRuntime,
 			trustDecisions: new Map(),
-			extensions: (slot) => [this.approval(slot.slotId), ...this.modules.flatMap((m) => m.extensions?.(slot) ?? [])],
+			extensions: (slot, mode) => [
+				this.approval(slot.slotId),
+				...this.modules.filter((m) => !(mode === "minimal" && m.modelFacing)).flatMap((m) => m.extensions?.(slot) ?? []),
+			],
+			newSessionMode: (slot) => this.slotOrOpening(slot.slotId)?.newSessionMode ?? this.settings.get().agentMode,
+			autoCompaction: () => this.settings.get().autoCompaction,
+			agentStateChanged: (slot, state) => this.slotOrOpening(slot.slotId)?.setAgentState(state),
+			harnessControls: new Map(),
+			manualCompactions: new Set(),
 		};
 		this.settings.onChange((settings, changed) => this.broadcast({ event: "settings.changed", settings, changed }));
 		this.registerBaseMethods();
@@ -238,7 +251,11 @@ export class Core {
 		if (this.slots.has(slotId) || this.opening.has(slotId)) throw new RpcError("conflict", `Slot ${slotId} already exists`);
 		options.client?.attached.add(slotId);
 		const target = { cwd: options.cwd, sessionFile: options.incognito ? undefined : options.sessionFile, inMemory: options.incognito === true, unattended: options.unattended === true };
-		const slot = Slot.prepare(this.db, { slotId, target, taskId: options.taskId, unattended: options.unattended }, this.slotHooks());
+		const slot = Slot.prepare(
+			this.db,
+			{ slotId, target, taskId: options.taskId, unattended: options.unattended, agentMode: options.agentMode ?? this.settings.get().agentMode },
+			this.slotHooks(),
+		);
 		this.opening.set(slotId, slot);
 		try {
 			await slot.start(this.hostConfig, target);
@@ -248,7 +265,6 @@ export class Core {
 				throw new RpcError("cancelled", "会话在打开过程中被关闭了");
 			}
 			this.slots.set(slotId, slot);
-			slot.session.setAutoCompactionEnabled(this.settings.get().autoCompaction);
 			if (!options.sessionFile) await this.applyDefaultModel(slot);
 			this.broadcast({ event: "slot.changed", info: slot.info() });
 			return slot;
@@ -257,6 +273,7 @@ export class Core {
 			throw error;
 		} finally {
 			this.opening.delete(slotId);
+			if (!this.slots.has(slotId)) this.hostConfig.harnessControls?.delete(slotId);
 			this.cancelledOpens.delete(slotId);
 		}
 	}
@@ -276,6 +293,10 @@ export class Core {
 		if (defaultThinking && session.getAvailableThinkingLevels().includes(defaultThinking as never)) {
 			session.setThinkingLevel(defaultThinking as never);
 		}
+	}
+
+	private slotOrOpening(slotId: string): Slot | undefined {
+		return this.slots.get(slotId) ?? this.opening.get(slotId);
 	}
 
 	slot(slotId: unknown, options: { includeOpening?: boolean } = {}): Slot {
@@ -302,6 +323,7 @@ export class Core {
 		this.slots.delete(slotId);
 		for (const client of this.clients) client.attached.delete(slotId);
 		await slot.dispose();
+		this.hostConfig.harnessControls?.delete(slotId);
 		for (const module of this.modules) module.onSlotClosed?.(slot);
 		this.broadcast({ event: "slot.closed", slotId });
 	}
@@ -421,6 +443,7 @@ export class Core {
 				cwd: requireStr(params.cwd, "cwd"),
 				sessionFile: str(params.sessionFile),
 				incognito: params.incognito === true,
+				agentMode: AGENT_MODES.includes(params.agentMode as AgentMode) ? (params.agentMode as AgentMode) : undefined,
 				client,
 			});
 			return slot.info();

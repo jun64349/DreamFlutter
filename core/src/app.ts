@@ -9,7 +9,6 @@ import { SessionIndex } from "./modules/session-index.ts";
 import { SkillsModule } from "./modules/skills.ts";
 import { SchedulerModule } from "./modules/scheduler.ts";
 import { TasksModule } from "./modules/tasks.ts";
-import { WebModule } from "./modules/web.ts";
 
 /** Builds the core with every feature module wired in. */
 export function buildCore(options: CoreOptions): Core {
@@ -23,7 +22,6 @@ export function buildCore(options: CoreOptions): Core {
 	const tasks = new TasksModule(core);
 	core.use(tasks);
 	core.use(new SchedulerModule(core, tasks));
-	core.use(new WebModule());
 	new McpModule(core);
 	core.use({ extensions: () => [fallbackExtension(() => core.settings.get().fallbackModels)] });
 	return core;

@@ -80,6 +80,7 @@ class SessionRuntime extends ChangeNotifier {
     this.onModelChosen,
     this.onThinkingChosen,
     this.incognito = false,
+    this.requestedAgentMode,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now,
        lastActivity = (clock ?? DateTime.now)();
@@ -89,6 +90,9 @@ class SessionRuntime extends ChangeNotifier {
 
   /// Temporary chat: kept in memory only, never saved, indexed or remembered.
   final bool incognito;
+
+  /// Agent mode asked for when this runtime opens a new session (null = the core's default).
+  final String? requestedAgentMode;
   final ClientLauncher launch;
   final DateTime Function() _clock;
   final void Function(String message) onToast;
@@ -132,6 +136,16 @@ class SessionRuntime extends ChangeNotifier {
   /// composer consumes it when [editorTextRevision] changes.
   String editorText = '';
   int editorTextRevision = 0;
+
+  /// The open session's agent mode: "standard" (DeepSeek Harness's standard
+  /// preset plus DreamFlutter's tools) or "minimal" (its minimal preset).
+  String agentMode = 'standard';
+
+  /// Standard mode: the agent plans and asks for approval before changing anything.
+  bool planMode = false;
+
+  /// The agent's todo list (todo_write), raw: [{content, status}].
+  List<Object?> todos = const [];
 
   /// True while a manual compaction requested from the GUI is in progress.
   bool isCompacting = false;
@@ -184,7 +198,7 @@ class SessionRuntime extends ChangeNotifier {
 
     try {
       final launched = launch(
-        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito),
+        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito, agentMode: requestedAgentMode),
       );
       final client = launched.client;
       _launched = launched;
@@ -224,6 +238,30 @@ class SessionRuntime extends ChangeNotifier {
     final results = await Future.wait([client.getState(), client.getSessionStats()]);
     state = results[0] as SessionState;
     stats = results[1] as SessionStats;
+    try {
+      _applyAgentState(await client.send('df_agent_state'));
+    } catch (_) {}
+  }
+
+  void _applyAgentState(Object? data) {
+    if (data is! Map) return;
+    final mode = data['agentMode'];
+    if (mode is String) agentMode = mode;
+    if (data['planMode'] is bool) planMode = data['planMode'] as bool;
+    final list = data['todos'];
+    todos = list is List ? List.unmodifiable(list) : const [];
+  }
+
+  /// Turns plan mode on or off (standard mode only).
+  Future<void> setPlanMode(bool on) async {
+    final client = _client;
+    if (client == null) return;
+    try {
+      _applyAgentState(await client.send('df_set_plan_mode', {'on': on}));
+    } catch (e) {
+      onToast(describeError(e));
+    }
+    _notifyNow();
   }
 
   Future<void> _stopClient() async {
@@ -279,6 +317,9 @@ class SessionRuntime extends ChangeNotifier {
         pendingDialogs.clear();
         _notifyNow();
         unawaited(_afterRun());
+      case UnknownEvent(:final raw) when raw['type'] == 'df_agent_state':
+        _applyAgentState(raw);
+        _notifyNow();
       case SessionInfoChangedEvent() || ThinkingLevelChangedEvent():
         final client = _client;
         if (client != null) unawaited(_refreshState(client).then((_) => _notifyNow(), onError: (_) {}));
@@ -611,11 +652,11 @@ class SessionRuntime extends ChangeNotifier {
   }
 
   /// Starts a fresh session in this process. Only valid while idle.
-  Future<bool> newSessionInPlace() async {
+  Future<bool> newSessionInPlace({String? agentMode}) async {
     final client = _client;
     if (client == null || !isReady || isRunning) return false;
     try {
-      if (!await client.newSession()) return false;
+      if (!await client.newSession(agentMode: agentMode)) return false;
       transcript.clear();
       branches = const [];
       await _refreshState(client);
