@@ -251,6 +251,26 @@ describe("session slots", () => {
 		assert.match(markdown, /## 用户\n\n问题/);
 		assert.match(markdown, /答案是 42/);
 	});
+
+	it("sends images to the model even when Pi's settings block them", async () => {
+		// The v0.1.1 bug: the user's Pi settings had images.blockImages = true.
+		writeFileSync(join(t.agentDir, "settings.json"), JSON.stringify({ images: { blockImages: true } }));
+		await open();
+		let seen: unknown;
+		t.respond((context) => {
+			seen = context.messages.at(-1)?.content;
+			return fauxAssistantMessage("一张图");
+		});
+		// A valid 8x8 PNG: Pi decodes images to resize them.
+		const png = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGO4IyKCFTEMLQkAmD9BAZzFjLYAAAAASUVORK5CYII=";
+		const image = { type: "image", data: png, mimeType: "image/png" };
+		await t.send("s1", { id: "p", type: "prompt", message: "看图", images: [image] });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		const content = seen as { type: string; text?: string; data?: string }[];
+		assert.ok(Array.isArray(content));
+		assert.ok(content.some((c) => c.type === "image" && c.data === png), JSON.stringify(content));
+		assert.ok(!content.some((c) => c.text === "Image reading is disabled."));
+	});
 });
 
 describe("recovery", () => {

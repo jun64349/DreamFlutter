@@ -102,6 +102,11 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		const mustAsk = needsTrust && cached === undefined && stored === null && !target.unattended;
 		const projectTrusted = !needsTrust || (cached ?? stored === true);
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: mustAsk ? false : projectTrusted });
+		// Pi's "Block images" setting (made for terminals) swaps every image for
+		// "Image reading is disabled." before it reaches the model. The window only
+		// offers images for models that accept them, so it never applies here. An
+		// instance override, because a settings reload would drop applyOverrides.
+		settingsManager.getBlockImages = () => false;
 		const services = await createAgentSessionServices({
 			cwd,
 			agentDir,

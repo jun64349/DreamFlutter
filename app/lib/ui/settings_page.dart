@@ -10,6 +10,7 @@ import 'agent_scope.dart';
 import 'mcp_page.dart';
 import 'providers_page.dart';
 import 'usage_page.dart';
+import 'zoom.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 
 class SettingsPage extends StatelessWidget {
@@ -47,6 +48,14 @@ class SettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: AppTokens.padLg),
         children: [
+          const _Section(
+            title: '外观',
+            children: [
+              _Row(title: '界面缩放', subtitle: '整个界面一起放大或缩小。快捷键：Ctrl + 加号 / 减号，Ctrl + 0 恢复。', trailing: ZoomControl()),
+              _Row(title: '文字大小', subtitle: '只调整文字，布局不变。', trailing: TextSizeControl()),
+              _Row(title: '主题', trailing: ThemeModeControl()),
+            ],
+          ),
           _Section(
             title: '模型',
             children: [
@@ -206,36 +215,6 @@ class SettingsPage extends StatelessWidget {
                 title: '后台会话',
                 subtitle: '会话运行在后台服务里：切走、新建会话或关掉窗口，运行中的会话都会继续。空闲的会话过一段时间会自动释放（内容保留在磁盘上）。'
                     '当前窗口连着 ${agent.runtimes.length} 个会话，${agent.backgroundRunning} 个在后台运行。',
-              ),
-            ],
-          ),
-          _Section(
-            title: '外观',
-            children: [
-              _Row(
-                title: '主题',
-                trailing: SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment(value: ThemeMode.system, label: Text('跟随系统')),
-                    ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
-                    ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
-                  ],
-                  selected: {agent.themeMode},
-                  onSelectionChanged: (s) => agent.setThemeMode(s.first),
-                ),
-              ),
-              _Row(
-                title: '文字大小',
-                trailing: SegmentedButton<double>(
-                  segments: const [
-                    ButtonSegment(value: 0.9, label: Text('小')),
-                    ButtonSegment(value: 1.0, label: Text('标准')),
-                    ButtonSegment(value: 1.1, label: Text('大')),
-                    ButtonSegment(value: 1.25, label: Text('特大')),
-                  ],
-                  selected: {Preferences.textScales.contains(agent.textScale) ? agent.textScale : 1.0},
-                  onSelectionChanged: (s) => agent.setTextScale(s.first),
-                ),
               ),
             ],
           ),

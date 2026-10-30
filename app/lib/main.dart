@@ -6,6 +6,7 @@ import 'state/preferences.dart';
 import 'theme.dart';
 import 'ui/agent_scope.dart';
 import 'ui/home_page.dart';
+import 'ui/zoom.dart';
 
 /// Shown in the settings page.
 const appVersion = '0.1.1';
@@ -31,17 +32,13 @@ class DreamFlutterApp extends StatelessWidget {
       child: ValueListenableBuilder(
         valueListenable: controller.appearance,
         builder: (context, appearance, _) {
-          final (themeMode, textScale) = appearance;
           return MaterialApp(
             title: 'DreamFlutter',
             debugShowCheckedModeBanner: false,
             theme: buildTheme(Brightness.light),
             darkTheme: buildTheme(Brightness.dark),
-            themeMode: themeMode,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
-              child: child!,
-            ),
+            themeMode: appearance.themeMode,
+            builder: (context, child) => AppZoom(controller: controller, zoom: appearance.zoom, textScale: appearance.textScale, child: child!),
             home: const HomePage(),
           );
         },

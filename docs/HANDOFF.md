@@ -1,6 +1,6 @@
-# DreamFlutter v0.1.1 开发交接
+# DreamFlutter 开发交接（v0.1.1 → v0.2）
 
-更新时间：2026-10-29
+更新时间：2026-10-30
 当前分支：`main`（v0.1.0、v0.1.1 都已打 tag；下一阶段是 v0.2，计划见 [v0.2-plan.md](v0.2-plan.md)）
 
 ## 一句话现状
@@ -18,7 +18,7 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**v0.2**，从 [v0.2-plan.md](v0.2-plan.md) 的「阶段 0」开始（修图片输入 bug、AI 回复上的复制/重新生成/分叉、界面缩放），然后做设计稿让用户选。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
+下一步：**v0.2**。[v0.2-plan.md](v0.2-plan.md) 的「阶段 0」已完成（2026-10-30，见下面「v0.2 阶段 0」），接着是**阶段 1**：调研 HanaAgent 和蝴蝶/名画参考，做信息架构和三套视觉设计稿让用户选。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
 
 ## 架构（沿用）
 
@@ -33,6 +33,12 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - 模块钩子（`CoreModule`）：`extensions`、`onSlotEvent`、`onSlotChanged`、`onRunStarted`、`onRunFinished`、`resolveTaskId`、`toolPolicy`、`start/stop`。
 - 数据库迁移 `core/src/schema.ts`（只能往后追加），目前第 5 版：1 设置/确认卡/运行记录，2 会话索引/用量，3 记忆/提案，4 任务/写笺/资料/产物/上限卡片，5 定时任务/执行记录/交付记录。
 - 窗口：`app/lib/state/agent_controller.dart`（会话、任务、收件箱计数、各页刷新信号 `libraryRevision` / `workRevision`），左侧导航 `app/lib/ui/home_page.dart`。
+
+## v0.2 阶段 0（2026-10-30）
+
+- **图片输入 bug**：根因是用户的 Pi 全局设置 `~/.pi/agent/settings.json` 里有 `images.blockImages: true`（Pi 终端里的「Block images」），Pi 发给模型前把每张图换成文字 "Image reading is disabled."。窗口 → 后台 → Pi 这几步都没丢图。修法：`core/src/pi/host.ts` 里对每个会话的 SettingsManager 覆盖 `getBlockImages = () => false`（不改用户的设置文件；用实例覆盖而不是 `applyOverrides`，因为设置重新加载会丢掉 overrides）。另外直接请求过 DeepSeek 接口，`deepseek-flash` 确实支持图片。回归测试：`core/test/slots.test.ts`「sends images to the model even when Pi's settings block them」（测试图片必须是真 PNG，Pi 会先解码缩放）；E2E 第 19 步发一张红色图片，问颜色。
+- **AI 回复上的操作**：`message_widgets.dart` 的 `ReplyInfo.collect` 把两个问题之间的所有助手消息算一条回复，操作栏放在最后一条下面：复制（Markdown 原文）、重新生成（旁边下拉可换模型，换的模型之后一直生效）、版本切换 `‹ 1/2 ›`、从这里分叉（分叉到下一个问题之前；最后一条回复则复制整个会话）。最新回复的操作栏常显，旧的悬停或键盘聚焦时显示。
+- **界面缩放**：`ui/zoom.dart` 的 `AppZoom` 包在 `MaterialApp.builder` 里，按 size/zoom 布局再整体放大绘制，对话框和菜单一起缩放；Ctrl + 加号/减号/0（`HardwareKeyboard` 全局处理），档位在 `Preferences.zoomLevels`，变化时顶部短暂显示「缩放 110%」。入口：导航栏底部新增「外观」按钮（缩放、文字大小、主题），设置页最上面也是「外观」。文字大小也由 `AppZoom` 一起设置。
 
 ## 本轮新增（2026-10-28 ~ 29）
 
@@ -64,13 +70,13 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：86 个，用 Pi 自带的假模型，不联网
+# 后台测试：87 个，用 Pi 自带的假模型，不联网
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：41 个
+# 窗口单元/组件测试：47 个
 cd app && flutter test test
 # Dart 协议层，含启动真实后台的测试
 cd packages/pi_rpc && dart test -x integration
-# 真实窗口端到端：用 DeepSeek，约 4~5 分钟，截图在 app/build/e2e_shots/（00~29），跑的时候不要最小化窗口
+# 真实窗口端到端：用 DeepSeek，约 4~5 分钟（等待超时会存 zz_timeout.png），截图在 app/build/e2e_shots/（00~31），跑的时候不要最小化窗口
 cd app && flutter test integration_test/e2e_test.dart -d windows
 ```
 

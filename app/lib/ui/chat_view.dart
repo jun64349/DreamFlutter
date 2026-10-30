@@ -453,6 +453,7 @@ class _MessageListState extends State<_MessageList> {
     final sessionFile = agent.currentSessionPath;
     // The last run's summary (trace, cost, files) under the last reply.
     final showSummary = sessionFile != null && !transcript.isRunning && !(agent.active?.incognito ?? false);
+    final replies = ReplyInfo.collect(items);
     return SelectionArea(
       child: ListView.builder(
         controller: _scroll,
@@ -460,7 +461,7 @@ class _MessageListState extends State<_MessageList> {
         itemCount: items.length + (transcript.queuedSteering.isEmpty ? 0 : 1) + (showSummary ? 1 : 0),
         itemBuilder: (context, index) {
           final child = index < items.length
-              ? TranscriptItemView(key: ValueKey(items[index].key), item: items[index], transcript: transcript)
+              ? TranscriptItemView(key: ValueKey(items[index].key), item: items[index], transcript: transcript, reply: replies[index])
               : index == items.length && transcript.queuedSteering.isNotEmpty
               ? QueuedMessages(messages: transcript.queuedSteering)
               : RunSummaryCard(key: ValueKey(sessionFile), sessionFile: sessionFile!);

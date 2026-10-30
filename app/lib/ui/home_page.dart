@@ -13,6 +13,7 @@ import 'memory_page.dart';
 import 'settings_page.dart';
 import 'sidebar.dart';
 import 'tasks_page.dart';
+import 'zoom.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -118,6 +119,12 @@ class _NavRail extends StatelessWidget {
           item(AppSection.memory, Icons.psychology_alt_outlined, Icons.psychology_alt, '记忆', badge: agent.pendingMemories),
           item(AppSection.library, Icons.auto_stories_outlined, Icons.auto_stories, '技能', badge: agent.pendingProposals),
           const Spacer(),
+          _NavButton(
+            icon: Icons.text_fields,
+            label: '外观',
+            selected: false,
+            onTap: () => showAppearanceDialog(context),
+          ),
           _NavButton(
             icon: Icons.settings_outlined,
             label: '设置',

@@ -84,4 +84,10 @@ class Preferences {
 
   double get textScale => _prefs.getDouble('textScale') ?? 1.0;
   Future<void> setTextScale(double value) => _prefs.setDouble('textScale', value);
+
+  /// Whole-interface zoom steps (Ctrl + plus / minus), like a browser's.
+  static const zoomLevels = [0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+
+  double get zoom => _prefs.getDouble('zoom') ?? 1.0;
+  Future<void> setZoom(double value) => _prefs.setDouble('zoom', value);
 }

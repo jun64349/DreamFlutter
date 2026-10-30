@@ -10,16 +10,64 @@ import '../state/session_runtime.dart' show MessageBranch;
 import '../theme.dart';
 import 'agent_scope.dart';
 
+/// One answer to a question: every assistant message between two user
+/// messages. Its actions show under the last of those messages.
+class ReplyInfo {
+  const ReplyInfo({required this.question, required this.nextQuestion, required this.text});
+
+  /// The message this replies to (null when history was compacted away).
+  final UserItem? question;
+
+  /// The message after this reply; null for the last reply.
+  final UserItem? nextQuestion;
+
+  /// The reply's text parts as Markdown.
+  final String text;
+
+  bool get isLatest => nextQuestion == null;
+
+  /// Reply info keyed by the index of each reply's last assistant item.
+  static Map<int, ReplyInfo> collect(List<TranscriptItem> items) {
+    final replies = <int, ReplyInfo>{};
+    UserItem? question;
+    var lastAssistant = -1;
+    final texts = <String>[];
+    void close(UserItem? next) {
+      if (lastAssistant >= 0) replies[lastAssistant] = ReplyInfo(question: question, nextQuestion: next, text: texts.join('\n\n'));
+      lastAssistant = -1;
+      texts.clear();
+    }
+
+    for (final (index, item) in items.indexed) {
+      switch (item) {
+        case UserItem():
+          close(item);
+          question = item;
+        case AssistantItem():
+          lastAssistant = index;
+          texts.addAll(item.parts.whereType<TextPart>().map((p) => p.text.trim()).where((t) => t.isNotEmpty));
+        case NoticeItem():
+          break;
+      }
+    }
+    close(null);
+    return replies;
+  }
+}
+
 class TranscriptItemView extends StatelessWidget {
-  const TranscriptItemView({super.key, required this.item, required this.transcript});
+  const TranscriptItemView({super.key, required this.item, required this.transcript, this.reply});
 
   final TranscriptItem item;
   final Transcript transcript;
 
+  /// Set on the last assistant message of a reply.
+  final ReplyInfo? reply;
+
   @override
   Widget build(BuildContext context) => switch (item) {
     UserItem() => _UserBubble(item: item as UserItem),
-    AssistantItem() => _AssistantView(item: item as AssistantItem, transcript: transcript),
+    AssistantItem() => _AssistantView(item: item as AssistantItem, transcript: transcript, reply: reply),
     NoticeItem() => _NoticeView(notice: item as NoticeItem),
   };
 }
@@ -213,10 +261,11 @@ class QueuedMessages extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _AssistantView extends StatelessWidget {
-  const _AssistantView({required this.item, required this.transcript});
+  const _AssistantView({required this.item, required this.transcript, this.reply});
 
   final AssistantItem item;
   final Transcript transcript;
+  final ReplyInfo? reply;
 
   @override
   Widget build(BuildContext context) {
@@ -244,9 +293,109 @@ class _AssistantView extends StatelessWidget {
     } else if (item.truncated) {
       children.add(_InlineNote(icon: Icons.warning_amber_rounded, color: colors.warning, text: '回复达到长度上限，被截断了'));
     }
-    return Column(
+    final column = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [for (final child in children) Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: child)],
+    );
+    final reply = this.reply;
+    if (reply == null || item.streaming) return column;
+    return _ReplyFrame(reply: reply, child: column);
+  }
+}
+
+/// A finished reply and its actions. The latest reply always shows them;
+/// older ones on hover or keyboard focus.
+class _ReplyFrame extends StatefulWidget {
+  const _ReplyFrame({required this.reply, required this.child});
+
+  final ReplyInfo reply;
+  final Widget child;
+
+  @override
+  State<_ReplyFrame> createState() => _ReplyFrameState();
+}
+
+class _ReplyFrameState extends State<_ReplyFrame> {
+  var _hovered = false;
+  var _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final reply = widget.reply;
+    final busy = agent.isRunning;
+    final question = reply.question;
+    final branch = question == null ? null : agent.active?.branchFor(question);
+    final canRegenerate = branch != null && !busy;
+    final others = agent.models.where((m) => m != agent.model).toList();
+    final visible = reply.isLatest || _hovered || _focused;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          widget.child,
+          Focus(
+            skipTraversal: true,
+            onFocusChange: (focused) => setState(() => _focused = focused),
+            child: SizedBox(
+              height: 28,
+              child: Row(
+                children: [
+                  AnimatedOpacity(
+                    opacity: visible ? 1 : 0,
+                    duration: const Duration(milliseconds: 120),
+                    child: Row(
+                      children: [
+                        _BubbleAction(
+                          icon: Icons.copy_outlined,
+                          tooltip: '复制回复（Markdown 原文）',
+                          onTap: reply.text.isEmpty
+                              ? null
+                              : () {
+                                  Clipboard.setData(ClipboardData(text: reply.text));
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
+                                },
+                        ),
+                        _BubbleAction(
+                          icon: Icons.refresh,
+                          tooltip: busy
+                              ? '回复结束后才能重新生成'
+                              : branch == null
+                              ? '这条回复对应的问题已被压缩，无法重新生成'
+                              : '重新生成（原来的回复会保留，可以切换回去）',
+                          onTap: canRegenerate ? () => AgentScope.read(context).regenerate(question!) : null,
+                        ),
+                        if (others.isNotEmpty)
+                          PopupMenuButton<PiModel>(
+                            tooltip: '换一个模型重新生成',
+                            enabled: canRegenerate,
+                            padding: EdgeInsets.zero,
+                            iconSize: 15,
+                            icon: Icon(Icons.expand_more, color: context.colors.muted),
+                            style: IconButton.styleFrom(minimumSize: const Size(20, 26), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                            itemBuilder: (_) => [
+                              for (final m in others) PopupMenuItem(value: m, child: Text('用 ${m.name} 重新生成')),
+                            ],
+                            onSelected: (m) => AgentScope.read(context).regenerate(question!, model: m),
+                          ),
+                        _BubbleAction(
+                          icon: Icons.call_split,
+                          tooltip: busy ? '回复结束后才能分叉' : '从这里分叉：新开一个会话，保留到这条回复为止的内容',
+                          onTap: busy ? null : () => AgentScope.read(context).forkAfterReply(reply.nextQuestion),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (question != null && branch != null && branch.total > 1)
+                    _VersionSwitcher(item: question, branch: branch, enabled: !busy),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

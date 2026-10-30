@@ -426,6 +426,17 @@ class SessionRuntime extends ChangeNotifier {
     }
   }
 
+  /// Forks a new session that ends with the reply before [nextMessage]: the
+  /// fork point is the next question, whose text is not put back for editing.
+  /// The last reply ([nextMessage] null) forks by duplicating the session.
+  Future<bool> forkAfterReply(UserItem? nextMessage) async {
+    if (nextMessage == null) return cloneSession();
+    if (!await forkFrom(nextMessage)) return false;
+    _setEditorText('');
+    _notifyNow();
+    return true;
+  }
+
   /// Duplicates the current session into a new one. Only valid while idle.
   Future<bool> cloneSession() async {
     final client = _client;
@@ -523,8 +534,10 @@ class SessionRuntime extends ChangeNotifier {
     }
   }
 
-  /// Asks the same question again as a new version of [item].
-  Future<void> regenerate(UserItem item) async {
+  /// Asks the same question again as a new version of [item], optionally with
+  /// another [model] (which then stays selected for the session).
+  Future<void> regenerate(UserItem item, {PiModel? model}) async {
+    if (model != null && model != this.model) await selectModel(model);
     if (!await editMessage(item)) return;
     final text = editorText;
     _setEditorText('');

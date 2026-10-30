@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/message_widgets.dart' show ReplyInfo;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
@@ -469,6 +470,74 @@ void main() {
       await agent.editMessage(agent.transcript.items.whereType<UserItem>().last);
       expect(pi.commands.lastWhere((c) => c['type'] == 'df_navigate_tree')['entryId'], 'u2b');
       expect(agent.active!.editorText, 'second v2');
+      agent.dispose();
+    });
+
+    test('replies group the assistant messages between two questions', () {
+      final transcript = Transcript()
+        ..loadHistory(
+          [
+            {'role': 'user', 'content': 'q1', 'timestamp': 1},
+            {'role': 'assistant', 'content': [{'type': 'text', 'text': 'step'}], 'timestamp': 2},
+            {'role': 'assistant', 'content': [{'type': 'text', 'text': 'answer 1'}], 'timestamp': 3},
+            {'role': 'user', 'content': 'q2', 'timestamp': 4},
+            {'role': 'assistant', 'content': [{'type': 'text', 'text': 'answer 2'}], 'timestamp': 5},
+          ].map(AgentMessage.fromJson),
+        );
+      final items = transcript.items;
+      final users = items.whereType<UserItem>().toList();
+      final replies = ReplyInfo.collect(items);
+      expect(replies.keys, [2, 4], reason: 'actions sit under the last message of each reply');
+      expect(replies[2]!.text, 'step\n\nanswer 1');
+      expect((replies[2]!.question, replies[2]!.nextQuestion), (users[0], users[1]));
+      expect(replies[2]!.isLatest, isFalse);
+      expect((replies[4]!.question, replies[4]!.isLatest), (users[1], true));
+    });
+
+    test('forking from a reply keeps the conversation up to that reply', () async {
+      final agent = await startController();
+      final pi = pis.single;
+      pi.messages = [
+        {'role': 'user', 'content': 'first', 'timestamp': 1},
+        {'role': 'user', 'content': 'second', 'timestamp': 2},
+      ];
+      agent.transcript.loadHistory(pi.messages.map(AgentMessage.fromJson));
+      final second = agent.transcript.items.whereType<UserItem>().last;
+
+      await agent.forkAfterReply(second);
+      expect(pi.commands.lastWhere((c) => c['type'] == 'fork')['entryId'], 'e1', reason: 'forks before the next question');
+      expect(agent.active!.editorText, isEmpty, reason: 'the next question is not put back');
+
+      await agent.forkAfterReply(null);
+      expect(pi.sent('clone'), hasLength(1), reason: 'the last reply duplicates the session');
+      agent.dispose();
+    });
+
+    test('regenerating with another model switches the model first', () async {
+      final agent = await startController();
+      final pi = pis.single
+        ..messages = [
+          {'role': 'user', 'content': 'question', 'timestamp': 1},
+        ]
+        ..branches = [
+          {'entryId': 'u1', 'index': 0, 'total': 1, 'targets': <String>[]},
+        ]
+        ..navigateText = 'question';
+      pi
+        ..startRun('x')
+        ..finishRun();
+      await pumpEventQueue();
+      agent.active!.transcript.loadHistory(pi.messages.map(AgentMessage.fromJson));
+      final question = agent.transcript.items.whereType<UserItem>().single;
+      final other = agent.models.firstWhere((m) => m != agent.model);
+      final before = pi.commands.length;
+
+      await agent.regenerate(question, model: other);
+      final types = pi.commands.skip(before).map((c) => c['type']).toList();
+      expect(types.indexOf('set_model'), lessThan(types.indexOf('df_navigate_tree')));
+      expect(pi.commands.lastWhere((c) => c['type'] == 'set_model')['modelId'], other.id);
+      expect(pi.commands.last['type'], 'prompt');
+      expect(pi.commands.last['message'], 'question');
       agent.dispose();
     });
 

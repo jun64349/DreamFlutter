@@ -77,6 +77,9 @@ class SearchHit {
 /// Top-level pages of the window (the navigation rail).
 enum AppSection { chat, desk, tasks, memory, library }
 
+/// How the window looks: theme, text size, and whole-interface zoom.
+typedef Appearance = ({ThemeMode themeMode, double textScale, double zoom});
+
 /// A run the previous core process left unfinished (shown as a resume card).
 class InterruptedRun {
   const InterruptedRun({required this.id, required this.sessionFile, required this.cwd, required this.prompt, required this.startedAt});
@@ -214,12 +217,15 @@ class AgentController extends ChangeNotifier {
 
   // --- Settings and workspaces ----------------------------------------------
 
-  /// Theme and text size, separate from the main notifier so streaming
+  /// Theme, text size and zoom, separate from the main notifier so streaming
   /// updates do not rebuild the whole app.
-  late final appearance = ValueNotifier<(ThemeMode, double)>((preferences.themeMode, preferences.textScale));
+  late final appearance = ValueNotifier<Appearance>(_currentAppearance);
+
+  Appearance get _currentAppearance => (themeMode: preferences.themeMode, textScale: preferences.textScale, zoom: preferences.zoom);
 
   ThemeMode get themeMode => preferences.themeMode;
   double get textScale => preferences.textScale;
+  double get zoom => preferences.zoom;
   ApprovalMode get approvalMode => ApprovalMode.parse(coreSettings['approvalMode'] as String?);
   bool get defaultAutoCompaction => coreSettings['autoCompaction'] != false;
   String? get defaultModelKey => coreSettings['defaultModel'] as String?;
@@ -892,10 +898,10 @@ class AgentController extends ChangeNotifier {
     await runtime.editMessage(item);
   }
 
-  Future<void> regenerate(UserItem item) async {
+  Future<void> regenerate(UserItem item, {PiModel? model}) async {
     final runtime = _active;
     if (runtime == null || runtime.isRunning) return;
-    await runtime.regenerate(item);
+    await runtime.regenerate(item, model: model);
   }
 
   Future<void> switchVersion(UserItem item, int index) async => _active?.switchVersion(item, index);
@@ -961,6 +967,18 @@ class AgentController extends ChangeNotifier {
     if (await runtime.forkFrom(message)) await refreshSessions();
   }
 
+  /// Forks a new session that keeps everything up to the reply before
+  /// [nextMessage] (null: the last reply).
+  Future<void> forkAfterReply(UserItem? nextMessage) async {
+    final runtime = _active;
+    if (runtime == null) return;
+    if (runtime.isRunning) {
+      _toast('当前回复还没结束，先停止它再分叉。');
+      return;
+    }
+    if (await runtime.forkAfterReply(nextMessage)) await refreshSessions();
+  }
+
   /// Duplicates the session at [path] (opening it first if needed).
   Future<void> cloneSession(String path) async {
     await openSession(path);
@@ -1013,14 +1031,28 @@ class AgentController extends ChangeNotifier {
 
   Future<void> setThemeMode(ThemeMode mode) async {
     await preferences.setThemeMode(mode);
-    appearance.value = (mode, preferences.textScale);
+    appearance.value = _currentAppearance;
     _notify();
   }
 
   Future<void> setTextScale(double scale) async {
     await preferences.setTextScale(scale);
-    appearance.value = (preferences.themeMode, scale);
+    appearance.value = _currentAppearance;
     _notify();
+  }
+
+  Future<void> setZoom(double zoom) async {
+    await preferences.setZoom(zoom.clamp(Preferences.zoomLevels.first, Preferences.zoomLevels.last));
+    appearance.value = _currentAppearance;
+    _notify();
+  }
+
+  /// One zoom step up ([step] 1), down (-1), or back to 100% (0).
+  Future<void> stepZoom(int step) {
+    const levels = Preferences.zoomLevels;
+    if (step == 0) return setZoom(1.0);
+    final next = step > 0 ? levels.where((l) => l > zoom + 0.001).firstOrNull : levels.where((l) => l < zoom - 0.001).lastOrNull;
+    return setZoom(next ?? zoom);
   }
 
   Future<void> setApprovalMode(ApprovalMode mode) => _setting({'approvalMode': mode.id});

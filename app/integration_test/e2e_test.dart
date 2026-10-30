@@ -5,6 +5,7 @@
 // (it may be covered, but not minimized: a minimized window renders no frames).
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -15,10 +16,12 @@ import 'package:dreamflutter/ui/desk_page.dart' show DeskPage;
 import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:dreamflutter/ui/memory_page.dart' show MemoryPage;
 import 'package:dreamflutter/ui/schedules.dart' show SchedulesTab;
+import 'package:dreamflutter/ui/settings_page.dart' show SettingsPage;
 import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
 import 'package:dreamflutter/ui/tasks_page.dart' show TasksPage;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
@@ -63,7 +66,15 @@ void main() {
       if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime) {
         fail('Pi is not running while waiting for "$what":\n${agent.statusDetail}');
       }
-      if (DateTime.now().isAfter(deadline)) fail('timed out waiting for "$what"\n${describe(agent)}');
+      if (DateTime.now().isAfter(deadline)) {
+        // What the window showed, for diagnosis.
+        await tester.runAsync(() async {
+          final boundary = shotKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+          final png = await (await boundary?.toImage(pixelRatio: 1))?.toByteData(format: ui.ImageByteFormat.png);
+          if (png != null) File(p.join(shotsDir.path, 'zz_timeout.png')).writeAsBytesSync(png.buffer.asUint8List());
+        });
+        fail('timed out waiting for "$what"\n${describe(agent)}');
+      }
       await idle(tester);
     }
   }
@@ -94,6 +105,8 @@ void main() {
     await tester.tap(find.text('发送'));
     await tester.pump();
   }
+
+  final settingsList = find.descendant(of: find.byType(SettingsPage), matching: find.byType(Scrollable)).first;
 
   List<AssistantItem> assistants(AgentController agent) => agent.transcript.items.whereType<AssistantItem>().toList();
   String lastText(AgentController agent) =>
@@ -215,9 +228,11 @@ void main() {
       await tester.drag(messages, const Offset(0, 300));
       await tester.pump();
     }
-    await tester.ensureVisible(find.byIcon(Icons.call_split).last);
+    // The question's fork button (replies have their own).
+    final forkQuestion = find.byTooltip('分叉为新会话：保留这条消息之前的内容，并把这条消息放回输入框供你修改');
+    await tester.ensureVisible(forkQuestion.last);
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.call_split).last);
+    await tester.tap(forkQuestion.last);
     await waitFor(tester, 'forked', () => agent.currentSessionPath != sessionA && agent.active == runtimeA, agent);
     await idle(tester);
     expect(tester.widget<TextField>(composer).controller!.text, contains('大海'));
@@ -249,6 +264,9 @@ void main() {
 
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
+    expect(find.text('界面缩放'), findsOneWidget, reason: 'appearance comes first');
+    await tester.scrollUntilVisible(find.text('修改和命令需确认'), 300, scrollable: settingsList);
+    await tester.pumpAndSettle(); // a tap during the scroll would only stop it
     expect(find.text('修改和命令需确认'), findsOneWidget);
     await shot(tester, '10_settings');
     await tester.pageBack();
@@ -298,7 +316,8 @@ void main() {
     await waitFor(tester, 'moon reply', () => !agent.isRunning && lastText(agent).isNotEmpty && agent.transcript.items.whereType<UserItem>().last.text.contains('月亮'), agent);
     await waitFor(tester, 'version switcher', () => find.text('2/2').evaluate().isNotEmpty, agent);
     await shot(tester, '14_versions');
-    await tester.tap(find.byTooltip('上一个版本'));
+    // The switcher shows under the question and under its reply.
+    await tester.tap(find.byTooltip('上一个版本').first);
     await waitFor(tester, 'back to version 1', () => agent.transcript.items.whereType<UserItem>().last.text.contains('星空') && find.text('1/2').evaluate().isNotEmpty, agent);
     await shot(tester, '15_version_1');
 
@@ -313,6 +332,8 @@ void main() {
     // 11. Providers page: the configured provider answers a connection test.
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('管理服务商'), 300, scrollable: settingsList);
+    await tester.pumpAndSettle(); // a tap during the scroll would only stop it
     await tester.tap(find.text('管理服务商'));
     await waitFor(tester, 'providers listed', () => find.text('测试连接').evaluate().isNotEmpty, agent);
     await tester.tap(find.text('测试连接').first);
@@ -322,6 +343,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // 12. Usage statistics include today's model responses.
+    await tester.scrollUntilVisible(find.text('用量统计'), 300, scrollable: settingsList);
+    await tester.pumpAndSettle(); // a tap during the scroll would only stop it
     await tester.tap(find.text('用量统计'));
     await waitFor(tester, 'usage loaded', () => find.text('按模型').evaluate().isNotEmpty && find.textContaining('deepseek').evaluate().isNotEmpty, agent);
     await shot(tester, '18_usage');
@@ -465,6 +488,39 @@ void main() {
     expect(agent.transcript.tools.values.where((r) => r.name == 'web_fetch' && r.status == ToolStatus.done), isNotEmpty, reason: describe(agent));
     expect(lastText(agent).toLowerCase(), contains('example'));
     await shot(tester, '29_web_fetch');
+
+    // 19. Images reach the model (v0.1.1 bug: Pi's "block images" setting
+    //     replaced them with a note), and the reply has its own actions.
+    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.byIcon(Icons.add)));
+    await waitFor(tester, 'fresh session for the image', () => agent.isReady && agent.transcript.items.isEmpty, agent);
+    final red = await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawRect(const Rect.fromLTWH(0, 0, 64, 64), Paint()..color = const Color(0xFFDC1414));
+      final image = await recorder.endRecording().toImage(64, 64);
+      final png = await image.toByteData(format: ui.ImageByteFormat.png);
+      return base64Encode(png!.buffer.asUint8List());
+    });
+    await tester.runAsync(() => agent.send('这张图片是什么颜色？只回复颜色的中文名称。', images: [ImageBlock(data: red!, mimeType: 'image/png')]));
+    await waitFor(tester, 'image reply', () => !agent.isRunning && lastText(agent).isNotEmpty, agent);
+    expect(lastText(agent), contains('红'), reason: describe(agent));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('复制回复（Markdown 原文）'), findsOneWidget, reason: 'the latest reply shows its actions');
+    await shot(tester, '30_image_reply_actions');
+
+    // 20. Ctrl + plus zooms the whole window; Ctrl + 0 restores it.
+    Future<void> ctrl(LogicalKeyboardKey key) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(key);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await idle(tester);
+    }
+
+    await ctrl(LogicalKeyboardKey.equal);
+    await ctrl(LogicalKeyboardKey.equal);
+    expect(agent.zoom, 1.25);
+    await shot(tester, '31_zoom_125');
+    await ctrl(LogicalKeyboardKey.digit0);
+    expect(agent.zoom, 1.0);
 
     await agent.shutdownCore();
     agent.dispose();
