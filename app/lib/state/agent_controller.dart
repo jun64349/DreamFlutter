@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import 'backend.dart';
+import 'mentions.dart';
 import 'preferences.dart';
 import 'session_runtime.dart';
 import 'work_models.dart';
@@ -136,6 +137,7 @@ class AgentController extends ChangeNotifier {
   final Map<SessionRuntime, String> _backgroundSignature = {};
   final Set<String> _unseen = {};
   final _toasts = StreamController<String>.broadcast();
+  final _mentions = StreamController<Mention>.broadcast();
   final _emptyTranscript = Transcript();
   StreamSubscription<Json>? _backendEvents;
   Timer? _reaper;
@@ -620,6 +622,7 @@ class AgentController extends ChangeNotifier {
     }
     _runtimes.clear();
     _toasts.close();
+    _mentions.close();
     super.dispose();
   }
 
@@ -906,6 +909,19 @@ class AgentController extends ChangeNotifier {
 
   Future<void> switchVersion(UserItem item, int index) async => _active?.switchVersion(item, index);
 
+  Future<List<QuestionNode>> questionTree() async => await _active?.questionTree() ?? const [];
+
+  Future<void> openBranch(String target) async {
+    final runtime = _active;
+    if (runtime == null || runtime.isRunning) return;
+    await runtime.openBranch(target);
+  }
+
+  /// Asks the input box to attach [mention] (from the desk tab, for example).
+  void mention(Mention mention) => _mentions.add(mention);
+
+  Stream<Mention> get mentionRequests => _mentions.stream;
+
   // --- Interrupted runs ------------------------------------------------------
 
   /// Reopens the session of an interrupted run and asks the agent to go on.
@@ -1038,6 +1054,13 @@ class AgentController extends ChangeNotifier {
   Future<void> setTextScale(double scale) async {
     await preferences.setTextScale(scale);
     appearance.value = _currentAppearance;
+    _notify();
+  }
+
+  bool get onboarded => preferences.onboarded;
+
+  Future<void> finishOnboarding() async {
+    await preferences.setOnboarded();
     _notify();
   }
 

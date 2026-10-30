@@ -321,6 +321,20 @@ void main() {
     await waitFor(tester, 'back to version 1', () => agent.transcript.items.whereType<UserItem>().last.text.contains('星空') && find.text('1/2').evaluate().isNotEmpty, agent);
     await shot(tester, '15_version_1');
 
+    // 9b. The run panel's branch tab: the star request and its moon rewrite
+    //     both hang under the same point, and the star version is shown.
+    await tester.tap(find.text('分支'));
+    await waitFor(
+      tester,
+      'branch tree',
+      () => find.textContaining('改成写月亮').evaluate().isNotEmpty && find.textContaining('1 处分支').evaluate().isNotEmpty,
+      agent,
+      timeout: const Duration(seconds: 30),
+    );
+    await shot(tester, '15b_branch_tree');
+    await tester.tap(find.text('本次运行'));
+    await tester.pumpAndSettle();
+
     // 10. Full-text search across sessions.
     final searchBox = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '搜索所有会话');
     await tester.enterText(searchBox, '星空');

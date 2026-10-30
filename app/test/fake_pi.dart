@@ -27,6 +27,9 @@ class FakePi implements PiConnection {
   /// What `df_branches` returns.
   List<Json> branches = [];
 
+  /// Answers for commands the recording has no example of (`df_tree`).
+  final extraResponses = <String, Object?>{};
+
   /// Editor text `df_navigate_tree` hands back.
   String? navigateText;
 
@@ -76,7 +79,7 @@ class FakePi implements PiConnection {
         case 'fork' || 'clone':
           sessionFile = _newSessionFile();
       }
-      final data = switch (command['type']) {
+      final data = extraResponses.containsKey(command['type']) ? extraResponses[command['type']] : switch (command['type']) {
         'get_state' => {...(_recorded('get_state') as Json), 'isStreaming': streaming, 'sessionFile': sessionFile},
         'set_model' => _recorded('set_model'),
         'prompt' => {'disposition': streaming ? 'queued' : 'started'},

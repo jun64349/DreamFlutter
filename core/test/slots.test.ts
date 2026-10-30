@@ -226,6 +226,15 @@ describe("session slots", () => {
 		await t.send("s1", { id: "msgs", type: "get_messages" });
 		const msgs = (await t.waitFor(() => t.records("s1").find((r) => r.id === "msgs"))).data as { messages: { role: string; content: unknown }[] };
 		assert.match(JSON.stringify(msgs.messages.at(-1)!.content), /a2"/);
+
+		// The whole tree: q1, then q2 and its edited sibling both under q1.
+		await t.send("s1", { id: "tree", type: "df_tree" });
+		const nodes = ((await t.waitFor(() => t.records("s1").find((r) => r.id === "tree"))).data as { nodes: { entryId: string; parentId: string | null; text: string; active: boolean; target: string }[] }).nodes;
+		assert.deepEqual(nodes.map((n) => n.text), ["q1", "q2", "q2 edited"]);
+		assert.equal(nodes[0]!.parentId, null);
+		assert.deepEqual([nodes[1]!.parentId, nodes[2]!.parentId], [nodes[0]!.entryId, nodes[0]!.entryId]);
+		assert.deepEqual(nodes.map((n) => n.active), [true, true, false], "version 1 is shown");
+		assert.equal(nodes[2]!.target, after[1]!.targets[1], "opening a node shows its latest continuation");
 	});
 
 	it("keeps temporary chats in memory only", async () => {

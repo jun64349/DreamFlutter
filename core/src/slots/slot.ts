@@ -483,6 +483,8 @@ export class Slot {
 			}
 			case "df_branches":
 				return ok(id, "df_branches", { branches: userBranches(session), leafId: session.sessionManager.getLeafId() });
+			case "df_tree":
+				return ok(id, "df_tree", { nodes: questionTree(session) });
 			case "df_set_label":
 				session.sessionManager.appendLabelChange(String(command.entryId ?? ""), str("label"));
 				return ok(id, "df_set_label");
@@ -555,6 +557,61 @@ export function userBranches(session: AgentSession): UserBranch[] {
 			index: Math.max(0, siblings.findIndex((s) => s.id === entry.id)),
 			total: siblings.length,
 			targets: siblings.length > 1 ? siblings.map((s) => latestLeaf(s.id)) : [],
+		});
+	}
+	return out;
+}
+
+export interface QuestionNode {
+	entryId: string;
+	/** The nearest earlier question, or null for a first question. */
+	parentId: string | null;
+	/** The question's text, shortened. */
+	text: string;
+	timestamp: string;
+	/** On the branch shown now. */
+	active: boolean;
+	/** Where to navigate to show this question's branch (its latest continuation). */
+	target: string;
+}
+
+/**
+ * Every question in the session tree, linked to the question before it, so
+ * the window can draw where the conversation branched. Oldest first.
+ */
+export function questionTree(session: AgentSession): QuestionNode[] {
+	const manager = session.sessionManager;
+	const entries = manager.getEntries() as unknown as (TreeEntry & { message?: { role?: string; content?: unknown } })[];
+	const byId = new Map(entries.map((e) => [e.id, e]));
+	const isUser = (e: TreeEntry) => e.type === "message" && e.message?.role === "user";
+	const byTime = (a: TreeEntry, b: TreeEntry) => String(a.timestamp ?? "").localeCompare(String(b.timestamp ?? ""));
+	const active = new Set((manager.getBranch() as unknown as TreeEntry[]).map((e) => e.id));
+	const latestLeaf = (id: string): string => {
+		let current = id;
+		for (;;) {
+			const children = (manager.getChildren(current) as unknown as TreeEntry[]).slice().sort(byTime);
+			if (children.length === 0) return current;
+			current = children.at(-1)!.id;
+		}
+	};
+	const textOf = (content: unknown): string => {
+		const raw = typeof content === "string" ? content : Array.isArray(content) ? content.map((c) => (c && typeof c === "object" && "text" in c ? String(c.text) : "")).join(" ") : "";
+		// Attached desk material is not part of the question.
+		const plain = raw.replace(/<资料>[\s\S]*?<\/资料>\s*(需要时用工具读取上面列出的文件或文件夹。)?/g, "").replace(/<写笺[^>]*>[\s\S]*?<\/写笺>/g, "");
+		const oneLine = plain.replace(/\s+/g, " ").trim();
+		return oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
+	};
+	const out: QuestionNode[] = [];
+	for (const entry of entries.filter(isUser).sort(byTime)) {
+		let parent = entry.parentId ? byId.get(entry.parentId) : undefined;
+		while (parent && !isUser(parent)) parent = parent.parentId ? byId.get(parent.parentId) : undefined;
+		out.push({
+			entryId: entry.id,
+			parentId: parent?.id ?? null,
+			text: textOf(entry.message?.content) || "（图片）",
+			timestamp: String(entry.timestamp ?? ""),
+			active: active.has(entry.id),
+			target: latestLeaf(entry.id),
 		});
 	}
 	return out;

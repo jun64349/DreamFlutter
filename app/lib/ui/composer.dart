@@ -1,22 +1,31 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
+import '../state/mentions.dart';
+import '../state/agent_controller.dart' show asJsonMap, jsonRows, MaterialInfo, NoteInfo;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'commands_dialog.dart' show commandSourceLabels, showCommandsDialog;
 import 'context_dialog.dart' show showContextDialog;
 import 'motion.dart';
+import 'run_summary.dart' show mentionOf;
 import 'usage_page.dart' show formatCost, formatTokens;
 
 /// Message input. Enter sends, Shift+Enter inserts a newline; while an IME
 /// composition is active Enter is left to the IME. During a run, sending
 /// steers the agent and the button doubles as Stop when the input is empty.
-/// Typing `/` at the start suggests skills, prompt templates and commands.
+/// Typing `/` at the start suggests skills, prompt templates and commands;
+/// `@` suggests the desk's notes and materials. Files can be dropped or
+/// pasted in: images are attached, other files and folders go along by path.
 class Composer extends StatefulWidget {
   const Composer({super.key});
 
@@ -28,12 +37,20 @@ class _ComposerState extends State<Composer> {
   final _controller = TextEditingController();
   late final _focus = FocusNode(onKeyEvent: _onKey);
   final List<_Attachment> _images = [];
+  final List<Mention> _mentions = [];
   Object? _editorRuntime;
   int _editorRevision = 0;
   int _highlighted = 0;
+  var _dragging = false;
+  StreamSubscription<Mention>? _mentionRequests;
+
+  /// The desk's notes and materials for `@`, loaded on first use per workspace.
+  List<(Mention, String?)>? _deskItems;
+  String? _deskFor;
 
   static const _maxImageBytes = 8 * 1024 * 1024;
-  static const _imageTypes = XTypeGroup(label: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp']);
+  static const _imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+  static const _imageTypes = XTypeGroup(label: '图片', extensions: _imageExtensions);
 
   @override
   void initState() {
@@ -42,30 +59,131 @@ class _ComposerState extends State<Composer> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _mentionRequests ??= AgentScope.read(context).mentionRequests.listen((mention) {
+      if (!mounted) return;
+      _addMention(mention);
+      _focus.requestFocus();
+    });
+  }
+
+  @override
   void dispose() {
+    _mentionRequests?.cancel();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
   }
 
+  void _addMention(Mention mention) {
+    if (_mentions.contains(mention)) return;
+    setState(() => _mentions.add(mention));
+  }
+
+  // --- Suggestions ------------------------------------------------------------
+
   /// Commands matching a leading `/word` while no space has been typed yet.
-  List<SlashCommand> _suggestions(List<SlashCommand> commands) {
+  List<SlashCommand> _commandSuggestions(List<SlashCommand> commands) {
     final text = _controller.text;
     if (!text.startsWith('/') || text.contains(' ') || text.contains('\n')) return const [];
     final query = text.substring(1).toLowerCase();
     return commands.where((c) => c.name.toLowerCase().contains(query)).take(8).toList();
   }
 
-  void _applySuggestion(SlashCommand command) {
+  static final _atQuery = RegExp(r'(?:^|\s)@([^\s@]*)$');
+
+  /// The `@word` being typed at the cursor, if any.
+  RegExpMatch? _atMatch() {
+    final value = _controller.value;
+    final cursor = value.selection.baseOffset;
+    if (cursor < 0 || cursor > value.text.length) return null;
+    return _atQuery.firstMatch(value.text.substring(0, cursor));
+  }
+
+  List<(Mention, String?)> _deskSuggestions(String workspace) {
+    final match = _atMatch();
+    if (match == null) return const [];
+    if (_deskFor != workspace) {
+      _deskFor = workspace;
+      _deskItems = null;
+      _loadDesk(workspace);
+    }
+    final query = match.group(1)!.toLowerCase();
+    return (_deskItems ?? const []).where((d) => d.$1.title.toLowerCase().contains(query) && !_mentions.contains(d.$1)).take(8).toList();
+  }
+
+  Future<void> _loadDesk(String workspace) async {
+    final agent = AgentScope.read(context);
+    try {
+      final desk = asJsonMap(await agent.backend.call('desk.get', {'cwd': workspace}));
+      final items = [
+        for (final n in jsonRows(desk['notes']).map(NoteInfo.fromJson)) (Mention(kind: MentionKind.note, title: n.title, content: n.content), '写笺'),
+        for (final m in jsonRows(desk['materials']).map(MaterialInfo.fromJson)) (mentionOf(m), m.path ?? '资料'),
+      ];
+      if (mounted && _deskFor == workspace) setState(() => _deskItems = items);
+    } catch (_) {
+      if (mounted && _deskFor == workspace) setState(() => _deskItems = const []);
+    }
+  }
+
+  /// What the suggestion list shows now: commands after `/`, desk items after `@`.
+  List<_Option> _options(BuildContext context) {
+    final agent = AgentScope.read(context);
+    final commands = _commandSuggestions(agent.commands);
+    if (commands.isNotEmpty) {
+      return [
+        for (final c in commands)
+          _Option(label: '/${c.name}', description: c.description, tag: commandSourceLabels[c.source] ?? c.source, mono: true, pick: () => _applyCommand(c)),
+      ];
+    }
+    return [
+      for (final (mention, detail) in _deskSuggestions(agent.workspace))
+        _Option(
+          label: mention.title,
+          description: detail ?? '',
+          tag: mention.kind == MentionKind.note ? '写笺' : '资料',
+          icon: mentionIcon(mention.kind),
+          pick: () => _applyMention(mention),
+        ),
+    ];
+  }
+
+  void _applyCommand(SlashCommand command) {
     final text = '/${command.name} ';
-    _controller.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+    _controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _focus.requestFocus();
+  }
+
+  /// Replaces the `@word` being typed with a chip for [mention].
+  void _applyMention(Mention mention) {
+    final match = _atMatch();
+    if (match != null) {
+      final value = _controller.value;
+      final start = match.start + match.group(0)!.indexOf('@');
+      final end = value.selection.baseOffset;
+      final text = value.text.replaceRange(start, end, '');
+      _controller.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: start),
+      );
+    }
+    _addMention(mention);
     _focus.requestFocus();
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
-    final suggestions = _suggestions(AgentScope.read(context).commands);
     final key = event.logicalKey;
+    if (event is KeyDownEvent && key == LogicalKeyboardKey.keyV && HardwareKeyboard.instance.isControlPressed) {
+      // Text pastes as usual; images and files on the clipboard are attached.
+      unawaited(_pasteAttachments());
+      return KeyEventResult.ignored;
+    }
+    final suggestions = _options(context);
     if (suggestions.isNotEmpty) {
       if (key == LogicalKeyboardKey.arrowDown) {
         setState(() => _highlighted = (_highlighted + 1) % suggestions.length);
@@ -76,11 +194,15 @@ class _ComposerState extends State<Composer> {
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.tab || (key == LogicalKeyboardKey.enter && !_controller.value.composing.isValid)) {
-        _applySuggestion(suggestions[_highlighted.clamp(0, suggestions.length - 1)]);
+        suggestions[_highlighted.clamp(0, suggestions.length - 1)].pick();
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.escape) {
-        _controller.clear();
+        if (_atMatch() != null) {
+          _applyMentionCancel();
+        } else {
+          _controller.clear();
+        }
         return KeyEventResult.handled;
       }
     }
@@ -92,39 +214,110 @@ class _ComposerState extends State<Composer> {
     return KeyEventResult.handled;
   }
 
+  /// Esc after `@`: drop the half-typed `@word`.
+  void _applyMentionCancel() {
+    final match = _atMatch();
+    if (match == null) return;
+    final value = _controller.value;
+    final start = match.start + match.group(0)!.indexOf('@');
+    _controller.value = TextEditingValue(
+      text: value.text.replaceRange(start, value.selection.baseOffset, ''),
+      selection: TextSelection.collapsed(offset: start),
+    );
+  }
+
+  bool get _hasContent => _controller.text.trim().isNotEmpty || _images.isNotEmpty || _mentions.isNotEmpty;
+
   void _send() {
-    final text = _controller.text;
-    if (text.trim().isEmpty && _images.isEmpty) return;
+    if (!_hasContent) return;
     final agent = AgentScope.read(context);
     if (!agent.isReady) return;
+    final text = composeWithMentions(_controller.text, _mentions);
     final images = _images.map((a) => a.block).toList();
     _controller.clear();
-    setState(_images.clear);
+    setState(() {
+      _images.clear();
+      _mentions.clear();
+    });
     agent.send(text, images: images);
+  }
+
+  // --- Attachments --------------------------------------------------------------
+
+  static String _mimeOf(String name) => switch (p.extension(name).toLowerCase().replaceFirst('.', '')) {
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'gif' => 'image/gif',
+    'webp' => 'image/webp',
+    _ => 'image/png',
+  };
+
+  /// Adds an image; false if it is too large.
+  bool _addImage(String name, List<int> bytes, String mime) {
+    if (bytes.length > _maxImageBytes) return false;
+    _images.add(_Attachment(name, bytes, ImageBlock(data: base64Encode(bytes), mimeType: mime)));
+    return true;
+  }
+
+  void _tooLarge(List<String> names) {
+    if (names.isEmpty || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('图片超过 8MB，未添加：${names.join('、')}')));
   }
 
   Future<void> _pickImages() async {
     final files = await openFiles(acceptedTypeGroups: const [_imageTypes], confirmButtonText: '添加');
     final rejected = <String>[];
     for (final file in files) {
-      final bytes = await file.readAsBytes();
-      if (bytes.length > _maxImageBytes) {
-        rejected.add(file.name);
-        continue;
-      }
-      final ext = p.extension(file.name).toLowerCase().replaceFirst('.', '');
-      final mime = switch (ext) {
-        'jpg' || 'jpeg' => 'image/jpeg',
-        'gif' => 'image/gif',
-        'webp' => 'image/webp',
-        _ => 'image/png',
-      };
-      _images.add(_Attachment(file.name, bytes, ImageBlock(data: base64Encode(bytes), mimeType: mime)));
+      if (!_addImage(file.name, await file.readAsBytes(), _mimeOf(file.name))) rejected.add(file.name);
     }
     if (!mounted) return;
     setState(() {});
-    if (rejected.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('图片超过 8MB，未添加：${rejected.join('、')}')));
+    _tooLarge(rejected);
+  }
+
+  /// Dropped or pasted paths: images are attached when the model can see
+  /// them, everything else goes along by path for the agent to read.
+  Future<void> _addPaths(List<String> paths) async {
+    final supportsImages = AgentScope.read(context).model?.supportsImages ?? true;
+    final rejected = <String>[];
+    for (final path in paths) {
+      if (Directory(path).existsSync()) {
+        _addMention(Mention.file(path, folder: true));
+        continue;
+      }
+      final isImage = _imageExtensions.contains(p.extension(path).toLowerCase().replaceFirst('.', ''));
+      if (isImage && supportsImages) {
+        try {
+          if (!_addImage(p.basename(path), await File(path).readAsBytes(), _mimeOf(path))) rejected.add(p.basename(path));
+          continue;
+        } catch (_) {
+          // Unreadable: send the path instead.
+        }
+      }
+      _addMention(Mention.file(path));
+    }
+    if (!mounted) return;
+    setState(() {});
+    _tooLarge(rejected);
+  }
+
+  Future<void> _pasteAttachments() async {
+    try {
+      final files = await Pasteboard.files();
+      if (files.isNotEmpty) {
+        await _addPaths(files);
+        return;
+      }
+      final image = await Pasteboard.image;
+      if (image == null || !mounted) return;
+      if (!(AgentScope.read(context).model?.supportsImages ?? true)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('当前模型不支持图片，没有附上剪贴板里的图片。')));
+        return;
+      }
+      final added = _addImage('粘贴的图片.png', image, 'image/png');
+      setState(() {});
+      if (!added) _tooLarge(['粘贴的图片']);
+    } catch (_) {
+      // No clipboard plugin (tests) or an unreadable clipboard: text paste still works.
     }
   }
 
@@ -142,18 +335,25 @@ class _ComposerState extends State<Composer> {
     } else if (runtime != null && runtime.editorTextRevision != _editorRevision) {
       _editorRevision = runtime.editorTextRevision;
       {
-        final text = runtime.editorText;
+        // A question put back for editing: its attachments become chips again.
+        final (text, attached) = splitMentions(runtime.editorText);
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _controller.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+          _controller.value = TextEditingValue(
+            text: text,
+            selection: TextSelection.collapsed(offset: text.length),
+          );
+          setState(() => _mentions
+            ..clear()
+            ..addAll(attached));
           _focus.requestFocus();
         });
       }
     }
 
-    final hasContent = _controller.text.trim().isNotEmpty || _images.isNotEmpty;
+    final hasContent = _hasContent;
     final running = agent.isRunning;
     final showStop = running && !hasContent;
-    final suggestions = _suggestions(agent.commands);
+    final suggestions = _options(context);
     final supportsImages = agent.model?.supportsImages ?? true;
     final widgets = agent.extensionWidgets.values.expand((lines) => lines).toList();
     final statuses = agent.extensionStatuses.values.toList();
@@ -168,7 +368,11 @@ class _ComposerState extends State<Composer> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (widgets.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(widgets.join('\n'), style: muted)),
+              if (widgets.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(widgets.join('\n'), style: muted),
+                ),
               if (agent.isCompacting || statuses.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6, left: 4),
@@ -177,90 +381,109 @@ class _ComposerState extends State<Composer> {
                       if (agent.isCompacting) ...[const BreathingDot(), const SizedBox(width: 8), Text('正在压缩较早的对话…', style: muted)],
                       for (final status in statuses) ...[
                         const SizedBox(width: AppTokens.pad),
-                        Flexible(child: Text(status, overflow: TextOverflow.ellipsis, style: muted)),
+                        Flexible(
+                          child: Text(status, overflow: TextOverflow.ellipsis, style: muted),
+                        ),
                       ],
                     ],
                   ),
                 ),
-              if (suggestions.isNotEmpty) _SuggestionList(suggestions: suggestions, highlighted: _highlighted, onPick: _applySuggestion),
-              AnimatedContainer(
-                duration: AppTokens.fast,
-                decoration: BoxDecoration(
-                  color: colors.card,
-                  border: Border.all(color: _focus.hasFocus ? colors.accent.withValues(alpha: 0.6) : colors.border),
-                  borderRadius: BorderRadius.circular(AppTokens.radiusLg),
-                ),
-                padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_images.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6, top: 2),
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            for (final image in _images)
-                              _AttachmentChip(attachment: image, onRemove: () => setState(() => _images.remove(image))),
-                          ],
-                        ),
-                      ),
-                    Focus(
-                      onFocusChange: (_) => setState(() {}),
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focus,
-                        autofocus: true,
-                        minLines: 1,
-                        maxLines: 8,
-                        enabled: agent.isReady,
-                        style: context.text.bodyMedium?.copyWith(height: 1.6),
-                        decoration: InputDecoration(
-                          hintText: running ? 'Agent 正在工作，现在输入会插进对话里…' : '说点什么…  Enter 发送，Shift+Enter 换行，/ 调用技能',
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          disabledBorder: InputBorder.none,
-                          filled: false,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 6),
-                        ),
-                      ),
+              if (suggestions.isNotEmpty) _SuggestionList(options: suggestions, highlighted: _highlighted),
+              DropTarget(
+                enable: agent.isReady,
+                onDragEntered: (_) => setState(() => _dragging = true),
+                onDragExited: (_) => setState(() => _dragging = false),
+                onDragDone: (details) {
+                  setState(() => _dragging = false);
+                  _addPaths([for (final f in details.files) f.path]);
+                },
+                child: AnimatedContainer(
+                  duration: AppTokens.fast,
+                  decoration: BoxDecoration(
+                    color: _dragging ? colors.accentSoft : colors.card,
+                    border: Border.all(
+                      color: _dragging ? colors.accent : (_focus.hasFocus ? colors.accent.withValues(alpha: 0.6) : colors.border),
+                      width: _dragging ? 1.5 : 1,
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        _ToolbarButton(
-                          icon: Icons.image_outlined,
-                          tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
-                          onTap: agent.isReady && supportsImages ? _pickImages : null,
+                    borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_dragging)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text('松开即可附上：图片直接给模型看，其他文件和文件夹交给 Agent 读取', style: muted?.copyWith(color: colors.accent)),
                         ),
-                        _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
-                        const Spacer(),
-                        const _ModelChip(),
-                        const SizedBox(width: 4),
-                        const _ThinkingChip(),
-                        const SizedBox(width: 6),
-                        const _ContextRing(),
-                        const SizedBox(width: 8),
-                        SizedBox.square(
-                          dimension: 34,
-                          child: IconButton.filled(
-                            tooltip: showStop ? '停止' : (running ? '插话' : '发送'),
-                            onPressed: showStop ? agent.abort : (hasContent && agent.isReady ? _send : null),
-                            padding: EdgeInsets.zero,
-                            style: IconButton.styleFrom(
-                              backgroundColor: showStop ? colors.ink : colors.accent,
-                              foregroundColor: colors.onAccent,
-                              disabledBackgroundColor: colors.accentSoft,
-                              disabledForegroundColor: colors.muted,
-                            ),
-                            icon: Icon(showStop ? Icons.stop_rounded : Icons.arrow_upward_rounded, size: 18),
+                      if (_images.isNotEmpty || _mentions.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6, top: 2),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (final image in _images) _AttachmentChip(attachment: image, onRemove: () => setState(() => _images.remove(image))),
+                              for (final mention in _mentions) MentionChip(mention: mention, onRemove: () => setState(() => _mentions.remove(mention))),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ],
+                      Focus(
+                        onFocusChange: (_) => setState(() {}),
+                        child: TextField(
+                          controller: _controller,
+                          focusNode: _focus,
+                          autofocus: true,
+                          minLines: 1,
+                          maxLines: 8,
+                          enabled: agent.isReady,
+                          style: context.text.bodyMedium?.copyWith(height: 1.6),
+                          decoration: InputDecoration(
+                            hintText: running ? 'Agent 正在工作，现在输入会插进对话里…' : '说点什么…  Enter 发送，Shift+Enter 换行，/ 调用技能',
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            filled: false,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          _ToolbarButton(
+                            icon: Icons.image_outlined,
+                            tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
+                            onTap: agent.isReady && supportsImages ? _pickImages : null,
+                          ),
+                          _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
+                          const Spacer(),
+                          const _ModelChip(),
+                          const SizedBox(width: 4),
+                          const _ThinkingChip(),
+                          const SizedBox(width: 6),
+                          const _ContextRing(),
+                          const SizedBox(width: 8),
+                          SizedBox.square(
+                            dimension: 34,
+                            child: IconButton.filled(
+                              tooltip: showStop ? '停止' : (running ? '插话' : '发送'),
+                              onPressed: showStop ? agent.abort : (hasContent && agent.isReady ? _send : null),
+                              padding: EdgeInsets.zero,
+                              style: IconButton.styleFrom(
+                                backgroundColor: showStop ? colors.ink : colors.accent,
+                                foregroundColor: colors.onAccent,
+                                disabledBackgroundColor: colors.accentSoft,
+                                disabledForegroundColor: colors.muted,
+                              ),
+                              icon: Icon(showStop ? Icons.stop_rounded : Icons.arrow_upward_rounded, size: 18),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -279,24 +502,10 @@ class _ToolbarButton extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => IconButton(
-    tooltip: tooltip,
-    onPressed: onTap,
-    iconSize: 18,
-    visualDensity: VisualDensity.compact,
-    icon: Icon(icon),
-  );
+  Widget build(BuildContext context) => IconButton(tooltip: tooltip, onPressed: onTap, iconSize: 18, visualDensity: VisualDensity.compact, icon: Icon(icon));
 }
 
-const _levelNames = {
-  'off': '关闭',
-  'minimal': '极低',
-  'low': '低',
-  'medium': '中',
-  'high': '高',
-  'xhigh': '很高',
-  'max': '最高',
-};
+const _levelNames = {'off': '关闭', 'minimal': '极低', 'low': '低', 'medium': '中', 'high': '高', 'xhigh': '很高', 'max': '最高'};
 
 /// A quiet chip in the input box's toolbar that opens a menu.
 class _Chip<T> extends StatelessWidget {
@@ -327,7 +536,11 @@ class _Chip<T> extends StatelessWidget {
           children: [
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 180),
-              child: Text(label, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: enabled ? colors.ink : colors.muted)),
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.bodySmall?.copyWith(color: enabled ? colors.ink : colors.muted),
+              ),
             ),
             const SizedBox(width: 2),
             Icon(Icons.expand_more, size: 15, color: colors.muted),
@@ -351,10 +564,7 @@ class _MenuRow extends StatelessWidget {
       children: [
         SizedBox(width: 22, child: selected ? const Icon(Icons.check, size: 16) : null),
         Expanded(child: Text(title)),
-        if (subtitle != null) ...[
-          const SizedBox(width: 16),
-          Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-        ],
+        if (subtitle != null) ...[const SizedBox(width: 16), Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted))],
       ],
     );
   }
@@ -374,7 +584,10 @@ class _ModelChip extends StatelessWidget {
       filled: true,
       items: [
         for (final m in agent.models)
-          PopupMenuItem(value: m, child: _MenuRow(title: m.name, subtitle: m.provider, selected: m == model)),
+          PopupMenuItem(
+            value: m,
+            child: _MenuRow(title: m.name, subtitle: m.provider, selected: m == model),
+          ),
       ],
       onSelected: agent.selectModel,
     );
@@ -394,7 +607,10 @@ class _ThinkingChip extends StatelessWidget {
       enabled: agent.isReady && (model?.reasoning ?? false),
       items: [
         for (final level in agent.thinkingLevels)
-          PopupMenuItem(value: level, child: _MenuRow(title: _levelNames[level] ?? level, selected: level == agent.thinkingLevel)),
+          PopupMenuItem(
+            value: level,
+            child: _MenuRow(title: _levelNames[level] ?? level, selected: level == agent.thinkingLevel),
+          ),
       ],
       onSelected: agent.selectThinkingLevel,
     );
@@ -464,7 +680,10 @@ class _AttachmentChip extends StatelessWidget {
     final colors = context.colors;
     return Container(
       padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+      decoration: BoxDecoration(
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -477,25 +696,30 @@ class _AttachmentChip extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 140),
             child: Text(attachment.name, overflow: TextOverflow.ellipsis, style: context.text.bodySmall),
           ),
-          IconButton(
-            tooltip: '移除',
-            visualDensity: VisualDensity.compact,
-            iconSize: 16,
-            onPressed: onRemove,
-            icon: const Icon(Icons.close),
-          ),
+          IconButton(tooltip: '移除', visualDensity: VisualDensity.compact, iconSize: 16, onPressed: onRemove, icon: const Icon(Icons.close)),
         ],
       ),
     );
   }
 }
 
-class _SuggestionList extends StatelessWidget {
-  const _SuggestionList({required this.suggestions, required this.highlighted, required this.onPick});
+/// One entry in the suggestion list above the input box.
+class _Option {
+  const _Option({required this.label, required this.description, required this.tag, required this.pick, this.icon, this.mono = false});
 
-  final List<SlashCommand> suggestions;
+  final String label;
+  final String description;
+  final String tag;
+  final VoidCallback pick;
+  final IconData? icon;
+  final bool mono;
+}
+
+class _SuggestionList extends StatelessWidget {
+  const _SuggestionList({required this.options, required this.highlighted});
+
+  final List<_Option> options;
   final int highlighted;
-  final ValueChanged<SlashCommand> onPick;
 
   @override
   Widget build(BuildContext context) {
@@ -511,25 +735,36 @@ class _SuggestionList extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final (index, command) in suggestions.indexed)
+          for (final (index, option) in options.indexed)
             InkWell(
-              onTap: () => onPick(command),
+              onTap: option.pick,
               child: Container(
-                color: index == highlighted ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.08) : null,
+                color: index == highlighted ? colors.accentSoft : null,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 child: Row(
                   children: [
-                    Text('/${command.name}', style: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 13)),
+                    if (option.icon != null) ...[Icon(option.icon, size: 15, color: colors.muted), const SizedBox(width: 8)],
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 260),
+                      child: Text(
+                        option.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: option.mono
+                            ? const TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 13)
+                            : context.text.bodyMedium?.copyWith(fontSize: 13),
+                      ),
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        command.description,
+                        option.description,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: context.text.bodySmall?.copyWith(color: colors.muted),
                       ),
                     ),
-                    Text(commandSourceLabels[command.source] ?? command.source, style: context.text.labelSmall?.copyWith(color: colors.muted)),
+                    Text(option.tag, style: context.text.labelSmall?.copyWith(color: colors.muted)),
                   ],
                 ),
               ),
@@ -542,6 +777,53 @@ class _SuggestionList extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+IconData mentionIcon(MentionKind kind) => switch (kind) {
+  MentionKind.note => Icons.sticky_note_2_outlined,
+  MentionKind.text => Icons.notes,
+  MentionKind.folder => Icons.folder_outlined,
+  MentionKind.file => Icons.description_outlined,
+};
+
+/// A note, material, file or folder going along with a message; removable
+/// in the input box, read-only in a sent question.
+class MentionChip extends StatelessWidget {
+  const MentionChip({super.key, required this.mention, this.onRemove});
+
+  final Mention mention;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final tip = mention.path ?? (mention.kind == MentionKind.note ? '写笺' : '资料');
+    return Tooltip(
+      message: tip,
+      child: Container(
+        height: 30,
+        padding: EdgeInsets.only(left: 8, right: onRemove == null ? 10 : 0),
+        decoration: BoxDecoration(color: colors.accentSoft, borderRadius: BorderRadius.circular(AppTokens.radius)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(mentionIcon(mention.kind), size: 14, color: colors.accent),
+            const SizedBox(width: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 180),
+              child: Text(
+                mention.title,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.bodySmall?.copyWith(color: colors.ink),
+              ),
+            ),
+            if (onRemove != null)
+              IconButton(tooltip: '移除', visualDensity: VisualDensity.compact, iconSize: 14, onPressed: onRemove, icon: const Icon(Icons.close)),
+          ],
+        ),
       ),
     );
   }

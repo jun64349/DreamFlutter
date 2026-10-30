@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:highlight/highlight.dart' show highlight, Node;
 import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
@@ -25,7 +26,8 @@ class ReplyMarkdown extends StatelessWidget {
     return MarkdownBody(
       data: text,
       selectable: false,
-      builders: {'code': _CodeBuilder()},
+      inlineSyntaxes: mathSyntaxes,
+      builders: {'code': _CodeBuilder(), 'math': _MathBuilder(body)},
       styleSheet: MarkdownStyleSheet(
         p: body,
         a: body.copyWith(color: colors.accent, decoration: TextDecoration.underline, decorationColor: colors.accent.withValues(alpha: 0.4)),
@@ -63,6 +65,61 @@ class ReplyMarkdown extends StatelessWidget {
         final uri = href == null ? null : Uri.tryParse(href);
         if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) launchUrl(uri);
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Math
+// ---------------------------------------------------------------------------
+
+/// TeX in replies: `$$…$$` and `\[…\]` on their own line, `$…$` and
+/// `\(…\)` inside the text. A single `$` needs no space just inside it and
+/// no digit right after the closing one, so prices like "$5 和 $10" stay text.
+final mathSyntaxes = <md.InlineSyntax>[
+  _MathSyntax(r'\$\$([\s\S]+?)\$\$', display: true),
+  _MathSyntax(r'\\\[([\s\S]+?)\\\]', display: true),
+  _MathSyntax(r'\\\(([\s\S]+?)\\\)', display: false),
+  _MathSyntax(r'\$(?![\s$])([^$\n]+?)(?<!\s)\$(?!\d)', display: false),
+];
+
+class _MathSyntax extends md.InlineSyntax {
+  _MathSyntax(super.pattern, {required this.display}) : super(startCharacter: pattern.startsWith(r'\$') ? 0x24 : 0x5C);
+
+  final bool display;
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final tex = match[1]!.trim();
+    if (tex.isEmpty) return false;
+    parser.addNode(md.Element.text('math', tex)..attributes['display'] = display ? 'true' : 'false');
+    return true;
+  }
+}
+
+class _MathBuilder extends MarkdownElementBuilder {
+  _MathBuilder(this.body);
+
+  final TextStyle body;
+
+  @override
+  Widget? visitElementAfterWithContext(BuildContext context, md.Element element, TextStyle? preferredStyle, TextStyle? parentStyle) {
+    final tex = element.textContent;
+    final display = element.attributes['display'] == 'true';
+    final style = body.copyWith(fontSize: display ? 16 : 15);
+    final math = Math.tex(
+      tex,
+      mathStyle: display ? MathStyle.display : MathStyle.text,
+      textStyle: style,
+      // A formula it cannot read is shown as written.
+      onErrorFallback: (_) => Text(display ? '\$\$$tex\$\$' : '\$$tex\$', style: style.copyWith(fontFamily: AppTokens.monoFamily, fontSize: 13)),
+    );
+    if (!display) return Text.rich(TextSpan(children: [WidgetSpan(alignment: PlaceholderAlignment.middle, child: math)]));
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      alignment: Alignment.center,
+      child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: math),
     );
   }
 }

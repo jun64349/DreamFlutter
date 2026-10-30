@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import '../state/agent_controller.dart';
 import '../theme.dart';
@@ -9,6 +10,7 @@ import 'context_dialog.dart';
 import 'library_page.dart' show showTemplateEditor;
 import 'message_widgets.dart';
 import 'motion.dart';
+import 'providers_page.dart' show ProvidersPage;
 import 'run_summary.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 
@@ -141,7 +143,7 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final agent = AgentScope.read(context);
+    final agent = AgentScope.of(context);
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
@@ -155,6 +157,7 @@ class _EmptyState extends StatelessWidget {
               const SizedBox(height: 10),
               Text('Agent 会在工作区里读写文件、运行命令，做好的东西会放到书桌上。', style: context.text.bodyMedium?.copyWith(color: colors.muted)),
               const SizedBox(height: 28),
+              if (!agent.onboarded) ...[const _FirstRunGuide(), const SizedBox(height: 20)],
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
@@ -192,6 +195,83 @@ class _EmptyState extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 「开始之前」: three things to check on first use (a model, the
+/// workspace, a first task). Shown on the empty conversation until
+/// dismissed; it never blocks anything.
+class _FirstRunGuide extends StatelessWidget {
+  const _FirstRunGuide();
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final colors = context.colors;
+    final model = agent.model;
+    final hasModel = model != null && agent.models.isNotEmpty;
+    final folder = agent.workspace.isEmpty ? '未选择' : p.basename(agent.workspace);
+    Widget step(int n, bool done, String title, String detail, Widget? action) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: done ? colors.accent : null, border: Border.all(color: done ? colors.accent : colors.muted)),
+            child: done
+                ? Icon(Icons.check, size: 13, color: colors.onAccent)
+                : Text('$n', style: context.text.labelSmall?.copyWith(color: colors.muted)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                Text(detail, style: context.text.bodySmall?.copyWith(color: colors.muted)),
+              ],
+            ),
+          ),
+          ?action,
+        ],
+      ),
+    );
+    return Container(
+      width: 520,
+      padding: const EdgeInsets.fromLTRB(18, 14, 12, 10),
+      decoration: BoxDecoration(color: colors.card, border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(AppTokens.radiusLg)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('开始之前', style: context.serif(context.text.titleMedium).copyWith(fontSize: 16)),
+          const SizedBox(height: 6),
+          step(
+            1,
+            hasModel,
+            hasModel ? '已连接模型：${model.name}' : '连接一个模型',
+            hasModel ? '换模型在输入框右下角；服务商和 Key 在设置里。' : '在设置里添加服务商和 API Key，Agent 才能开始工作。',
+            TextButton(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ProvidersPage())),
+              child: Text(hasModel ? '管理' : '去添加'),
+            ),
+          ),
+          step(
+            2,
+            agent.workspace.isNotEmpty,
+            '工作区：$folder',
+            'Agent 在这个文件夹里读写文件、运行命令。',
+            TextButton(onPressed: () => WorkspaceSwitcher.pickFolder(context), child: const Text('换一个文件夹')),
+          ),
+          step(3, false, '试一个任务', '点下面任意一张卡片，或者直接在输入框里说。', null),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(onPressed: agent.finishOnboarding, child: const Text('知道了')),
+          ),
+        ],
       ),
     );
   }

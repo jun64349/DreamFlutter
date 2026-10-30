@@ -38,6 +38,30 @@ class MessageBranch {
   final List<String> targets;
 }
 
+/// A question in the session tree (`df_tree` in the core).
+class QuestionNode {
+  QuestionNode.fromJson(Json json)
+    : entryId = json['entryId'] as String? ?? '',
+      parentId = json['parentId'] as String?,
+      text = json['text'] as String? ?? '',
+      timestamp = json['timestamp'] as String? ?? '',
+      active = json['active'] == true,
+      target = json['target'] as String? ?? '';
+
+  final String entryId;
+
+  /// The question before it; null for a first question.
+  final String? parentId;
+  final String text;
+  final String timestamp;
+
+  /// On the branch shown now.
+  final bool active;
+
+  /// Where to navigate to show its branch.
+  final String target;
+}
+
 /// Opens or attaches to a session. The real one runs it in the core; tests
 /// substitute a fake Pi.
 typedef ClientLauncher = LaunchedSession Function(SessionTarget target);
@@ -502,6 +526,28 @@ class SessionRuntime extends ChangeNotifier {
     if (text is String) _setEditorText(text);
     _touch();
     return true;
+  }
+
+  /// Every question in the session tree, for the branch view.
+  Future<List<QuestionNode>> questionTree() async {
+    try {
+      final data = (await command('df_tree')) as Map?;
+      return (data?['nodes'] as List? ?? const []).whereType<Map>().map((n) => QuestionNode.fromJson(n.cast<String, dynamic>())).toList();
+    } catch (_) {
+      return const []; // older cores and test doubles have no tree
+    }
+  }
+
+  /// Shows the branch that ends at [target] (a node's latest continuation).
+  Future<void> openBranch(String target) async {
+    try {
+      await _navigate(target);
+      _setEditorText('');
+    } catch (e) {
+      onToast('切换分支失败：${describeError(e)}');
+    } finally {
+      _notifyNow();
+    }
   }
 
   /// Shows another version of an edited message (and what followed it).

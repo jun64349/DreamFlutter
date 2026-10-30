@@ -95,7 +95,7 @@ void main() {
 
   testWidgets('a note handed to the agent becomes a bound task running in the chat', (tester) async {
     await startApp(tester);
-    await tester.tap(find.text('书桌'));
+    await tester.tap(find.text('书桌').first); // the rail, not the run panel's tab
     await settle(tester);
     expect(find.text('去年数据'), findsOneWidget);
     expect(find.text('整理周报'), findsOneWidget);

@@ -18,7 +18,7 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**v0.2**。阶段 0 已完成（2026-10-30，见下面「v0.2 阶段 0」）。阶段 1 的调研、信息架构和三套视觉方向已完成，写在 [v0.2-design.md](v0.2-design.md)，设计稿在 Artifact「DreamFlutter 视觉方向」（https://claude.ai/artifact/6YEFyrT1H7voDESb7SkvDf ）。**等用户选方向**（A 蛱蝶 / B 草间 / C 图谱，或混搭），选定后进入阶段 2（设计系统落地 + 对话页重做）。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
+下一步：**v0.2 阶段 3**（统一网关与仪表盘 + 设置重组，见 [v0.2-plan.md](v0.2-plan.md)；开始前先和用户确认网关方案、是否对外提供本地接口）。阶段 0、1、2 已完成（2026-10-30）：用户选了视觉方向 A「蛱蝶」（[v0.2-design.md](v0.2-design.md)，设计稿在 Artifact「DreamFlutter 视觉方向」 https://claude.ai/artifact/6YEFyrT1H7voDESb7SkvDf ），设计系统和对话页已按它重做，见下面各节。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
 
 ## 架构（沿用）
 
@@ -34,6 +34,15 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - 数据库迁移 `core/src/schema.ts`（只能往后追加），目前第 5 版：1 设置/确认卡/运行记录，2 会话索引/用量，3 记忆/提案，4 任务/写笺/资料/产物/上限卡片，5 定时任务/执行记录/交付记录。
 - 窗口：`app/lib/state/agent_controller.dart`（会话、任务、收件箱计数、各页刷新信号 `libraryRevision` / `workRevision`），左侧导航 `app/lib/ui/home_page.dart`。
 
+## v0.2 阶段 2 后半（2026-10-30）
+
+- **右栏三个标签**（`run_summary.dart`）：「本次运行」「书桌」（本工作区的写笺和资料，点一下附到下一条消息）「分支」（整棵提问树，分叉处缩进，点一个提问切到它所在的分支）。分支树来自后台新命令 `df_tree`（`core/src/slots/slot.ts` 的 `questionTree`：每个用户消息、它前一个提问、是否在当前分支、要切过去的叶子）。
+- **附带资料**（`app/lib/state/mentions.dart`）：写笺、资料、拖进来或粘贴的文件/文件夹，发送时按后台书桌任务同样的格式附在消息末尾（`<写笺>`、`<资料>`，文件只给路径让 Agent 自己读，文字直接带上）；问题气泡和重新编辑时再拆回成小标签（`MentionChip`）。
+- **输入框**：打 `@` 出书桌的写笺和资料；拖文件进输入框（`desktop_drop`）：图片在模型支持时直接附图，其他文件和文件夹附路径；Ctrl+V 时剪贴板里的图片和文件也会附上（`pasteboard`），文字照常粘贴。
+- **数学公式**（`markdown_view.dart`，`flutter_math_fork`）：`$…$`、`\(…\)` 行内，`$$…$$`、`\[…\]` 单独成行；单个 `$` 要求内侧没有空格、右边不跟数字，所以「$5 和 $10」不会被当成公式；解析失败显示原文。
+- **第一次打开**：新会话空状态里一张「开始之前」卡片（模型、工作区、试一个任务），点「知道了」后不再出现（偏好 `onboarded`）。不弹窗，不挡测试。
+- **深色版检查**：新增 `integration_test/look_test.dart`，用假后台画一段脚本对话（思考、读取/命令/修改、表格、代码、公式），浅色和深色各截一组图到 `app/build/look_shots/`，不需要模型，约 10 秒：`flutter test integration_test/look_test.dart -d windows`。检查后深色对比度没问题。
+
 ## v0.2 阶段 2 前半（2026-10-30，用户选了 A「蛱蝶」）
 
 - **设计系统**：`app/lib/theme.dart` 全部换成「蛱蝶」：纸绢底、墨色字、石绿强调、赭石、朱砂印；浅色和「墨夜」深色两套。字体用 Windows 11 自带的 Noto Serif SC（标题和回复正文）/ Noto Sans SC（界面），回退到雅黑/宋体。`ButterflyMark`（工笔蝴蝶，CustomPainter）和 `SealStamp`（梦蝶朱印）也在 theme.dart。`context.serif()`、`context.label` 是常用样式。
@@ -45,7 +54,6 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - **动效**（`motion.dart`）：呼吸点、新内容淡入上移、流式输出的光标、过程块展开收起。
 - **新会话空状态**：大蝴蝶、「今天想做点什么？」、三张「试试看」卡片（点了填进输入框）、工作区。
 
-还没做（阶段 2 后半）：右栏的「书桌」「分支」标签和分支树、输入框拖放/粘贴文件和 @ 书桌资料、数学公式、首次打开的引导、深色版的检查。
 
 ## v0.2 阶段 0（2026-10-30）
 
@@ -85,8 +93,10 @@ flutter run -d windows
 ```bash
 # 后台测试：87 个，用 Pi 自带的假模型，不联网
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：50 个
+# 窗口单元/组件测试：59 个
 cd app && flutter test test
+# 视觉检查：假后台、不联网、约 10 秒，截图在 app/build/look_shots/
+cd app && flutter test integration_test/look_test.dart -d windows
 # Dart 协议层，含启动真实后台的测试
 cd packages/pi_rpc && dart test -x integration
 # 真实窗口端到端：用 DeepSeek，约 4~5 分钟（等待超时会存 zz_timeout.png），截图在 app/build/e2e_shots/（00~31），跑的时候不要最小化窗口

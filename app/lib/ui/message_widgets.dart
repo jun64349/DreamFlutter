@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
+import '../state/mentions.dart';
 import '../state/session_runtime.dart' show MessageBranch;
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'composer.dart' show MentionChip;
 import 'markdown_view.dart';
 import 'motion.dart';
 import 'usage_page.dart' show formatCost, formatTokens;
@@ -133,6 +135,8 @@ class _UserBubbleState extends State<_UserBubble> {
     final item = widget.item;
     final branch = agent.active?.branchFor(item);
     final busy = agent.isRunning;
+    // Desk notes, materials and files sent along show as chips.
+    final (question, attached) = splitMentions(item.text);
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -160,13 +164,18 @@ class _UserBubbleState extends State<_UserBubble> {
                 ],
               ),
             ),
-          if (item.text.isNotEmpty)
+          if (attached.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Wrap(spacing: 6, runSpacing: 6, alignment: WrapAlignment.end, children: [for (final m in attached) MentionChip(mention: m)]),
+            ),
+          if (question.isNotEmpty)
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 520),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(color: colors.userBubble, borderRadius: BorderRadius.circular(AppTokens.radiusLg)),
-                child: Text(item.text, style: context.text.bodyMedium?.copyWith(color: colors.onUserBubble, height: 1.7)),
+                child: Text(question, style: context.text.bodyMedium?.copyWith(color: colors.onUserBubble, height: 1.7)),
               ),
             ),
           SizedBox(
@@ -183,7 +192,7 @@ class _UserBubbleState extends State<_UserBubble> {
                         icon: Icons.copy_outlined,
                         tooltip: '复制',
                         onTap: () {
-                          Clipboard.setData(ClipboardData(text: item.text));
+                          Clipboard.setData(ClipboardData(text: question));
                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
                         },
                       ),
@@ -844,6 +853,7 @@ class _ToolStepState extends State<ToolStep> {
                 children: [
                   if (added > 0) Text('+$added ', style: context.text.bodySmall?.copyWith(color: colors.accent)),
                   if (removed > 0) Text('−$removed ', style: context.text.bodySmall?.copyWith(color: colors.danger)),
+                  if (added > 0 || removed > 0) const SizedBox(width: 6),
                   trailing,
                 ],
               ),
