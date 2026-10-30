@@ -92,6 +92,7 @@ sealed class PiEvent extends PiRecord {
         toolCallId: asString(json['toolCallId']) ?? '',
         toolName: asString(json['toolName']) ?? '',
         content: ContentBlock.listFrom(obj('result')['content']),
+        details: asJson(obj('result')['details']),
         isError: asBool(json['isError']),
         durationMs: json['durationMs'] is num ? asInt(json['durationMs']) : null,
       ),
@@ -197,12 +198,16 @@ class ToolExecutionEndEvent extends PiEvent {
     required this.content,
     required this.isError,
     required this.durationMs,
+    this.details = const {},
   });
   final String toolCallId;
   final String toolName;
   final List<ContentBlock> content;
   final bool isError;
   final int? durationMs;
+
+  /// Tool-specific result data (the edit tool's unified `patch`).
+  final Json details;
 }
 
 class QueueUpdateEvent extends PiEvent {

@@ -129,6 +129,7 @@ sealed class AgentMessage {
         toolName: asString(json['toolName']) ?? '',
         content: ContentBlock.listFrom(json['content']),
         isError: asBool(json['isError']),
+        details: asJson(json['details']),
         durationMs: json['durationMs'] is num ? asInt(json['durationMs']) : null,
         timestamp: ts,
         raw: json,
@@ -206,6 +207,7 @@ class ToolResultMessage extends AgentMessage {
     required this.content,
     required this.isError,
     required this.durationMs,
+    this.details = const {},
     required super.timestamp,
     required super.raw,
   });
@@ -215,6 +217,7 @@ class ToolResultMessage extends AgentMessage {
   final List<ContentBlock> content;
   final bool isError;
   final int? durationMs;
+  final Json details;
 
   @override
   String get role => 'toolResult';

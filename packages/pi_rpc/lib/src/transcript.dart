@@ -41,9 +41,30 @@ class AssistantItem extends TranscriptItem {
   String model = '';
   Usage? usage;
 
+  /// When the message was created (ms since epoch; 0 if unknown).
+  int timestamp = 0;
+
+  /// Live timing, only known for messages streamed while the window watched:
+  /// the request (turn start), the first streamed token, and the end.
+  DateTime? requestedAt;
+  DateTime? firstTokenAt;
+  DateTime? endedAt;
+
   bool get aborted => stopReason == 'aborted';
   bool get failed => stopReason == 'error';
   bool get truncated => stopReason == 'length';
+
+  Duration? get timeToFirstToken => requestedAt == null || firstTokenAt == null ? null : firstTokenAt!.difference(requestedAt!);
+
+  Duration? get duration => requestedAt == null || endedAt == null ? null : endedAt!.difference(requestedAt!);
+
+  /// Output tokens per second while generating.
+  double? get tokensPerSecond {
+    final output = usage?.output ?? 0;
+    if (firstTokenAt == null || endedAt == null || output == 0) return null;
+    final ms = endedAt!.difference(firstTokenAt!).inMilliseconds;
+    return ms <= 0 ? null : output * 1000 / ms;
+  }
 }
 
 sealed class AssistantPart {}
@@ -54,9 +75,12 @@ class TextPart extends AssistantPart {
 }
 
 class ThinkingPart extends AssistantPart {
-  ThinkingPart(this.text, {this.redacted = false});
+  ThinkingPart(this.text, {this.redacted = false, this.durationMs});
   String text;
   bool redacted;
+
+  /// How long the model thought (live messages only).
+  int? durationMs;
 }
 
 /// Placeholder for a tool call; details live in [Transcript.tools].
@@ -109,6 +133,9 @@ class ToolRun {
   List<ContentBlock> output = const [];
   int? durationMs;
 
+  /// Tool-specific result data, e.g. the edit tool's unified `patch`.
+  Json details = const {};
+
   String get outputText => textOf(output);
   bool get isActive => status == ToolStatus.drafting || status == ToolStatus.pending || status == ToolStatus.running;
 }
@@ -118,6 +145,9 @@ class ToolRun {
 // ---------------------------------------------------------------------------
 
 class Transcript {
+  Transcript({DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
+
+  final DateTime Function() _clock;
   final List<TranscriptItem> _items = [];
   final Map<String, ToolRun> _tools = {};
   var _nextKey = 0;
@@ -125,6 +155,11 @@ class Transcript {
 
   /// Assistant parts indexed by `contentIndex` for the message being streamed.
   final Map<int, AssistantPart> _streamingParts = {};
+
+  /// When the current turn's request went out, and when each streamed
+  /// thinking part started.
+  DateTime? _turnStartedAt;
+  final Map<int, DateTime> _thinkingStartedAt = {};
 
   /// Incremented on every change, so listeners can cheaply detect updates.
   int revision = 0;
@@ -149,6 +184,8 @@ class Transcript {
     _tools.clear();
     _streaming = null;
     _streamingParts.clear();
+    _thinkingStartedAt.clear();
+    _turnStartedAt = null;
     isRunning = false;
     isCompacting = false;
     queuedSteering = const [];
@@ -200,11 +237,12 @@ class Transcript {
         if (run == null) return false;
         run.output = partialContent;
         return true;
-      case ToolExecutionEndEvent(:final toolCallId, :final toolName, :final content, :final isError, :final durationMs):
+      case ToolExecutionEndEvent(:final toolCallId, :final toolName, :final content, :final isError, :final durationMs, :final details):
         _toolRun(toolCallId, toolName)
           ..output = content
           ..status = isError ? ToolStatus.error : ToolStatus.done
-          ..durationMs = durationMs;
+          ..durationMs = durationMs
+          ..details = details;
         return true;
       case QueueUpdateEvent(:final steering, :final followUp):
         queuedSteering = steering;
@@ -231,8 +269,10 @@ class Transcript {
       case ExtensionErrorEvent(:final extensionPath, :final error):
         _items.add(NoticeItem(_key('n'), NoticeKind.extensionError, error, detail: extensionPath));
         return true;
+      case TurnStartEvent():
+        _turnStartedAt = _clock();
+        return false;
       case AgentEndEvent() ||
-          TurnStartEvent() ||
           TurnEndEvent() ||
           SessionInfoChangedEvent() ||
           ThinkingLevelChangedEvent() ||
@@ -250,9 +290,14 @@ class Transcript {
   bool _onMessageStart(AgentMessage message) {
     switch (message) {
       case AssistantMessage():
-        final item = AssistantItem(_key('a'))..model = message.model;
+        final item = AssistantItem(_key('a'))
+          ..model = message.model
+          ..timestamp = message.timestamp
+          ..requestedAt = _turnStartedAt ?? _clock();
+        _turnStartedAt = null;
         _streaming = item;
         _streamingParts.clear();
+        _thinkingStartedAt.clear();
         _items.add(item);
         return true;
       case UserMessage():
@@ -268,6 +313,7 @@ class Transcript {
     final item = _streaming;
     if (item == null) return false;
     final index = delta.contentIndex;
+    if (delta.kind != AssistantDeltaKind.other) item.firstTokenAt ??= _clock();
     switch (delta.kind) {
       case AssistantDeltaKind.textStart:
         _setPart(item, index, TextPart(''));
@@ -293,6 +339,7 @@ class Transcript {
       case AssistantDeltaKind.thinkingEnd:
         final part = _streamingParts[index];
         if (part is ThinkingPart && delta.content != null) part.text = delta.content!;
+        _finishThinking();
       case AssistantDeltaKind.toolCallStart:
         final id = delta.toolCallId ?? 'tool-$index-${item.key}';
         _toolRun(id, delta.toolName ?? '');
@@ -317,11 +364,24 @@ class Transcript {
   }
 
   void _setPart(AssistantItem item, int index, AssistantPart part) {
+    // A new part ends any thinking before it that had no explicit end.
+    _finishThinking(except: index);
+    if (part is ThinkingPart) _thinkingStartedAt[index] = _clock();
     _streamingParts[index] = part;
     final keys = _streamingParts.keys.toList()..sort();
     item.parts
       ..clear()
       ..addAll(keys.map((k) => _streamingParts[k]!));
+  }
+
+  /// Records how long the streamed thinking parts took (all but [except]).
+  void _finishThinking({int? except}) {
+    final now = _clock();
+    for (final index in _thinkingStartedAt.keys.where((i) => i != except).toList()) {
+      final part = _streamingParts[index];
+      if (part is ThinkingPart) part.durationMs ??= now.difference(_thinkingStartedAt[index]!).inMilliseconds;
+      _thinkingStartedAt.remove(index);
+    }
   }
 
   void _applyToolCallBlock(ToolCallBlock call) {
@@ -334,7 +394,14 @@ class Transcript {
       case AssistantMessage():
         final item = _streaming ?? (AssistantItem(_key('a'))..parts.clear());
         if (_streaming == null) _items.add(item);
-        _fillAssistant(item, message);
+        _finishThinking();
+        final keys = _streamingParts.keys.toList()..sort();
+        final thinkingDurations = [
+          for (final k in keys)
+            if (_streamingParts[k] case ThinkingPart(:final durationMs)) durationMs,
+        ];
+        if (_streaming != null) item.endedAt = _clock();
+        _fillAssistant(item, message, thinkingDurations: thinkingDurations);
         _streaming = null;
         _streamingParts.clear();
         return true;
@@ -353,21 +420,25 @@ class Transcript {
     }
   }
 
-  void _fillAssistant(AssistantItem item, AssistantMessage message) {
+  void _fillAssistant(AssistantItem item, AssistantMessage message, {List<int?> thinkingDurations = const []}) {
     item
       ..streaming = false
       ..stopReason = message.stopReason
       ..errorMessage = message.errorMessage
       ..model = message.model
-      ..usage = message.usage;
+      ..usage = message.usage
+      ..timestamp = message.timestamp;
     lastUsage = message.usage;
     item.parts.clear();
+    var thinkingIndex = 0;
     for (final block in message.content) {
       switch (block) {
         case TextBlock(:final text):
           item.parts.add(TextPart(text));
         case ThinkingBlock(:final thinking, :final redacted):
-          item.parts.add(ThinkingPart(thinking, redacted: redacted));
+          final durationMs = thinkingIndex < thinkingDurations.length ? thinkingDurations[thinkingIndex] : null;
+          thinkingIndex++;
+          item.parts.add(ThinkingPart(thinking, redacted: redacted, durationMs: durationMs));
         case ToolCallBlock():
           _applyToolCallBlock(block);
           item.parts.add(ToolCallPart(block.id));
@@ -386,12 +457,13 @@ class Transcript {
         final item = AssistantItem(_key('a'));
         _items.add(item);
         _fillAssistant(item, message);
-      case ToolResultMessage(:final toolCallId, :final toolName, :final content, :final isError, :final durationMs):
+      case ToolResultMessage(:final toolCallId, :final toolName, :final content, :final isError, :final durationMs, :final details):
         final run = _toolRun(toolCallId, toolName);
         if (run.output.isEmpty || run.isActive) run.output = content;
         run
           ..status = isError ? ToolStatus.error : ToolStatus.done
-          ..durationMs ??= durationMs;
+          ..durationMs ??= durationMs
+          ..details = details.isEmpty ? run.details : details;
       case BashExecutionMessage(:final command, :final output, :final exitCode):
         _items.add(NoticeItem(_key('n'), NoticeKind.shell, command, detail: '$output\n[exit ${exitCode ?? '?'}]'));
       case CustomMessage(:final display, :final content):

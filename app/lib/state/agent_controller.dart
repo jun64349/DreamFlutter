@@ -1041,6 +1041,13 @@ class AgentController extends ChangeNotifier {
     _notify();
   }
 
+  bool get runPanelOpen => preferences.runPanelOpen;
+
+  Future<void> setRunPanelOpen(bool open) async {
+    await preferences.setRunPanelOpen(open);
+    _notify();
+  }
+
   Future<void> setZoom(double zoom) async {
     await preferences.setZoom(zoom.clamp(Preferences.zoomLevels.first, Preferences.zoomLevels.last));
     appearance.value = _currentAppearance;

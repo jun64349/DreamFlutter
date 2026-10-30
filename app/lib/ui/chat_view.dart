@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/agent_controller.dart';
 import '../theme.dart';
@@ -8,81 +7,98 @@ import 'composer.dart';
 import 'common.dart';
 import 'context_dialog.dart';
 import 'library_page.dart' show showTemplateEditor;
+import 'message_widgets.dart';
+import 'motion.dart';
 import 'run_summary.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
-import 'message_widgets.dart';
 
+/// The conversation: title bar, messages and the input box, with the run
+/// panel on the right when there is room.
 class ChatView extends StatelessWidget {
   const ChatView({super.key});
+
+  /// Below this width the run panel stays closed.
+  static const _panelMinWidth = 940.0;
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const _TopBar(),
-        const Divider(),
-        if (agent.backendProblem != null && agent.status != ConnectionStatus.missingRuntime)
-          _ProblemBanner(status: ConnectionStatus.crashed, detail: agent.backendProblem!, reconnecting: true)
-        else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
-          _ProblemBanner(status: agent.status, detail: agent.statusDetail),
-        for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
-        if (agent.currentSessionPath != null && !(agent.active?.incognito ?? false))
-          TaskBanner(key: ValueKey('task-${agent.currentSessionPath}'), sessionFile: agent.currentSessionPath!),
-        if (agent.active?.incognito ?? false)
-          Container(
-            margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
-            padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 6),
-            decoration: BoxDecoration(color: context.colors.border.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(AppTokens.radius)),
-            child: Row(
-              children: [
-                Icon(Icons.visibility_off_outlined, size: 16, color: context.colors.muted),
-                const SizedBox(width: AppTokens.gap),
-                Text('临时对话：不会保存记录，也不会读写长期记忆。关掉后内容就没了。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-              ],
+    final incognito = agent.active?.incognito ?? false;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final roomForPanel = constraints.maxWidth >= _panelMinWidth && !incognito;
+        final showPanel = roomForPanel && agent.runPanelOpen;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _TopBar(panelToggle: roomForPanel, panelOpen: showPanel),
+                  if (agent.backendProblem != null && agent.status != ConnectionStatus.missingRuntime)
+                    _ProblemBanner(status: ConnectionStatus.crashed, detail: agent.backendProblem!, reconnecting: true)
+                  else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
+                    _ProblemBanner(status: agent.status, detail: agent.statusDetail),
+                  for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
+                  if (incognito)
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
+                      padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 6),
+                      decoration: BoxDecoration(color: context.colors.accentSoft, borderRadius: BorderRadius.circular(AppTokens.radius)),
+                      child: Row(
+                        children: [
+                          Icon(Icons.visibility_off_outlined, size: 16, color: context.colors.muted),
+                          const SizedBox(width: AppTokens.gap),
+                          Text('临时对话：不会保存记录，也不会读写长期记忆。关掉后内容就没了。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+                        ],
+                      ),
+                    ),
+                  Expanded(
+                    child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
+                        ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                        : agent.transcript.items.isEmpty
+                        ? const _EmptyState()
+                        : const _MessageList(),
+                  ),
+                  if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
+                    _ContextWarning(percent: agent.stats.contextPercent),
+                  const Composer(),
+                ],
+              ),
             ),
-          ),
-        Expanded(
-          child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
-              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-              : agent.transcript.items.isEmpty
-              ? _EmptyState(workspace: agent.workspace)
-              : const _MessageList(),
-        ),
-        if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
-          _ContextWarning(percent: agent.stats.contextPercent),
-        const Composer(),
-        const Divider(),
-        const _StatusBar(),
-      ],
+            if (showPanel)
+              RunPanel(
+                key: ValueKey('panel-${agent.currentSessionPath}'),
+                sessionFile: agent.currentSessionPath,
+                onClose: () => agent.setRunPanelOpen(false),
+              ),
+          ],
+        );
+      },
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Top bar: title, model and thinking level
+// Title bar
 // ---------------------------------------------------------------------------
 
 class _TopBar extends StatelessWidget {
-  const _TopBar();
+  const _TopBar({required this.panelToggle, required this.panelOpen});
 
-  static const _levelNames = {
-    'off': '关闭',
-    'minimal': '极低',
-    'low': '低',
-    'medium': '中',
-    'high': '高',
-    'xhigh': '很高',
-    'max': '最高',
-  };
+  /// There is room for the run panel, so offer to open or close it.
+  final bool panelToggle;
+  final bool panelOpen;
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
-    final model = agent.model;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppTokens.padLg, vertical: 8),
+    final colors = context.colors;
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.only(left: 24, right: 12),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: colors.border, width: 0.5))),
       child: Row(
         children: [
           Expanded(
@@ -90,42 +106,165 @@ class _TopBar extends StatelessWidget {
               agent.sessionTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: context.text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+              style: context.text.titleMedium?.copyWith(fontSize: 18),
             ),
           ),
-          const SizedBox(width: AppTokens.pad),
-          _MenuChip<PiModel>(
-            icon: Icons.memory_outlined,
-            label: model?.name ?? '选择模型',
-            tooltip: model == null ? '模型' : '模型：${model.key}',
-            enabled: agent.isReady && agent.models.isNotEmpty,
-            items: [
-              for (final m in agent.models)
-                PopupMenuItem(
-                  value: m,
-                  child: _MenuRow(title: m.name, subtitle: m.provider, selected: m == model),
-                ),
-            ],
-            onSelected: agent.selectModel,
-          ),
-          const SizedBox(width: AppTokens.gap),
-          _MenuChip<String>(
-            icon: Icons.psychology_outlined,
-            label: '思考：${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}',
-            tooltip: model != null && !model.reasoning ? '当前模型不支持思考' : '思考级别：越高越慢，但更仔细',
-            enabled: agent.isReady && (model?.reasoning ?? false),
-            items: [
-              for (final level in agent.thinkingLevels)
-                PopupMenuItem(
-                  value: level,
-                  child: _MenuRow(title: _levelNames[level] ?? level, selected: level == agent.thinkingLevel),
-                ),
-            ],
-            onSelected: agent.selectThinkingLevel,
-          ),
-          const SizedBox(width: 4),
+          if (panelToggle)
+            IconButton(
+              tooltip: panelOpen ? '收起右栏' : '展开右栏：本次运行的步骤、文件和花费',
+              isSelected: panelOpen,
+              onPressed: () => agent.setRunPanelOpen(!panelOpen),
+              style: IconButton.styleFrom(backgroundColor: panelOpen ? colors.accentSoft : null, foregroundColor: panelOpen ? colors.accent : colors.muted),
+              icon: const Icon(Icons.view_sidebar_outlined, size: 19),
+            ),
+          const SizedBox(width: 2),
           const _SessionMenu(),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The first screen of a new conversation
+// ---------------------------------------------------------------------------
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  static const _ideas = [
+    (Icons.summarize_outlined, '整理一份周报', '把工作区里本周的资料整理成周报，列出要点和待办。', '把工作区里本周的资料整理成一份周报，列出要点和待办。'),
+    (Icons.folder_open_outlined, '看看这个文件夹', '读一读工作区里的文件，说说各自是做什么的。', '读一读当前工作区里的文件，告诉我里面都有什么、各自是做什么的。'),
+    (Icons.route_outlined, '规划一件事', '先问清目标和时间，再给出分步计划。', '帮我规划一件事：先问我目标和时间，再给出分步计划。'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final agent = AgentScope.read(context);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: FadeSlideIn(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ButterflyMark(size: 120, veins: true),
+              const SizedBox(height: 20),
+              Text('今天想做点什么？', style: context.text.headlineSmall?.copyWith(fontSize: 26)),
+              const SizedBox(height: 10),
+              Text('Agent 会在工作区里读写文件、运行命令，做好的东西会放到书桌上。', style: context.text.bodyMedium?.copyWith(color: colors.muted)),
+              const SizedBox(height: 28),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                alignment: WrapAlignment.center,
+                children: [
+                  for (final (icon, title, subtitle, prompt) in _ideas)
+                    SizedBox(
+                      width: 210,
+                      child: Material(
+                        color: colors.card,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radiusLg), side: BorderSide(color: colors.border)),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+                          onTap: () => agent.insertIntoComposer(prompt),
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(icon, size: 18, color: colors.accent),
+                                const SizedBox(height: 8),
+                                Text(title, style: context.serif(context.text.bodyMedium).copyWith(fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 4),
+                                Text(subtitle, style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.6)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              const WorkspaceSwitcher(compact: true),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Message list with stick-to-bottom scrolling
+// ---------------------------------------------------------------------------
+
+class _MessageList extends StatefulWidget {
+  const _MessageList();
+
+  @override
+  State<_MessageList> createState() => _MessageListState();
+}
+
+class _MessageListState extends State<_MessageList> {
+  final _scroll = ScrollController();
+  var _stickToBottom = true;
+  int _lastRevision = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(() {
+      if (!_scroll.hasClients) return;
+      final position = _scroll.position;
+      _stickToBottom = position.maxScrollExtent - position.pixels < 80;
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _followIfNeeded(int revision) {
+    if (revision == _lastRevision) return;
+    _lastRevision = revision;
+    if (!_stickToBottom) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final transcript = agent.transcript;
+    _followIfNeeded(transcript.revision);
+    final rows = ChatRow.fromItems(transcript.items);
+    final queued = transcript.queuedSteering;
+    return SelectionArea(
+      child: ListView.builder(
+        controller: _scroll,
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        itemCount: rows.length + (queued.isEmpty ? 0 : 1),
+        itemBuilder: (context, index) {
+          final child = index < rows.length
+              ? FadeSlideIn(
+                  key: ValueKey(rows[index].key),
+                  animate: transcript.isRunning,
+                  child: ChatRowView(row: rows[index], transcript: transcript),
+                )
+              : QueuedMessages(messages: queued);
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth + 56),
+              child: Padding(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 6), child: child),
+            ),
+          );
+        },
       ),
     );
   }
@@ -207,77 +346,6 @@ class _SessionMenu extends StatelessWidget {
               : [for (final s in snapshots) s['content'] as String? ?? ''].join('\n\n────────\n\n'),
         );
     }
-  }
-}
-
-class _MenuChip<T> extends StatelessWidget {
-  const _MenuChip({
-    required this.icon,
-    required this.label,
-    required this.tooltip,
-    required this.enabled,
-    required this.items,
-    required this.onSelected,
-  });
-
-  final IconData icon;
-  final String label;
-  final String tooltip;
-  final bool enabled;
-  final List<PopupMenuEntry<T>> items;
-  final ValueChanged<T> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return PopupMenuButton<T>(
-      enabled: enabled,
-      tooltip: tooltip,
-      onSelected: onSelected,
-      itemBuilder: (_) => items,
-      position: PopupMenuPosition.under,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          border: Border.all(color: colors.border),
-          borderRadius: BorderRadius.circular(AppTokens.radius),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: colors.muted),
-            const SizedBox(width: 6),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 200),
-              child: Text(label, overflow: TextOverflow.ellipsis, style: context.text.bodySmall),
-            ),
-            Icon(Icons.expand_more, size: 16, color: colors.muted),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MenuRow extends StatelessWidget {
-  const _MenuRow({required this.title, this.subtitle, required this.selected});
-
-  final String title;
-  final String? subtitle;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        SizedBox(width: 22, child: selected ? const Icon(Icons.check, size: 16) : null),
-        Expanded(child: Text(title)),
-        if (subtitle != null) ...[
-          const SizedBox(width: 16),
-          Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-        ],
-      ],
-    );
   }
 }
 
@@ -372,199 +440,6 @@ class _InterruptedRunCard extends StatelessWidget {
           TextButton(onPressed: () => agent.dismissInterrupted(run), child: const Text('忽略')),
           const SizedBox(width: AppTokens.gap),
           FilledButton.tonal(onPressed: () => agent.resumeInterrupted(run), child: const Text('继续')),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.workspace});
-
-  final String workspace;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.auto_awesome_outlined, size: 36, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(height: AppTokens.pad),
-          Text('有什么可以帮你？', style: context.text.headlineSmall),
-          const SizedBox(height: AppTokens.gap),
-          Text('工作区：$workspace', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-          const SizedBox(height: 6),
-          const WorkspaceSwitcher(compact: true),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Message list with stick-to-bottom scrolling
-// ---------------------------------------------------------------------------
-
-class _MessageList extends StatefulWidget {
-  const _MessageList();
-
-  @override
-  State<_MessageList> createState() => _MessageListState();
-}
-
-class _MessageListState extends State<_MessageList> {
-  final _scroll = ScrollController();
-  var _stickToBottom = true;
-  int _lastRevision = -1;
-
-  @override
-  void initState() {
-    super.initState();
-    _scroll.addListener(() {
-      if (!_scroll.hasClients) return;
-      final position = _scroll.position;
-      _stickToBottom = position.maxScrollExtent - position.pixels < 80;
-    });
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  void _followIfNeeded(int revision) {
-    if (revision == _lastRevision) return;
-    _lastRevision = revision;
-    if (!_stickToBottom) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
-    final transcript = agent.transcript;
-    final items = transcript.items;
-    _followIfNeeded(transcript.revision);
-    final sessionFile = agent.currentSessionPath;
-    // The last run's summary (trace, cost, files) under the last reply.
-    final showSummary = sessionFile != null && !transcript.isRunning && !(agent.active?.incognito ?? false);
-    final replies = ReplyInfo.collect(items);
-    return SelectionArea(
-      child: ListView.builder(
-        controller: _scroll,
-        padding: const EdgeInsets.symmetric(vertical: AppTokens.padLg),
-        itemCount: items.length + (transcript.queuedSteering.isEmpty ? 0 : 1) + (showSummary ? 1 : 0),
-        itemBuilder: (context, index) {
-          final child = index < items.length
-              ? TranscriptItemView(key: ValueKey(items[index].key), item: items[index], transcript: transcript, reply: replies[index])
-              : index == items.length && transcript.queuedSteering.isNotEmpty
-              ? QueuedMessages(messages: transcript.queuedSteering)
-              : RunSummaryCard(key: ValueKey(sessionFile), sessionFile: sessionFile!);
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppTokens.padLg + 8, vertical: 6),
-                child: child,
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Status bar
-// ---------------------------------------------------------------------------
-
-class _StatusBar extends StatelessWidget {
-  const _StatusBar();
-
-  @override
-  Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
-    final colors = context.colors;
-    final (dotColor, label) = switch (agent.status) {
-      ConnectionStatus.starting => (colors.warning, '启动中…'),
-      ConnectionStatus.crashed => (colors.danger, '已断开'),
-      ConnectionStatus.missingRuntime => (colors.danger, '缺少运行环境'),
-      ConnectionStatus.ready when agent.isCompacting => (colors.warning, '正在压缩上下文…'),
-      ConnectionStatus.ready when agent.isRunning => (colors.warning, '运行中'),
-      ConnectionStatus.ready => (colors.success, '就绪'),
-    };
-    final stats = agent.stats;
-    final style = context.text.bodySmall?.copyWith(color: colors.muted);
-    final percent = stats.contextPercent;
-    final barColor = percent >= 85 ? colors.danger : (percent >= 60 ? colors.warning : Theme.of(context).colorScheme.primary);
-    return Container(
-      color: colors.sidebar,
-      padding: const EdgeInsets.symmetric(horizontal: AppTokens.padLg, vertical: 3),
-      child: Row(
-        children: [
-          Container(width: 7, height: 7, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
-          const SizedBox(width: 6),
-          Text('Pi · $label', style: style),
-          if (agent.backgroundRunning > 0) ...[
-            const SizedBox(width: AppTokens.pad),
-            Tooltip(
-              message: '切走的会话仍在后台运行，左侧会话栏里转圈的就是',
-              child: Text('后台运行 ${agent.backgroundRunning} 个', style: style?.copyWith(color: colors.warning)),
-            ),
-          ],
-          for (final status in agent.extensionStatuses.values) ...[
-            const SizedBox(width: AppTokens.pad),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 220),
-              child: Text(status, overflow: TextOverflow.ellipsis, style: style),
-            ),
-          ],
-          const Spacer(),
-          Tooltip(
-            message: '查看上下文占用、手动压缩',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(AppTokens.radiusSm),
-              onTap: agent.isReady ? () => showContextDialog(context) : null,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                child: Row(
-                  children: [
-                    Text('上下文', style: style),
-                    const SizedBox(width: 6),
-                    SizedBox(
-                      width: 64,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: stats.contextKnown ? (percent / 100).clamp(0, 1) : 0,
-                          minHeight: 4,
-                          color: barColor,
-                          backgroundColor: colors.border,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      stats.contextWindow == 0 || !stats.contextKnown ? '—' : '${percent.toStringAsFixed(percent < 10 ? 1 : 0)}%',
-                      style: style,
-                    ),
-                    const SizedBox(width: AppTokens.pad),
-                    Text('${formatTokens(stats.totalTokens)} tokens', style: style),
-                    if (stats.cost > 0) ...[
-                      const SizedBox(width: AppTokens.pad),
-                      Text('\$${stats.cost.toStringAsFixed(4)}', style: style),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );

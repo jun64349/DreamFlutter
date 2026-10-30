@@ -34,6 +34,19 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - 数据库迁移 `core/src/schema.ts`（只能往后追加），目前第 5 版：1 设置/确认卡/运行记录，2 会话索引/用量，3 记忆/提案，4 任务/写笺/资料/产物/上限卡片，5 定时任务/执行记录/交付记录。
 - 窗口：`app/lib/state/agent_controller.dart`（会话、任务、收件箱计数、各页刷新信号 `libraryRevision` / `workRevision`），左侧导航 `app/lib/ui/home_page.dart`。
 
+## v0.2 阶段 2 前半（2026-10-30，用户选了 A「蛱蝶」）
+
+- **设计系统**：`app/lib/theme.dart` 全部换成「蛱蝶」：纸绢底、墨色字、石绿强调、赭石、朱砂印；浅色和「墨夜」深色两套。字体用 Windows 11 自带的 Noto Serif SC（标题和回复正文）/ Noto Sans SC（界面），回退到雅黑/宋体。`ButterflyMark`（工笔蝴蝶，CustomPainter）和 `SealStamp`（梦蝶朱印）也在 theme.dart。`context.serif()`、`context.label` 是常用样式。
+- **导航栏**：蝴蝶标志、对话/书桌/任务/记忆/技能，底部仪表盘（暂时打开用量统计页，阶段 3 换成真正的仪表盘）/外观/设置。
+- **会话栏**：「对话」标题 + 工作区小标签（点开切换），石绿「新会话」，运行中的会话是呼吸点，底部竖排「栩栩然胡蝶也」和朱印（窗口够高时）。「Skills 与命令」移到了输入框的闪电按钮。
+- **对话页**：三栏（会话栏 | 对话 | 右栏「本次运行」，右栏可收起，记在偏好里，窗口窄于 940 自动隐藏）。底部状态栏取消：模型和思考级别进了输入框，上下文用量变成输入框里的小圆环（点开是原来的上下文面板），压缩中/扩展状态显示在输入框上方。
+- **回复的呈现**（`message_widgets.dart`）：两个问题之间的所有助手消息合成一行（`ChatRow` / `ReplyRow`）。思考和工具调用合成「过程」块（`WorkBlock`），一行总结「思考了 12 秒 · 读取 2 个文件 · 运行 1 条命令」，运行中展开、结束后收起；命令是终端样式（只显示最后 12 行，可展开），修改文件显示差异（用 Pi 返回的 `details.patch`，运行中用参数里的 edits），读取/搜索是一行、点开看输出。回复正文是宋体 15px、行高 1.85（`markdown_view.dart`），代码块有语言标签、复制按钮和高亮（`highlight` 包）。每条回复下面一行数据：模型 · 输入/输出/缓存 token · 首字延迟 · token/秒 · 耗时 · 花费 · 时间（实时计时只有窗口看着的回复才有，历史只显示 token 和时间）。
+- **协议层**：`Transcript` 记录 turn_start / 首个 token / 结束时间和每段思考时长（可注入时钟测试）；工具结果带上 `details`。
+- **动效**（`motion.dart`）：呼吸点、新内容淡入上移、流式输出的光标、过程块展开收起。
+- **新会话空状态**：大蝴蝶、「今天想做点什么？」、三张「试试看」卡片（点了填进输入框）、工作区。
+
+还没做（阶段 2 后半）：右栏的「书桌」「分支」标签和分支树、输入框拖放/粘贴文件和 @ 书桌资料、数学公式、首次打开的引导、深色版的检查。
+
 ## v0.2 阶段 0（2026-10-30）
 
 - **图片输入 bug**：根因是用户的 Pi 全局设置 `~/.pi/agent/settings.json` 里有 `images.blockImages: true`（Pi 终端里的「Block images」），Pi 发给模型前把每张图换成文字 "Image reading is disabled."。窗口 → 后台 → Pi 这几步都没丢图。修法：`core/src/pi/host.ts` 里对每个会话的 SettingsManager 覆盖 `getBlockImages = () => false`（不改用户的设置文件；用实例覆盖而不是 `applyOverrides`，因为设置重新加载会丢掉 overrides）。另外直接请求过 DeepSeek 接口，`deepseek-flash` 确实支持图片。回归测试：`core/test/slots.test.ts`「sends images to the model even when Pi's settings block them」（测试图片必须是真 PNG，Pi 会先解码缩放）；E2E 第 19 步发一张红色图片，问颜色。
@@ -72,7 +85,7 @@ flutter run -d windows
 ```bash
 # 后台测试：87 个，用 Pi 自带的假模型，不联网
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：47 个
+# 窗口单元/组件测试：50 个
 cd app && flutter test test
 # Dart 协议层，含启动真实后台的测试
 cd packages/pi_rpc && dart test -x integration

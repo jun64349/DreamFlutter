@@ -15,6 +15,7 @@ import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/ui/desk_page.dart' show DeskPage;
 import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:dreamflutter/ui/memory_page.dart' show MemoryPage;
+import 'package:dreamflutter/ui/motion.dart' show BreathingDot;
 import 'package:dreamflutter/ui/schedules.dart' show SchedulesTab;
 import 'package:dreamflutter/ui/settings_page.dart' show SettingsPage;
 import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
@@ -91,7 +92,7 @@ void main() {
 
   final composer = find.byWidgetPredicate((w) {
     final hint = w is TextField ? (w.decoration?.hintText ?? '') : '';
-    return hint.contains('Enter 发送') || hint.contains('插话');
+    return hint.contains('Enter 发送') || hint.contains('插进');
   });
 
   Future<void> sendMessage(WidgetTester tester, String text) async {
@@ -102,7 +103,7 @@ void main() {
     await tester.enterText(composer, text);
     await tester.pump();
     expect(tester.widget<TextField>(composer).controller!.text, text, reason: 'text reached the composer');
-    await tester.tap(find.text('发送'));
+    await tester.tap(find.byTooltip('发送'));
     await tester.pump();
   }
 
@@ -181,7 +182,7 @@ void main() {
     await waitFor(tester, 'B active', () => agent.active != runtimeA && agent.isReady, agent);
     expect(runtimeA.isRunning, isTrue, reason: 'A keeps running in the background');
     expect(runtimeA.transcript.items.whereType<AssistantItem>().last.aborted, isFalse);
-    expect(find.textContaining('后台运行 1 个'), findsOneWidget);
+    expect(find.descendant(of: find.byType(Sidebar), matching: find.byType(BreathingDot)), findsOneWidget, reason: 'A runs in the background');
     await shot(tester, '02_background_running');
 
     // 3. Work in B while A runs: a bash call needs approval in "changes" mode.
@@ -208,7 +209,7 @@ void main() {
       await tester.pump();
     }
     if (agent.isRunning) {
-      await tester.tap(find.text('停止'));
+      await tester.tap(find.byTooltip('停止'));
       await waitFor(tester, 'A stopped', () => !agent.isRunning, agent);
     }
     expect(
@@ -222,14 +223,13 @@ void main() {
     //    exchange, with the essay request back in the input box.
     // The long essay pushed the request off screen; scroll up to it first.
     final messages = find.descendant(of: find.byType(SelectionArea), matching: find.byType(Scrollable)).first;
-    // With a long essay no fork icon may be built yet: drag up until one is,
-    // then bring the essay request's (the last one) into view.
-    for (var i = 0; i < 50 && find.byIcon(Icons.call_split).evaluate().isEmpty; i++) {
+    // With a long essay the question may not be built yet: drag up until its
+    // fork button is, then bring the essay request's (the last one) into view.
+    final forkQuestion = find.byTooltip('分叉为新会话：保留这条消息之前的内容，并把这条消息放回输入框供你修改');
+    for (var i = 0; i < 50 && forkQuestion.evaluate().isEmpty; i++) {
       await tester.drag(messages, const Offset(0, 300));
       await tester.pump();
     }
-    // The question's fork button (replies have their own).
-    final forkQuestion = find.byTooltip('分叉为新会话：保留这条消息之前的内容，并把这条消息放回输入框供你修改');
     await tester.ensureVisible(forkQuestion.last);
     await tester.pump();
     await tester.tap(forkQuestion.last);
@@ -243,7 +243,7 @@ void main() {
     //    earlier turns, so give it a second turn first.
     await sendMessage(tester, '只回复两个字：好的');
     await waitFor(tester, 'second turn', () => !agent.isRunning && agent.transcript.items.whereType<UserItem>().length == 2 && lastText(agent).isNotEmpty, agent);
-    await tester.tap(find.text('上下文').last);
+    await tester.tap(find.byKey(const ValueKey('context-ring')));
     await tester.pumpAndSettle();
     expect(find.text('立即压缩'), findsOneWidget);
     await shot(tester, '07_context_dialog');
@@ -256,7 +256,7 @@ void main() {
     expect(agent.transcript.items.whereType<NoticeItem>().where((n) => n.kind == NoticeKind.compaction), isNotEmpty);
 
     // 7. Skills panel, settings page and workspace menu render.
-    await tester.tap(find.text('Skills 与命令'));
+    await tester.tap(find.byTooltip('Skills 与命令'));
     await tester.pumpAndSettle();
     await shot(tester, '09_skills');
     await tester.tap(find.byTooltip('关闭'));
@@ -272,7 +272,7 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('工作区').first);
+    await tester.tap(find.textContaining('工作区 · ').first);
     await tester.pumpAndSettle();
     expect(find.text(p.basename(otherWorkspace.path)), findsOneWidget);
     await shot(tester, '11_workspace_menu');

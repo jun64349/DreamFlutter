@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
-import 'package:dreamflutter/ui/message_widgets.dart' show ReplyInfo;
+import 'package:dreamflutter/ui/message_widgets.dart' show ChatRow, QuestionRow, ReplyRow;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
@@ -473,7 +473,7 @@ void main() {
       agent.dispose();
     });
 
-    test('replies group the assistant messages between two questions', () {
+    test('a reply is every assistant message between two questions', () {
       final transcript = Transcript()
         ..loadHistory(
           [
@@ -486,12 +486,15 @@ void main() {
         );
       final items = transcript.items;
       final users = items.whereType<UserItem>().toList();
-      final replies = ReplyInfo.collect(items);
-      expect(replies.keys, [2, 4], reason: 'actions sit under the last message of each reply');
-      expect(replies[2]!.text, 'step\n\nanswer 1');
-      expect((replies[2]!.question, replies[2]!.nextQuestion), (users[0], users[1]));
-      expect(replies[2]!.isLatest, isFalse);
-      expect((replies[4]!.question, replies[4]!.isLatest), (users[1], true));
+      final rows = ChatRow.fromItems(items);
+      expect(rows.map((r) => r.runtimeType), [QuestionRow, ReplyRow, QuestionRow, ReplyRow]);
+      final first = rows[1] as ReplyRow;
+      expect(first.assistants, hasLength(2));
+      expect(first.info.text, 'step\n\nanswer 1');
+      expect((first.info.question, first.info.nextQuestion), (users[0], users[1]));
+      expect(first.info.isLatest, isFalse);
+      final last = rows[3] as ReplyRow;
+      expect((last.info.question, last.info.isLatest), (users[1], true));
     });
 
     test('forking from a reply keeps the conversation up to that reply', () async {

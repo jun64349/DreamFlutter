@@ -8,7 +8,10 @@ import 'package:pi_rpc/pi_rpc.dart';
 
 import '../theme.dart';
 import 'agent_scope.dart';
-import 'commands_dialog.dart' show commandSourceLabels;
+import 'commands_dialog.dart' show commandSourceLabels, showCommandsDialog;
+import 'context_dialog.dart' show showContextDialog;
+import 'motion.dart';
+import 'usage_page.dart' show formatCost, formatTokens;
 
 /// Message input. Enter sends, Shift+Enter inserts a newline; while an IME
 /// composition is active Enter is left to the IME. During a run, sending
@@ -153,29 +156,41 @@ class _ComposerState extends State<Composer> {
     final suggestions = _suggestions(agent.commands);
     final supportsImages = agent.model?.supportsImages ?? true;
     final widgets = agent.extensionWidgets.values.expand((lines) => lines).toList();
+    final statuses = agent.extensionStatuses.values.toList();
+    final muted = context.text.bodySmall?.copyWith(color: colors.muted);
 
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 860),
+        constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth + 56),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(AppTokens.padLg + 8, 4, AppTokens.padLg + 8, AppTokens.pad),
+          padding: const EdgeInsets.fromLTRB(28, 4, 28, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (widgets.isNotEmpty)
+              if (widgets.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(widgets.join('\n'), style: muted)),
+              if (agent.isCompacting || statuses.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text(widgets.join('\n'), style: context.text.bodySmall?.copyWith(color: colors.muted)),
+                  padding: const EdgeInsets.only(bottom: 6, left: 4),
+                  child: Row(
+                    children: [
+                      if (agent.isCompacting) ...[const BreathingDot(), const SizedBox(width: 8), Text('正在压缩较早的对话…', style: muted)],
+                      for (final status in statuses) ...[
+                        const SizedBox(width: AppTokens.pad),
+                        Flexible(child: Text(status, overflow: TextOverflow.ellipsis, style: muted)),
+                      ],
+                    ],
+                  ),
                 ),
               if (suggestions.isNotEmpty) _SuggestionList(suggestions: suggestions, highlighted: _highlighted, onPick: _applySuggestion),
-              Container(
+              AnimatedContainer(
+                duration: AppTokens.fast,
                 decoration: BoxDecoration(
                   color: colors.card,
-                  border: Border.all(color: _focus.hasFocus ? Theme.of(context).colorScheme.primary : colors.border),
+                  border: Border.all(color: _focus.hasFocus ? colors.accent.withValues(alpha: 0.6) : colors.border),
                   borderRadius: BorderRadius.circular(AppTokens.radiusLg),
                 ),
-                padding: const EdgeInsets.fromLTRB(AppTokens.pad, 6, 6, 6),
+                padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -191,53 +206,239 @@ class _ComposerState extends State<Composer> {
                           ],
                         ),
                       ),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        IconButton(
-                          tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
-                          onPressed: agent.isReady && supportsImages ? _pickImages : null,
-                          icon: const Icon(Icons.image_outlined, size: 20),
+                    Focus(
+                      onFocusChange: (_) => setState(() {}),
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focus,
+                        autofocus: true,
+                        minLines: 1,
+                        maxLines: 8,
+                        enabled: agent.isReady,
+                        style: context.text.bodyMedium?.copyWith(height: 1.6),
+                        decoration: InputDecoration(
+                          hintText: running ? 'Agent 正在工作，现在输入会插进对话里…' : '说点什么…  Enter 发送，Shift+Enter 换行，/ 调用技能',
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          disabledBorder: InputBorder.none,
+                          filled: false,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 6),
                         ),
-                        Expanded(
-                          child: Focus(
-                            onFocusChange: (_) => setState(() {}),
-                            child: TextField(
-                              controller: _controller,
-                              focusNode: _focus,
-                              autofocus: true,
-                              minLines: 1,
-                              maxLines: 8,
-                              enabled: agent.isReady,
-                              decoration: InputDecoration(
-                                hintText: running ? 'Agent 运行中，输入内容可以插话…' : '输入消息，/ 调用技能，Enter 发送，Shift+Enter 换行',
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                disabledBorder: InputBorder.none,
-                                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _ToolbarButton(
+                          icon: Icons.image_outlined,
+                          tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
+                          onTap: agent.isReady && supportsImages ? _pickImages : null,
+                        ),
+                        _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
+                        const Spacer(),
+                        const _ModelChip(),
+                        const SizedBox(width: 4),
+                        const _ThinkingChip(),
+                        const SizedBox(width: 6),
+                        const _ContextRing(),
+                        const SizedBox(width: 8),
+                        SizedBox.square(
+                          dimension: 34,
+                          child: IconButton.filled(
+                            tooltip: showStop ? '停止' : (running ? '插话' : '发送'),
+                            onPressed: showStop ? agent.abort : (hasContent && agent.isReady ? _send : null),
+                            padding: EdgeInsets.zero,
+                            style: IconButton.styleFrom(
+                              backgroundColor: showStop ? colors.ink : colors.accent,
+                              foregroundColor: colors.onAccent,
+                              disabledBackgroundColor: colors.accentSoft,
+                              disabledForegroundColor: colors.muted,
                             ),
+                            icon: Icon(showStop ? Icons.stop_rounded : Icons.arrow_upward_rounded, size: 18),
                           ),
                         ),
-                        const SizedBox(width: AppTokens.gap),
-                        showStop
-                            ? FilledButton.tonalIcon(
-                                onPressed: agent.abort,
-                                icon: const Icon(Icons.stop_rounded, size: 18),
-                                label: const Text('停止'),
-                              )
-                            : FilledButton.icon(
-                                onPressed: hasContent && agent.isReady ? _send : null,
-                                icon: const Icon(Icons.arrow_upward_rounded, size: 18),
-                                label: Text(running ? '插话' : '发送'),
-                              ),
                       ],
                     ),
                   ],
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolbarButton extends StatelessWidget {
+  const _ToolbarButton({required this.icon, required this.tooltip, required this.onTap});
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: tooltip,
+    onPressed: onTap,
+    iconSize: 18,
+    visualDensity: VisualDensity.compact,
+    icon: Icon(icon),
+  );
+}
+
+const _levelNames = {
+  'off': '关闭',
+  'minimal': '极低',
+  'low': '低',
+  'medium': '中',
+  'high': '高',
+  'xhigh': '很高',
+  'max': '最高',
+};
+
+/// A quiet chip in the input box's toolbar that opens a menu.
+class _Chip<T> extends StatelessWidget {
+  const _Chip({required this.label, required this.tooltip, required this.enabled, required this.items, required this.onSelected, this.filled = false});
+
+  final String label;
+  final String tooltip;
+  final bool enabled;
+  final List<PopupMenuEntry<T>> items;
+  final ValueChanged<T> onSelected;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return PopupMenuButton<T>(
+      enabled: enabled,
+      tooltip: tooltip,
+      onSelected: onSelected,
+      itemBuilder: (_) => items,
+      position: PopupMenuPosition.over,
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(color: filled ? colors.accentSoft : null, borderRadius: BorderRadius.circular(AppTokens.radius)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 180),
+              child: Text(label, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: enabled ? colors.ink : colors.muted)),
+            ),
+            const SizedBox(width: 2),
+            Icon(Icons.expand_more, size: 15, color: colors.muted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({required this.title, this.subtitle, required this.selected});
+
+  final String title;
+  final String? subtitle;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(width: 22, child: selected ? const Icon(Icons.check, size: 16) : null),
+        Expanded(child: Text(title)),
+        if (subtitle != null) ...[
+          const SizedBox(width: 16),
+          Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+        ],
+      ],
+    );
+  }
+}
+
+class _ModelChip extends StatelessWidget {
+  const _ModelChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final model = agent.model;
+    return _Chip<PiModel>(
+      label: model?.name ?? '选择模型',
+      tooltip: model == null ? '模型' : '模型：${model.key}',
+      enabled: agent.isReady && agent.models.isNotEmpty,
+      filled: true,
+      items: [
+        for (final m in agent.models)
+          PopupMenuItem(value: m, child: _MenuRow(title: m.name, subtitle: m.provider, selected: m == model)),
+      ],
+      onSelected: agent.selectModel,
+    );
+  }
+}
+
+class _ThinkingChip extends StatelessWidget {
+  const _ThinkingChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final model = agent.model;
+    return _Chip<String>(
+      label: '思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}',
+      tooltip: model != null && !model.reasoning ? '当前模型不支持思考' : '思考级别：越高越慢，但更仔细',
+      enabled: agent.isReady && (model?.reasoning ?? false),
+      items: [
+        for (final level in agent.thinkingLevels)
+          PopupMenuItem(value: level, child: _MenuRow(title: _levelNames[level] ?? level, selected: level == agent.thinkingLevel)),
+      ],
+      onSelected: agent.selectThinkingLevel,
+    );
+  }
+}
+
+/// How full the context window is, as a small ring; opens the context panel.
+class _ContextRing extends StatelessWidget {
+  const _ContextRing();
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final colors = context.colors;
+    final stats = agent.stats;
+    final percent = stats.contextKnown ? stats.contextPercent : 0.0;
+    final color = percent >= 85 ? colors.danger : (percent >= 60 ? colors.warning : colors.accent);
+    final known = stats.contextKnown && stats.contextWindow > 0;
+    final tip = [
+      known ? '上下文已用 ${percent.toStringAsFixed(percent < 10 ? 1 : 0)}%' : '上下文用量未知',
+      '本会话 ${formatTokens(stats.totalTokens)} tokens',
+      if (stats.cost > 0) '花费 ${formatCost(stats.cost)}',
+      '点击查看或压缩',
+    ].join(' · ');
+    return Tooltip(
+      message: tip,
+      child: Semantics(
+        button: true,
+        label: '上下文',
+        child: InkWell(
+          key: const ValueKey('context-ring'),
+          customBorder: const CircleBorder(),
+          onTap: agent.isReady ? () => showContextDialog(context) : null,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(
+                value: known ? (percent / 100).clamp(0.02, 1.0) : 0,
+                strokeWidth: 3,
+                color: color,
+                backgroundColor: colors.border,
+              ),
+            ),
           ),
         ),
       ),

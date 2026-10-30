@@ -132,4 +132,59 @@ void main() {
     expect(kinds, [NoticeKind.retry, NoticeKind.compaction]);
     expect(t.isCompacting, isFalse);
   });
+
+  test('live messages record thinking time, first token and speed', () {
+    var now = DateTime(2026, 10, 30, 12);
+    final t = Transcript(clock: () => now);
+    void at(int ms, Json record) {
+      now = DateTime(2026, 10, 30, 12).add(Duration(milliseconds: ms));
+      t.apply(PiEvent.fromJson(record));
+    }
+
+    Json update(Json event) => {'type': 'message_update', 'assistantMessageEvent': event, 'usage': const {}};
+    const start = {'role': 'assistant', 'content': [], 'model': 'm', 'stopReason': 'pending', 'timestamp': 5};
+    at(0, {'type': 'turn_start'});
+    at(400, {'type': 'message_start', 'message': start});
+    at(700, update({'type': 'thinking_start', 'contentIndex': 0}));
+    at(3700, update({'type': 'thinking_end', 'contentIndex': 0, 'content': '想想'}));
+    at(3800, update({'type': 'text_start', 'contentIndex': 1}));
+    at(5700, {
+      'type': 'message_end',
+      'message': {
+        ...start,
+        'stopReason': 'stop',
+        'content': [
+          {'type': 'thinking', 'thinking': '想想'},
+          {'type': 'text', 'text': '好的'},
+        ],
+        'usage': {'output': 100},
+      },
+    });
+
+    final item = t.items.whereType<AssistantItem>().single;
+    expect((item.parts.first as ThinkingPart).durationMs, 3000);
+    expect(item.timeToFirstToken, const Duration(milliseconds: 700), reason: 'measured from the turn start');
+    expect(item.duration, const Duration(milliseconds: 5700));
+    expect(item.tokensPerSecond, 20, reason: '100 tokens in the 5 s after the first token');
+    expect(item.timestamp, 5);
+  });
+
+  test('history has no live timing', () {
+    final t = Transcript()
+      ..loadHistory([
+        AgentMessage.fromJson({
+          'role': 'assistant',
+          'content': [
+            {'type': 'thinking', 'thinking': 'x'},
+          ],
+          'model': 'm',
+          'stopReason': 'stop',
+          'timestamp': 9,
+        }),
+      ]);
+    final item = t.items.whereType<AssistantItem>().single;
+    expect((item.parts.single as ThinkingPart).durationMs, isNull);
+    expect(item.tokensPerSecond, isNull);
+    expect(item.timestamp, 9);
+  });
 }

@@ -90,4 +90,8 @@ class Preferences {
 
   double get zoom => _prefs.getDouble('zoom') ?? 1.0;
   Future<void> setZoom(double value) => _prefs.setDouble('zoom', value);
+
+  /// The run panel beside the conversation is shown.
+  bool get runPanelOpen => _prefs.getBool('runPanelOpen') ?? true;
+  Future<void> setRunPanelOpen(bool value) => _prefs.setBool('runPanelOpen', value);
 }
