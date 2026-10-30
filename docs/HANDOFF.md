@@ -18,7 +18,13 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**v0.2 阶段 3**（统一网关与仪表盘 + 设置重组，见 [v0.2-plan.md](v0.2-plan.md)；开始前先和用户确认网关方案、是否对外提供本地接口）。阶段 0、1、2 已完成（2026-10-30）：用户选了视觉方向 A「蛱蝶」（[v0.2-design.md](v0.2-design.md)，设计稿在 Artifact「DreamFlutter 视觉方向」 https://claude.ai/artifact/6YEFyrT1H7voDESb7SkvDf ），设计系统和对话页已按它重做，见下面各节。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
+下一步：**v0.2 阶段 3**（统一网关与仪表盘 + 设置重组，见 [v0.2-plan.md](v0.2-plan.md)；开始前先和用户确认网关方案、是否对外提供本地接口）。
+
+**同时在做、下次接着做的两件事（2026-10-30 用户提出，额度用完时中断）：**
+
+1. **按 DeepSeek Harness（dsh，`deepseek-ai/deepseek-harness`）优化我们的 agent 在 DeepSeek 上的表现**，交给 Codex 做。已确认：dsh 的「极简」预设 = DeepSeek 模型 RL 训练时的组合：系统提示词只有一句 `You are a helpful software engineer assistant.`（complete 模式，不注入任何运行时上下文），工具只有持久 shell（Windows 用持久 PowerShell，300 秒超时，固定的工具描述）+ `str_replace_editor`（绝对路径）+ 读图；「标准」预设是完整工具集 + 工具结果裁剪（超过 8192 字符保留头 4096、尾 1024）+ 压缩 + 计划模式等。设想：新增「Agent 模式：标准 / 极简」设置，外加对两种模式都有用的 DeepSeek 传输层修正（思考内容回传、缓存友好）。
+   - Codex 只读调研的提示词：[research/deepseek-harness-codex-prompt.md](research/deepseek-harness-codex-prompt.md)。中断时它正在写最终报告，输出到 `C:\Users\21669\AppData\Local\Temp\claude\E--claude-DreamFlutter\af32413f-878e-4995-8168-193829b053a3\scratchpad\delegates\codex-dsh-report.md`（日志 codex-dsh.log 同目录；dsh 源码稀疏检出在同一 scratchpad 的 `dsh-ref`）。下次：先看这份报告还在不在，不在就用同一提示词重跑（`codex exec -s read-only -C E:\claude\DreamFlutter -o <输出> - < 提示词`，codex.exe 在 `%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\`）；报告存进 `docs/research/deepseek-harness.md`，把改动清单给用户确认后再让 Codex 实现（实现要可写，agent-bridge 的项目根是毕设文件夹，且长任务会超时，所以直接调用 CLI）。
+2. **以世界名画/艺术品为主题的更多主题**，和 Antigravity 合作调研。提示词：[research/art-themes-agy-prompt.md](research/art-themes-agy-prompt.md)（8 个候选主题，含核实来源、公有领域、配色对比度、字体、蝴蝶画法、上线顺序）。第一次运行时 agy 在无人值守模式下要执行命令被拒、没有产出；用 `--dangerously-skip-permissions` 重跑被安全检查拦下。**等用户决定**：给 agy 加允许规则、由用户自己授权运行，或者改由 Claude 用内置浏览器调研。阶段 0、1、2 已完成（2026-10-30）：用户选了视觉方向 A「蛱蝶」（[v0.2-design.md](v0.2-design.md)，设计稿在 Artifact「DreamFlutter 视觉方向」 https://claude.ai/artifact/6YEFyrT1H7voDESb7SkvDf ），设计系统和对话页已按它重做，见下面各节。用户试用 v0.1.1 的反馈已整理在 v0.2-plan.md 第一节。视觉方向：用户在 2026-10-29 给出方向：参考 HanaAgent（openhanako），文艺、简洁、大气，融入蝴蝶元素，蝴蝶造型参考世界名画和艺术品；以后的主题都以世界名画和艺术品为主题。所有视觉参数集中在 `app/lib/theme.dart`（AppTokens / AppColors）。
 
 ## 架构（沿用）
 
