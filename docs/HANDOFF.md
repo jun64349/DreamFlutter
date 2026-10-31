@@ -54,7 +54,7 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
   - **2026-10-31 状态：没测完**（Codex 额度用完）。已通过：A1 欢迎页、A6 分叉、F1 渠道测试（可用 · 1461 毫秒）、重新生成后版本切换、仪表盘读余额 5.20 CNY；F8 按任务书跳过（模型没有价格）。其余未执行。
   - 踩过的坑（任务书已写进去）：Agent 在自己终端里 `flutter run` 会因沙箱读不到 AppData 而构建失败 → 改为双击已构建好的 `app\build\windows\x64\runner\Release\dreamflutter.exe`（改代码后要重新 `flutter build windows`）；微软拼音中文模式会吞掉自动输入的文字 → 先切「英」，文字用点输入框 + Ctrl+V 粘贴（已亲测可用）；审批框是被测应用的界面。
   - 测试文件夹 `E:\df-e2e\ws-a`（含 hello.txt）、`ws-b` 已建好，可以直接再测。
-  - 脚本版 E2E（`integration_test/e2e_test.dart`）在最后一轮修复（问题版本、审查修复）之后**没有重跑**；后台 121 个、窗口 62 个测试都通过。
+  - 脚本版 E2E（`integration_test/e2e_test.dart`，含第 23 步模型组自动换渠道）2026-10-31 最后一轮修复后重跑**全部通过**（约 1.5 分钟）；后台 121 个、窗口 62 个测试都通过。
 - 真实检查：`cd core; node --disable-warning=ExperimentalWarning scripts/live-gateway.ts`（坏 Key 渠道 → 你的 DeepSeek，第二问命中缓存，后台调用经由模型组，读余额）。2026-10-31 通过。
 - **只实测了 DeepSeek**（对话、余额接口）。智谱、Kimi、MiniMax 的地址、额度接口和错误码来自 Antigravity 调研，没有账号实测；用户有这些账号时先在仪表盘点「查询余额和额度」核对。
 - 没做（设计稿里有）：通用里的「开机启动」「关窗口时」（需要原生支持，留到后面）；「看图模型」（放阶段 4 多模态）；趋势图按渠道着色；花费按非高峰折扣计算。
