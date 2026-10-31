@@ -18,7 +18,7 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**v0.2 阶段 4：多模态输入输出 + Showcard 卡片**。阶段 3a（Agent 模式）、3b（模型网关、仪表盘、设置重组）已完成，见下面两节。
+下一步：先让用户的 computer-use Agent 跑完一次完整人工测试（任务书 docs/testing/computer-use-e2e.md），按报告修；然后 **v0.2 阶段 4：多模态输入输出 + Showcard 卡片**。阶段 3a（Agent 模式）、3b（模型网关、仪表盘、设置重组）已完成，见下面两节。
 
 调研报告：[research/deepseek-harness.md](research/deepseek-harness.md)（Codex）、[research/showcard.md](research/showcard.md)（Antigravity，Showcard 放阶段 4）。名画主题：用 Agent Bridge 的 Antigravity 调研，阶段 5 落地。
 
@@ -50,7 +50,11 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - 后台小任务（标题、记忆）也能用模型组：`Llm.runtime()` 装上网关，`complete` 对模型组最多再试两次。
 - 每月花费上限 `monthlyBudgetUsd`，暂停卡片类型 `limit_budget_month`。
 - 窗口：`state/gateway_models.dart`，控制器 `gatewayChannels` / `modelGroups` / `providerLabel()`，事件 `gateway.changed` / `gateway.switched`（提示「已从 A 换到 B」）/ `gateway.alert`；`ui/gateway_pages.dart`（渠道列表和编辑页、模型组列表和编辑框）；`ui/dashboard_page.dart` 替换了用量统计页；`ui/settings_page.dart` 改成左侧分类 + 搜索；输入框模型菜单按「模型组 / 各渠道」分组。旧的服务商页保留为「Pi 配置」。
-- 人工端到端：用户用 computer-use Agent 按 [testing/computer-use-e2e.md](testing/computer-use-e2e.md) 测，报告写到 `docs/test-reports/<日期>/report.md`，交回给 Claude 处理。
+- 人工端到端：用户用 computer-use Agent 按 [testing/computer-use-e2e.md](testing/computer-use-e2e.md) 测，报告写到 `docs/test-reports/<日期>/report.md`（Agent 写不进项目目录时在它自己的输出目录），交回给 Claude 处理。
+  - **2026-10-31 状态：没测完**（Codex 额度用完）。已通过：A1 欢迎页、A6 分叉、F1 渠道测试（可用 · 1461 毫秒）、重新生成后版本切换、仪表盘读余额 5.20 CNY；F8 按任务书跳过（模型没有价格）。其余未执行。
+  - 踩过的坑（任务书已写进去）：Agent 在自己终端里 `flutter run` 会因沙箱读不到 AppData 而构建失败 → 改为双击已构建好的 `app\build\windows\x64\runner\Release\dreamflutter.exe`（改代码后要重新 `flutter build windows`）；微软拼音中文模式会吞掉自动输入的文字 → 先切「英」，文字用点输入框 + Ctrl+V 粘贴（已亲测可用）；审批框是被测应用的界面。
+  - 测试文件夹 `E:\df-e2e\ws-a`（含 hello.txt）、`ws-b` 已建好，可以直接再测。
+  - 脚本版 E2E（`integration_test/e2e_test.dart`）在最后一轮修复（问题版本、审查修复）之后**没有重跑**；后台 121 个、窗口 62 个测试都通过。
 - 真实检查：`cd core; node --disable-warning=ExperimentalWarning scripts/live-gateway.ts`（坏 Key 渠道 → 你的 DeepSeek，第二问命中缓存，后台调用经由模型组，读余额）。2026-10-31 通过。
 - **只实测了 DeepSeek**（对话、余额接口）。智谱、Kimi、MiniMax 的地址、额度接口和错误码来自 Antigravity 调研，没有账号实测；用户有这些账号时先在仪表盘点「查询余额和额度」核对。
 - 没做（设计稿里有）：通用里的「开机启动」「关窗口时」（需要原生支持，留到后面）；「看图模型」（放阶段 4 多模态）；趋势图按渠道着色；花费按非高峰折扣计算。
@@ -128,7 +132,7 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：117 个，用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
+# 后台测试：121 个，用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
 cd core && npm test && npx tsc --noEmit
 # 窗口单元/组件测试：62 个
 cd app && flutter test test
