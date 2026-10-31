@@ -75,4 +75,7 @@ console.log("\nchannel status:", channels.map((c) => `${c.name}: ${c.unavailable
 // A background call (titles, memory) through the group: the bad channel is resting, so it goes straight to DeepSeek.
 const test = await core.call("providers.test", { provider: "dreamflutter", model: "live" });
 console.log("\nbackground call through the group:", test);
+// The balance of the DeepSeek channel from Pi's config (the only quota endpoint checked live).
+const status = (await core.call("gateway.refreshQuota", { channel: `pi:${piProvider}` })) as { id: string; quota: unknown }[];
+console.log("\nDeepSeek balance reading:", status.find((s) => s.id === `pi:${piProvider}`)?.quota);
 await core.shutdown();

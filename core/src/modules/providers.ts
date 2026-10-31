@@ -183,6 +183,12 @@ export class Providers {
 		this.changed();
 	}
 
+	/** The API key Pi would send for [provider] (balance queries for channels from Pi's config). */
+	async apiKeyOf(provider: string): Promise<string | undefined> {
+		const runtime = await this.llm.runtime();
+		return (await runtime.getAuth(provider).catch(() => undefined))?.auth.apiKey;
+	}
+
 	/** Sends a tiny request to check the provider answers with the stored credentials. */
 	async test(provider: string, modelId?: string): Promise<{ ok: boolean; latencyMs: number; model: string | null; reply?: string; error?: string }> {
 		const runtime = await this.llm.runtime();

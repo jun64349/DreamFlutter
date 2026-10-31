@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, describe, it } from "node:test";
 import { type AssistantMessage, fauxAssistantMessage, type FauxResponseFactory } from "@earendil-works/pi-ai";
 import { classifyFailure } from "../src/gateway/classify.ts";
-import { channelProvider, type Transport } from "../src/gateway/gateway.ts";
+import { type ChannelStatus, channelProvider, type Transport } from "../src/gateway/gateway.ts";
 import { HealthBook } from "../src/gateway/health.ts";
+import { readQuota } from "../src/gateway/quota.ts";
 import { type CandidateInfo, type GroupEntry, type ModelGroup, pickEntry } from "../src/gateway/router.ts";
 import { settledCount, startTestCore, type TestCore } from "./harness.ts";
 
@@ -214,5 +217,71 @@ describe("gateway: in a session", () => {
 		const auto = groups.find((g) => g.id === "auto");
 		assert.equal(auto?.name, "自动");
 		assert.deepEqual(auto?.entries.map((e) => `${e.channel}|${e.model}`), ["pi:faux|faux-1", "gone|m"]);
+	});
+});
+
+describe("gateway: balances and allowances", () => {
+	const reply = (body: unknown, status = 200) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+
+	it("reads each platform's answer", async () => {
+		const deepseek = await readQuota("deepseek-balance", "https://api.deepseek.com/v1", "k", reply({ is_available: true, balance_infos: [{ currency: "CNY", total_balance: "110.00" }] }));
+		assert.deepEqual({ ...deepseek, checkedAt: 0 }, { type: "balance", amount: 110, currency: "CNY", checkedAt: 0 });
+		const glm = await readQuota("glm-quota", "https://open.bigmodel.cn/api/anthropic", "k", reply({ data: { limits: [{ type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: 14.5, nextResetTime: 1782259200000 }] } }));
+		assert.ok(glm.type === "plan");
+		assert.deepEqual(glm.windows, [{ label: "5 小时", usedPercent: 14.5, resetAt: 1782259200000 }]);
+		const minimax = await readQuota("minimax-remains", "https://api.minimaxi.com/anthropic", "k", reply({ data: { current_interval_total_count: 100, current_interval_usage_count: 25, expired_time: 1782259200 } }));
+		assert.ok(minimax.type === "plan");
+		assert.deepEqual(minimax.windows, [{ label: "当前周期", usedPercent: 25, resetAt: 1782259200000 }]);
+		const broken = await readQuota("deepseek-balance", "https://api.deepseek.com/v1", "k", reply({}, 401));
+		assert.ok(broken.type === "error" && /401/.test(broken.message));
+	});
+
+	let t: TestCore | undefined;
+	let server: Server | undefined;
+	afterEach(async () => {
+		await t?.cleanup();
+		t = undefined;
+		await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+		server = undefined;
+	});
+
+	it("rests a used-up plan until it resets, reminds at 80 %, and warns about a low balance", async () => {
+		let glmUsed = 100;
+		const resetAt = Date.now() + 2 * 3_600_000;
+		let balance = "5.00";
+		server = createServer((request, response) => {
+			response.setHeader("content-type", "application/json");
+			if (request.url?.startsWith("/api/monitor/usage/quota/limit")) {
+				assert.equal(request.headers.authorization, "glm-key", "智谱 takes the bare key");
+				response.end(JSON.stringify({ data: { limits: [{ type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: glmUsed, nextResetTime: resetAt }] } }));
+			} else if (request.url === "/user/balance") {
+				response.end(JSON.stringify({ balance_infos: [{ currency: "CNY", total_balance: balance }] }));
+			} else response.writeHead(404).end("{}");
+		});
+		await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+		const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+		t = await startTestCore();
+		const save = (name: string, platform: string, baseUrl: string, key: string, extra: Record<string, unknown> = {}) =>
+			t!.core.call("gateway.saveChannel", { name, platform, api: "anthropic-messages", baseUrl, models: [{ id: "m" }], keys: [{ secret: key }], ...extra }) as Promise<{ id: string }>;
+		const plan = (await save("智谱", "glm-coding", `${base}/api/anthropic`, "glm-key")).id;
+		const paid = (await save("DeepSeek", "deepseek", `${base}/anthropic`, "ds-key", { lowBalance: 10 })).id;
+
+		let status = (await t.core.call("gateway.refreshQuota", {})) as ChannelStatus[];
+		const planStatus = status.find((s) => s.id === plan)!;
+		assert.equal(planStatus.unavailable?.kind, "quota");
+		assert.equal(planStatus.unavailable?.until, resetAt, "rests until the window reopens");
+		assert.ok(planStatus.quota?.type === "plan" && planStatus.quota.windows[0]!.usedPercent === 100);
+		const paidStatus = status.find((s) => s.id === paid)!;
+		assert.ok(paidStatus.quota?.type === "balance" && paidStatus.quota.amount === 5);
+		assert.equal(paidStatus.unavailable, null, "a low balance still works");
+		const titles = t.notifier.sent.map((n) => n.title);
+		assert.ok(titles.includes("智谱 额度已用 100%"));
+		assert.ok(titles.includes("DeepSeek 余额不足"));
+
+		glmUsed = 30;
+		balance = "4.00";
+		status = (await t.core.call("gateway.refreshQuota", {})) as ChannelStatus[];
+		assert.equal(status.find((s) => s.id === plan)!.unavailable, null, "back as soon as the allowance is");
+		assert.equal(t.notifier.sent.length, 2, "no repeated reminders");
 	});
 });

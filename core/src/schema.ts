@@ -319,6 +319,7 @@ export const MIGRATIONS: string[] = [
 		auth_header INTEGER NOT NULL DEFAULT 0,
 		enabled INTEGER NOT NULL DEFAULT 1,
 		top_up REAL,
+		low_balance REAL,
 		sort INTEGER NOT NULL DEFAULT 0,
 		created_at INTEGER NOT NULL
 	);

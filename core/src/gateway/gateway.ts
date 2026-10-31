@@ -9,6 +9,7 @@ import { json, now, parseJson } from "../db.ts";
 import type { Providers } from "../modules/providers.ts";
 import { classifyFailure, FAILURE_LABEL, type FailureKind, isChannelFailure } from "./classify.ts";
 import { HealthBook } from "./health.ts";
+import { type QuotaReading, readQuota } from "./quota.ts";
 import { type ChannelApi, type ChannelKind, PLATFORMS, platform, platformForUrl } from "./platforms.ts";
 import { type CandidateInfo, describe, type GroupEntry, type ModelGroup, pickEntry, type RouteState, type Unavailable } from "./router.ts";
 
@@ -20,6 +21,7 @@ export const channelProvider = (channelId: string) => `df-${channelId}`;
 const PI_PREFIX = "pi:";
 /** Pi needs a key on the provider to call it available; the wrapper sends the real one. */
 const KEY_PLACEHOLDER = "dreamflutter-gateway";
+const QUOTA_INTERVAL_MS = 10 * 60_000;
 
 export interface ChannelModel {
 	id: string;
@@ -55,6 +57,8 @@ export interface ChannelInfo {
 	authHeader: boolean;
 	enabled: boolean;
 	topUp: number | null;
+	/** Remind when the balance falls below this. */
+	lowBalance: number | null;
 	keys: ChannelKeyInfo[];
 	unavailable: Unavailable | null;
 }
@@ -71,6 +75,7 @@ export interface ChannelInput {
 	authHeader?: boolean;
 	enabled?: boolean;
 	topUp?: number | null;
+	lowBalance?: number | null;
 	/** Keys: existing ones by id (label/enabled edits), new ones with [secret]. Omitted keys are removed. */
 	keys: { id?: string; label?: string; secret?: string; enabled?: boolean }[];
 }
@@ -80,6 +85,24 @@ export interface GroupInput {
 	name: string;
 	entries: GroupEntry[];
 	allowPaidOverflow?: boolean;
+}
+
+export interface ChannelStatus {
+	id: string;
+	name: string;
+	kind: ChannelKind;
+	platform: string | null;
+	source: "df" | "pi";
+	unavailable: Unavailable | null;
+	quota: QuotaReading | null;
+	/** The platform has a balance or allowance query. */
+	canQuery: boolean;
+	today: { requests: number; failures: number; cost: number; avgFirstTokenMs: number | null };
+	last5h: { requests: number; tokens: number };
+	/** All-time spend through the gateway; with [remaining] for relays the user tops up by hand. */
+	spent: number;
+	remaining: number | null;
+	lastError: { at: number; kind: string; message: string } | null;
 }
 
 /** A model stream (pi-ai's streamSimple; tests pass a faux one). */
@@ -97,6 +120,7 @@ interface ChannelRow {
 	auth_header: number;
 	enabled: number;
 	top_up: number | null;
+	low_balance: number | null;
 }
 
 interface KeyRow {
@@ -140,6 +164,8 @@ export class Gateway implements CoreModule {
 	private readonly providers: Providers;
 	private readonly transport: Transport;
 	private readonly clock: () => number;
+	private readonly fetch: typeof fetch;
+	private quotaTimer: NodeJS.Timeout | undefined;
 	readonly health: HealthBook;
 	/** Channels from Pi's own configuration, refreshed when providers change. */
 	private piChannels: ChannelInfo[] = [];
@@ -154,11 +180,12 @@ export class Gateway implements CoreModule {
 	/** Round-robin position per channel, for sessions that have no key yet. */
 	private readonly keyTurns = new Map<string, number>();
 
-	constructor(core: Core, providers: Providers, options: { transport?: Transport; clock?: () => number } = {}) {
+	constructor(core: Core, providers: Providers, options: { transport?: Transport; clock?: () => number; fetch?: typeof fetch } = {}) {
 		this.core = core;
 		this.providers = providers;
 		this.transport = options.transport ?? (streamSimple as Transport);
 		this.clock = options.clock ?? Date.now;
+		this.fetch = options.fetch ?? fetch;
 		this.health = new HealthBook(this.clock);
 		providers.onChanged(() => void this.refreshPiChannels());
 		this.register();
@@ -167,6 +194,114 @@ export class Gateway implements CoreModule {
 	async start(): Promise<void> {
 		await this.refreshPiChannels();
 		this.migrateFallbackChain();
+		this.quotaTimer = setInterval(() => void this.refreshQuotas(), QUOTA_INTERVAL_MS);
+		this.quotaTimer.unref();
+	}
+
+	stop(): void {
+		clearInterval(this.quotaTimer);
+	}
+
+	// ---- balances and plan allowances ----------------------------------------------
+
+	/** Reads the balance or allowance of [channelId] (or every channel that has a query). */
+	async refreshQuotas(channelId?: string): Promise<void> {
+		const channels = this.channels().filter((c) => (channelId ? c.id === channelId : c.enabled) && platform(c.platform)?.quota);
+		await Promise.all(
+			channels.map(async (channel) => {
+				const apiKey = channel.source === "df" ? await this.firstSecret(channel) : await this.providers.apiKeyOf(channel.provider);
+				if (!apiKey) return;
+				const reading = await readQuota(platform(channel.platform)!.quota!, channel.baseUrl, apiKey, this.fetch, this.clock);
+				this.applyReading(channel, reading);
+			}),
+		);
+		if (channels.length) this.core.broadcast({ event: "gateway.changed" });
+	}
+
+	private async firstSecret(channel: ChannelInfo): Promise<string | undefined> {
+		const key = channel.keys.find((k) => k.enabled && k.unavailable?.kind !== "auth") ?? channel.keys.find((k) => k.enabled);
+		return key ? this.secret(key.id) : undefined;
+	}
+
+	private applyReading(channel: ChannelInfo, reading: QuotaReading): void {
+		const previous = this.reading(channel.id);
+		this.core.db.run(
+			"INSERT INTO gateway_quota(channel, data, checked_at) VALUES(?, ?, ?) ON CONFLICT(channel) DO UPDATE SET data = excluded.data, checked_at = excluded.checked_at",
+			channel.id,
+			json(reading),
+			reading.checkedAt,
+		);
+		const keys = channel.source === "df" ? channel.keys.map((k) => `${channel.id}#${k.id}`) : [`${channel.id}#pi`];
+		if (reading.type === "plan") {
+			const full = reading.windows.filter((w) => w.usedPercent >= 100);
+			if (full.length) {
+				const until = Math.max(...full.map((w) => w.resetAt ?? 0)) || undefined;
+				for (const key of keys) this.health.fail(key, "quota", `${full.map((w) => w.label).join("、")}额度用完`, until);
+			} else {
+				this.health.clearQuota(channel.id);
+			}
+			// Remind once per window period at 80 %.
+			for (const window of reading.windows) {
+				const before = previous?.type === "plan" ? previous.windows.find((w) => w.label === window.label && w.resetAt === window.resetAt) : undefined;
+				if (window.usedPercent >= 80 && (before?.usedPercent ?? 0) < 80) {
+					this.alert(`${channel.name} 额度已用 ${Math.round(window.usedPercent)}%`, `${window.label}${window.resetAt ? `，${describe({ kind: "quota", message: "", until: window.resetAt }).replace(/^额度用完，/, "")}` : ""}`);
+				}
+			}
+		} else if (reading.type === "balance") {
+			if (reading.amount <= 0) for (const key of keys) this.health.fail(key, "balance", "余额为 0");
+			else this.health.clearQuota(channel.id);
+			const low = channel.lowBalance;
+			const wasAbove = previous?.type !== "balance" || low === null || previous.amount >= low;
+			if (low !== null && reading.amount < low && wasAbove) this.alert(`${channel.name} 余额不足`, `剩余 ${reading.amount.toFixed(2)} ${reading.currency}，低于你设的 ${low}`);
+		}
+	}
+
+	private alert(title: string, body: string): void {
+		this.core.notifier.notify(title, body);
+		this.core.broadcast({ event: "gateway.alert", title, body });
+	}
+
+	private reading(channelId: string): QuotaReading | undefined {
+		const row = this.core.db.get<{ data: string }>("SELECT data FROM gateway_quota WHERE channel = ?", channelId);
+		return row ? parseJson<QuotaReading | undefined>(row.data, undefined) : undefined;
+	}
+
+	/** What the dashboard shows per channel: state, allowance or balance, today's traffic, last error. */
+	status(): ChannelStatus[] {
+		const time = this.clock();
+		const dayStart = new Date(time).setHours(0, 0, 0, 0);
+		return this.channels().map((channel) => {
+			const today = this.core.db.get<{ requests: number; failures: number; cost: number; ttft: number | null }>(
+				"SELECT COUNT(*) AS requests, SUM(ok = 0 AND error_kind IS NOT NULL) AS failures, COALESCE(SUM(cost), 0) AS cost, AVG(ttft_ms) AS ttft FROM gateway_requests WHERE channel = ? AND at >= ?",
+				channel.id,
+				dayStart,
+			)!;
+			const recent = this.core.db.get<{ requests: number; tokens: number }>(
+				"SELECT COUNT(*) AS requests, COALESCE(SUM(input + output + cache_read + cache_write), 0) AS tokens FROM gateway_requests WHERE channel = ? AND at >= ?",
+				channel.id,
+				time - 5 * 3_600_000,
+			)!;
+			const spent = this.core.db.get<{ cost: number }>("SELECT COALESCE(SUM(cost), 0) AS cost FROM gateway_requests WHERE channel = ?", channel.id)!.cost;
+			const lastError = this.core.db.get<{ at: number; kind: string; message: string }>(
+				"SELECT at, error_kind AS kind, error AS message FROM gateway_requests WHERE channel = ? AND ok = 0 AND error_kind IS NOT NULL ORDER BY at DESC LIMIT 1",
+				channel.id,
+			);
+			return {
+				id: channel.id,
+				name: channel.name,
+				kind: channel.kind,
+				platform: channel.platform,
+				source: channel.source,
+				unavailable: channel.unavailable,
+				quota: this.reading(channel.id) ?? null,
+				canQuery: platform(channel.platform)?.quota !== undefined,
+				today: { requests: Number(today.requests), failures: Number(today.failures ?? 0), cost: today.cost, avgFirstTokenMs: today.ttft === null ? null : Math.round(today.ttft) },
+				last5h: { requests: Number(recent.requests), tokens: Number(recent.tokens) },
+				spent,
+				remaining: channel.topUp === null ? null : channel.topUp - spent,
+				lastError: lastError ? { at: lastError.at, kind: lastError.kind, message: lastError.message } : null,
+			};
+		});
 	}
 
 	// ---- channels ------------------------------------------------------------------
@@ -198,6 +333,7 @@ export class Gateway implements CoreModule {
 				authHeader: row.auth_header === 1,
 				enabled: row.enabled === 1,
 				topUp: row.top_up,
+				lowBalance: row.low_balance,
 				keys: channelKeys,
 				unavailable: null,
 			};
@@ -237,11 +373,11 @@ export class Gateway implements CoreModule {
 		const time = now();
 		this.core.db.transaction(() => {
 			this.core.db.run(
-				`INSERT INTO gateway_channels(id, name, platform, kind, api, base_url, models, headers, auth_header, enabled, top_up, created_at)
-				 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`INSERT INTO gateway_channels(id, name, platform, kind, api, base_url, models, headers, auth_header, enabled, top_up, low_balance, created_at)
+				 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				 ON CONFLICT(id) DO UPDATE SET name = excluded.name, platform = excluded.platform, kind = excluded.kind, api = excluded.api,
 				   base_url = excluded.base_url, models = excluded.models, headers = excluded.headers, auth_header = excluded.auth_header,
-				   enabled = excluded.enabled, top_up = excluded.top_up`,
+				   enabled = excluded.enabled, top_up = excluded.top_up, low_balance = excluded.low_balance`,
 				id,
 				name,
 				input.platform ?? null,
@@ -253,6 +389,7 @@ export class Gateway implements CoreModule {
 				input.authHeader ? 1 : 0,
 				input.enabled === false ? 0 : 1,
 				input.topUp ?? null,
+				input.lowBalance ?? null,
 				time,
 			);
 			for (const old of existingKeys) {
@@ -317,6 +454,7 @@ export class Gateway implements CoreModule {
 						authHeader: false,
 						enabled: true,
 						topUp: null,
+						lowBalance: null,
 						keys: [{ id: "pi", label: p.authSource ?? "Pi 配置", enabled: true, hint: "", unavailable: null }],
 						unavailable: null,
 					};
@@ -677,6 +815,11 @@ export class Gateway implements CoreModule {
 			this.health.reset(requireStr(params.channel, "channel"));
 			this.changed();
 			return { ok: true };
+		});
+		core.register("gateway.status", () => this.status());
+		core.register("gateway.refreshQuota", async (params) => {
+			await this.refreshQuotas(str(params.channel));
+			return this.status();
 		});
 		core.register("gateway.requests", (params) => {
 			const since = num(params.since) ?? now() - 24 * 3600_000;
