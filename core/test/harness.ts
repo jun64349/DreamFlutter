@@ -8,6 +8,7 @@ import type { Client, Core } from "../src/core.ts";
 import { Logger } from "../src/log.ts";
 import { RecordingNotifier } from "../src/notify.ts";
 import { corePaths } from "../src/paths.ts";
+import type { Transport } from "../src/gateway/gateway.ts";
 
 export interface TestCore {
 	core: Core;
@@ -31,7 +32,7 @@ export interface TestCore {
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 /** Fresh core on temp dirs, with a scripted faux model as the only model. */
-export async function startTestCore(existingDir?: string): Promise<TestCore> {
+export async function startTestCore(existingDir?: string, options: { gatewayTransport?: Transport } = {}): Promise<TestCore> {
 	const dir = existingDir ?? mkdtempSync(join(tmpdir(), "df-core-"));
 	const workspace = join(dir, "workspace");
 	const agentDir = join(dir, "agent");
@@ -57,6 +58,7 @@ export async function startTestCore(existingDir?: string): Promise<TestCore> {
 		log: new Logger(undefined, process.env.DF_TEST_LOG === "1"),
 		notifier,
 		modelRuntime: () => modelRuntime,
+		gatewayTransport: options.gatewayTransport,
 	});
 	core.settings.update({ defaultModel: "faux/faux-1", autoTitle: false, memoryAutoExtract: false });
 	await core.start();
@@ -89,7 +91,7 @@ export async function startTestCore(existingDir?: string): Promise<TestCore> {
 		send: (slotId, record) => core.call("slot.send", { slotId, record }, client) as Promise<void>,
 		reopen: async () => {
 			await core.shutdown();
-			return startTestCore(dir);
+			return startTestCore(dir, options);
 		},
 		cleanup: async () => {
 			await core.shutdown();

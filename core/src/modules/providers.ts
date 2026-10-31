@@ -232,8 +232,15 @@ export class Providers {
 			.sort((a, b) => a.id.localeCompare(b.id));
 	}
 
+	private readonly listeners: (() => void)[] = [];
+
+	onChanged(listener: () => void): void {
+		this.listeners.push(listener);
+	}
+
 	private changed(): void {
 		this.core.broadcast({ event: "providers.changed" });
+		for (const listener of this.listeners) listener();
 	}
 
 	/**

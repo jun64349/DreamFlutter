@@ -4,8 +4,6 @@ import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { fallbackExtension } from "../src/ext/fallback.ts";
 import { cleanTitle } from "../src/modules/auto-title.ts";
 import type { ProviderInfo } from "../src/modules/providers.ts";
 import { settledCount, startTestCore, type TestCore } from "./harness.ts";
@@ -115,36 +113,5 @@ describe("auto title", () => {
 	it("cleans model output into a short title", () => {
 		assert.equal(cleanTitle("标题：《周报整理》\n解释……"), "周报整理");
 		assert.equal(cleanTitle('"Trip ideas."'), "Trip ideas");
-	});
-});
-
-describe("fallback chain", () => {
-	type Route = (request: Record<string, unknown>, ctx: unknown) => { model: { provider: string; id: string } };
-
-	function routeOf(chain: string[]): Route | undefined {
-		let route: Route | undefined;
-		fallbackExtension(() => chain)({
-			registerVirtualModel: (definition: { route: Route }) => {
-				route = definition.route;
-			},
-		} as unknown as ExtensionAPI);
-		return route;
-	}
-
-	const registry = {
-		modelRegistry: { find: (provider: string, id: string) => (id === "missing" ? undefined : { provider, id }) },
-	};
-
-	it("is not registered without a chain", () => {
-		assert.equal(routeOf([]), undefined);
-	});
-
-	it("starts on the first model and moves on after a failure", () => {
-		const route = routeOf(["a/one", "b/missing", "c/two"])!;
-		assert.deepEqual(route({ reason: "user", thinkingLevel: "off" }, registry).model, { provider: "a", id: "one" });
-		const next = route({ reason: "retry", thinkingLevel: "off", failed: { model: { provider: "a", id: "one" } } }, registry);
-		assert.deepEqual(next.model, { provider: "c", id: "two" }, "unavailable models are skipped");
-		const sticky = route({ reason: "continuation", thinkingLevel: "off", previous: { model: { provider: "c", id: "two" } } }, registry);
-		assert.deepEqual(sticky.model, { provider: "c", id: "two" }, "tool follow-ups stay on the same model");
 	});
 });

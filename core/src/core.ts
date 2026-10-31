@@ -26,6 +26,8 @@ export interface CoreOptions {
 	notifier: Notifier;
 	/** Test hook, see PiHostConfig.modelRuntime. */
 	modelRuntime?: () => ModelRuntime;
+	/** Test hook: the stream gateway channels call instead of the real API. */
+	gatewayTransport?: import("./gateway/gateway.ts").Transport;
 }
 
 /** A connected window (or other client). */

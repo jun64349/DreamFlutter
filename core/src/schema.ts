@@ -305,4 +305,70 @@ export const MIGRATIONS: string[] = [
 	);
 	CREATE INDEX deliveries_run ON deliveries(run_id);
 	`,
+	// 6: model gateway - channels and their keys, model groups, one row per model request, last quota reading.
+	`
+	CREATE TABLE gateway_channels (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		platform TEXT,
+		kind TEXT NOT NULL,
+		api TEXT NOT NULL,
+		base_url TEXT NOT NULL,
+		models TEXT NOT NULL DEFAULT '[]',
+		headers TEXT,
+		auth_header INTEGER NOT NULL DEFAULT 0,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		top_up REAL,
+		sort INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE gateway_keys (
+		id TEXT PRIMARY KEY,
+		channel_id TEXT NOT NULL REFERENCES gateway_channels(id) ON DELETE CASCADE,
+		label TEXT,
+		secret TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		sort INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	);
+	CREATE INDEX gateway_keys_channel ON gateway_keys(channel_id);
+
+	CREATE TABLE gateway_groups (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		entries TEXT NOT NULL DEFAULT '[]',
+		allow_paid_overflow INTEGER NOT NULL DEFAULT 1,
+		sort INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE gateway_requests (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		at INTEGER NOT NULL,
+		channel TEXT NOT NULL,
+		key_id TEXT,
+		model TEXT NOT NULL,
+		group_id TEXT,
+		session_id TEXT,
+		ok INTEGER NOT NULL,
+		error_kind TEXT,
+		error TEXT,
+		ttft_ms INTEGER,
+		duration_ms INTEGER,
+		input INTEGER NOT NULL DEFAULT 0,
+		output INTEGER NOT NULL DEFAULT 0,
+		cache_read INTEGER NOT NULL DEFAULT 0,
+		cache_write INTEGER NOT NULL DEFAULT 0,
+		cost REAL NOT NULL DEFAULT 0
+	);
+	CREATE INDEX gateway_requests_at ON gateway_requests(at);
+	CREATE INDEX gateway_requests_channel ON gateway_requests(channel, at);
+
+	CREATE TABLE gateway_quota (
+		channel TEXT PRIMARY KEY,
+		data TEXT NOT NULL,
+		checked_at INTEGER NOT NULL
+	);
+	`,
 ];

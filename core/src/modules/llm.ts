@@ -13,6 +13,8 @@ export class Llm {
 	private readonly core: Core;
 	/** Test hook: shared runtime (faux provider). */
 	private readonly runtimeOverride: (() => ModelRuntime) | undefined;
+	/** Adds the gateway's channels and model groups to a runtime. */
+	extendRuntime: ((runtime: ModelRuntime) => void) | undefined;
 
 	constructor(core: Core, runtimeOverride?: () => ModelRuntime) {
 		this.core = core;
@@ -20,12 +22,15 @@ export class Llm {
 	}
 
 	async runtime(): Promise<ModelRuntime> {
-		if (this.runtimeOverride) return this.runtimeOverride();
-		return ModelRuntime.create({
-			authPath: join(this.core.agentDir, "auth.json"),
-			modelsPath: join(this.core.agentDir, "models.json"),
-			refreshOnCreate: false,
-		});
+		const runtime = this.runtimeOverride
+			? this.runtimeOverride()
+			: await ModelRuntime.create({
+					authPath: join(this.core.agentDir, "auth.json"),
+					modelsPath: join(this.core.agentDir, "models.json"),
+					refreshOnCreate: false,
+				});
+		this.extendRuntime?.(runtime);
+		return runtime;
 	}
 
 	/**
@@ -54,11 +59,18 @@ export class Llm {
 		const runtime = options.runtime ?? (await this.runtime());
 		const model = options.model ?? (await this.auxModel(runtime, options.sessionModel));
 		if (!model) throw new Error("没有可用的模型");
-		const message = await runtime.completeSimple(
-			model,
-			{ systemPrompt: options.system, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] },
-			{ maxTokens: options.maxTokens ?? 1024, signal: AbortSignal.timeout(options.timeoutMs ?? 60_000) } as never,
-		);
+		const signal = AbortSignal.timeout(options.timeoutMs ?? 60_000);
+		const ask = () =>
+			runtime.completeSimple(
+				model,
+				{ systemPrompt: options.system, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] },
+				{ maxTokens: options.maxTokens ?? 1024, signal } as never,
+			);
+		let message = await ask();
+		// A model group: the failed channel is resting now, so asking again goes to the next one.
+		for (let attempt = 1; attempt < 3 && message.stopReason === "error" && (model as { api?: string }).api === "pi-virtual" && !signal.aborted; attempt++) {
+			message = await ask();
+		}
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
 			throw new Error(message.errorMessage ?? "模型调用失败");
 		}
