@@ -108,7 +108,8 @@ void main() {
     await tester.pump();
   }
 
-  final settingsList = find.descendant(of: find.byType(SettingsPage), matching: find.byType(Scrollable)).first;
+  /// A category in the settings page's left column.
+  Finder settingsCategory(String name) => find.descendant(of: find.byType(SettingsPage), matching: find.widgetWithText(ListTile, name));
 
   List<AssistantItem> assistants(AgentController agent) => agent.transcript.items.whereType<AssistantItem>().toList();
   String lastText(AgentController agent) =>
@@ -265,9 +266,11 @@ void main() {
 
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    expect(find.text('界面缩放'), findsOneWidget, reason: 'appearance comes first');
-    await tester.scrollUntilVisible(find.text('修改和命令需确认'), 300, scrollable: settingsList);
-    await tester.pumpAndSettle(); // a tap during the scroll would only stop it
+    await tester.tap(settingsCategory('外观'));
+    await tester.pumpAndSettle();
+    expect(find.text('界面缩放'), findsOneWidget);
+    await tester.tap(settingsCategory('安全与审批'));
+    await tester.pumpAndSettle();
     expect(find.text('修改和命令需确认'), findsOneWidget);
     await shot(tester, '10_settings');
     await tester.pageBack();
@@ -346,29 +349,26 @@ void main() {
     await tester.enterText(searchBox, '');
     await idle(tester);
 
-    // 11. Providers page: the configured provider answers a connection test.
+    // 11. Channels: the DeepSeek provider from Pi's config is listed and answers a test.
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('管理服务商'), 300, scrollable: settingsList);
-    await tester.pumpAndSettle(); // a tap during the scroll would only stop it
-    await tester.tap(find.text('管理服务商'));
-    await waitFor(tester, 'providers listed', () => find.text('测试连接').evaluate().isNotEmpty, agent);
-    await tester.tap(find.text('测试连接').first);
-    await waitFor(tester, 'connection ok', () => find.textContaining('连接正常').evaluate().isNotEmpty, agent);
-    await shot(tester, '17_providers');
+    await tester.tap(settingsCategory('模型与网关'));
+    await tester.pumpAndSettle();
+    await waitFor(tester, 'channels listed', () => find.text('来自 Pi 配置').evaluate().isNotEmpty, agent);
+    await tester.tap(find.widgetWithText(TextButton, '测试').first);
+    await waitFor(tester, 'channel ok', () => find.textContaining('可用 · ').evaluate().isNotEmpty, agent);
+    await shot(tester, '17_channels');
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    // 12. Usage statistics include today's model responses.
-    await tester.scrollUntilVisible(find.text('用量统计'), 300, scrollable: settingsList);
-    await tester.pumpAndSettle(); // a tap during the scroll would only stop it
-    await tester.tap(find.text('用量统计'));
-    await waitFor(tester, 'usage loaded', () => find.text('按模型').evaluate().isNotEmpty && find.textContaining('deepseek').evaluate().isNotEmpty, agent);
-    await shot(tester, '18_usage');
-    // Usage sits on top of settings: both have a back button.
-    await tester.tap(find.byTooltip('Back').last);
+    // 12. The dashboard counts today's model responses and shows the channel.
+    await tester.tap(nav('仪表盘'));
+    await waitFor(tester, 'dashboard loaded', () => find.textContaining('次回复').evaluate().isNotEmpty && find.textContaining('今天').evaluate().isNotEmpty, agent);
+    await tester.tap(find.text('模型').last); // the breakdown by model
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Back').last);
+    expect(find.textContaining('deepseek'), findsWidgets);
+    await shot(tester, '18_dashboard');
+    await tester.pageBack();
     await tester.pumpAndSettle();
 
     // 13. A temporary chat says so and is not saved.
@@ -600,6 +600,56 @@ void main() {
     expect(agent.planMode, isFalse);
     expect(File(p.join(agent.workspace, 'plan-demo.txt')).existsSync(), isTrue, reason: describe(agent));
     await shot(tester, '34_plan_done');
+
+    // 23. A model group: its first channel has an invalid key, so the
+    //     conversation moves on to DeepSeek and the window says so.
+    final slash = model.indexOf('/');
+    final modelId = model.substring(slash + 1);
+    final bad = asJsonMap(
+      await agent.backend.call('gateway.saveChannel', {
+        'name': '坏 Key 渠道',
+        'platform': 'deepseek',
+        'api': 'openai-completions',
+        'baseUrl': 'https://api.deepseek.com/v1',
+        'models': [
+          {'id': modelId},
+        ],
+        'keys': [
+          {'secret': 'sk-invalid-dreamflutter-e2e'},
+        ],
+      }),
+    );
+    await agent.backend.call('gateway.saveGroup', {
+      'id': 'e2e',
+      'name': '实测组',
+      'entries': [
+        {'channel': bad['id'], 'model': modelId, 'priority': 0},
+        {'channel': 'pi:${model.substring(0, slash)}', 'model': modelId, 'priority': 1},
+      ],
+    });
+    await waitFor(tester, 'group in the model menu', () => agent.models.any((m) => m.key == 'dreamflutter/e2e'), agent);
+    await tester.tap(find.byWidgetPredicate((w) => w is Tooltip && (w.message ?? '').startsWith('模型：')).first);
+    await tester.pumpAndSettle();
+    expect(find.text('模型组'), findsOneWidget, reason: 'groups come first, under their own heading');
+    await shot(tester, '35_model_menu');
+    await tester.tap(find.text('实测组').last);
+    await waitFor(tester, 'group selected', () => agent.model?.key == 'dreamflutter/e2e', agent);
+    // Toasts as sent (a snackbar can wait behind earlier ones).
+    final toasts = <String>[];
+    final toastSub = agent.toasts.listen(toasts.add);
+    final answersBefore = assistants(agent).where((a) => a.stopReason != 'error').length;
+    await sendMessage(tester, '只回复两个字：你好');
+    // A new answer, not the previous step's: right after sending, the run has not started yet.
+    await waitFor(
+      tester,
+      'answer through the group',
+      () => !agent.isRunning && assistants(agent).where((a) => a.stopReason != 'error').length > answersBefore && lastText(agent).isNotEmpty,
+      agent,
+    );
+    await toastSub.cancel();
+    expect(toasts.any((t) => t.startsWith('已从「坏 Key 渠道')), isTrue, reason: 'the window announces the switch: $toasts');
+    expect(assistants(agent).last.stopReason, isNot('error'), reason: describe(agent));
+    await shot(tester, '36_model_group');
 
     await agent.shutdownCore();
     agent.dispose();

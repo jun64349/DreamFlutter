@@ -40,7 +40,10 @@ export class HealthBook {
 	/** Records a failure. [resetAt] is when a plan's window reopens, if known. */
 	fail(key: string, kind: FailureKind, message: string, resetAt?: number): void {
 		if (kind === "other") return;
-		const failures = (this.keys.get(key)?.failures ?? 0) + 1;
+		const current = this.keys.get(key);
+		// A stopped key (invalid) stays stopped: only the user's edit brings it back.
+		if (current?.stopped && kind !== "auth") return;
+		const failures = (current?.failures ?? 0) + 1;
 		const now = this.clock();
 		if (kind === "auth") {
 			this.keys.set(key, { failures, kind, message, stopped: true });

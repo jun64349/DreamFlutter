@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接（v0.1.1 → v0.2）
 
-更新时间：2026-10-31
+更新时间：2026-10-31（阶段 3b）
 当前分支：`main`（v0.1.0、v0.1.1 都已打 tag；下一阶段是 v0.2，计划见 [v0.2-plan.md](v0.2-plan.md)）
 
 ## 一句话现状
@@ -18,7 +18,7 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**v0.2 阶段 3b：统一网关 + 仪表盘 + 设置重组**（决定见 [v0.2-plan.md](v0.2-plan.md) 第五节）。阶段 3a（Agent 模式）已完成，见下面一节和 [agent-modes.md](agent-modes.md)。
+下一步：**v0.2 阶段 4：多模态输入输出 + Showcard 卡片**。阶段 3a（Agent 模式）、3b（模型网关、仪表盘、设置重组）已完成，见下面两节。
 
 调研报告：[research/deepseek-harness.md](research/deepseek-harness.md)（Codex）、[research/showcard.md](research/showcard.md)（Antigravity，Showcard 放阶段 4）。名画主题：用 Agent Bridge 的 Antigravity 调研，阶段 5 落地。
 
@@ -39,6 +39,20 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - 模块钩子（`CoreModule`）：`extensions`、`onSlotEvent`、`onSlotChanged`、`onRunStarted`、`onRunFinished`、`resolveTaskId`、`toolPolicy`、`start/stop`。
 - 数据库迁移 `core/src/schema.ts`（只能往后追加），目前第 5 版：1 设置/确认卡/运行记录，2 会话索引/用量，3 记忆/提案，4 任务/写笺/资料/产物/上限卡片，5 定时任务/执行记录/交付记录。
 - 窗口：`app/lib/state/agent_controller.dart`（会话、任务、收件箱计数、各页刷新信号 `libraryRevision` / `workRevision`），左侧导航 `app/lib/ui/home_page.dart`。
+
+## v0.2 阶段 3b：模型网关、仪表盘、设置重组（2026-10-31）
+
+用法（用户已确认）见 [v0.2-gateway.md](v0.2-gateway.md)。要点：
+
+- 后台 `core/src/gateway/`：`gateway.ts`（渠道和模型组的存取、在 Pi 里注册、渠道流的包装、额度、`gateway.*` 方法）、`router.ts`（挑渠道，纯函数）、`health.ts`（熔断：限流等休息 30 秒起翻倍到 10 分钟；额度/余额休息到恢复时间或 30 分钟；Key 无效一直停用到用户修改）、`classify.ts`（按业务码和关键字分失败类型，额度用完多数也是 429）、`quota.ts`（DeepSeek/Kimi 余额、智谱/MiniMax 套餐额度）、`platforms.ts`（各平台地址，只改这一处）。数据库第 6 版。
+- **渠道** = Pi 服务商 `df-<id>`，`streamSimple` 经过包装（选 Key、记录 `gateway_requests`、熔断）；Pi 自己配置的服务商以 `pi:<id>` 出现，只在被模型组用到时包装它的流。**模型组** = Pi 虚拟模型 `dreamflutter/<id>`；旧的备用链迁成模型组 `auto`（同一个模型键，旧会话照常），`ext/fallback.ts` 已删。
+- **关键机制**：Pi 不重试额度、余额、Key 错误。经由模型组、还没输出内容时，包装把这类错误改写成「渠道「X」余额不足，换下一个渠道（service temporarily unavailable）」，Pi 重试时路由换渠道。是否经由模型组靠 sessionId 判断（路由时记下，请求的 options.sessionId 对上才改写）。直接选渠道里的模型时不改写。
+- 后台小任务（标题、记忆）也能用模型组：`Llm.runtime()` 装上网关，`complete` 对模型组最多再试两次。
+- 每月花费上限 `monthlyBudgetUsd`，暂停卡片类型 `limit_budget_month`。
+- 窗口：`state/gateway_models.dart`，控制器 `gatewayChannels` / `modelGroups` / `providerLabel()`，事件 `gateway.changed` / `gateway.switched`（提示「已从 A 换到 B」）/ `gateway.alert`；`ui/gateway_pages.dart`（渠道列表和编辑页、模型组列表和编辑框）；`ui/dashboard_page.dart` 替换了用量统计页；`ui/settings_page.dart` 改成左侧分类 + 搜索；输入框模型菜单按「模型组 / 各渠道」分组。旧的服务商页保留为「Pi 配置」。
+- 真实检查：`cd core; node --disable-warning=ExperimentalWarning scripts/live-gateway.ts`（坏 Key 渠道 → 你的 DeepSeek，第二问命中缓存，后台调用经由模型组，读余额）。2026-10-31 通过。
+- **只实测了 DeepSeek**（对话、余额接口）。智谱、Kimi、MiniMax 的地址、额度接口和错误码来自 Antigravity 调研，没有账号实测；用户有这些账号时先在仪表盘点「查询余额和额度」核对。
+- 没做（设计稿里有）：通用里的「开机启动」「关窗口时」（需要原生支持，留到后面）；「看图模型」（放阶段 4 多模态）；趋势图按渠道着色；花费按非高峰折扣计算。
 
 ## v0.2 阶段 3a：Agent 模式（2026-10-30）
 
@@ -113,9 +127,9 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：106 个，用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
+# 后台测试：117 个，用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：59 个
+# 窗口单元/组件测试：62 个
 cd app && flutter test test
 # 视觉检查：假后台、不联网、约 10 秒，截图在 app/build/look_shots/
 cd app && flutter test integration_test/look_test.dart -d windows

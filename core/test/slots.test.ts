@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { ALLOW, APPROVAL_TITLE, DENY, TRUST_ONCE, TRUST_TITLE, workspaceAllowLabel } from "../src/pi/dialogs.ts";
-import type { SlotInfo } from "../src/slots/slot.ts";
+import { type SlotInfo, userBranches } from "../src/slots/slot.ts";
 import { dialogs, settledCount, startTestCore, type TestCore } from "./harness.ts";
 
 describe("session slots", () => {
@@ -323,5 +325,31 @@ describe("settings", () => {
 			await t.cleanup();
 			throw error;
 		}
+	});
+});
+
+describe("question versions", () => {
+	it("an edited question is a version even when a title landed at the branch point", () => {
+		const manager = SessionManager.inMemory(tmpdir());
+		const user = (text: string) => manager.appendMessage({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() } as never);
+		const reply = (text: string) => manager.appendMessage(fauxAssistantMessage(text) as never);
+		user("q1");
+		const a1 = reply("a1");
+		user("写星空");
+		reply("星空");
+		// The user edits the second question: the leaf goes back to a1, and the
+		// automatic title arrives right then, before the edited question.
+		manager.branch(a1);
+		manager.appendSessionInfo("仰望星空");
+		user("改成写月亮");
+		reply("月亮");
+		const branches = userBranches({ sessionManager: manager } as never);
+		assert.deepEqual(
+			branches.map((b) => [b.index, b.total]),
+			[
+				[0, 1],
+				[1, 2],
+			],
+		);
 	});
 });

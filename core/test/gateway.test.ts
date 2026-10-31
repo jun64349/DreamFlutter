@@ -6,9 +6,12 @@ import { type AssistantMessage, fauxAssistantMessage, type FauxResponseFactory }
 import { classifyFailure } from "../src/gateway/classify.ts";
 import { type ChannelStatus, channelProvider, type Transport } from "../src/gateway/gateway.ts";
 import { HealthBook } from "../src/gateway/health.ts";
+import { platformForUrl } from "../src/gateway/platforms.ts";
 import { readQuota } from "../src/gateway/quota.ts";
 import { type CandidateInfo, type GroupEntry, type ModelGroup, pickEntry } from "../src/gateway/router.ts";
 import { settledCount, startTestCore, type TestCore } from "./harness.ts";
+
+const fail = (message: string): AssistantMessage => fauxAssistantMessage("", { stopReason: "error", errorMessage: message });
 
 describe("gateway: failure kinds", () => {
 	it("tells quota, balance, key and throttling apart", () => {
@@ -94,8 +97,6 @@ describe("gateway: in a session", () => {
 		t = await startTestCore(undefined, { gatewayTransport: transport });
 		return t;
 	}
-
-	const fail = (message: string): AssistantMessage => fauxAssistantMessage("", { stopReason: "error", errorMessage: message });
 
 	async function channel(name: string, platform: string, keys: string[]): Promise<string> {
 		const result = (await t!.core.call("gateway.saveChannel", {
@@ -283,5 +284,81 @@ describe("gateway: balances and allowances", () => {
 		status = (await t.core.call("gateway.refreshQuota", {})) as ChannelStatus[];
 		assert.equal(status.find((s) => s.id === plan)!.unavailable, null, "back as soon as the allowance is");
 		assert.equal(t.notifier.sent.length, 2, "no repeated reminders");
+	});
+});
+
+describe("gateway: review fixes", () => {
+	let t: TestCore | undefined;
+	afterEach(async () => {
+		await t?.cleanup();
+		t = undefined;
+	});
+
+	async function start(): Promise<TestCore> {
+		const transport: Transport = (model, context, options) => t!.faux.streamSimple(model as never, context as never, options);
+		t = await startTestCore(undefined, { gatewayTransport: transport });
+		return t;
+	}
+
+	async function ask(slotId: string, text: string): Promise<void> {
+		const before = settledCount(t!.records(slotId));
+		await t!.send(slotId, { id: `p-${text}`, type: "prompt", message: text });
+		await t!.waitFor(() => settledCount(t!.records(slotId)) > before, 15_000);
+	}
+
+	it("tries the channel's other key before leaving the channel, and never stores a key", async () => {
+		await start();
+		const keyA = "sk-first-account-0000aaaa";
+		const { id } = (await t!.core.call("gateway.saveChannel", {
+			name: "两个 Key",
+			platform: "deepseek",
+			api: "openai-completions",
+			baseUrl: "https://example.invalid/v1",
+			models: [{ id: "m" }],
+			keys: [{ secret: keyA }, { secret: "sk-second-account-1111bbbb" }],
+		})) as { id: string };
+		const other = (await t!.core.call("gateway.saveChannel", {
+			name: "备用",
+			platform: "deepseek",
+			api: "openai-completions",
+			baseUrl: "https://example.invalid/v1",
+			models: [{ id: "m" }],
+			keys: [{ secret: "sk-spare-2222cccc" }],
+		})) as { id: string };
+		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: id, model: "m", priority: 0 }, { channel: other.id, model: "m", priority: 1 }] });
+		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
+		const asked: (string | undefined)[] = [];
+		const reply: FauxResponseFactory = (_context, options) => {
+			asked.push(options?.apiKey);
+			// A relay that echoes the key it was given.
+			return options?.apiKey === keyA ? fail(`402 Insufficient Balance for key ${keyA}`) : fauxAssistantMessage("ok");
+		};
+		t!.respond(reply, reply);
+		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await ask("s1", "你好");
+		assert.deepEqual(asked, [keyA, "sk-second-account-1111bbbb"], "the same channel's healthy key takes the retry");
+		assert.equal(t!.messages.filter((m) => m.event === "gateway.switched").length, 0, "no channel switch");
+
+		const errors = t!.core.db.all<{ error: string | null }>("SELECT error FROM gateway_requests WHERE error IS NOT NULL").map((r) => r.error!);
+		assert.equal(errors.length, 1);
+		assert.ok(!errors[0]!.includes(keyA) && errors[0]!.includes("****aaaa"), errors[0]);
+		const channels = (await t!.core.call("gateway.channels", {})) as { id: string; keys: { unavailable: { message: string } | null }[] }[];
+		const resting = channels.find((c) => c.id === id)!.keys[0]!.unavailable;
+		assert.ok(resting && !resting.message.includes(keyA), "rest reasons shown to the window are masked too");
+	});
+
+	it("keeps an invalid key stopped whatever allowance readings say", () => {
+		const book = new HealthBook();
+		book.fail("c#k", "auth", "401");
+		book.fail("c#k", "quota", "1316", Date.now() + 1000);
+		assert.equal(book.status("c#k")?.kind, "auth");
+		book.clearQuota("c#k");
+		assert.equal(book.status("c#k")?.kind, "auth");
+	});
+
+	it("does not take an address shared with pay-as-you-go accounts for a plan", () => {
+		assert.equal(platformForUrl("https://api.minimaxi.com/v1"), undefined);
+		assert.equal(platformForUrl("https://open.bigmodel.cn/api/anthropic")?.id, "glm-coding");
+		assert.equal(platformForUrl("https://api.deepseek.com/v1")?.id, "deepseek");
 	});
 });

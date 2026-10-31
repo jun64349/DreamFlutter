@@ -154,6 +154,17 @@ describe("tasks and the desk", () => {
 		assert.equal((await tasks())[0]!.status, "interrupted");
 	});
 
+	it("the monthly budget stops runs on its own notice, which lifts only the monthly cap", async () => {
+		t.core.settings.update({ dailyBudgetUsd: 100, monthlyBudgetUsd: 0.5 });
+		t.core.db.run("INSERT INTO runs(id, cwd, status, started_at, cost) VALUES('old', ?, 'done', ?, 1)", t.workspace, Date.now());
+		t.respond(fauxAssistantMessage("不该出现"));
+		await prompt("花钱的任务");
+		const [notice] = (await t.core.call("notices.list", {})) as Notice[];
+		assert.equal(notice!.kind, "limit_budget_month", "under the daily cap, over the monthly one");
+		assert.match(notice!.title, /本月的花费已达到上限（\$1\.00 \/ \$0\.50）/);
+		await t.core.call("notices.resolve", { id: notice!.id, action: "stop" });
+	});
+
 	it("tasks left running by a crashed core come back as interrupted", async () => {
 		t.respond(fauxAssistantMessage("ok"));
 		await prompt("任务");

@@ -6,7 +6,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'artifact_widgets.dart';
 import 'common.dart';
-import 'usage_page.dart' show formatCost;
+import 'dashboard_page.dart' show formatCost;
 
 class TaskStatusChip extends StatelessWidget {
   const TaskStatusChip({super.key, required this.status});

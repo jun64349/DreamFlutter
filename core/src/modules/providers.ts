@@ -88,6 +88,8 @@ export class Providers {
 
 	async list(): Promise<ProviderInfo[]> {
 		const runtime = await this.llm.runtime();
+		// The credential snapshot fills in asynchronously: wait for it before reading statuses.
+		await runtime.getAvailable();
 		const custom = (readJson(this.modelsPath).providers ?? {}) as Record<string, Json>;
 		const auth = readJson(this.authPath) as Record<string, Json>;
 		const out: ProviderInfo[] = [];

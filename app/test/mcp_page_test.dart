@@ -64,7 +64,9 @@ void main() {
 
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('MCP 服务'));
+    await tester.tap(find.text('工具与 MCP'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, '管理'));
     await settle();
     expect(find.text('github'), findsOneWidget);
 

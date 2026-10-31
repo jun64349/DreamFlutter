@@ -589,10 +589,22 @@ export function userBranches(session: AgentSession): UserBranch[] {
 			current = children.at(-1)!.id;
 		}
 	};
+	// Versions of a question share the message before them. Bookkeeping in
+	// between (a title arriving while the user edits, a model change, mode
+	// markers) does not make an edited question a new one.
+	const entries = manager.getEntries() as unknown as TreeEntry[];
+	const byId = new Map(entries.map((e) => [e.id, e]));
+	const anchorOf = (entry: TreeEntry): string | null => {
+		let parent = entry.parentId ? byId.get(entry.parentId) : undefined;
+		while (parent && parent.type !== "message") parent = parent.parentId ? byId.get(parent.parentId) : undefined;
+		return parent?.id ?? null;
+	};
+	const questions = entries.filter(isUser);
 	const out: UserBranch[] = [];
 	for (const entry of manager.getBranch() as unknown as TreeEntry[]) {
 		if (!isUser(entry)) continue;
-		const siblings = entry.parentId ? (manager.getChildren(entry.parentId) as unknown as TreeEntry[]).filter(isUser).sort(byTime) : [entry];
+		const anchor = anchorOf(entry);
+		const siblings = questions.filter((q) => anchorOf(q) === anchor).sort(byTime);
 		out.push({
 			entryId: entry.id,
 			index: Math.max(0, siblings.findIndex((s) => s.id === entry.id)),

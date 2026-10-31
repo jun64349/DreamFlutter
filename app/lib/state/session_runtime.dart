@@ -288,6 +288,16 @@ class SessionRuntime extends ChangeNotifier {
     onSettled?.call(this);
   }
 
+  /// Reloads the model list (channels or model groups changed in the core).
+  Future<void> refreshModels() async {
+    final client = _client;
+    if (client == null) return;
+    try {
+      models = await client.getAvailableModels();
+      _notifyNow();
+    } catch (_) {}
+  }
+
   /// Reopens the same session (after a crash or a core restart). A session
   /// that was never written to disk starts fresh.
   Future<void> restart() {

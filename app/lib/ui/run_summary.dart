@@ -10,7 +10,7 @@ import 'artifact_widgets.dart';
 import 'message_widgets.dart' show ChatRow, ReplyRow, TodoList, todoItems, toolSubject;
 import 'motion.dart';
 import 'task_widgets.dart';
-import 'usage_page.dart' show formatCost, formatTokens;
+import 'dashboard_page.dart' show formatCost, formatTokens;
 
 /// The panel beside the conversation: the task this session runs (if any)
 /// and the latest run: its steps (live while it runs), the files it

@@ -11,14 +11,14 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/mentions.dart';
-import '../state/agent_controller.dart' show asJsonMap, jsonRows, MaterialInfo, NoteInfo;
+import '../state/agent_controller.dart' show asJsonMap, groupProvider, jsonRows, MaterialInfo, NoteInfo;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'commands_dialog.dart' show commandSourceLabels, showCommandsDialog;
 import 'context_dialog.dart' show showContextDialog;
 import 'motion.dart';
 import 'run_summary.dart' show mentionOf;
-import 'usage_page.dart' show formatCost, formatTokens;
+import 'dashboard_page.dart' show formatCost, formatTokens;
 
 /// Message input. Enter sends, Shift+Enter inserts a newline; while an IME
 /// composition is active Enter is left to the IME. During a run, sending
@@ -557,11 +557,34 @@ class _Chip<T> extends StatelessWidget {
   }
 }
 
+/// A non-selectable section label inside a popup menu.
+class _MenuHeader extends PopupMenuEntry<Never> {
+  const _MenuHeader(this.label);
+
+  final String label;
+
+  @override
+  double get height => 28;
+
+  @override
+  bool represents(Object? value) => false;
+
+  @override
+  State<_MenuHeader> createState() => _MenuHeaderState();
+}
+
+class _MenuHeaderState extends State<_MenuHeader> {
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
+    child: Text(widget.label, style: context.text.labelSmall?.copyWith(color: context.colors.muted)),
+  );
+}
+
 class _MenuRow extends StatelessWidget {
-  const _MenuRow({required this.title, this.subtitle, required this.selected});
+  const _MenuRow({required this.title, required this.selected});
 
   final String title;
-  final String? subtitle;
   final bool selected;
 
   @override
@@ -570,7 +593,6 @@ class _MenuRow extends StatelessWidget {
       children: [
         SizedBox(width: 22, child: selected ? const Icon(Icons.check, size: 16) : null),
         Expanded(child: Text(title)),
-        if (subtitle != null) ...[const SizedBox(width: 16), Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted))],
       ],
     );
   }
@@ -654,17 +676,26 @@ class _ModelChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final model = agent.model;
+    // Model groups first, then each channel's models under its name.
+    final byProvider = <String, List<PiModel>>{};
+    for (final m in agent.models) {
+      byProvider.putIfAbsent(m.provider, () => []).add(m);
+    }
+    final providers = byProvider.keys.toList()..sort((a, b) => (a == groupProvider ? 0 : 1).compareTo(b == groupProvider ? 0 : 1));
     return _Chip<PiModel>(
       label: model?.name ?? '选择模型',
-      tooltip: model == null ? '模型' : '模型：${model.key}',
+      tooltip: model == null ? '模型' : '模型：${model.name} · ${agent.providerLabel(model.provider)}',
       enabled: agent.isReady && agent.models.isNotEmpty,
       filled: true,
       items: [
-        for (final m in agent.models)
-          PopupMenuItem(
-            value: m,
-            child: _MenuRow(title: m.name, subtitle: m.provider, selected: m == model),
-          ),
+        for (final provider in providers) ...[
+          if (providers.length > 1) _MenuHeader(agent.providerLabel(provider)),
+          for (final m in byProvider[provider]!)
+            PopupMenuItem(
+              value: m,
+              child: _MenuRow(title: m.name, selected: m == model),
+            ),
+        ],
       ],
       onSelected: agent.selectModel,
     );

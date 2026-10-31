@@ -78,7 +78,7 @@ class ProviderEntry {
   final List<ModelEntry> models;
 }
 
-const _apiLabels = {
+const apiLabels = {
   'openai-completions': 'OpenAI 兼容（Chat Completions）',
   'openai-responses': 'OpenAI Responses',
   'anthropic-messages': 'Anthropic 兼容',
@@ -420,7 +420,7 @@ class _CustomProviderPageState extends State<CustomProviderPage> {
       });
       final ids = (list as List).whereType<Map>().map((m) => m['id'] as String).toList();
       if (!mounted) return;
-      final chosen = await showDialog<List<String>>(context: context, builder: (_) => _PickModels(ids: ids, existing: _models.map((m) => m.id).toSet()));
+      final chosen = await showDialog<List<String>>(context: context, builder: (_) => PickModelsDialog(ids: ids, existing: _models.map((m) => m.id).toSet()));
       if (chosen != null) {
         setState(() {
           for (final id in chosen) {
@@ -499,7 +499,7 @@ class _CustomProviderPageState extends State<CustomProviderPage> {
           DropdownButtonFormField<String>(
             initialValue: _api,
             decoration: const InputDecoration(labelText: '接口类型'),
-            items: [for (final e in _apiLabels.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
+            items: [for (final e in apiLabels.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
             onChanged: (v) => setState(() => _api = v ?? _api),
           ),
           const SizedBox(height: AppTokens.pad),
@@ -525,7 +525,7 @@ class _CustomProviderPageState extends State<CustomProviderPage> {
           Text('价格按每百万 token 的美元填写，用于用量统计；不知道可以留 0。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
           const SizedBox(height: AppTokens.gap),
           for (final (index, model) in _models.indexed)
-            _ModelRow(key: ObjectKey(model), model: model, onRemove: () => setState(() => _models.removeAt(index))),
+            ModelRow(key: ObjectKey(model), model: model, onRemove: () => setState(() => _models.removeAt(index))),
           if (_message != null)
             Padding(padding: const EdgeInsets.only(top: AppTokens.pad), child: Text(_message!, style: TextStyle(color: colors.danger))),
           if (_busy) const Padding(padding: EdgeInsets.only(top: AppTokens.pad), child: LinearProgressIndicator()),
@@ -535,8 +535,8 @@ class _CustomProviderPageState extends State<CustomProviderPage> {
   }
 }
 
-class _ModelRow extends StatelessWidget {
-  const _ModelRow({super.key, required this.model, required this.onRemove});
+class ModelRow extends StatelessWidget {
+  const ModelRow({super.key, required this.model, required this.onRemove});
 
   final ModelEntry model;
   final VoidCallback onRemove;
@@ -570,8 +570,8 @@ class _ModelRow extends StatelessWidget {
             _number('最大输出', model.maxTokens, (v) => model.maxTokens = int.tryParse(v) ?? model.maxTokens),
             _number('输入 \$/M', model.inputPrice, (v) => model.inputPrice = double.tryParse(v) ?? model.inputPrice, width: 80),
             _number('输出 \$/M', model.outputPrice, (v) => model.outputPrice = double.tryParse(v) ?? model.outputPrice, width: 80),
-            _Flag(label: '图片', value: model.images, onChanged: (v) => model.images = v),
-            _Flag(label: '思考', value: model.reasoning, onChanged: (v) => model.reasoning = v),
+            ModelFlag(label: '图片', value: model.images, onChanged: (v) => model.images = v),
+            ModelFlag(label: '思考', value: model.reasoning, onChanged: (v) => model.reasoning = v),
             IconButton(tooltip: '移除', onPressed: onRemove, icon: const Icon(Icons.close, size: 18)),
           ],
         ),
@@ -580,18 +580,18 @@ class _ModelRow extends StatelessWidget {
   }
 }
 
-class _Flag extends StatefulWidget {
-  const _Flag({required this.label, required this.value, required this.onChanged});
+class ModelFlag extends StatefulWidget {
+  const ModelFlag({super.key, required this.label, required this.value, required this.onChanged});
 
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
 
   @override
-  State<_Flag> createState() => _FlagState();
+  State<ModelFlag> createState() => _ModelFlagState();
 }
 
-class _FlagState extends State<_Flag> {
+class _ModelFlagState extends State<ModelFlag> {
   late var _value = widget.value;
 
   @override
@@ -610,17 +610,17 @@ class _FlagState extends State<_Flag> {
   );
 }
 
-class _PickModels extends StatefulWidget {
-  const _PickModels({required this.ids, required this.existing});
+class PickModelsDialog extends StatefulWidget {
+  const PickModelsDialog({super.key, required this.ids, required this.existing});
 
   final List<String> ids;
   final Set<String> existing;
 
   @override
-  State<_PickModels> createState() => _PickModelsState();
+  State<PickModelsDialog> createState() => _PickModelsDialogState();
 }
 
-class _PickModelsState extends State<_PickModels> {
+class _PickModelsDialogState extends State<PickModelsDialog> {
   late final Set<String> _chosen = {...widget.existing};
   var _filter = '';
 

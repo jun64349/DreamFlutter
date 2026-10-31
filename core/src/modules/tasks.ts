@@ -71,7 +71,7 @@ export interface Artifact {
 	updatedAt: number;
 }
 
-export type NoticeKind = "limit_turns" | "limit_budget";
+export type NoticeKind = "limit_turns" | "limit_budget" | "limit_budget_month";
 
 /** A card the core raises for the user (run limits...), resolved from the inbox. */
 export interface Notice {
@@ -143,6 +143,13 @@ function oneLine(text: string, max: number): string {
 	return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
+function startOfMonth(at = now()): number {
+	const d = new Date(at);
+	d.setDate(1);
+	d.setHours(0, 0, 0, 0);
+	return d.getTime();
+}
+
 function startOfToday(at = now()): number {
 	const d = new Date(at);
 	d.setHours(0, 0, 0, 0);
@@ -162,6 +169,7 @@ export class TasksModule implements CoreModule {
 	private readonly extraTurns = new Map<string, number>();
 	/** Day (start ms) the user chose to keep going past the daily budget. */
 	private budgetOverrideDay = 0;
+	private budgetOverrideMonth = 0;
 	/** Runs already stopped by a limit (one card per run). */
 	private readonly stoppedRuns = new Set<string>();
 	/** Other modules' items for the inbox (e.g. schedules waiting for approval). */
@@ -404,6 +412,15 @@ export class TasksModule implements CoreModule {
 			for (const s of this.core.slots.values()) spent += s.currentRun?.cost ?? 0;
 			if (spent >= budget) {
 				this.pauseRun(slot, run, "limit_budget", `今天的花费已达到上限（$${spent.toFixed(2)} / $${budget.toFixed(2)}）`, "任务已暂停。可以今天内不再限制并继续，或者到此为止。");
+				return;
+			}
+		}
+		const monthly = settings.monthlyBudgetUsd;
+		if (monthly > 0 && this.budgetOverrideMonth !== startOfMonth()) {
+			let spent = this.core.runs.costSince(startOfMonth());
+			for (const s of this.core.slots.values()) spent += s.currentRun?.cost ?? 0;
+			if (spent >= monthly) {
+				this.pauseRun(slot, run, "limit_budget_month", `本月的花费已达到上限（$${spent.toFixed(2)} / $${monthly.toFixed(2)}）`, "任务已暂停。可以本月内不再限制并继续，或者到此为止。");
 			}
 		}
 	}
@@ -468,6 +485,8 @@ export class TasksModule implements CoreModule {
 		if (notice.kind === "limit_turns") {
 			const settings = this.core.settings.get();
 			this.extraTurns.set(slot.slotId, (this.extraTurns.get(slot.slotId) ?? 0) + (slot.unattended ? settings.maxTurnsUnattended : settings.maxTurnsPerRun));
+		} else if (notice.kind === "limit_budget_month") {
+			this.budgetOverrideMonth = startOfMonth();
 		} else {
 			this.budgetOverrideDay = startOfToday();
 		}

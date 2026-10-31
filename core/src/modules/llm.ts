@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Core } from "../core.ts";
+import { classifyFailure, isChannelFailure } from "../gateway/classify.ts";
 import { textOf } from "../runs.ts";
 
 /**
@@ -67,8 +68,11 @@ export class Llm {
 				{ maxTokens: options.maxTokens ?? 1024, signal } as never,
 			);
 		let message = await ask();
-		// A model group: the failed channel is resting now, so asking again goes to the next one.
-		for (let attempt = 1; attempt < 3 && message.stopReason === "error" && (model as { api?: string }).api === "pi-virtual" && !signal.aborted; attempt++) {
+		// A model group: when a channel failed before answering anything, it is resting
+		// now, so asking again goes to the next one.
+		const switchable = (m: typeof message) =>
+			m.stopReason === "error" && isChannelFailure(classifyFailure(m.errorMessage)) && !m.content.some((c) => (c.type === "text" ? c.text : c.type === "thinking" ? c.thinking : "x"));
+		for (let attempt = 1; attempt < 3 && switchable(message) && (model as { api?: string }).api === "pi-virtual" && !signal.aborted; attempt++) {
 			message = await ask();
 		}
 		if (message.stopReason === "error" || message.stopReason === "aborted") {

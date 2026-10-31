@@ -169,8 +169,12 @@ export class Gateway implements CoreModule {
 	readonly health: HealthBook;
 	/** Channels from Pi's own configuration, refreshed when providers change. */
 	private piChannels: ChannelInfo[] = [];
-	/** Where each target (session extension API, model runtime) has things registered. */
+	/** What each session's extension API has registered (kept current on changes). */
 	private readonly targets = new Map<Target, Registered>();
+	/** What a model runtime used outside sessions has registered. */
+	private readonly runtimes = new WeakMap<ModelRuntime, Registered>();
+	/** The last failed balance or allowance query per channel (the good reading stays). */
+	private readonly quotaErrors = new Map<string, QuotaReading>();
 	/** The entry a session's latest group request went to, so the wrapper knows it may switch. */
 	private readonly routed = new Map<string, { provider: string; model: string; group: string }>();
 	/** Key each session uses per channel (one account keeps its prompt cache). */
@@ -209,21 +213,36 @@ export class Gateway implements CoreModule {
 		const channels = this.channels().filter((c) => (channelId ? c.id === channelId : c.enabled) && platform(c.platform)?.quota);
 		await Promise.all(
 			channels.map(async (channel) => {
-				const apiKey = channel.source === "df" ? await this.firstSecret(channel) : await this.providers.apiKeyOf(channel.provider);
-				if (!apiKey) return;
-				const reading = await readQuota(platform(channel.platform)!.quota!, channel.baseUrl, apiKey, this.fetch, this.clock);
-				this.applyReading(channel, reading);
+				const key = channel.source === "df" ? await this.firstKey(channel) : { id: "pi", secret: await this.providers.apiKeyOf(channel.provider) };
+				if (!key?.secret) return;
+				const reading = await readQuota(platform(channel.platform)!.quota!, channel.baseUrl, key.secret, this.fetch, this.clock);
+				this.applyReading(channel, key.id, reading.type === "error" ? { ...reading, message: redact(reading.message, [key.secret]) } : reading);
 			}),
 		);
 		if (channels.length) this.core.broadcast({ event: "gateway.changed" });
 	}
 
-	private async firstSecret(channel: ChannelInfo): Promise<string | undefined> {
+	/** The key a channel's balance is read with: its first usable one. */
+	private async firstKey(channel: ChannelInfo): Promise<{ id: string; secret: string } | undefined> {
 		const key = channel.keys.find((k) => k.enabled && k.unavailable?.kind !== "auth") ?? channel.keys.find((k) => k.enabled);
-		return key ? this.secret(key.id) : undefined;
+		return key ? { id: key.id, secret: await this.secret(key.id) } : undefined;
 	}
 
-	private applyReading(channel: ChannelInfo, reading: QuotaReading): void {
+	private async firstSecret(channel: ChannelInfo): Promise<string | undefined> {
+		return (await this.firstKey(channel))?.secret;
+	}
+
+	/**
+	 * A reading is about the account of the key it was read with ([keyId]):
+	 * other keys of the channel may belong to other accounts. A failed query
+	 * keeps the last good reading (and so the reminders' memory).
+	 */
+	private applyReading(channel: ChannelInfo, keyId: string, reading: QuotaReading): void {
+		if (reading.type === "error") {
+			this.quotaErrors.set(channel.id, reading);
+			return;
+		}
+		this.quotaErrors.delete(channel.id);
 		const previous = this.reading(channel.id);
 		this.core.db.run(
 			"INSERT INTO gateway_quota(channel, data, checked_at) VALUES(?, ?, ?) ON CONFLICT(channel) DO UPDATE SET data = excluded.data, checked_at = excluded.checked_at",
@@ -231,14 +250,14 @@ export class Gateway implements CoreModule {
 			json(reading),
 			reading.checkedAt,
 		);
-		const keys = channel.source === "df" ? channel.keys.map((k) => `${channel.id}#${k.id}`) : [`${channel.id}#pi`];
+		const keys = [`${channel.id}#${keyId}`];
 		if (reading.type === "plan") {
 			const full = reading.windows.filter((w) => w.usedPercent >= 100);
 			if (full.length) {
 				const until = Math.max(...full.map((w) => w.resetAt ?? 0)) || undefined;
 				for (const key of keys) this.health.fail(key, "quota", `${full.map((w) => w.label).join("、")}额度用完`, until);
 			} else {
-				this.health.clearQuota(channel.id);
+				this.health.clearQuota(keys[0]!);
 			}
 			// Remind once per window period at 80 %.
 			for (const window of reading.windows) {
@@ -249,7 +268,7 @@ export class Gateway implements CoreModule {
 			}
 		} else if (reading.type === "balance") {
 			if (reading.amount <= 0) for (const key of keys) this.health.fail(key, "balance", "余额为 0");
-			else this.health.clearQuota(channel.id);
+			else this.health.clearQuota(keys[0]!);
 			const low = channel.lowBalance;
 			const wasAbove = previous?.type !== "balance" || low === null || previous.amount >= low;
 			if (low !== null && reading.amount < low && wasAbove) this.alert(`${channel.name} 余额不足`, `剩余 ${reading.amount.toFixed(2)} ${reading.currency}，低于你设的 ${low}`);
@@ -293,7 +312,7 @@ export class Gateway implements CoreModule {
 				platform: channel.platform,
 				source: channel.source,
 				unavailable: channel.unavailable,
-				quota: this.reading(channel.id) ?? null,
+				quota: this.reading(channel.id) ?? this.quotaErrors.get(channel.id) ?? null,
 				canQuery: platform(channel.platform)?.quota !== undefined,
 				today: { requests: Number(today.requests), failures: Number(today.failures ?? 0), cost: today.cost, avgFirstTokenMs: today.ttft === null ? null : Math.round(today.ttft) },
 				last5h: { requests: Number(recent.requests), tokens: Number(recent.tokens) },
@@ -537,28 +556,29 @@ export class Gateway implements CoreModule {
 				};
 				pi.on("session_shutdown", () => void this.targets.delete(target));
 				// Session routing looks models up through the context Pi passes to route().
-				this.apply(target, () => undefined);
+				const registered: Registered = { providers: new Set(), groups: new Set(), find: () => undefined };
+				this.targets.set(target, registered);
+				this.apply(target, registered);
 			},
 		];
 	}
 
 	/** Registers channels and groups on a model runtime used outside sessions (titles, memory, tests). */
 	installRuntime(runtime: ModelRuntime): void {
-		const existing = [...this.targets.entries()].find(([t]) => (t as unknown as { runtime?: ModelRuntime }).runtime === runtime);
-		if (existing) return;
-		const target = {
-			runtime,
+		// One-off runtimes (a title, a connection test) are not kept for later
+		// changes; registering again on a reused one replaces what it had.
+		const target: Target = {
 			registerProvider: (id: string, config: Record<string, unknown>) => runtime.registerProvider(id, config as never),
 			unregisterProvider: (id: string) => runtime.unregisterProvider(id),
 			registerVirtualModel: (definition: Record<string, unknown>) => runtime.registerVirtualModel(definition as never),
 			unregisterVirtualModel: (provider: string, id: string) => runtime.unregisterVirtualModel(provider, id),
 		};
-		this.apply(target, (provider, id) => runtime.getModel(provider, id) as Model<Api> | undefined);
+		const registered = this.runtimes.get(runtime) ?? { providers: new Set<string>(), groups: new Set<string>(), find: (provider, id) => runtime.getModel(provider, id) as Model<Api> | undefined };
+		this.runtimes.set(runtime, registered);
+		this.apply(target, registered);
 	}
 
-	private apply(target: Target, find: Registered["find"]): void {
-		const registered = this.targets.get(target) ?? { providers: new Set<string>(), groups: new Set<string>(), find };
-		this.targets.set(target, registered);
+	private apply(target: Target, registered: Registered): void {
 		const channels = this.channels();
 		const groups = this.groups();
 		const inGroups = new Set(groups.flatMap((g) => g.entries.map((e) => e.channel)));
@@ -574,7 +594,7 @@ export class Gateway implements CoreModule {
 						baseUrl: channel.baseUrl,
 						apiKey: KEY_PLACEHOLDER,
 						api: channel.api,
-						headers: channel.headers,
+						headers: channel.headers ?? {},
 						authHeader: channel.authHeader,
 						streamSimple: this.wrap(channel.id),
 						models: channel.models.map((m) => ({
@@ -630,7 +650,7 @@ export class Gateway implements CoreModule {
 	}
 
 	private changed(): void {
-		for (const [target, registered] of this.targets) this.apply(target, registered.find);
+		for (const [target, registered] of this.targets) this.apply(target, registered);
 		this.core.broadcast({ event: "gateway.changed" });
 	}
 
@@ -645,7 +665,12 @@ export class Gateway implements CoreModule {
 		const group = this.groups().find((g) => g.id === groupId);
 		if (!group) throw new Error("这个模型组已被删除");
 		const channels = this.channels();
-		const failed = request.failed ? this.entryOf(request.failed.model, channels) : undefined;
+		// Move on only when the channel itself failed and has no usable key left: a
+		// context overflow retries the same model after compaction, and a channel
+		// with another healthy key retries with that key.
+		const failedEntry = request.failed ? this.entryOf(request.failed.model, channels) : undefined;
+		const failedChannel = failedEntry && channels.find((c) => c.id === failedEntry.channel);
+		const failed = failedEntry && failedChannel?.unavailable && isChannelFailure(classifyFailure(request.failed!.message.errorMessage)) ? failedEntry : undefined;
 		const decision = pickEntry(group, (entry) => this.candidateInfo(entry, channels), request.state as RouteState | undefined, failed);
 		if (!decision.ok) throw new Error(decision.message);
 		const channel = channels.find((c) => c.id === decision.entry.channel)!;
@@ -679,10 +704,7 @@ export class Gateway implements CoreModule {
 	private wrap(channelId: string): Transport {
 		return (model, context, options) => {
 			const out = createAssistantMessageEventStream();
-			void this.relay(channelId, model, context, options, out).catch((error) => {
-				const message = error instanceof Error ? error.message : String(error);
-				out.push({ type: "error", reason: "error", error: errorMessage(model, message) });
-			});
+			void this.relay(channelId, model, context, options, out);
 			return out;
 		};
 	}
@@ -690,44 +712,63 @@ export class Gateway implements CoreModule {
 	private async relay(channelId: string, model: Model<Api>, context: Parameters<Transport>[1], options: SimpleStreamOptions | undefined, out: AssistantMessageEventStream): Promise<void> {
 		const channel = this.channel(channelId);
 		const sessionId = options?.sessionId;
+		// The router marks the request it routed; the mark is for this request only.
 		const routed = sessionId ? this.routed.get(sessionId) : undefined;
-		const group = routed && routed.provider === model.provider && routed.model === model.id ? routed.group : undefined;		const key = channel?.source === "df" ? await this.pickKey(channel, sessionId) : undefined;
-		const healthKey = `${channelId}#${key?.id ?? "pi"}`;
+		if (sessionId) this.routed.delete(sessionId);
+		const group = routed && routed.provider === model.provider && routed.model === model.id ? routed.group : undefined;
 		const started = this.clock();
+		let key: { id: string; secret: string } | undefined;
 		let firstToken: number | undefined;
 		let streamed = false;
-		const inner = this.transport(model, context, key ? { ...options, apiKey: key.secret } : options);
-		for await (const event of inner as AsyncIterable<AssistantMessageEvent>) {
-			if (event.type === "done") {
-				this.health.succeed(healthKey);
-				this.record(channelId, key?.id, model.id, group, sessionId, started, firstToken, event.message, undefined);
-				out.push(event);
-				continue;
+
+		const fail = (failure: AssistantMessage, reason: "aborted" | "error") => {
+			failure = { ...failure, errorMessage: failure.errorMessage === undefined ? undefined : redact(failure.errorMessage, [key?.secret, options?.apiKey]) };
+			const kind = reason === "aborted" ? "other" : classifyFailure(failure.errorMessage);
+			this.record(channelId, key?.id, model.id, group, sessionId, started, firstToken, failure, reason === "aborted" ? undefined : kind);
+			if (reason !== "aborted" && isChannelFailure(kind)) {
+				this.health.fail(`${channelId}#${key?.id ?? "pi"}`, kind, failure.errorMessage ?? "");
+				this.lastFailure.set(channelId, kind);
 			}
-			if (event.type === "error") {
-				const failure = event.error;
-				const kind = event.reason === "aborted" ? "other" : classifyFailure(failure.errorMessage);
-				this.record(channelId, key?.id, model.id, group, sessionId, started, firstToken, failure, event.reason === "aborted" ? undefined : kind);
-				if (event.reason !== "aborted" && isChannelFailure(kind)) {
-					this.health.fail(healthKey, kind, failure.errorMessage ?? "");
-					this.lastFailure.set(channelId, kind);
-				}
-				// Pi does not retry quota, balance or key errors. Through a group, another
-				// channel can take the request: say it so that Pi retries and the router moves on.
-				if (group && !streamed && event.reason !== "aborted" && isChannelFailure(kind) && !isRetryableAssistantError(failure)) {
-					const name = channel?.name ?? channelId;
-					out.push({ type: "error", reason: "error", error: { ...failure, errorMessage: `渠道「${name}」${FAILURE_LABEL[kind]}，换下一个渠道（service temporarily unavailable）` } });
-				} else {
+			// Pi does not retry quota, balance or key errors. Through a group, another
+			// channel can take the request: say it so that Pi retries and the router moves on.
+			if (group && !streamed && reason !== "aborted" && isChannelFailure(kind) && !isRetryableAssistantError(failure)) {
+				const name = channel?.name ?? channelId;
+				out.push({ type: "error", reason: "error", error: { ...failure, errorMessage: `渠道「${name}」${FAILURE_LABEL[kind]}，换下一个渠道（service temporarily unavailable）` } });
+			} else {
+				out.push({ type: "error", reason, error: failure });
+			}
+		};
+
+		try {
+			key = channel?.source === "df" ? await this.pickKey(channel, sessionId) : undefined;
+			let request = options;
+			if (key) {
+				// Pi built its auth header from the placeholder key (authHeader channels): put the real one in.
+				const secret = key.secret;
+				const headers = options?.headers ? Object.fromEntries(Object.entries(options.headers).map(([k, v]) => [k, typeof v === "string" ? v.split(KEY_PLACEHOLDER).join(secret) : v])) : undefined;
+				request = { ...options, apiKey: secret, ...(headers ? { headers } : {}) };
+			}
+			const inner = this.transport(model, context, request);
+			for await (const event of inner as AsyncIterable<AssistantMessageEvent>) {
+				if (event.type === "done") {
+					this.health.succeed(`${channelId}#${key?.id ?? "pi"}`);
+					this.record(channelId, key?.id, model.id, group, sessionId, started, firstToken, event.message, undefined);
 					out.push(event);
+					continue;
 				}
-				continue;
+				if (event.type === "error") {
+					fail(event.error, event.reason);
+					continue;
+				}
+				// Only real output counts: an empty block opened before an error leaves nothing to lose.
+				if ((event.type.endsWith("_delta") && (event as { delta?: string }).delta) || event.type === "toolcall_end") {
+					firstToken ??= this.clock() - started;
+					streamed = true;
+				}
+				out.push(event);
 			}
-			// Only real output counts: an empty block opened before an error leaves nothing to lose.
-			if ((event.type.endsWith("_delta") && (event as { delta?: string }).delta) || event.type === "toolcall_end") {
-				firstToken ??= this.clock() - started;
-				streamed = true;
-			}
-			out.push(event);
+		} catch (error) {
+			fail(errorMessage(model, error instanceof Error ? error.message : String(error)), "error");
 		}
 		out.end();
 	}
@@ -752,7 +793,8 @@ export class Gateway implements CoreModule {
 		const cached = this.secrets.get(keyId);
 		if (cached !== undefined) return cached;
 		const value = await this.providers.secrets.get(`gateway-${keyId}`);
-		this.secrets.set(keyId, value);
+		// The key may have been deleted while it was being decrypted: then do not keep it.
+		if (this.core.db.get("SELECT id FROM gateway_keys WHERE id = ?", keyId)) this.secrets.set(keyId, value);
 		return value;
 	}
 
@@ -816,6 +858,19 @@ export class Gateway implements CoreModule {
 			this.changed();
 			return { ok: true };
 		});
+		core.register("gateway.fetchModels", async (params) => {
+			const channel = str(params.channel) ? this.channel(str(params.channel)!) : undefined;
+			const apiKey = str(params.apiKey) ?? (channel?.source === "df" ? await this.firstSecret(channel) : undefined);
+			return this.providers.fetchModels({ baseUrl: str(params.baseUrl), api: str(params.api), apiKey, provider: channel?.source === "pi" ? channel.provider : undefined });
+		});
+		core.register("gateway.testChannel", async (params) => {
+			const channel = this.channel(requireStr(params.channel, "channel"));
+			if (!channel) throw new RpcError("not_found", "找不到这个渠道");
+			this.health.reset(channel.id);
+			const result = await this.providers.test(channel.provider, str(params.model) ?? channel.models[0]?.id);
+			this.core.broadcast({ event: "gateway.changed" });
+			return result;
+		});
 		core.register("gateway.status", () => this.status());
 		core.register("gateway.refreshQuota", async (params) => {
 			await this.refreshQuotas(str(params.channel));
@@ -830,6 +885,15 @@ export class Gateway implements CoreModule {
 			);
 		});
 	}
+}
+
+/** Removes keys from text that leaves the wrapper (records, rest reasons, the window). */
+export function redact(text: string, secrets: (string | undefined)[]): string {
+	let out = text;
+	for (const secret of secrets) {
+		if (secret && secret.length >= 8 && secret !== KEY_PLACEHOLDER) out = out.split(secret).join(`****${secret.slice(-4)}`);
+	}
+	return out;
 }
 
 function sessionIdOf(ctx: ExtensionContext | undefined): string | undefined {

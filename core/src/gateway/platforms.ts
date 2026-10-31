@@ -19,6 +19,8 @@ export interface Platform {
 	quota?: QuotaSource;
 	/** Plan windows, for display and for estimating when there is no query endpoint. */
 	windows?: ("5h" | "week" | "month")[];
+	/** Its addresses are shared with pay-as-you-go accounts: an address alone does not say it is a plan. */
+	sharedEndpoints?: boolean;
 	/** Suggested models when the endpoint cannot list them. */
 	models?: string[];
 }
@@ -67,6 +69,7 @@ export const PLATFORMS: Platform[] = [
 			{ api: "openai-completions", baseUrl: "https://api.minimaxi.com/v1" },
 		],
 		quota: "minimax-remains",
+		sharedEndpoints: true,
 		windows: ["5h", "week"],
 		models: ["MiniMax-M3", "MiniMax-M3.1-Flash"],
 	},
@@ -92,7 +95,7 @@ export function platform(id: string | null | undefined): Platform | undefined {
 export function platformForUrl(baseUrl: string | null | undefined): Platform | undefined {
 	if (!baseUrl) return undefined;
 	const host = hostOf(baseUrl);
-	return PLATFORMS.find((p) => p.endpoints.some((e) => hostOf(e.baseUrl) === host && (p.kind !== "plan" || baseUrl.includes(new URL(e.baseUrl).pathname))));
+	return PLATFORMS.find((p) => !p.sharedEndpoints && p.endpoints.some((e) => hostOf(e.baseUrl) === host && (p.kind !== "plan" || baseUrl.includes(new URL(e.baseUrl).pathname))));
 }
 
 function hostOf(url: string): string {

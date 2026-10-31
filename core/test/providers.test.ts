@@ -59,9 +59,12 @@ describe("providers", () => {
 
 	it("lists providers with configured ones first", async () => {
 		const list = (await t.core.call("providers.list", {})) as ProviderInfo[];
-		assert.equal(list[0]!.id, "faux");
-		assert.equal(list[0]!.configured, true);
-		assert.equal(list[0]!.models[0]!.id, "faux-1");
+		// Keys in this machine's environment can configure more providers: check the order, not the first id.
+		const firstUnconfigured = list.findIndex((p) => !p.configured);
+		assert.ok(firstUnconfigured === -1 || list.slice(firstUnconfigured).every((p) => !p.configured), "configured providers come first");
+		const faux = list.find((p) => p.id === "faux")!;
+		assert.equal(faux.configured, true);
+		assert.equal(faux.models[0]!.id, "faux-1");
 	});
 
 	it("tests a connection with a tiny request", async () => {

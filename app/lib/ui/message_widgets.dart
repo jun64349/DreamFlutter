@@ -11,7 +11,7 @@ import 'agent_scope.dart';
 import 'composer.dart' show MentionChip;
 import 'markdown_view.dart';
 import 'motion.dart';
-import 'usage_page.dart' show formatCost, formatTokens;
+import 'dashboard_page.dart' show formatCost, formatTokens;
 
 // ---------------------------------------------------------------------------
 // Rows: a question, or the whole reply to it

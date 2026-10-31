@@ -9,11 +9,13 @@ import 'backend.dart';
 import 'mentions.dart';
 import 'preferences.dart';
 import 'session_runtime.dart';
+import 'gateway_models.dart';
 import 'work_models.dart';
 
 export 'backend.dart' show AgentBackend, CoreBackend, asJsonMap;
 export 'session_runtime.dart' show ClientLauncher, ConnectionStatus, SessionRuntime;
 export 'work_models.dart';
+export 'gateway_models.dart';
 
 /// One row in the session sidebar: a persisted session, a live one, or both.
 class SidebarEntry {
@@ -178,6 +180,13 @@ class AgentController extends ChangeNotifier {
   /// pages reload.
   final libraryRevision = ValueNotifier<int>(0);
 
+  /// The model gateway's channels and model groups (names for model menus, the settings pages).
+  List<GatewayChannel> gatewayChannels = const [];
+  List<ModelGroup> modelGroups = const [];
+
+  /// Bumped when channels, groups or their state change in the core.
+  final gatewayRevision = ValueNotifier<int>(0);
+
   /// Short user-facing messages (errors, extension notifications).
   Stream<String> get toasts => _toasts.stream;
 
@@ -306,6 +315,7 @@ class AgentController extends ChangeNotifier {
     await _activate(blank ?? await _spawn());
     unawaited(refreshSessions());
     unawaited(refreshPendingCounts());
+    unawaited(refreshGateway());
   }
 
   /// Connects to the core; on failure records why and returns null.
@@ -399,12 +409,48 @@ class AgentController extends ChangeNotifier {
         workRevision.value++;
         final title = message['title'];
         if (title is String) _toast(title);
+      case 'gateway.changed':
+        unawaited(refreshGateway(models: true));
+      case 'gateway.switched':
+        final to = message['to'];
+        final from = message['from'];
+        if (message['toPaid'] == true) {
+          _toast('套餐额度用完了，已转到付费渠道「$to」。');
+        } else {
+          _toast('已从「$from」换到「$to」：${message['reason']}');
+        }
+        unawaited(refreshGateway());
+      case 'gateway.alert':
+        _toast('${message['title']}：${message['body']}');
       case 'notices.changed':
         workRevision.value++;
         unawaited(refreshPendingCounts());
         final notice = message['notice'];
         if (notice is Map && notice['title'] is String) _toast('${notice['title']}。到「任务 › 待处理」里选择继续还是结束。');
     }
+  }
+
+  /// Loads channels and groups; with [models], sessions also reload their model lists.
+  Future<void> refreshGateway({bool models = false}) async {
+    try {
+      gatewayChannels = jsonRows(await backend.call('gateway.channels')).map(GatewayChannel.fromJson).toList();
+      modelGroups = jsonRows(await backend.call('gateway.groups')).map(ModelGroup.fromJson).toList();
+    } catch (_) {
+      return; // an older core without the gateway
+    }
+    if (models) {
+      for (final runtime in List.of(_runtimes)) {
+        if (runtime.isReady) unawaited(runtime.refreshModels());
+      }
+    }
+    gatewayRevision.value++;
+    _notify();
+  }
+
+  /// A model's provider as people know it: the channel's name, or 「模型组」.
+  String providerLabel(String provider) {
+    if (provider == groupProvider) return '模型组';
+    return gatewayChannels.where((c) => c.provider == provider).firstOrNull?.name ?? provider;
   }
 
   /// Counts for the navigation badges.

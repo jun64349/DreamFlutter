@@ -26,6 +26,8 @@ export interface CoreSettings {
 	autoTitle: boolean;
 	/** Daily spending cap for all runs, in USD; 0 = no cap. */
 	dailyBudgetUsd: number;
+	/** Monthly spending cap for all runs, in USD; 0 = no cap. */
+	monthlyBudgetUsd: number;
 	/** Turn cap for one run started from a window; 0 = no cap. */
 	maxTurnsPerRun: number;
 	/** Turn cap for one unattended run. */
@@ -48,6 +50,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	memoryBudgetTokens: 1500,
 	autoTitle: true,
 	dailyBudgetUsd: 0,
+	monthlyBudgetUsd: 0,
 	maxTurnsPerRun: 60,
 	maxTurnsUnattended: 40,
 	notifications: true,
@@ -129,6 +132,7 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 		case "maxTurnsPerRun":
 			return Number.isInteger(value) && (value as number) >= 0;
 		case "dailyBudgetUsd":
+		case "monthlyBudgetUsd":
 			return (value as number) >= 0;
 		default:
 			return true;
