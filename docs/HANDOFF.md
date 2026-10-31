@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接（v0.1.1 → v0.2）
 
-更新时间：2026-10-30
+更新时间：2026-10-31
 当前分支：`main`（v0.1.0、v0.1.1 都已打 tag；下一阶段是 v0.2，计划见 [v0.2-plan.md](v0.2-plan.md)）
 
 ## 一句话现状
@@ -52,9 +52,9 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - **Bash 工具的沙箱里启动不了 PowerShell**（ENOENT）：跑后台测试和 `scripts/live-modes.ts` 用 PowerShell 工具。
 - 真实 DeepSeek 检查：`cd core; node --disable-warning=ExperimentalWarning scripts/live-modes.ts minimal standard [--task=twoturn]`。
 
-**E2E 状态（2026-10-30）**：真实窗口测试第 1–21 步（含新加的极简模式）用 DeepSeek 跑通；第 22 步（计划模式）因测试里的等待条件有竞争而失败，条件已修好但**还没重跑验证**：`cd app; flutter test integration_test/e2e_test.dart -d windows`。
+**E2E 状态（2026-10-31）**：全部步骤（含极简模式、计划模式）用 DeepSeek 跑通。第 14 步（记忆页）改过：自动整理出的「待确认」卡片会把记忆库挤到屏幕下面，列表不构建看不见的项，所以先滚到「记忆库（」标题、等计数为 1、再滚到那条记忆。第 18 步（web_fetch）也改过：DeepSeek 读完网页后有时还想用 `pwsh` 抽标题（会正常请求审批），测试现在要求它不运行命令，若仍请求就确认请求的不是 web_fetch 再拒绝。
 
-**待查问题（2026-10-30 用户报告，未修）**：切换工作区时，**整个应用窗口会短暂变黑**一下。用户是在看 E2E 测试跑的时候看到的（第 7 步从最近列表切换工作区，也可能是别的步骤），没看清具体时刻。已排除：主题没有变化；HomePage / ChatView 没有在切换时返回空组件的分支；会话启动中对话区显示转圈而不是空白。还没做：录屏定位。计划：写一个用假后台反复切换工作区的集成测试，同时用 PowerShell（System.Drawing CopyFromScreen）每 50 毫秒截屏，找出全黑的帧和对应的步骤；再看是不是 Windows 上 Flutter 窗口在某个原生操作（选文件夹对话框、窗口尺寸变化）后丢了一帧。
+**切换工作区黑屏（2026-10-31 查清，不是应用的问题）**：是 E2E 第 8 步「关窗口」用 `pumpWidget(const SizedBox())` 造成的：没有 MaterialApp 时 Flutter 窗口画默认黑色，持续约 1 秒，紧跟在第 7 步切换工作区之后，看起来像切换时黑了一下。验证方法：用假后台经菜单来回切换工作区 16 次，同时用 PowerShell（CopyFromScreen + LockBits）每约 75 毫秒采样窗口客户区的黑色像素比例：切换期间 147 帧没有一个黑色像素，换成空组件的 1 秒里 12 帧有 11 帧全黑。已把那一步改成铺纸色（`AppColors.light.background`）。以后再查闪屏可以照这个办法：测试里打时间戳，采样器记 `毫秒,黑色比例`，按时间段对照。
 
 ## v0.2 阶段 2 后半（2026-10-30）
 

@@ -12,6 +12,7 @@ import 'dart:ui' as ui;
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/theme.dart' show AppColors;
 import 'package:dreamflutter/ui/desk_page.dart' show DeskPage;
 import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:dreamflutter/ui/memory_page.dart' show MemoryPage;
@@ -287,7 +288,9 @@ void main() {
     await waitFor(tester, 'C running', () => agent.isRunning, agent);
     final sessionC = agent.currentSessionPath!;
     agent.dispose(); // the window goes away; the core keeps the session
-    await tester.pumpWidget(const SizedBox());
+    // Paper, not an empty widget: a bare window paints black, which looked
+    // like a flash when switching workspaces (the step before).
+    await tester.pumpWidget(ColoredBox(color: AppColors.light.background));
     await idle(tester, const Duration(seconds: 1));
 
     agent = AgentController(
@@ -381,7 +384,15 @@ void main() {
     await waitFor(tester, 'remembered', () => !agent.isRunning && lastText(agent).isNotEmpty, agent);
     expect(agent.transcript.tools.values.where((r) => r.name == 'memory_save'), isNotEmpty, reason: describe(agent));
     await tester.tap(nav('记忆'));
-    await waitFor(tester, 'memory listed', () => find.descendant(of: find.byType(MemoryPage), matching: find.textContaining('表格')).evaluate().isNotEmpty, agent);
+    // Candidates from automatic extraction can push the library below the
+    // fold, where the list has not built it: wait for the count, then scroll.
+    Finder onMemoryPage(Finder f) => find.descendant(of: find.byType(MemoryPage), matching: f);
+    final memoryList = onMemoryPage(find.byType(Scrollable)).first;
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(onMemoryPage(find.textContaining('记忆库（')), 300, scrollable: memoryList);
+    await waitFor(tester, 'memory listed', () => onMemoryPage(find.textContaining('记忆库（1）')).evaluate().isNotEmpty, agent);
+    await tester.scrollUntilVisible(onMemoryPage(find.textContaining('表格')), 300, scrollable: memoryList);
+    await tester.pumpAndSettle();
     await shot(tester, '20_memory_page');
 
     // 15. Save the request as a task template (drafted by the model), see it on the skills page.
@@ -496,9 +507,18 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.byIcon(Icons.add)));
     await waitFor(tester, 'fresh session', () => agent.isReady && agent.transcript.items.isEmpty, agent);
-    await sendMessage(tester, '用 web_fetch 工具读取 https://example.com ，然后只回复页面的标题。');
-    await waitFor(tester, 'fetched', () => !agent.isRunning && lastText(agent).isNotEmpty, agent);
-    expect(find.text('Agent 请求执行操作'), findsNothing);
+    await sendMessage(tester, '用 web_fetch 工具读取 https://example.com ，然后直接根据读到的内容只回复页面的标题，不要运行命令。');
+    // The model may still want a command afterwards (it asks, as it should):
+    // decline it, but web_fetch itself must never ask.
+    final asking = find.text('Agent 请求执行操作');
+    while (agent.isRunning || asking.evaluate().isNotEmpty || lastText(agent).isEmpty) {
+      await waitFor(tester, 'fetched', () => asking.evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
+      if (asking.evaluate().isNotEmpty) {
+        expect(find.textContaining('web_fetch'), findsNothing, reason: 'web_fetch asked for approval');
+        await tester.tap(find.widgetWithText(OutlinedButton, '拒绝').first);
+        await tester.pump();
+      }
+    }
     expect(agent.transcript.tools.values.where((r) => r.name == 'web_fetch' && r.status == ToolStatus.done), isNotEmpty, reason: describe(agent));
     expect(lastText(agent).toLowerCase(), contains('example'));
     await shot(tester, '29_web_fetch');
