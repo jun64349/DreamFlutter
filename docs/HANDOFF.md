@@ -50,6 +50,7 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - 后台小任务（标题、记忆）也能用模型组：`Llm.runtime()` 装上网关，`complete` 对模型组最多再试两次。
 - 每月花费上限 `monthlyBudgetUsd`，暂停卡片类型 `limit_budget_month`。
 - 窗口：`state/gateway_models.dart`，控制器 `gatewayChannels` / `modelGroups` / `providerLabel()`，事件 `gateway.changed` / `gateway.switched`（提示「已从 A 换到 B」）/ `gateway.alert`；`ui/gateway_pages.dart`（渠道列表和编辑页、模型组列表和编辑框）；`ui/dashboard_page.dart` 替换了用量统计页；`ui/settings_page.dart` 改成左侧分类 + 搜索；输入框模型菜单按「模型组 / 各渠道」分组。旧的服务商页保留为「Pi 配置」。
+- 人工端到端：用户用 computer-use Agent 按 [testing/computer-use-e2e.md](testing/computer-use-e2e.md) 测，报告写到 `docs/test-reports/<日期>/report.md`，交回给 Claude 处理。
 - 真实检查：`cd core; node --disable-warning=ExperimentalWarning scripts/live-gateway.ts`（坏 Key 渠道 → 你的 DeepSeek，第二问命中缓存，后台调用经由模型组，读余额）。2026-10-31 通过。
 - **只实测了 DeepSeek**（对话、余额接口）。智谱、Kimi、MiniMax 的地址、额度接口和错误码来自 Antigravity 调研，没有账号实测；用户有这些账号时先在仪表盘点「查询余额和额度」核对。
 - 没做（设计稿里有）：通用里的「开机启动」「关窗口时」（需要原生支持，留到后面）；「看图模型」（放阶段 4 多模态）；趋势图按渠道着色；花费按非高峰折扣计算。
