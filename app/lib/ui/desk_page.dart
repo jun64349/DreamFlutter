@@ -8,6 +8,7 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'artifact_widgets.dart';
+import 'card_view.dart';
 import 'common.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 import 'task_widgets.dart';
@@ -28,6 +29,7 @@ class _DeskPageState extends State<DeskPage> {
   List<MaterialInfo> _materials = const [];
   List<TaskInfo> _tasks = const [];
   List<ArtifactInfo> _artifacts = const [];
+  List<CardInfo> _cards = const [];
   String? _error;
   var _loading = true;
   String _loadedFor = '';
@@ -67,6 +69,7 @@ class _DeskPageState extends State<DeskPage> {
       _materials = jsonRows(desk['materials']).map(MaterialInfo.fromJson).toList();
       _tasks = jsonRows(desk['tasks']).map(TaskInfo.fromJson).toList();
       _artifacts = jsonRows(desk['artifacts']).map(ArtifactInfo.fromJson).toList();
+      _cards = jsonRows(await _agent.backend.call('cards.list', {'cwd': cwd, 'resident': true})).map(CardInfo.fromJson).toList();
       _error = null;
       _loadedFor = cwd;
     } catch (e) {
@@ -112,6 +115,24 @@ class _DeskPageState extends State<DeskPage> {
       }
     } catch (e) {
       _snack('添加资料失败：${SessionRuntime.describeError(e)}');
+    }
+    await _load();
+  }
+
+  /// Imports a shared card (`.card.html`, `.card.zip` or a package folder) onto this desk.
+  Future<void> _importCard(String kind) async {
+    try {
+      String? path;
+      if (kind == 'folder') {
+        path = await getDirectoryPath(confirmButtonText: '导入这张卡片');
+      } else {
+        path = (await openFile(acceptedTypeGroups: const [XTypeGroup(label: 'Showcard 卡片', extensions: ['html', 'htm', 'zip'])]))?.path;
+      }
+      if (path == null) return;
+      final card = CardInfo.fromJson(asJsonMap(await _agent.backend.call('cards.import', {'path': path, 'cwd': _agent.workspace})));
+      _snack('已导入「${card.title}」。它第一次要用网络、文件或程序时会先问你。');
+    } catch (e) {
+      _snack('导入失败：${SessionRuntime.describeError(e)}');
     }
     await _load();
   }
@@ -180,6 +201,21 @@ class _DeskPageState extends State<DeskPage> {
                     count: _tasks.length,
                     empty: '在这个工作区里做过的任务会出现在这里。',
                     children: [for (final t in _tasks) TaskTile(task: t, compact: true)],
+                  ),
+                  _Column(
+                    title: '卡片',
+                    count: _cards.length,
+                    action: PopupMenuButton<String>(
+                      tooltip: '导入卡片',
+                      icon: const Icon(Icons.add, size: 18),
+                      onSelected: _importCard,
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'file', child: ListTile(dense: true, leading: Icon(Icons.style_outlined), title: Text('导入卡片文件（.card.html / .card.zip）'))),
+                        PopupMenuItem(value: 'folder', child: ListTile(dense: true, leading: Icon(Icons.folder_outlined), title: Text('导入卡片文件夹'))),
+                      ],
+                    ),
+                    empty: '对话里的卡片点「收进书桌」会复制一份放在这里，也可以导入别人分享的卡片。',
+                    children: [for (final c in _cards) DeskCardTile(key: ValueKey(c.id), card: c, onChanged: _load)],
                   ),
                   _Column(
                     title: '产物',

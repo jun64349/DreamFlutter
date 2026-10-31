@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import { RpcError, type Core } from "./core.ts";
 
@@ -26,9 +26,39 @@ function tokenMatches(expected: string, header: string | undefined): boolean {
  *   core → client  {id, result} | {id, error: {code, message}} | {event, ...}
  */
 export function startServer(core: Core, options: ServerOptions): Promise<{ port: number; close(): Promise<void> }> {
+	const host = options.host ?? "127.0.0.1";
+	// Plain HTTP on the same port serves cards and the renderer page to the window's WebViews.
+	const http = createServer((req, res) => {
+		const port = core.httpPort;
+		// Only loopback names for this port (no DNS rebinding), only GET/HEAD.
+		if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) {
+			res.writeHead(421).end();
+			return;
+		}
+		if (req.method !== "GET" && req.method !== "HEAD") {
+			res.writeHead(405).end();
+			return;
+		}
+		let path: string;
+		try {
+			path = decodeURI(new URL(req.url ?? "/", "http://127.0.0.1").pathname);
+		} catch {
+			res.writeHead(400).end();
+			return;
+		}
+		core
+			.handleHttp(req, res, path)
+			.then((handled) => {
+				if (!handled) res.writeHead(404).end();
+			})
+			.catch((error: unknown) => {
+				core.log.error(`http ${path} failed`, error);
+				if (!res.headersSent) res.writeHead(500);
+				res.end();
+			});
+	});
 	const server = new WebSocketServer({
-		host: options.host ?? "127.0.0.1",
-		port: options.port,
+		server: http,
 		maxPayload: 64 * 1024 * 1024,
 		verifyClient: (info: { req: IncomingMessage }) => !info.req.headers.origin && tokenMatches(options.token, info.req.headers.authorization),
 	});
@@ -74,16 +104,20 @@ export function startServer(core: Core, options: ServerOptions): Promise<{ port:
 	});
 
 	return new Promise((resolve, reject) => {
-		server.once("error", reject);
-		server.once("listening", () => {
-			const address = server.address();
+		http.once("error", reject);
+		http.listen(options.port, host, () => {
+			const address = http.address();
 			const port = typeof address === "object" && address ? address.port : options.port;
+			core.httpPort = port;
 			resolve({
 				port,
 				close: () =>
 					new Promise<void>((done) => {
 						for (const socket of server.clients) socket.terminate();
-						server.close(() => done());
+						server.close(() => {
+							http.closeAllConnections();
+							http.close(() => done());
+						});
 					}),
 			});
 		});

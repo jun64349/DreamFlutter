@@ -1,4 +1,4 @@
-> 2026-10-30 委派产出（Antigravity），属待核验素材。用户据此做的决定见 [../v0.2-plan.md](../v0.2-plan.md) 第五节。
+> 2026-10-30 委派产出（Antigravity），属待核验素材。**2026-10-31 已对照官方规范和参考实现核验，多处不符（OpenHanako 并未实现 1.0 协议、state.set 语义、钉住语义、错误码等），以 [../v0.2-multimodal.md](../v0.2-multimodal.md) 和官方仓库为准。**用户据此做的决定见 [../v0.2-plan.md](../v0.2-plan.md) 第五节。
 
 # Showcard（魔术卡）开放规范与 OpenHanako 落地调研报告
 

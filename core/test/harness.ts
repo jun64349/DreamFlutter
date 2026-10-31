@@ -39,7 +39,7 @@ export async function startTestCore(existingDir?: string, options: { gatewayTran
 	const sessionDir = join(dir, "sessions");
 	for (const d of [workspace, agentDir, sessionDir]) mkdirSync(d, { recursive: true });
 
-	const faux = createFauxCore({ provider: "faux", models: [{ id: "faux-1", contextWindow: 200_000, maxTokens: 8_192 }] });
+	const faux = createFauxCore({ provider: "faux", models: [{ id: "faux-1", contextWindow: 200_000, maxTokens: 8_192 }, { id: "faux-text", contextWindow: 200_000, maxTokens: 8_192 }] });
 	const modelRuntime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: null, refreshOnCreate: false });
 	modelRuntime.registerProvider("faux", {
 		name: "Faux",
@@ -47,7 +47,10 @@ export async function startTestCore(existingDir?: string, options: { gatewayTran
 		apiKey: "test-key",
 		api: faux.api as never,
 		streamSimple: faux.streamSimple as never,
-		models: [{ id: "faux-1", name: "Faux 1", input: ["text", "image"], cost: ZERO_COST, reasoning: false, contextWindow: 200_000, maxTokens: 8_192 }],
+		models: [
+			{ id: "faux-1", name: "Faux 1", input: ["text", "image"], cost: ZERO_COST, reasoning: false, contextWindow: 200_000, maxTokens: 8_192 },
+			{ id: "faux-text", name: "Faux Text", input: ["text"], cost: ZERO_COST, reasoning: false, contextWindow: 200_000, maxTokens: 8_192 },
+		],
 	});
 
 	const notifier = new RecordingNotifier();

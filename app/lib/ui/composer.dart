@@ -42,6 +42,9 @@ class _ComposerState extends State<Composer> {
   int _editorRevision = 0;
   int _highlighted = 0;
   var _dragging = false;
+
+  /// Documents being turned into text (sending waits for them).
+  var _converting = 0;
   StreamSubscription<Mention>? _mentionRequests;
 
   /// The desk's notes and materials for `@`, loaded on first use per workspace.
@@ -229,7 +232,7 @@ class _ComposerState extends State<Composer> {
   bool get _hasContent => _controller.text.trim().isNotEmpty || _images.isNotEmpty || _mentions.isNotEmpty;
 
   void _send() {
-    if (!_hasContent) return;
+    if (!_hasContent || _converting > 0) return;
     final agent = AgentScope.read(context);
     if (!agent.isReady) return;
     final text = composeWithMentions(_controller.text, _mentions);
@@ -274,18 +277,20 @@ class _ComposerState extends State<Composer> {
     _tooLarge(rejected);
   }
 
-  /// Dropped or pasted paths: images are attached when the model can see
-  /// them, everything else goes along by path for the agent to read.
+  /// Dropped or pasted paths: images are attached (a model that cannot see
+  /// gets them described by the vision model); documents become text (large
+  /// ones go by path for read_document); anything else goes by path.
   Future<void> _addPaths(List<String> paths) async {
-    final supportsImages = AgentScope.read(context).model?.supportsImages ?? true;
+    final agent = AgentScope.read(context);
     final rejected = <String>[];
+    final failed = <String>[];
     for (final path in paths) {
       if (Directory(path).existsSync()) {
         _addMention(Mention.file(path, folder: true));
         continue;
       }
-      final isImage = _imageExtensions.contains(p.extension(path).toLowerCase().replaceFirst('.', ''));
-      if (isImage && supportsImages) {
+      final ext = p.extension(path).toLowerCase().replaceFirst('.', '');
+      if (_imageExtensions.contains(ext)) {
         try {
           if (!_addImage(p.basename(path), await File(path).readAsBytes(), _mimeOf(path))) rejected.add(p.basename(path));
           continue;
@@ -293,7 +298,23 @@ class _ComposerState extends State<Composer> {
           // Unreadable: send the path instead.
         }
       }
+      if (documentExtensions.contains(ext)) {
+        setState(() => _converting++);
+        try {
+          final doc = asJsonMap(await agent.backend.call('files.convert', {'path': path}, const Duration(minutes: 3)));
+          final large = doc['large'] == true;
+          _addMention(Mention(kind: MentionKind.document, title: p.basename(path), path: path, content: large ? null : doc['text'] as String?));
+          continue;
+        } catch (_) {
+          failed.add(p.basename(path));
+        } finally {
+          if (mounted) setState(() => _converting--);
+        }
+      }
       _addMention(Mention.file(path));
+    }
+    if (failed.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能转成文字，改为把路径交给 Agent：${failed.join('、')}')));
     }
     if (!mounted) return;
     setState(() {});
@@ -415,6 +436,17 @@ class _ComposerState extends State<Composer> {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 4),
                           child: Text('松开即可附上：图片直接给模型看，其他文件和文件夹交给 Agent 读取', style: muted?.copyWith(color: colors.accent)),
+                        ),
+                      if (_converting > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4, top: 2),
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5)),
+                              const SizedBox(width: 8),
+                              Text('正在把文档转成文字…', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+                            ],
+                          ),
                         ),
                       if (_images.isNotEmpty || _mentions.isNotEmpty)
                         Padding(
@@ -895,6 +927,7 @@ IconData mentionIcon(MentionKind kind) => switch (kind) {
   MentionKind.text => Icons.notes,
   MentionKind.folder => Icons.folder_outlined,
   MentionKind.file => Icons.description_outlined,
+  MentionKind.document => Icons.article_outlined,
 };
 
 /// A note, material, file or folder going along with a message; removable

@@ -54,7 +54,7 @@ export class Llm {
 
 	/** Sends one user message and returns the text answer. */
 	async complete(
-		prompt: string,
+		prompt: string | ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[],
 		options: { system?: string; model?: Model<never>; sessionModel?: string | null; maxTokens?: number; timeoutMs?: number; runtime?: ModelRuntime } = {},
 	): Promise<string> {
 		const runtime = options.runtime ?? (await this.runtime());
@@ -64,7 +64,7 @@ export class Llm {
 		const ask = () =>
 			runtime.completeSimple(
 				model,
-				{ systemPrompt: options.system, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] },
+				{ systemPrompt: options.system, messages: [{ role: "user", content: prompt as never, timestamp: Date.now() }] },
 				{ maxTokens: options.maxTokens ?? 1024, signal } as never,
 			);
 		let message = await ask();

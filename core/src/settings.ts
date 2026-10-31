@@ -17,6 +17,8 @@ export interface CoreSettings {
 	defaultThinking: string | null;
 	/** Cheap model for titles, memory extraction and summaries; null = session model. */
 	auxModel: string | null;
+	/** Model (or model group) that describes images for models without vision; null = pick one that can see. */
+	visionModel: string | null;
 	/** Ordered provider/id list tried when the primary model fails. */
 	fallbackModels: string[];
 	memoryEnabled: boolean;
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	defaultModel: null,
 	defaultThinking: null,
 	auxModel: null,
+	visionModel: null,
 	fallbackModels: [],
 	memoryEnabled: true,
 	memoryAutoExtract: true,

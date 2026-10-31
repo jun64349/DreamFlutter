@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接（v0.1.1 → v0.2）
 
-更新时间：2026-10-31（阶段 3b）
+更新时间：2026-10-31（阶段 4）
 当前分支：`main`（v0.1.0、v0.1.1 都已打 tag；下一阶段是 v0.2，计划见 [v0.2-plan.md](v0.2-plan.md)）
 
 ## 一句话现状
@@ -18,7 +18,17 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：先让用户的 computer-use Agent 跑完一次完整人工测试（任务书 docs/testing/computer-use-e2e.md），按报告修；然后 **v0.2 阶段 4：多模态输入输出 + Showcard 卡片**。阶段 3a（Agent 模式）、3b（模型网关、仪表盘、设置重组）已完成，见下面两节。
+下一步：**v0.2 阶段 5**（书桌、任务、记忆、技能按「蛱蝶」重做 + 名画主题；名画主题的调研当时没跑出结果，要先补调研再请用户挑），然后阶段 6 发布。用户 2026-10-31 决定不再做 computer-use 人工测试。阶段 4（多模态 + Showcard 卡片）已完成，见下一节和 [v0.2-multimodal.md](v0.2-multimodal.md)。
+
+## v0.2 阶段 4：多模态输入输出 + Showcard 卡片（2026-10-31）
+
+细节、规范对照表和验证见 [v0.2-multimodal.md](v0.2-multimodal.md)。要点：
+
+- **卡片按官方 Showcard 1.0 构建**（用户明确要求，不按调研报告发挥）。官方仓库 liliMozi/showcard 的规范逐条核对过；卡内运行时、占位层、注入代码原样拷贝在 `core/src/cards/showcard/`（不要手改）；官方 13 张一致性探针原样拷贝在 `core/test/fixtures/showcard-probes/`，在我们的宿主上全部通过。OpenHanako 其实没实现 1.0 协议。唯一偏差：宿主服务时把参考运行时的 5 秒应答时限换成 180 秒（授权框要等人点）。
+- 后台：`core/src/cards/`（`cards.ts` 模块、`document.ts` 文档与 CSP、`bindings.ts` 宿主工具与授权单元、`shell.ts` 外壳页、`zip.ts`）；HTTP 和 WebSocket 共用一个端口（`server.ts`，只认 127.0.0.1/localhost 的 Host），`core.hello` 带 `port`。数据库第 7 版：`cards`、`card_grants`、`card_events`、`image_descriptions`。卡片包在 `%APPDATA%\DreamFlutter\cards\<id>\`。
+- 看图转述 `modules/vision.ts`（只对不支持图片的模型）；文件转文字 `modules/documents.ts`（pdfjs-dist）和 `read_document` 工具；富内容渲染页 `render/renderer.ts`（Mermaid、Chart.js 在 `core/assets/render/`）；系统提示里的富内容说明在 `agent/host-text.ts`（dsh 原文不动）。
+- 窗口：`webview_windows`（WebView2，纹理渲染，能截图）包在 `ui/web_surface.dart`（测试里返回 null）；`ui/card_view.dart`（对话里的卡片、授权框、权限、放大、导出、书桌卡片）；`state/cards.dart`（哪些卡是活的：最新的一张 + 最后点的一张；历史卡要点过才能用工具）；`ui/rich_blocks.dart`；输入框把文档转文字（`MentionKind.document`）；问题下面「图片由 X 转述」；设置「看图模型」；书桌新增「卡片」栏。
+- 测试：后台 150 个（含官方探针、卡片、文档、看图）；窗口 66 个；真实窗口 `integration_test/cards_test.dart`。
 
 调研报告：[research/deepseek-harness.md](research/deepseek-harness.md)（Codex）、[research/showcard.md](research/showcard.md)（Antigravity，Showcard 放阶段 4）。名画主题：用 Agent Bridge 的 Antigravity 调研，阶段 5 落地。
 
@@ -57,7 +67,7 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
   - 脚本版 E2E（`integration_test/e2e_test.dart`，含第 23 步模型组自动换渠道）2026-10-31 最后一轮修复后重跑**全部通过**（约 1.5 分钟）；后台 121 个、窗口 62 个测试都通过。
 - 真实检查：`cd core; node --disable-warning=ExperimentalWarning scripts/live-gateway.ts`（坏 Key 渠道 → 你的 DeepSeek，第二问命中缓存，后台调用经由模型组，读余额）。2026-10-31 通过。
 - **只实测了 DeepSeek**（对话、余额接口）。智谱、Kimi、MiniMax 的地址、额度接口和错误码来自 Antigravity 调研，没有账号实测；用户有这些账号时先在仪表盘点「查询余额和额度」核对。
-- 没做（设计稿里有）：通用里的「开机启动」「关窗口时」（需要原生支持，留到后面）；「看图模型」（放阶段 4 多模态）；趋势图按渠道着色；花费按非高峰折扣计算。
+- 没做（设计稿里有）：通用里的「开机启动」「关窗口时」（需要原生支持，留到后面）；趋势图按渠道着色；花费按非高峰折扣计算。
 
 ## v0.2 阶段 3a：Agent 模式（2026-10-30）
 
@@ -132,9 +142,9 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：121 个，用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
+# 后台测试：150 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：62 个
+# 窗口单元/组件测试：66 个
 cd app && flutter test test
 # 视觉检查：假后台、不联网、约 10 秒，截图在 app/build/look_shots/
 cd app && flutter test integration_test/look_test.dart -d windows
@@ -142,6 +152,8 @@ cd app && flutter test integration_test/look_test.dart -d windows
 cd packages/pi_rpc && dart test -x integration
 # 真实窗口端到端：用 DeepSeek，约 4~5 分钟（等待超时会存 zz_timeout.png），截图在 app/build/e2e_shots/（00~31），跑的时候不要最小化窗口
 cd app && flutter test integration_test/e2e_test.dart -d windows
+# 卡片与富内容（真实 WebView2）：不联网约 10 秒；加 --dart-define=CARDS_MODEL=true 用 DeepSeek 真做卡片和图（约 1.5 分钟），截图在 app/build/card_shots/
+cd app && flutter test integration_test/cards_test.dart -d windows
 ```
 
 ## 代码审查（2026-10-29，Codex 只读审查 core/src）
@@ -156,6 +168,10 @@ cd app && flutter test integration_test/e2e_test.dart -d windows
 - 停止运行会关闭审批弹窗；首轮就中断的任务能恢复；每日花费上限计入正在运行的花费；畸形请求不再抛异常；卡住的通知进程会被结束。
 
 ## 踩过的坑（重要）
+
+- 在 Bash 工具里用 node -e / sed 写含反斜杠的代码，转义会被吃掉（`\n` 变成真换行）；这类改动用 Edit / Write。
+- 第一次构建带 webview_windows 的应用会下载 nuget.exe 和 WebView2 SDK，日志里的「Nuget is not installed」是正常提示。
+- 真实窗口测试里让模型做卡片时，它可能先用 write 写文件而弹出审批框；测试里把审批模式设为 off。
 
 - 后台必须先配置 Pi 的网络层（`core/src/pi/http.ts`），否则第一次请求 Connection error。
 - 测试里要关掉自动标题和自动提取记忆（harness 已关），否则会抢走假模型预设的回复。

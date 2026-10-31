@@ -24,7 +24,18 @@ class Mention {
   int get hashCode => Object.hash(kind, title, path);
 }
 
-enum MentionKind { note, text, file, folder }
+/// document: a PDF, Word, Excel, PowerPoint or text file the core turned into
+/// text ([Mention.content]); a large one carries only its path and a summary.
+enum MentionKind { note, text, file, folder, document }
+
+/// File types the core converts to text (core/src/modules/documents.ts).
+const documentExtensions = {
+  'pdf', 'docx', 'xlsx', 'xlsm', 'pptx', 'txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'jsonl', 'yaml', 'yml', 'toml', 'ini', 'xml', 'log', //
+  'html', 'htm', 'py', 'js', 'mjs', 'ts', 'tsx', 'jsx', 'dart', 'java', 'kt', 'c', 'h', 'cpp', 'hpp', 'cs', 'go', 'rs', 'rb', 'php', 'swift', //
+  'sql', 'sh', 'ps1', 'bat', 'css', 'scss', 'vue', 'tex', 'srt', 'vtt',
+};
+
+const _largeNote = '（内容较长，没有全部附上：需要时用 read_document 工具分段读取这个文件。）';
 
 const _readHint = '需要时用工具读取上面列出的文件或文件夹。';
 
@@ -43,6 +54,8 @@ String composeWithMentions(String text, List<Mention> mentions) {
         case MentionKind.text:
           final content = m.content ?? '';
           parts.addAll(['<文本 标题="${m.title}">', content.length > 20000 ? content.substring(0, 20000) : content, '</文本>']);
+        case MentionKind.document:
+          parts.addAll(['<文档 标题="${m.title}" 路径="${m.path}">', m.content ?? _largeNote, '</文档>']);
         case MentionKind.folder:
           parts.add('- 文件夹：${m.path}');
         case MentionKind.file || MentionKind.note:
@@ -57,6 +70,7 @@ String composeWithMentions(String text, List<Mention> mentions) {
 final _noteTag = RegExp(r'<写笺 标题="([^"]*)">\n?([\s\S]*?)\n?</写笺>');
 final _materialBlock = RegExp(r'<资料>\n?([\s\S]*?)\n?</资料>\s*(' + _readHint + r')?');
 final _textTag = RegExp(r'<文本 标题="([^"]*)">\n?([\s\S]*?)\n?</文本>');
+final _documentTag = RegExp(r'<文档 标题="([^"]*)" 路径="([^"]*)">\n?([\s\S]*?)\n?</文档>');
 final _pathLine = RegExp(r'^- (文件|文件夹)：(.+)$', multiLine: true);
 
 /// The question as the user wrote it, and what was attached to it.
@@ -71,7 +85,11 @@ final _pathLine = RegExp(r'^- (文件|文件夹)：(.+)$', multiLine: true);
     for (final t in _textTag.allMatches(body)) {
       mentions.add(Mention(kind: MentionKind.text, title: t.group(1)!, content: t.group(2)));
     }
-    for (final line in _pathLine.allMatches(body.replaceAll(_textTag, ''))) {
+    for (final d in _documentTag.allMatches(body)) {
+      final content = d.group(3)!;
+      mentions.add(Mention(kind: MentionKind.document, title: d.group(1)!, path: d.group(2), content: content == _largeNote ? null : content));
+    }
+    for (final line in _pathLine.allMatches(body.replaceAll(_textTag, '').replaceAll(_documentTag, ''))) {
       mentions.add(Mention.file(line.group(2)!.trim(), folder: line.group(1) == '文件夹'));
     }
   }

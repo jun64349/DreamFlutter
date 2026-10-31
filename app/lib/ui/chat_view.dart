@@ -26,6 +26,8 @@ class ChatView extends StatelessWidget {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final incognito = agent.active?.incognito ?? false;
+    // The latest card of the conversation on screen runs live.
+    agent.cardStage.setLatest(latestCardId(agent.transcript));
     return LayoutBuilder(
       builder: (context, constraints) {
         final roomForPanel = constraints.maxWidth >= _panelMinWidth && !incognito;

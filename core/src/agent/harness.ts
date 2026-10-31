@@ -31,6 +31,7 @@ import {
 	TOOL_GUIDANCE,
 	workingDirectoryContext,
 } from "./dsh-text.ts";
+import { RICH_OUTPUT_GUIDANCE } from "./host-text.ts";
 import { editTool, readImageTool, readTool, workingDirectoryTool, writeTool } from "./fs-tools.ts";
 import { askUserTool, exitPlanModeTool, skillTool, todoTool } from "./interaction-tools.ts";
 import { globTool, grepTool, ripgrepPath } from "./search-tools.ts";
@@ -285,6 +286,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				STANDARD_PERSONA.replace("{{model}}", model?.id ?? "unknown"),
 				state.planMode ? PLAN_POLICY : "",
 				...TOOL_GUIDANCE.filter((g) => active.has(g.tool)).map((g) => g.text),
+				active.has("show_card") ? RICH_OUTPUT_GUIDANCE : "",
 			];
 			return sections.filter((s) => s.length > 0).join("\n\n");
 		};

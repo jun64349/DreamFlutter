@@ -52,7 +52,7 @@ export interface SlotIdentity {
 }
 
 /** DreamFlutter tools a standard session keeps beside dsh's (patterns as Pi's tool lists accept them). */
-export const STANDARD_EXTRA_TOOLS = ["memory_*", "session_search", "skill_propose", "schedule_*", "tool_search"];
+export const STANDARD_EXTRA_TOOLS = ["memory_*", "session_search", "skill_propose", "schedule_*", "tool_search", "show_card", "read_card", "read_document"];
 
 /** The mode a runtime for [sessionManager] runs in: recorded, else standard for an old session, else the new-session mode. */
 export function modeFor(sessionManager: SessionManager, newSessionMode: AgentMode): AgentMode {

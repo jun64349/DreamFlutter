@@ -49,6 +49,8 @@ export class RpcError extends Error {
 
 export type Params = Record<string, unknown>;
 export type Handler = (params: Params, client: Client | undefined) => unknown | Promise<unknown>;
+/** Plain HTTP route (cards, renderer assets); [path] is the decoded pathname. */
+export type HttpHandler = (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, path: string) => void | Promise<void>;
 
 export interface OpenSlotOptions {
 	slotId?: string;
@@ -108,6 +110,9 @@ export class Core {
 	/** Runs a previous core process left unfinished. */
 	readonly interruptedAtStartup: Run[];
 	private readonly methods = new Map<string, Handler>();
+	private readonly httpRoutes: { prefix: string; handler: HttpHandler }[] = [];
+	/** Port of the local HTTP/WebSocket server (0 until it listens). */
+	httpPort = 0;
 	private readonly modules: CoreModule[] = [];
 	/** Core-owned tools that never need approval (memory, desk bookkeeping...). */
 	private readonly exemptTools = new Set<string>();
@@ -170,6 +175,11 @@ export class Core {
 		this.modules.push(module);
 	}
 
+	/** The module of type [type], if one is in use. */
+	module<T extends CoreModule>(type: abstract new (...args: never[]) => T): T | undefined {
+		return this.modules.find((m): m is T => m instanceof type);
+	}
+
 	async start(): Promise<void> {
 		for (const module of this.modules) await module.start?.();
 		this.reaper = setInterval(() => void this.reapIdle(), 60_000);
@@ -179,6 +189,18 @@ export class Core {
 	register(method: string, handler: Handler): void {
 		if (this.methods.has(method)) throw new Error(`duplicate method ${method}`);
 		this.methods.set(method, handler);
+	}
+
+	registerHttp(prefix: string, handler: HttpHandler): void {
+		this.httpRoutes.push({ prefix, handler });
+	}
+
+	/** Routes a plain HTTP request; false when no module serves [path]. */
+	async handleHttp(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, path: string): Promise<boolean> {
+		const route = this.httpRoutes.find((r) => path.startsWith(r.prefix));
+		if (!route) return false;
+		await route.handler(req, res, path);
+		return true;
 	}
 
 	async call(method: string, params: Params, client?: Client): Promise<unknown> {
@@ -419,6 +441,7 @@ export class Core {
 			version: CORE_VERSION,
 			piVersion: piVersion(),
 			pid: process.pid,
+			port: this.httpPort,
 			dataDir: this.paths.dataDir,
 			agentDir: this.agentDir,
 			slots: [...this.slots.values()].map((s) => s.info()),

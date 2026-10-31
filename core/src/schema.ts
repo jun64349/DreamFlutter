@@ -372,4 +372,49 @@ export const MIGRATIONS: string[] = [
 		checked_at INTEGER NOT NULL
 	);
 	`,
+	// 7: Showcard cards (state, desk flag, declaration epoch), their remembered grants and emitted events; image descriptions for models without vision.
+	`
+	CREATE TABLE cards (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		cwd TEXT,
+		session_file TEXT,
+		tool_call_id TEXT,
+		origin TEXT NOT NULL,
+		digest TEXT NOT NULL,
+		epoch INTEGER NOT NULL DEFAULT 1,
+		version INTEGER NOT NULL DEFAULT 1,
+		state TEXT NOT NULL DEFAULT '{}',
+		on_desk INTEGER NOT NULL DEFAULT 0,
+		height INTEGER,
+		snapshot_at INTEGER,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+	CREATE INDEX cards_session ON cards(session_file);
+
+	CREATE TABLE card_grants (
+		card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL,
+		subject TEXT NOT NULL,
+		epoch INTEGER NOT NULL,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (card_id, kind, subject)
+	);
+
+	CREATE TABLE card_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		payload TEXT,
+		at INTEGER NOT NULL
+	);
+
+	CREATE TABLE image_descriptions (
+		hash TEXT PRIMARY KEY,
+		model TEXT NOT NULL,
+		text TEXT NOT NULL,
+		created_at INTEGER NOT NULL
+	);
+	`,
 ];

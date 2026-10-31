@@ -78,6 +78,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final defaultKey = agent.defaultModelKey;
     final defaultModel = agent.models.where((m) => m.key == defaultKey).firstOrNull;
     final auxKey = agent.coreSettings['auxModel'] as String?;
+    final visionKey = agent.coreSettings['visionModel'] as String?;
     String modelName(String key) {
       final m = agent.models.where((m) => m.key == key).firstOrNull;
       return m == null ? key : '${m.name} · ${agent.providerLabel(m.provider)}';
@@ -157,6 +158,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 label: auxKey == null ? '跟随默认模型' : modelName(auxKey),
                 extra: const [('', '跟随默认模型')],
                 onSelected: (key) => agent.updateCoreSettings({'auxModel': key.isEmpty ? null : key}),
+              ),
+            ),
+          ),
+          _Entry(
+            '看图模型 图片 多模态 视觉 转述',
+            _Row(
+              title: '看图模型',
+              subtitle: '当前模型看不到图片时，先用它把图片转述成文字再交给当前模型（能看图的模型照常直接收到图片）；要选能看图的模型或模型组',
+              trailing: _ModelMenu(
+                tooltip: '选择看图模型',
+                selected: visionKey ?? '',
+                label: visionKey == null ? '自动选一个能看图的' : modelName(visionKey),
+                extra: const [('', '自动选一个能看图的')],
+                onSelected: (key) => agent.updateCoreSettings({'visionModel': key.isEmpty ? null : key}),
               ),
             ),
           ),

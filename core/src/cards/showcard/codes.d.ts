@@ -1,0 +1,10 @@
+export declare const CARD_ERROR_CODES: Readonly<Record<"CAPABILITY_REQUIRED" | "CAPABILITY_NOT_SUPPORTED" | "TOOL_UNAVAILABLE" | "TIMEOUT" | "POST_FAILED" | "INVALID_RESPONSE" | "STATE_TOO_LARGE" | "STORAGE_UNAVAILABLE" | "STORAGE_FAILED" | "CONTRACT_UNSUPPORTED" | "RATE_LIMITED", string>>;
+export declare const CARD_HOST_EXTENSION_CODES: Readonly<Record<"TOOL_FAILED" | "INVALID_INPUT" | "NO_ROUTE", string>>;
+export declare const STATE_BUDGET_BYTES: number;
+export declare const HOST_REQUEST_TIMEOUT_MS: number;
+export declare const STATE_KEY_PREFIX: string;
+export declare const CARD_REQUEST_TYPE: string;
+export declare const CARD_RESPONSE_TYPE: string;
+export declare const CAPABILITIES: Readonly<Record<"STATE_GET" | "STATE_SET" | "INVOKE" | "CAPABILITIES" | "EMIT", string>>;
+export declare const SUPPORTED_SPEC_VERSIONS: readonly string[];
+export declare const DEFAULT_SPEC_VERSION: string;

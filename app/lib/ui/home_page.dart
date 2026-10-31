@@ -10,6 +10,7 @@ import 'desk_page.dart';
 import 'extension_dialogs.dart';
 import 'library_page.dart';
 import 'memory_page.dart';
+import 'rich_blocks.dart';
 import 'settings_page.dart';
 import 'sidebar.dart';
 import 'tasks_page.dart';
@@ -51,6 +52,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     _visited.add(agent.section);
+    RichRenderer.configure((agent.coreInfo['port'] as num?)?.toInt());
     return ExtensionDialogHost(
       child: Scaffold(
         body: Row(

@@ -1,13 +1,16 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/mentions.dart';
+import '../state/agent_controller.dart' show asJsonMap;
 import '../state/session_runtime.dart' show MessageBranch;
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'card_view.dart';
 import 'composer.dart' show MentionChip;
 import 'markdown_view.dart';
 import 'motion.dart';
@@ -164,6 +167,7 @@ class _UserBubbleState extends State<_UserBubble> {
                 ],
               ),
             ),
+          if (item.images.isNotEmpty) VisionNote(images: item.images),
           if (attached.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
@@ -326,6 +330,11 @@ class _NoticeSegment extends _Segment {
   final NoticeItem notice;
 }
 
+class _CardSegment extends _Segment {
+  _CardSegment(this.run);
+  final ToolRun run;
+}
+
 class _NoteSegment extends _Segment {
   _NoteSegment(this.icon, this.color, this.text);
   final IconData icon;
@@ -355,7 +364,12 @@ List<_Segment> _segments(ReplyRow row, Transcript transcript, AppColors colors) 
               if (part.text.trim().isNotEmpty || part.redacted) work().steps.add(part);
             case ToolCallPart(:final toolCallId):
               final run = transcript.tool(toolCallId);
-              if (run != null) work().steps.add(run);
+              // A card the agent shows is content, not work.
+              if (run != null && run.name == 'show_card') {
+                segments.add(_CardSegment(run));
+              } else if (run != null) {
+                work().steps.add(run);
+              }
           }
         }
         if (item.failed) {
@@ -403,6 +417,7 @@ class _ReplyView extends StatelessWidget {
             : ReplyMarkdown(text: text),
         _WorkSegment() => WorkBlock(steps: segment.steps, active: live && isLast, waiting: segment.waiting),
         _NoticeSegment(:final notice) => _NoticeView(notice: notice),
+        _CardSegment(:final run) => CardBlock(key: ValueKey('card-${run.id}'), run: run),
         _NoteSegment(:final icon, :final color, :final text) => _InlineNote(icon: icon, color: color, text: text),
       });
     }
@@ -699,7 +714,7 @@ class _WorkBlockState extends State<WorkBlock> {
 }
 
 /// Tools that only keep the agent's own bookkeeping (not counted as work).
-const _bookkeepingTools = {'todo_write', 'working_directory', 'job_list', 'job_output', 'ask_user_question', 'exit_plan_mode', 'skill'};
+const _bookkeepingTools = {'read_card', 'todo_write', 'working_directory', 'job_list', 'job_output', 'ask_user_question', 'exit_plan_mode', 'skill'};
 
 String _seconds(int ms) => ms < 1000 ? '$ms 毫秒' : ms < 10000 ? '${(ms / 1000).toStringAsFixed(1)} 秒' : '${(ms / 1000).round()} 秒';
 
@@ -1351,6 +1366,94 @@ class _InlineNote extends StatelessWidget {
         const SizedBox(width: 6),
         Expanded(child: Text(text, style: context.text.bodySmall?.copyWith(color: color))),
       ],
+    );
+  }
+}
+
+/// Descriptions the core made of images for models that cannot see (hash → description).
+final _visionCache = <String, ({String model, String text})?>{};
+
+/// 「图片由 X 转述」 under a question whose images went to the model as text.
+class VisionNote extends StatefulWidget {
+  const VisionNote({super.key, required this.images});
+
+  final List<ImageBlock> images;
+
+  @override
+  State<VisionNote> createState() => _VisionNoteState();
+}
+
+class _VisionNoteState extends State<VisionNote> {
+  late final List<String> _hashes = [for (final i in widget.images) sha256.convert(utf8.encode(i.data)).toString()];
+  ValueNotifier<int>? _revision;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final revision = AgentScope.read(context).visionRevision;
+    if (revision != _revision) {
+      _revision?.removeListener(_lookup);
+      _revision = revision..addListener(_lookup);
+      _lookup();
+    }
+  }
+
+  @override
+  void dispose() {
+    _revision?.removeListener(_lookup);
+    super.dispose();
+  }
+
+  Future<void> _lookup() async {
+    final missing = _hashes.where((h) => _visionCache[h] == null).toList();
+    if (missing.isEmpty) return;
+    try {
+      final found = asJsonMap(await AgentScope.read(context).backend.call('vision.lookup', {'hashes': missing}));
+      for (final h in missing) {
+        final d = found[h];
+        if (d is Map) _visionCache[h] = (model: d['model'] as String? ?? '看图模型', text: d['text'] as String? ?? '');
+      }
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final described = [for (final h in _hashes) ?_visionCache[h]];
+    if (described.isEmpty) return const SizedBox.shrink();
+    final models = described.map((d) => d.model).toSet().join('、');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+        onTap: () => showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('图片由 $models 转述'),
+            content: SizedBox(
+              width: 560,
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  [for (final (i, d) in described.indexed) '${described.length > 1 ? '图片 ${i + 1}：\n' : ''}${d.text}'].join('\n\n'),
+                  style: context.text.bodyMedium?.copyWith(height: 1.7),
+                ),
+              ),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.visibility_outlined, size: 13, color: context.colors.muted),
+              const SizedBox(width: 4),
+              Text('当前模型看不到图片，图片由 $models 转述 ›', style: context.text.labelSmall?.copyWith(color: context.colors.muted)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -7,6 +7,7 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme.dart';
+import 'rich_blocks.dart';
 
 /// A reply's Markdown in the reading style: Song body text with generous
 /// leading, serif headings, ruled tables, and code blocks with highlighting
@@ -134,7 +135,9 @@ class _CodeBuilder extends MarkdownElementBuilder {
     final isBlock = className.startsWith('language-') || text.contains('\n');
     if (!isBlock) return null;
     final language = className.startsWith('language-') ? className.substring('language-'.length) : null;
-    return CodeBlock(code: text.endsWith('\n') ? text.substring(0, text.length - 1) : text, language: language);
+    final source = text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
+    if (language != null && richLanguages.contains(language.toLowerCase())) return RichBlock(kind: language.toLowerCase(), source: source);
+    return CodeBlock(code: source, language: language);
   }
 }
 

@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import 'backend.dart';
+import 'cards.dart';
 import 'mentions.dart';
 import 'preferences.dart';
 import 'session_runtime.dart';
@@ -15,6 +16,7 @@ import 'work_models.dart';
 export 'backend.dart' show AgentBackend, CoreBackend, asJsonMap;
 export 'session_runtime.dart' show ClientLauncher, ConnectionStatus, SessionRuntime;
 export 'work_models.dart';
+export 'cards.dart';
 export 'gateway_models.dart';
 
 /// One row in the session sidebar: a persisted session, a live one, or both.
@@ -175,6 +177,12 @@ class AgentController extends ChangeNotifier {
 
   /// Bumped when tasks, the desk or the inbox change in the core.
   final workRevision = ValueNotifier<int>(0);
+
+  /// Which cards run live; cards minted while this window runs may call tools at once.
+  final cardStage = CardStage();
+
+  /// Bumped when an image description arrives (the chat shows "图片由 X 转述").
+  final visionRevision = ValueNotifier<int>(0);
 
   /// Bumped when memory, skills or templates change in the core, so open
   /// pages reload.
@@ -422,6 +430,18 @@ class AgentController extends ChangeNotifier {
         unawaited(refreshGateway());
       case 'gateway.alert':
         _toast('${message['title']}：${message['body']}');
+      case 'card.changed':
+        final card = message['card'];
+        if (card is Map && card['version'] == 1 && card['origin'] == 'agent') cardStage.markFresh(card['id'] as String);
+        if (card is Map && card['resident'] == true) workRevision.value++;
+      case 'card.removed':
+        final id = message['cardId'];
+        if (id is String) cardStage.forget(id);
+        workRevision.value++;
+      case 'vision.relayed':
+        visionRevision.value++;
+      case 'vision.missing':
+        _toast('当前模型看不到图片，也没有可用的看图模型。到「设置 › 模型与网关」里选一个看图模型。');
       case 'notices.changed':
         workRevision.value++;
         unawaited(refreshPendingCounts());
@@ -1101,6 +1121,8 @@ class AgentController extends ChangeNotifier {
     }
     final deleted = await SessionStore.deleteSession(path);
     if (!deleted) _toast('删除失败：文件可能正被占用。');
+    // Cards shown in the conversation end with it (pinned copies on the desk stay).
+    if (deleted) unawaited(backend.call('cards.forgetSession', {'sessionFile': path}).catchError((_) => null));
     _unseen.remove(_key(path));
     if (wasActive || _active == null) {
       final blank = _runtimes.where((r) => r.isPristine && r.isReady && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
