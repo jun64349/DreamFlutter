@@ -384,14 +384,11 @@ void main() {
     await waitFor(tester, 'remembered', () => !agent.isRunning && lastText(agent).isNotEmpty, agent);
     expect(agent.transcript.tools.values.where((r) => r.name == 'memory_save'), isNotEmpty, reason: describe(agent));
     await tester.tap(nav('记忆'));
-    // Candidates from automatic extraction can push the library below the
-    // fold, where the list has not built it: wait for the count, then scroll.
+    // Candidates from automatic extraction open first: switch to the library.
     Finder onMemoryPage(Finder f) => find.descendant(of: find.byType(MemoryPage), matching: f);
-    final memoryList = onMemoryPage(find.byType(Scrollable)).first;
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(onMemoryPage(find.textContaining('记忆库（')), 300, scrollable: memoryList);
-    await waitFor(tester, 'memory listed', () => onMemoryPage(find.textContaining('记忆库（1）')).evaluate().isNotEmpty, agent);
-    await tester.scrollUntilVisible(onMemoryPage(find.textContaining('表格')), 300, scrollable: memoryList);
+    await tester.tap(onMemoryPage(find.text('记忆库')));
+    await waitFor(tester, 'memory listed', () => onMemoryPage(find.textContaining('表格')).evaluate().isNotEmpty, agent);
     await tester.pumpAndSettle();
     await shot(tester, '20_memory_page');
 

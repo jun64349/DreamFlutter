@@ -60,11 +60,7 @@ class _TasksPageState extends State<TasksPage> {
     try {
       final results = await Future.wait([
         _agent.backend.call('inbox.list'),
-        _agent.backend.call('tasks.list', {
-          if (!_allWorkspaces) 'cwd': _agent.workspace,
-          'status': ?_filter.statuses,
-          'limit': 200,
-        }),
+        _agent.backend.call('tasks.list', {if (!_allWorkspaces) 'cwd': _agent.workspace, 'status': ?_filter.statuses, 'limit': 200}),
         _agent.backend.call('schedules.list'),
       ]);
       _inbox = jsonRows(results[0]).map(InboxItem.fromJson).toList();
@@ -94,7 +90,7 @@ class _TasksPageState extends State<TasksPage> {
         if (_section == 1) ...[
           const PanelLabel('筛选'),
           for (final f in _Filter.values)
-            _FilterRow(
+            FilterRow(
               label: f.label,
               selected: f == _filter,
               onTap: () {
@@ -116,7 +112,9 @@ class _TasksPageState extends State<TasksPage> {
         ],
       ],
       child: _error != null
-          ? Center(child: Text(_error!, style: TextStyle(color: colors.danger)))
+          ? Center(
+              child: Text(_error!, style: TextStyle(color: colors.danger)),
+            )
           : _loading
           ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
           : switch (_section) {
@@ -154,48 +152,13 @@ class _TasksPageState extends State<TasksPage> {
     }
     return PageBody(
       children: [
-        ContentHeader(
-          title: '全部任务',
-          description: '每个会话、写笺和模板运行都是一个任务。点开看目标、结果、产物和每次运行。${_filter == _Filter.all ? '' : '（只看「${_filter.label}」）'}',
-        ),
+        ContentHeader(title: '全部任务', description: '每个会话、写笺和模板运行都是一个任务。点开看目标、结果、产物和每次运行。${_filter == _Filter.all ? '' : '（只看「${_filter.label}」）'}'),
         if (_tasks.isEmpty) EmptyState(title: _allWorkspaces ? '还没有任务' : '这个工作区还没有任务', message: '在对话里提一个要求，或者在书桌上把写笺交给 Agent。'),
         for (final e in groups.entries) ...[
           PanelLabel(e.key, count: e.value.length),
           for (final t in e.value) TaskTile(task: t, showWorkspace: _allWorkspaces),
         ],
       ],
-    );
-  }
-}
-
-class _FilterRow extends StatelessWidget {
-  const _FilterRow({required this.label, required this.selected, required this.onTap});
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppTokens.radius),
-      onTap: onTap,
-      child: SizedBox(
-        height: 32,
-        child: Row(
-          children: [
-            const SizedBox(width: 12),
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: selected ? colors.accent : Colors.transparent, border: Border.all(color: selected ? colors.accent : colors.muted)),
-            ),
-            const SizedBox(width: 12),
-            Text(label, style: context.text.bodyMedium?.copyWith(color: selected ? colors.ink : colors.muted)),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -295,23 +258,38 @@ class _InboxCardState extends State<InboxCard> {
   Widget _actions(BuildContext context, AgentController agent) {
     final item = widget.item;
     final method = item.data['method'] as String?;
-    final options = [for (final o in (item.data['options'] as List? ?? const [])) if (o is String) o];
+    final options = [
+      for (final o in (item.data['options'] as List? ?? const []))
+        if (o is String) o,
+    ];
     switch (item.kind) {
       case 'approval' || 'trust' || 'question':
         if (method == 'confirm') {
-          return Wrap(spacing: AppTokens.gap, children: [
-            FilledButton(onPressed: () => _run(() => agent.answerConfirmation(item.id, {'confirmed': true})), child: const Text('是')),
-            OutlinedButton(onPressed: () => _run(() => agent.answerConfirmation(item.id, {'confirmed': false})), child: const Text('否')),
-          ]);
+          return Wrap(
+            spacing: AppTokens.gap,
+            children: [
+              FilledButton(onPressed: () => _run(() => agent.answerConfirmation(item.id, {'confirmed': true})), child: const Text('是')),
+              OutlinedButton(onPressed: () => _run(() => agent.answerConfirmation(item.id, {'confirmed': false})), child: const Text('否')),
+            ],
+          );
         }
         if (method == 'input' || method == 'editor') {
-          return Row(children: [
-            Expanded(child: TextField(controller: _answer, minLines: 1, maxLines: method == 'editor' ? 6 : 1, decoration: const InputDecoration(hintText: '你的回答'))),
-            const SizedBox(width: AppTokens.gap),
-            FilledButton(onPressed: () => _run(() => agent.answerConfirmation(item.id, {'value': _answer.text})), child: const Text('提交')),
-            const SizedBox(width: AppTokens.gap),
-            TextButton(onPressed: () => _run(() => agent.answerConfirmation(item.id, {'cancelled': true})), child: const Text('跳过')),
-          ]);
+          return Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _answer,
+                  minLines: 1,
+                  maxLines: method == 'editor' ? 6 : 1,
+                  decoration: const InputDecoration(hintText: '你的回答'),
+                ),
+              ),
+              const SizedBox(width: AppTokens.gap),
+              FilledButton(onPressed: () => _run(() => agent.answerConfirmation(item.id, {'value': _answer.text})), child: const Text('提交')),
+              const SizedBox(width: AppTokens.gap),
+              TextButton(onPressed: () => _run(() => agent.answerConfirmation(item.id, {'cancelled': true})), child: const Text('跳过')),
+            ],
+          );
         }
         return Wrap(
           spacing: AppTokens.gap,
@@ -324,25 +302,40 @@ class _InboxCardState extends State<InboxCard> {
           ],
         );
       case 'limit':
-        return Wrap(spacing: AppTokens.gap, children: [
-          FilledButton(onPressed: () => _run(() => agent.resolveNotice(item.id, continueRun: true)), child: const Text('继续')),
-          OutlinedButton(onPressed: () => _run(() => agent.resolveNotice(item.id, continueRun: false)), child: const Text('到此为止')),
-        ]);
+        return Wrap(
+          spacing: AppTokens.gap,
+          children: [
+            FilledButton(onPressed: () => _run(() => agent.resolveNotice(item.id, continueRun: true)), child: const Text('继续')),
+            OutlinedButton(onPressed: () => _run(() => agent.resolveNotice(item.id, continueRun: false)), child: const Text('到此为止')),
+          ],
+        );
       case 'memory':
         return FilledButton.tonal(onPressed: () => agent.showSection(AppSection.memory), child: const Text('去「记忆」确认'));
       case 'proposal':
         return FilledButton.tonal(onPressed: () => agent.showSection(AppSection.library), child: const Text('去「技能」查看'));
       case 'schedule':
-        return Wrap(spacing: AppTokens.gap, children: [
-          FilledButton(onPressed: () => _run(() async => agent.backend.call('schedules.setStatus', {'id': item.id, 'status': 'active'})), child: const Text('批准')),
-          OutlinedButton(onPressed: () => _run(() async => agent.backend.call('schedules.setStatus', {'id': item.id, 'status': 'rejected'})), child: const Text('拒绝')),
-        ]);
+        return Wrap(
+          spacing: AppTokens.gap,
+          children: [
+            FilledButton(
+              onPressed: () => _run(() async => agent.backend.call('schedules.setStatus', {'id': item.id, 'status': 'active'})),
+              child: const Text('批准'),
+            ),
+            OutlinedButton(
+              onPressed: () => _run(() async => agent.backend.call('schedules.setStatus', {'id': item.id, 'status': 'rejected'})),
+              child: const Text('拒绝'),
+            ),
+          ],
+        );
       case 'interrupted':
         final run = InterruptedRun.fromJson(item.data);
-        return Wrap(spacing: AppTokens.gap, children: [
-          FilledButton(onPressed: () => _run(() async => agent.resumeInterrupted(run)), child: const Text('继续')),
-          OutlinedButton(onPressed: () => _run(() => agent.dismissInterrupted(run)), child: const Text('放弃')),
-        ]);
+        return Wrap(
+          spacing: AppTokens.gap,
+          children: [
+            FilledButton(onPressed: () => _run(() async => agent.resumeInterrupted(run)), child: const Text('继续')),
+            OutlinedButton(onPressed: () => _run(() => agent.dismissInterrupted(run)), child: const Text('放弃')),
+          ],
+        );
       default:
         return const SizedBox();
     }

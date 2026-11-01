@@ -321,6 +321,65 @@ class PanelLabel extends StatelessWidget {
   }
 }
 
+/// One choice of a filter in a side panel: a small ring that fills when chosen.
+class FilterRow extends StatelessWidget {
+  const FilterRow({super.key, required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTokens.radius),
+      onTap: onTap,
+      child: SizedBox(
+        height: 32,
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: selected ? colors.accent : Colors.transparent,
+                border: Border.all(color: selected ? colors.accent : colors.muted),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(label, style: context.text.bodyMedium?.copyWith(color: selected ? colors.ink : colors.muted)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A switch with a title and one line of explanation, sized for a side panel.
+class PanelSwitch extends StatelessWidget {
+  const PanelSwitch({super.key, required this.title, required this.value, required this.onChanged, this.subtitle});
+
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+      title: Text(title, style: context.text.bodyMedium),
+      subtitle: subtitle == null ? null : Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+      value: value,
+      onChanged: onChanged,
+    );
+  }
+}
+
 /// A bordered card used for list rows and confirmation cards.
 class OutlinedCard extends StatelessWidget {
   const OutlinedCard({super.key, required this.child, this.highlight, this.padding = const EdgeInsets.all(AppTokens.pad)});

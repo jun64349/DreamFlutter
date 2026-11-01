@@ -59,8 +59,9 @@ class MemoryBlock {
   final bool locked;
 }
 
-/// Long-term memory: candidates to confirm, the always-on blocks, and the
-/// memory library (browse, search, edit, history, export, clear).
+/// Long-term memory in three sections: the memory library (browse, search,
+/// edit, history), candidates to confirm, and the always-on blocks. The
+/// switches, export and clearing sit in the left panel.
 class MemoryPage extends StatefulWidget {
   const MemoryPage({super.key});
 
@@ -80,6 +81,10 @@ class _MemoryPageState extends State<MemoryPage> {
   String? _error;
   var _loading = true;
   late final AgentController _agent;
+
+  /// 0 library, 1 candidates, 2 blocks; candidates open first when there are any.
+  var _section = 0;
+  var _chose = false;
 
   @override
   void initState() {
@@ -108,6 +113,10 @@ class _MemoryPageState extends State<MemoryPage> {
       _candidates = rows(results[1]).map(MemoryItem.fromJson).toList();
       _blocks = rows(results[2]).map(MemoryBlock.fromJson).toList();
       _error = null;
+      if (!_chose) {
+        _chose = true;
+        if (_candidates.isNotEmpty) _section = 1;
+      }
     } catch (e) {
       _error = SessionRuntime.describeError(e);
     }
@@ -124,118 +133,161 @@ class _MemoryPageState extends State<MemoryPage> {
     await _load();
   }
 
-  void _snack(String text) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating, width: 520));
+  void _snack(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating, width: 520));
 
   List<MemoryItem> get _filtered => [
     for (final m in _memories)
       if ((_kind == null || m.kind == _kind) &&
-          (_scope == null || (_scope == 'global' ? m.scope == 'global' : m.scope == 'workspace' && m.cwd != null && SessionStore.samePath(m.cwd!, _agent.workspace))))
+          (_scope == null ||
+              (_scope == 'global' ? m.scope == 'global' : m.scope == 'workspace' && m.cwd != null && SessionStore.samePath(m.cwd!, _agent.workspace))))
         m,
   ];
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
+    final colors = context.colors;
     final enabled = agent.coreSettings['memoryEnabled'] != false;
-    return PageFrame(
+    Widget filter(String label, bool selected, VoidCallback onTap) => FilterRow(label: label, selected: selected, onTap: onTap);
+    return SectionedPage(
       title: '记忆',
-      subtitle: '每次任务开始时，常驻记忆块和相关记忆会打成快照交给 Agent。临时对话不读也不写记忆。',
-      actions: [
-        Tooltip(
-          message: '关闭后 Agent 不再读取和保存记忆，已有内容保留',
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('启用长期记忆', style: context.text.bodyMedium),
-              Switch(value: enabled, onChanged: (v) => agent.updateCoreSettings({'memoryEnabled': v})),
-            ],
-          ),
+      items: [
+        SideNavItem('记忆库', Icons.psychology_outlined, count: _memories.length),
+        SideNavItem('待确认', Icons.rule, count: _candidates.length, alert: true),
+        SideNavItem('常驻记忆块', Icons.push_pin_outlined, count: _blocks.length),
+      ],
+      selected: _section,
+      onSelect: (i) => setState(() => _section = i),
+      panel: [
+        if (_section == 0) ...[
+          const PanelLabel('类别'),
+          filter('全部', _kind == null, () => setState(() => _kind = null)),
+          for (final e in MemoryItem.kinds.entries) filter(e.value, _kind == e.key, () => setState(() => _kind = e.key)),
+          const PanelLabel('范围'),
+          filter('全部', _scope == null, () => setState(() => _scope = null)),
+          filter('全局', _scope == 'global', () => setState(() => _scope = 'global')),
+          filter('本工作区', _scope == 'workspace', () => setState(() => _scope = 'workspace')),
+        ],
+        const PanelLabel('设置'),
+        PanelSwitch(title: '启用长期记忆', subtitle: '关闭后不再读取和保存记忆，已有内容保留', value: enabled, onChanged: (v) => agent.updateCoreSettings({'memoryEnabled': v})),
+        PanelSwitch(
+          title: '自动整理候选记忆',
+          subtitle: '任务结束后找出值得记住的内容，放进「待确认」',
+          value: agent.coreSettings['memoryAutoExtract'] != false,
+          onChanged: enabled ? (v) => agent.updateCoreSettings({'memoryAutoExtract': v}) : null,
         ),
-        PopupMenuButton<String>(
-          tooltip: '更多',
-          icon: const Icon(Icons.more_horiz),
-          onSelected: _menu,
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'export', child: ListTile(dense: true, leading: Icon(Icons.download_outlined), title: Text('导出为 JSON'))),
-            PopupMenuItem(value: 'clear_workspace', child: ListTile(dense: true, leading: Icon(Icons.folder_delete_outlined), title: Text('清空本工作区的记忆'))),
-            PopupMenuItem(value: 'clear_all', child: ListTile(dense: true, leading: Icon(Icons.delete_sweep_outlined), title: Text('清空全部记忆'))),
-          ],
+        const SizedBox(height: AppTokens.gap),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: PopupMenuButton<String>(
+            tooltip: '导出和清空',
+            onSelected: _menu,
+            position: PopupMenuPosition.under,
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'export',
+                child: ListTile(dense: true, leading: Icon(Icons.download_outlined), title: Text('导出为 JSON')),
+              ),
+              PopupMenuItem(
+                value: 'clear_workspace',
+                child: ListTile(dense: true, leading: Icon(Icons.folder_delete_outlined), title: Text('清空本工作区的记忆')),
+              ),
+              PopupMenuItem(
+                value: 'clear_all',
+                child: ListTile(dense: true, leading: Icon(Icons.delete_sweep_outlined), title: Text('清空全部记忆')),
+              ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.more_horiz, size: 16, color: colors.muted),
+                  const SizedBox(width: 6),
+                  Text('导出和清空', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+                ],
+              ),
+            ),
+          ),
         ),
       ],
       child: _error != null
-          ? Center(child: Text(_error!, style: TextStyle(color: context.colors.danger)))
+          ? Center(
+              child: Text(_error!, style: TextStyle(color: colors.danger)),
+            )
           : _loading
           ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
           : PageBody(
               children: [
                 if (!enabled)
-                  OutlinedCard(
-                    highlight: context.colors.warning,
-                    child: const Text('长期记忆已关闭：新任务不会带上记忆，Agent 也不会保存新的记忆。'),
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppTokens.pad),
+                    child: OutlinedCard(highlight: colors.warning, child: const Text('长期记忆已关闭：新任务不会带上记忆，Agent 也不会保存新的记忆。')),
                   ),
-                if (_candidates.isNotEmpty) ...[
-                  SectionTitle('待确认', count: _candidates.length),
-                  for (final c in _candidates) _CandidateCard(candidate: c, memories: _memories, blocks: _blocks, onAction: _call),
-                ],
-                SectionTitle(
-                  '常驻记忆块',
-                  trailing: Text('每次任务都会带上，每块最多 ${MemoryPage.blockLimit} 字', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-                ),
-                for (final b in _blocks) _BlockEditor(key: ValueKey('block-${b.key}-${b.content.hashCode}-${b.locked}'), block: b, onSave: _call),
-                SectionTitle(
-                  '记忆库',
-                  count: _memories.length,
-                  trailing: FilledButton.tonalIcon(onPressed: () => _edit(null), icon: const Icon(Icons.add, size: 18), label: const Text('添加记忆')),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  value: agent.coreSettings['memoryAutoExtract'] != false,
-                  onChanged: enabled ? (v) => agent.updateCoreSettings({'memoryAutoExtract': v}) : null,
-                  title: const Text('任务结束后自动整理候选记忆'),
-                  subtitle: const Text('用辅助模型从对话里找出值得记住的内容，放进「待确认」，你同意后才生效。'),
-                ),
-                const SizedBox(height: AppTokens.gap),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _query,
-                        decoration: const InputDecoration(prefixIcon: Icon(Icons.search, size: 18), hintText: '搜索记忆'),
-                        onSubmitted: (_) => _load(),
-                        onChanged: (v) {
-                          if (v.isEmpty) _load();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: AppTokens.gap),
-                    _FilterMenu(
-                      label: _kind == null ? '全部类别' : MemoryItem.kinds[_kind]!,
-                      options: {null: '全部类别', ...MemoryItem.kinds},
-                      onSelected: (v) => setState(() => _kind = v),
-                    ),
-                    const SizedBox(width: AppTokens.gap),
-                    _FilterMenu(
-                      label: switch (_scope) { 'global' => '全局', 'workspace' => '本工作区', _ => '全部范围' },
-                      options: const {null: '全部范围', 'global': '全局', 'workspace': '本工作区'},
-                      onSelected: (v) => setState(() => _scope = v),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppTokens.pad),
-                if (_filtered.isEmpty)
-                  EmptyNote(_memories.isEmpty && _query.text.isEmpty ? '还没有记忆。对 Agent 说「记住……」，或者点「添加记忆」。' : '没有符合条件的记忆。')
-                else
-                  for (final m in _filtered)
-                    _MemoryTile(memory: m, onEdit: () => _edit(m), onHistory: () => _history(m), onDelete: () => _delete(m)),
+                ...switch (_section) {
+                  1 => _candidatesSection(),
+                  2 => _blocksSection(),
+                  _ => _librarySection(),
+                },
               ],
             ),
     );
   }
 
+  List<Widget> _librarySection() {
+    final filtered = _filtered;
+    final byKind = <String, List<MemoryItem>>{};
+    for (final m in filtered) {
+      byKind.putIfAbsent(m.kind, () => []).add(m);
+    }
+    return [
+      ContentHeader(
+        title: '记忆库',
+        description: '每次任务开始时，常驻记忆块和相关的记忆会打成快照交给 Agent。临时对话不读也不写记忆。',
+        actions: [FilledButton.icon(onPressed: () => _edit(null), icon: const Icon(Icons.add, size: 18), label: const Text('添加记忆'))],
+      ),
+      TextField(
+        controller: _query,
+        decoration: const InputDecoration(prefixIcon: Icon(Icons.search, size: 18), hintText: '搜索记忆，回车查找'),
+        onSubmitted: (_) => _load(),
+        onChanged: (v) {
+          if (v.isEmpty) _load();
+        },
+      ),
+      const SizedBox(height: AppTokens.gap),
+      if (filtered.isEmpty)
+        _memories.isEmpty && _query.text.isEmpty
+            ? EmptyState(
+                title: '还没有记忆',
+                message: '对 Agent 说「记住……」，或者点「添加记忆」。\n开启自动整理后，任务结束时也会提出候选记忆。',
+                action: OutlinedButton.icon(onPressed: () => _edit(null), icon: const Icon(Icons.add, size: 16), label: const Text('添加一条')),
+              )
+            : const EmptyNote('没有符合条件的记忆。')
+      else
+        for (final kind in [...MemoryItem.kinds.keys, ...byKind.keys.where((k) => !MemoryItem.kinds.containsKey(k))])
+          if (byKind[kind] != null) ...[
+            PanelLabel(MemoryItem.kinds[kind] ?? kind, count: byKind[kind]!.length),
+            for (final m in byKind[kind]!) _MemoryTile(memory: m, onEdit: () => _edit(m), onHistory: () => _history(m), onDelete: () => _delete(m)),
+          ],
+    ];
+  }
+
+  List<Widget> _candidatesSection() => [
+    const ContentHeader(title: '待确认', description: '辅助模型从对话里找出的、值得长期记住的内容。你保存后才生效，忽略的不会再提。'),
+    if (_candidates.isEmpty) const EmptyState(title: '没有待确认的记忆', message: '任务结束后，新的候选记忆会出现在这里。'),
+    for (final c in _candidates) _CandidateCard(candidate: c, memories: _memories, blocks: _blocks, onAction: _call),
+  ];
+
+  List<Widget> _blocksSection() => [
+    const ContentHeader(title: '常驻记忆块', description: '每次任务都会带上，每块最多 ${MemoryPage.blockLimit} 字。锁定的块 Agent 只能提修改建议，由你确认。'),
+    for (final b in _blocks) _BlockEditor(key: ValueKey('block-${b.key}-${b.content.hashCode}-${b.locked}'), block: b, onSave: _call),
+  ];
+
   Future<void> _edit(MemoryItem? existing) async {
-    final result = await showDialog<Json>(context: context, builder: (_) => _MemoryDialog(existing: existing, workspace: _agent.workspace));
+    final result = await showDialog<Json>(
+      context: context,
+      builder: (_) => _MemoryDialog(existing: existing, workspace: _agent.workspace),
+    );
     if (result == null) return;
     if (existing == null) {
       await _call('memory.add', result, done: '已保存');
@@ -285,7 +337,9 @@ class _MemoryPageState extends State<MemoryPage> {
       case 'export':
         final location = await getSaveLocation(
           suggestedName: 'dreamflutter-memory.json',
-          acceptedTypeGroups: const [XTypeGroup(label: 'JSON', extensions: ['json'])],
+          acceptedTypeGroups: const [
+            XTypeGroup(label: 'JSON', extensions: ['json']),
+          ],
         );
         if (location == null) return;
         try {
@@ -304,29 +358,6 @@ class _MemoryPageState extends State<MemoryPage> {
           await _call('memory.clear', {'scope': 'all'}, done: '已清空全部记忆');
         }
     }
-  }
-}
-
-class _FilterMenu extends StatelessWidget {
-  const _FilterMenu({required this.label, required this.options, required this.onSelected});
-
-  final String label;
-  final Map<String?, String> options;
-  final ValueChanged<String?> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<String?>(
-      tooltip: '',
-      position: PopupMenuPosition.under,
-      onSelected: onSelected,
-      itemBuilder: (_) => [for (final e in options.entries) PopupMenuItem(value: e.key, child: Text(e.value))],
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-        decoration: BoxDecoration(border: Border.all(color: context.colors.border), borderRadius: BorderRadius.circular(AppTokens.radiusLg)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [Text(label, style: context.text.bodySmall), const Icon(Icons.expand_more, size: 16)]),
-      ),
-    );
   }
 }
 
@@ -367,11 +398,24 @@ class _MemoryTile extends StatelessWidget {
           PopupMenuButton<String>(
             tooltip: '操作',
             icon: const Icon(Icons.more_horiz, size: 18),
-            onSelected: (v) => switch (v) { 'edit' => onEdit(), 'history' => onHistory(), _ => onDelete() },
+            onSelected: (v) => switch (v) {
+              'edit' => onEdit(),
+              'history' => onHistory(),
+              _ => onDelete(),
+            },
             itemBuilder: (_) => const [
-              PopupMenuItem(value: 'edit', child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('编辑'))),
-              PopupMenuItem(value: 'history', child: ListTile(dense: true, leading: Icon(Icons.history), title: Text('历史版本'))),
-              PopupMenuItem(value: 'delete', child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除'))),
+              PopupMenuItem(
+                value: 'edit',
+                child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('编辑')),
+              ),
+              PopupMenuItem(
+                value: 'history',
+                child: ListTile(dense: true, leading: Icon(Icons.history), title: Text('历史版本')),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除')),
+              ),
             ],
           ),
         ],
@@ -410,11 +454,19 @@ class _CandidateCard extends StatelessWidget {
           Wrap(
             spacing: 6,
             crossAxisAlignment: WrapCrossAlignment.center,
-            children: [TagChip(label, color: color), TagChip(candidate.kindLabel), TagChip(candidate.scopeLabel), Text(formatDate(candidate.updatedAt), style: muted)],
+            children: [
+              TagChip(label, color: color),
+              TagChip(candidate.kindLabel),
+              TagChip(candidate.scopeLabel),
+              Text(formatDate(candidate.updatedAt), style: muted),
+            ],
           ),
           const SizedBox(height: AppTokens.gap),
           if (existing != null || block != null) ...[
-            Text('原来：${block?.content ?? existing!.content}', style: muted?.copyWith(decoration: candidate.action == 'delete' ? TextDecoration.lineThrough : null)),
+            Text(
+              '原来：${block?.content ?? existing!.content}',
+              style: muted?.copyWith(decoration: candidate.action == 'delete' ? TextDecoration.lineThrough : null),
+            ),
             const SizedBox(height: 4),
           ],
           if (candidate.action != 'delete') SelectableText(block != null ? '改为：${candidate.content}' : candidate.content),
@@ -470,13 +522,8 @@ class _BlockEditor extends StatefulWidget {
 class _BlockEditorState extends State<_BlockEditor> {
   late final _controller = TextEditingController(text: widget.block.content);
   var _dirty = false;
-  var _expanded = false;
 
-  static const _hints = {
-    'about_me': '例如：我叫小周，在杭州做产品经理，平时用 Windows。',
-    'preferences': '例如：回答用中文，先给结论；代码注释用英文。',
-    'agreements': '例如：这个月在准备论文答辩，周报每周五交。',
-  };
+  static const _hints = {'about_me': '例如：我叫小周，在杭州做产品经理，平时用 Windows。', 'preferences': '例如：回答用中文，先给结论；代码注释用英文。', 'agreements': '例如：这个月在准备论文答辩，周报每周五交。'};
 
   @override
   void dispose() {
@@ -487,50 +534,37 @@ class _BlockEditorState extends State<_BlockEditor> {
   @override
   Widget build(BuildContext context) {
     final block = widget.block;
-    final muted = context.text.bodySmall?.copyWith(color: context.colors.muted);
-    final preview = block.content.replaceAll(RegExp(r'\s+'), ' ').trim();
     return OutlinedCard(
-      padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.gap, AppTokens.pad, AppTokens.pad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
-            child: Row(
-              children: [
-                Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 18, color: context.colors.muted),
-                const SizedBox(width: 6),
-                Text(block.title, style: context.text.titleSmall),
-                const SizedBox(width: AppTokens.gap),
-                if (block.locked) ...[TagChip('已锁定', color: context.colors.warning), const SizedBox(width: AppTokens.gap)],
-                Expanded(
-                  child: _expanded ? const SizedBox() : Text(preview.isEmpty ? '（空）点击填写' : preview, maxLines: 1, overflow: TextOverflow.ellipsis, style: muted),
-                ),
-                IconButton(
-                  tooltip: block.locked ? '解锁：允许 Agent 直接修改' : '锁定：Agent 只能提修改建议，由你确认',
-                  icon: Icon(block.locked ? Icons.lock_outline : Icons.lock_open_outlined, size: 18),
-                  onPressed: () => widget.onSave('memory.setBlock', {'key': block.key, 'locked': !block.locked}),
-                ),
-                if (_expanded)
-                  FilledButton.tonal(
-                    onPressed: _dirty ? () => widget.onSave('memory.setBlock', {'key': block.key, 'content': _controller.text}, done: '「${block.title}」已保存') : null,
-                    child: const Text('保存'),
-                  ),
-              ],
-            ),
+          Row(
+            children: [
+              Text(block.title, style: context.serif(context.text.titleMedium).copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(width: AppTokens.gap),
+              if (block.locked) TagChip('已锁定', color: context.colors.warning),
+              const Spacer(),
+              IconButton(
+                tooltip: block.locked ? '解锁：允许 Agent 直接修改' : '锁定：Agent 只能提修改建议，由你确认',
+                icon: Icon(block.locked ? Icons.lock : Icons.lock_open_outlined, size: 18, color: block.locked ? context.colors.warning : null),
+                onPressed: () => widget.onSave('memory.setBlock', {'key': block.key, 'locked': !block.locked}),
+              ),
+              FilledButton.tonal(
+                onPressed: _dirty ? () => widget.onSave('memory.setBlock', {'key': block.key, 'content': _controller.text}, done: '「${block.title}」已保存') : null,
+                child: const Text('保存'),
+              ),
+            ],
           ),
-          if (_expanded) ...[
-            const SizedBox(height: AppTokens.gap),
-            TextField(
-              controller: _controller,
-              autofocus: true,
-              minLines: 2,
-              maxLines: 8,
-              maxLength: MemoryPage.blockLimit,
-              decoration: InputDecoration(hintText: _hints[block.key]),
-              onChanged: (v) => setState(() => _dirty = v != block.content),
-            ),
-          ],
+          const SizedBox(height: 4),
+          TextField(
+            controller: _controller,
+            minLines: 3,
+            maxLines: 8,
+            maxLength: MemoryPage.blockLimit,
+            decoration: InputDecoration(hintText: _hints[block.key]),
+            onChanged: (v) => setState(() => _dirty = v != block.content),
+          ),
         ],
       ),
     );
@@ -589,7 +623,10 @@ class _MemoryDialogState extends State<_MemoryDialog> {
             Text('适用范围', style: context.text.labelMedium),
             const SizedBox(height: 4),
             SegmentedButton<String>(
-              segments: const [ButtonSegment(value: 'global', label: Text('全局')), ButtonSegment(value: 'workspace', label: Text('只在当前工作区'))],
+              segments: const [
+                ButtonSegment(value: 'global', label: Text('全局')),
+                ButtonSegment(value: 'workspace', label: Text('只在当前工作区')),
+              ],
               selected: {_scope},
               onSelectionChanged: (s) => setState(() => _scope = s.first),
             ),

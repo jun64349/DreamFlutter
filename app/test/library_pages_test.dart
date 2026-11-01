@@ -97,15 +97,16 @@ void main() {
 
     await tester.tap(find.text('记忆'));
     await settle(tester);
+    // Candidates open first while there are any.
     expect(find.text('用户在杭州工作'), findsOneWidget);
-    expect(find.text('回答用中文，先给结论'), findsOneWidget);
-    expect(find.text('偏好与习惯'), findsOneWidget);
-    expect(find.text('已锁定'), findsOneWidget);
-
     await tester.tap(find.widgetWithText(FilledButton, '保存').first);
     await settle(tester);
     expect(backend.callsTo('memory.accept').single, {'id': 'c1'});
     expect(find.text('用户在杭州工作'), findsNothing);
+
+    await tester.tap(find.text('记忆库'));
+    await settle(tester);
+    expect(find.text('回答用中文，先给结论'), findsOneWidget);
 
     // Add a memory through the dialog.
     await tester.tap(find.text('添加记忆'));
@@ -117,8 +118,10 @@ void main() {
     expect(backend.callsTo('memory.add').single, {'content': '周报每周五交', 'kind': 'preference', 'scope': 'global', 'cwd': null});
 
     // Editing a block enables its save button.
-    await tester.tap(find.text('关于我'));
-    await tester.pumpAndSettle();
+    await tester.tap(find.text('常驻记忆块'));
+    await settle(tester);
+    expect(find.text('偏好与习惯'), findsOneWidget);
+    expect(find.text('已锁定'), findsOneWidget);
     final blockField = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('例如：我叫'));
     await tester.enterText(blockField, '我是产品经理');
     await tester.pump();

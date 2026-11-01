@@ -203,6 +203,14 @@ void main() {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
       await shot('13_schedules_$suffix');
       await tester.tap(find.text('待处理'));
+      agent.showSection(AppSection.memory);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await shot('14_memory_candidates_$suffix');
+      await tester.tap(find.text('记忆库'));
+      await shot('15_memory_library_$suffix');
+      await tester.tap(find.text('常驻记忆块'));
+      await shot('16_memory_blocks_$suffix');
+      await tester.tap(find.text('待确认'));
     }
   });
 }
@@ -245,6 +253,22 @@ Map<String, Object? Function(Json)> _workPages(String cwd, int now) {
     'cards.list': (_) => const [],
     'tasks.list': (p) => p['noteId'] == 'w1' ? [tasks.first] : tasks,
     'artifacts.list': (_) => const [],
+    'memory.list': (p) => p['status'] == 'candidate'
+        ? [
+            {'id': 'c1', 'scope': 'global', 'kind': 'preference', 'content': '写周报时先给结论，再给表格。', 'source': 'agent', 'status': 'candidate', 'action': 'add', 'reason': '用户在两次周报任务里都要求先写结论。', 'updatedAt': now - hour},
+            {'id': 'c2', 'scope': 'global', 'kind': 'background', 'content': '在杭州做产品经理，负责华东区。', 'source': 'agent', 'status': 'candidate', 'action': 'update', 'targetId': 'm2', 'updatedAt': now - 2 * hour},
+          ]
+        : [
+            {'id': 'm1', 'scope': 'global', 'kind': 'preference', 'content': '回答用中文，先给结论；表格比长段落好。', 'source': 'user', 'updatedAt': now - 26 * hour},
+            {'id': 'm3', 'scope': 'workspace', 'cwd': cwd, 'kind': 'preference', 'content': '这个项目的文档都放在 docs/ 下，用 Markdown。', 'source': 'manual', 'updatedAt': now - 50 * hour},
+            {'id': 'm2', 'scope': 'global', 'kind': 'background', 'content': '在杭州做产品经理。', 'source': 'user', 'updatedAt': now - 80 * hour},
+            {'id': 'm4', 'scope': 'global', 'kind': 'experience', 'content': '读销售表时先确认表头那一行，去年的表有合并单元格。', 'source': 'agent', 'updatedAt': now - 120 * hour},
+          ],
+    'memory.blocks': (_) => [
+      {'key': 'about_me', 'title': '关于我', 'content': '我叫小周，在杭州做产品经理，平时用 Windows。', 'locked': false},
+      {'key': 'preferences', 'title': '偏好与习惯', 'content': '回答用中文，先给结论；代码注释用英文。', 'locked': true},
+      {'key': 'agreements', 'title': '当前约定', 'content': '', 'locked': false},
+    ],
     'inbox.list': (_) => [
       {
         'kind': 'approval',
