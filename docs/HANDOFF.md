@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接（v0.1.1 → v0.2）
 
-更新时间：2026-10-31（阶段 4）
+更新时间：2026-11-01（阶段 5）
 当前分支：`main`（v0.1.0、v0.1.1 都已打 tag；下一阶段是 v0.2，计划见 [v0.2-plan.md](v0.2-plan.md)）
 
 ## 一句话现状
@@ -18,7 +18,25 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**v0.2 阶段 5**（书桌、任务、记忆、技能按「蛱蝶」重做 + 名画主题；名画主题的调研当时没跑出结果，要先补调研再请用户挑），然后阶段 6 发布。用户 2026-10-31 决定不再做 computer-use 人工测试。阶段 4（多模态 + Showcard 卡片）已完成，见下一节和 [v0.2-multimodal.md](v0.2-multimodal.md)。
+下一步：**v0.2 阶段 6**（审查、修复、全量测试和端到端验收，发布 v0.2）。阶段 5（四个页面重做 + 名画主题）已完成，见下一节。用户 2026-10-31 决定不再做 computer-use 人工测试。
+
+## v0.2 阶段 5：页面重做 + 名画主题（2026-11-01）
+
+- **共用框架**（`ui/common.dart`）：`SectionedPage`（左栏：衬线标题、分区 `SideNavItem` 带计数/红点、筛选；右边内容，跟书桌和对话页一样的三栏感觉）、`ContentHeader`（宋体标题 + 一句说明 + 操作）、`EmptyState`（蝴蝶 + 一句话 + 下一步按钮）、`PanelLabel`、`FilterRow`、`PanelSwitch`。左栏底色用 `Material` 而不是有色 `Container`，不然里面的 `SwitchListTile` 画不出来（测试会报错）。
+- **书桌**（`desk_page.dart`）按设计稿改成三栏：左栏写笺列表和资料（文件/文件夹可以直接拖到左栏，底部「拖入文件，或粘贴文字」），中间是打开的写笺（纸面，标题和正文都是宋体，右上角是主题的印记，下面是这份写笺的任务和产物），右栏「进行中 / 产物（来自哪个任务）/ 卡片 / 最近任务」。第一次进来自动打开最新的写笺；「返回书桌」按钮换成「关闭写笺」。
+- **任务**：待处理 / 全部任务（按今天、昨天、这一周、更早分组；筛选和「所有工作区」在左栏）/ 定时。
+- **定时任务绑定已有会话**：编辑框里「在哪个会话里运行：每次新开一个会话 / 接着同一个会话」，选会话（`sessions.list`）；对话页右上角菜单新增「定时接着做」，直接绑定当前会话。后台早就支持（`sessionMode: bound`），这次补了后台测试（第二次运行能看到第一次的回复）。
+- **记忆**：记忆库（按偏好/背景/经验分组，类别和范围筛选在左栏）/ 待确认（有候选时先打开）/ 常驻记忆块（三块直接展开编辑）；两个开关和「导出和清空」在左栏底部。
+- **技能与模板**：技能（字母徽章、来源筛选）/ 任务模板（`/名字` 和 `{{参数}}`）/ 待确认（有建议时先打开）。
+- **名画主题**（`theme.dart`）：调研报告 [research/art-themes.md](research/art-themes.md)（Antigravity，8 个候选；作品事实没逐条核实，所以界面上的出处写得比较概括）。用户选了 **日间**「蛱蝶」「草蝶」（梵高）「羽化」（梅里安）「神思」（多索·多西），**夜间**「墨夜」「幽华」（德·黑姆）「琉光」（蒂芙尼）。
+  - 每个主题是一个 `PaintingTheme`：颜色（`AppColors`）、圆角（羽化直角、草蝶大圆角）、标题字体（拉丁字母用 Georgia / Sitka / Palatino / Constantia 等 Windows 自带字体，中文仍是思源宋体）、小标签字距、印记 `ThemeMark`（蛱蝶是「梦蝶」朱印；羽化、神思是斜体图版注记；草蝶、幽华、琉光是小蝴蝶）、会话栏底部的题字（中文竖排，西方作品是转 90° 的作品名）、蝴蝶线条粗细（琉光像铅条）。
+  - 组件里的圆角统一用 `context.radius` / `radiusSm` / `radiusLg`（跟主题走），`AppTokens.radius*` 只剩「蛱蝶」的默认值。`buildTheme(brightness, painting: …)`，`context.painting` 取当前主题。
+  - 选择方式：外观弹窗和设置 › 外观里，「明暗」（跟随系统/浅色/深色）+「日间主题」「夜间主题」各一排预览卡片；偏好 `lightTheme` / `darkTheme`，控制器 `setPaintingTheme`。
+  - 对比度：新主题的正文、次要文字、强调色、状态色在底色/侧栏/卡片上都 ≥ 4.5:1（`test/themes_test.dart` 锁住）；原「蛱蝶」有 4 处 4.36–4.47 的小差距（赭石在侧栏上等），是之前定的颜色，没改。
+- **测试**：窗口 70 个（新增主题测试、绑定会话的定时任务）；后台 151 个；`look_test.dart` 新增「the work pages in light and dark」：书桌、任务三栏、记忆三栏、技能三栏的浅色和深色截图，加上 5 个新主题各一张书桌和对话页、外观弹窗（`build/look_shots/10_*` 到 `22_*`）。真实 DeepSeek 的 E2E：第 14（记忆）、15（模板）、16（书桌）步按新界面改了找法；第 18 步模型有时把「Example Domain」翻成「示例域名」，现在两种都算对。
+- 踩坑：`dart format -l 160` 不是这个项目的格式，会大面积改动旧代码，别用；Bash 里用 heredoc 写含反斜杠的脚本仍会丢反斜杠（这次在测试数据里把 `\b` 变成了退格符），脚本一律用 Write 写文件再 `node` 运行。
+
+阶段 4（多模态 + Showcard 卡片）见下一节和 [v0.2-multimodal.md](v0.2-multimodal.md)。
 
 ## v0.2 阶段 4：多模态输入输出 + Showcard 卡片（2026-10-31）
 
@@ -142,11 +160,11 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：150 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
+# 后台测试：151 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：66 个
+# 窗口单元/组件测试：70 个
 cd app && flutter test test
-# 视觉检查：假后台、不联网、约 10 秒，截图在 app/build/look_shots/
+# 视觉检查：假后台、不联网、约 40 秒（对话页 + 各页面 + 每个主题），截图在 app/build/look_shots/
 cd app && flutter test integration_test/look_test.dart -d windows
 # Dart 协议层，含启动真实后台的测试
 cd packages/pi_rpc && dart test -x integration

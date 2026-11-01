@@ -387,7 +387,7 @@ void main() {
     // Candidates from automatic extraction open first: switch to the library.
     Finder onMemoryPage(Finder f) => find.descendant(of: find.byType(MemoryPage), matching: f);
     await tester.pumpAndSettle();
-    await tester.tap(onMemoryPage(find.text('记忆库')));
+    await tester.tap(onMemoryPage(find.text('记忆库')).first); // the panel entry; the section heading says it too
     await waitFor(tester, 'memory listed', () => onMemoryPage(find.textContaining('表格')).evaluate().isNotEmpty, agent);
     await tester.pumpAndSettle();
     await shot(tester, '20_memory_page');
@@ -516,7 +516,8 @@ void main() {
       }
     }
     expect(agent.transcript.tools.values.where((r) => r.name == 'web_fetch' && r.status == ToolStatus.done), isNotEmpty, reason: describe(agent));
-    expect(lastText(agent).toLowerCase(), contains('example'));
+    // The title is "Example Domain"; the model sometimes translates it anyway.
+    expect(lastText(agent).toLowerCase(), anyOf(contains('example'), contains('示例')));
     await shot(tester, '29_web_fetch');
 
     // 19. Images reach the model (v0.1.1 bug: Pi's "block images" setting

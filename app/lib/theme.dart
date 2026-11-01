@@ -346,7 +346,7 @@ class PaintingTheme {
   static const shensi = PaintingTheme(
     id: 'shensi',
     name: '神思',
-    work: '多索·多西《朱庇特、墨丘利与美德》（画蝴蝶的朱庇特），约 1523',
+    work: '多索·多西《朱庇特、墨丘利与美德》，约 1523',
     radiusSm: 3,
     radius: 6,
     radiusLg: 8,
