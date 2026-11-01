@@ -72,6 +72,8 @@ export function isReadOnlyCommand(command: string): boolean {
 	for (const raw of text.split(/\r?\n|;|\|\||&&|\|/)) {
 		const stage = raw.trim();
 		if (stage.length === 0) continue;
+		// A lone string only prints itself ("---" between outputs); subexpressions are refused above.
+		if (/^(?:'[^']*'|"[^"]*")$/.test(stage)) continue;
 		const [first, ...rest] = stage.split(/\s+/);
 		const word = first!.toLowerCase();
 		if (word === "git") {

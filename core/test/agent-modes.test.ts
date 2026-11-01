@@ -310,10 +310,19 @@ describe("review fixes (stage 3a)", () => {
 			"git grep -nO foo",
 			"git diff --ext-diff",
 			"git log -p --ext",
+			"'x' Remove-Item victim.txt",
+			'"a" | Set-Content b.txt',
 		]) {
 			assert.equal(isReadOnlyCommand(command), false, command);
 		}
-		for (const command of ["git status && git log --oneline -3", "git grep -n foo", "git diff --stat", "git log --no-ext-diff -n 5"]) {
+		for (const command of [
+			"git status && git log --oneline -3",
+			"git grep -n foo",
+			"git diff --stat",
+			"git log --no-ext-diff -n 5",
+			// A lone string between outputs, as models like to print (seen with deepseek-v4.1-flash in plan mode).
+			'Get-ChildItem -Force | Select-Object Mode,Length,Name; "---"; Test-Path .\\plan-demo.txt',
+		]) {
 			assert.equal(isReadOnlyCommand(command), true, command);
 		}
 	});

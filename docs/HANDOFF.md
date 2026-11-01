@@ -3,7 +3,9 @@
 更新时间：2026-11-01（v0.2.0 发布）
 当前分支：`main`（v0.1.0、v0.1.1、v0.2.0 都已打 tag；v0.2 做了什么见 [v0.2-release-notes.md](v0.2-release-notes.md)；接下来按 [roadmap.md](roadmap.md) 做 v0.3–v0.9）
 
-**下一步**：E2E 改成复用用户在应用里配好的 OpenCode Go 渠道（用户 2026-11-01 决定以后测试都走 OpenCode Go；不要在测试里新建渠道），然后开始 v0.3。
+**测试模型**：用户 2026-11-01 决定以后测试都走 OpenCode Go。E2E 启动前用 `core/scripts/copy-channels.ts` 把用户在应用里配好的 OpenCode Go 渠道（加密的 Key 文件原样）复制进测试自己的后台，用 `deepseek-v4.1-flash`；不要在测试里新建渠道。没有这个渠道或给了 `--dart-define=E2E_MODEL=…` 时用 Pi 配置的模型。跑 E2E 前用户的应用要退出（调试版 exe 会被占用）。
+
+**下一步**：按 [roadmap.md](roadmap.md) 开始 v0.3。
 
 ## 一句话现状
 

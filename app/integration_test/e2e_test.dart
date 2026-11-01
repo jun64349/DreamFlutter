@@ -3,6 +3,9 @@
 //   flutter test integration_test/e2e_test.dart -d windows
 // Screenshots are written to build/e2e_shots/. Keep the test window visible
 // (it may be covered, but not minimized: a minimized window renders no frames).
+// The model is deepseek-v4.1-flash on the OpenCode Go channel configured in the
+// app (copied into the test's own core with core/scripts/copy-channels.ts); without
+// one, or with --dart-define=E2E_MODEL=provider/id, a model of the user's Pi config.
 
 import 'dart:async';
 import 'dart:convert';
@@ -13,6 +16,7 @@ import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/theme.dart' show AppColors;
+import 'package:dreamflutter/ui/dashboard_page.dart' show DashboardPage;
 import 'package:dreamflutter/ui/desk_page.dart' show DeskPage;
 import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:dreamflutter/ui/memory_page.dart' show MemoryPage;
@@ -30,7 +34,32 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const model = String.fromEnvironment('E2E_MODEL', defaultValue: Preferences.defaultModelKey);
+/// A model of the user's Pi configuration, when asked for (`--dart-define=E2E_MODEL=provider/id`)
+/// or when no OpenCode Go channel is configured in the app.
+const piModel = String.fromEnvironment('E2E_MODEL', defaultValue: Preferences.defaultModelKey);
+
+/// Tests run on OpenCode Go (the user's choice, 2026-11-01): the channel configured in the app.
+const goModel = 'deepseek-v4.1-flash';
+
+/// Copies the app's OpenCode Go channels (keys stay encrypted) into the test core's
+/// data dir; returns the channel offering [goModel], if any. Nothing is created.
+Future<String?> copyGoChannel(String toDataDir) async {
+  final main = CoreLocator.findMain([Directory.current.path]);
+  final node = PiRuntimeLocator.findOnPath('node');
+  if (main == null || node == null) return null;
+  final coreDir = p.dirname(p.dirname(main));
+  final result = await Process.run(node, [
+    '--disable-warning=ExperimentalWarning',
+    p.join(coreDir, 'scripts', 'copy-channels.ts'),
+    CoreLocator.defaultDataDir(),
+    toDataDir,
+  ], workingDirectory: coreDir);
+  if (result.exitCode != 0) return null;
+  for (final channel in jsonDecode((result.stdout as String).trim()) as List) {
+    if ((channel['models'] as List).contains(goModel)) return channel['channel'] as String;
+  }
+  return null;
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -134,6 +163,10 @@ void main() {
       ..createSync(recursive: true)
       ..writeAsStringSync('{"compaction": {"keepRecentTokens": 20}}');
 
+    final goChannel = const bool.hasEnvironment('E2E_MODEL') ? null : await copyGoChannel(p.join(temp.path, 'core'));
+    final model = goChannel != null ? 'df-$goChannel/$goModel' : piModel;
+    // ignore: avoid_print
+    print('E2E model: $model');
     SharedPreferences.setMockInitialValues({
       'workspace': workspace.path,
       'modelKey': model,
@@ -366,7 +399,11 @@ void main() {
     await waitFor(tester, 'dashboard loaded', () => find.textContaining('次回复').evaluate().isNotEmpty && find.textContaining('今天').evaluate().isNotEmpty, agent);
     await tester.tap(find.text('模型').last); // the breakdown by model
     await tester.pumpAndSettle();
-    expect(find.textContaining('deepseek'), findsWidgets);
+    // The table is below the spending chart: scroll it into view (lists build only what is visible).
+    final dashboardList = find.descendant(of: find.byType(DashboardPage), matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(find.text('花费按模型价格计算；没有填写价格的模型算 \$0，可以在渠道里补上价格。'), 200, scrollable: dashboardList);
+    // The breakdown comes from the usage index, which may still be catching up with the session files.
+    await waitFor(tester, 'model breakdown', () => find.textContaining('deepseek').evaluate().isNotEmpty, agent, timeout: const Duration(seconds: 30));
     await shot(tester, '18_dashboard');
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -580,7 +617,17 @@ void main() {
     await waitFor(tester, 'plan mode on', () => agent.planMode, agent);
     await sendMessage(tester, '在工作区新建 plan-demo.txt，内容是 hello。');
     // Not 'not running' alone: right after sending, the run has not started yet.
-    await waitFor(tester, 'plan review', () => find.text('请审阅 Agent 的计划').evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
+    // While planning the model may look around with a command that asks first: allow it.
+    final reviewing = find.text('请审阅 Agent 的计划');
+    final approvePlanning = find.widgetWithText(FilledButton, '允许');
+    while (reviewing.evaluate().isEmpty && (agent.isRunning || lastText(agent).isEmpty)) {
+      await waitFor(tester, 'plan review', () => reviewing.evaluate().isNotEmpty || approvePlanning.evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
+      if (approvePlanning.evaluate().isNotEmpty) {
+        await tester.tap(approvePlanning.first);
+        await tester.pump();
+        await idle(tester);
+      }
+    }
     expect(find.text('请审阅 Agent 的计划'), findsOneWidget, reason: describe(agent));
     await shot(tester, '33_plan_review');
     await tester.tap(find.widgetWithText(FilledButton, '批准，开始执行'));
@@ -621,7 +668,7 @@ void main() {
       'name': '实测组',
       'entries': [
         {'channel': bad['id'], 'model': modelId, 'priority': 0},
-        {'channel': 'pi:${model.substring(0, slash)}', 'model': modelId, 'priority': 1},
+        {'channel': goChannel ?? 'pi:${model.substring(0, slash)}', 'model': modelId, 'priority': 1},
       ],
     });
     await waitFor(tester, 'group in the model menu', () => agent.models.any((m) => m.key == 'dreamflutter/e2e'), agent);
