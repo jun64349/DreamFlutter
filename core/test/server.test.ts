@@ -51,7 +51,7 @@ describe("websocket server", () => {
 	it("serves authenticated clients", async () => {
 		const socket = await connect(server.port, { Authorization: `Bearer ${token}` });
 		const hello = await call(socket, "core.hello");
-		assert.equal((hello.result as { version: string }).version, "0.1.1");
+		assert.equal((hello.result as { version: string }).version, "0.2.0");
 		const bad = await call(socket, "nope.nope");
 		assert.equal((bad.error as { code: string }).code, "unknown_method");
 		socket.close();

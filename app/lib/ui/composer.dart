@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -27,7 +26,10 @@ import 'dashboard_page.dart' show formatCost, formatTokens;
 /// `@` suggests the desk's notes and materials. Files can be dropped or
 /// pasted in: images are attached, other files and folders go along by path.
 class Composer extends StatefulWidget {
-  const Composer({super.key});
+  const Composer({super.key, this.dragging = false});
+
+  /// Files are being dragged over the conversation (the chat view takes the drop).
+  final bool dragging;
 
   @override
   State<Composer> createState() => _ComposerState();
@@ -41,11 +43,12 @@ class _ComposerState extends State<Composer> {
   Object? _editorRuntime;
   int _editorRevision = 0;
   int _highlighted = 0;
-  var _dragging = false;
+  bool get _dragging => widget.dragging;
 
   /// Documents being turned into text (sending waits for them).
   var _converting = 0;
   StreamSubscription<Mention>? _mentionRequests;
+  StreamSubscription<List<String>>? _fileDrops;
 
   /// The desk's notes and materials for `@`, loaded on first use per workspace.
   List<(Mention, String?)>? _deskItems;
@@ -69,11 +72,17 @@ class _ComposerState extends State<Composer> {
       _addMention(mention);
       _focus.requestFocus();
     });
+    _fileDrops ??= AgentScope.read(context).fileDrops.listen((paths) {
+      if (!mounted) return;
+      _addPaths(paths);
+      _focus.requestFocus();
+    });
   }
 
   @override
   void dispose() {
     _mentionRequests?.cancel();
+    _fileDrops?.cancel();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -410,115 +419,106 @@ class _ComposerState extends State<Composer> {
                   ),
                 ),
               if (suggestions.isNotEmpty) _SuggestionList(options: suggestions, highlighted: _highlighted),
-              DropTarget(
-                enable: agent.isReady,
-                onDragEntered: (_) => setState(() => _dragging = true),
-                onDragExited: (_) => setState(() => _dragging = false),
-                onDragDone: (details) {
-                  setState(() => _dragging = false);
-                  _addPaths([for (final f in details.files) f.path]);
-                },
-                child: AnimatedContainer(
-                  duration: AppTokens.fast,
-                  decoration: BoxDecoration(
-                    color: _dragging ? colors.accentSoft : colors.card,
-                    border: Border.all(
-                      color: _dragging ? colors.accent : (_focus.hasFocus ? colors.accent.withValues(alpha: 0.6) : colors.border),
-                      width: _dragging ? 1.5 : 1,
+              AnimatedContainer(
+                duration: AppTokens.fast,
+                decoration: BoxDecoration(
+                  color: _dragging ? colors.accentSoft : colors.card,
+                  border: Border.all(
+                    color: _dragging ? colors.accent : (_focus.hasFocus ? colors.accent.withValues(alpha: 0.6) : colors.border),
+                    width: _dragging ? 1.5 : 1,
+                  ),
+                  borderRadius: BorderRadius.circular(context.radiusLg),
+                ),
+                padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_dragging)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text('松开即可附上：图片直接给模型看，其他文件和文件夹交给 Agent 读取', style: muted?.copyWith(color: colors.accent)),
+                      ),
+                    if (_converting > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4, top: 2),
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5)),
+                            const SizedBox(width: 8),
+                            Text('正在把文档转成文字…', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+                          ],
+                        ),
+                      ),
+                    if (_images.isNotEmpty || _mentions.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6, top: 2),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final image in _images) _AttachmentChip(attachment: image, onRemove: () => setState(() => _images.remove(image))),
+                            for (final mention in _mentions) MentionChip(mention: mention, onRemove: () => setState(() => _mentions.remove(mention))),
+                          ],
+                        ),
+                      ),
+                    Focus(
+                      onFocusChange: (_) => setState(() {}),
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focus,
+                        autofocus: true,
+                        minLines: 1,
+                        maxLines: 8,
+                        enabled: agent.isReady,
+                        style: context.text.bodyMedium?.copyWith(height: 1.6),
+                        decoration: InputDecoration(
+                          hintText: running ? 'Agent 正在工作，现在输入会插进对话里…' : '说点什么…  Enter 发送，Shift+Enter 换行，/ 调用技能',
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          disabledBorder: InputBorder.none,
+                          filled: false,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                        ),
+                      ),
                     ),
-                    borderRadius: BorderRadius.circular(context.radiusLg),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_dragging)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text('松开即可附上：图片直接给模型看，其他文件和文件夹交给 Agent 读取', style: muted?.copyWith(color: colors.accent)),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _ToolbarButton(
+                          icon: Icons.image_outlined,
+                          tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
+                          onTap: agent.isReady && supportsImages ? _pickImages : null,
                         ),
-                      if (_converting > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4, top: 2),
-                          child: Row(
-                            children: [
-                              const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5)),
-                              const SizedBox(width: 8),
-                              Text('正在把文档转成文字…', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-                            ],
-                          ),
-                        ),
-                      if (_images.isNotEmpty || _mentions.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6, top: 2),
-                          child: Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              for (final image in _images) _AttachmentChip(attachment: image, onRemove: () => setState(() => _images.remove(image))),
-                              for (final mention in _mentions) MentionChip(mention: mention, onRemove: () => setState(() => _mentions.remove(mention))),
-                            ],
-                          ),
-                        ),
-                      Focus(
-                        onFocusChange: (_) => setState(() {}),
-                        child: TextField(
-                          controller: _controller,
-                          focusNode: _focus,
-                          autofocus: true,
-                          minLines: 1,
-                          maxLines: 8,
-                          enabled: agent.isReady,
-                          style: context.text.bodyMedium?.copyWith(height: 1.6),
-                          decoration: InputDecoration(
-                            hintText: running ? 'Agent 正在工作，现在输入会插进对话里…' : '说点什么…  Enter 发送，Shift+Enter 换行，/ 调用技能',
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            disabledBorder: InputBorder.none,
-                            filled: false,
-                            contentPadding: const EdgeInsets.symmetric(vertical: 6),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          _ToolbarButton(
-                            icon: Icons.image_outlined,
-                            tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
-                            onTap: agent.isReady && supportsImages ? _pickImages : null,
-                          ),
-                          _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
-                          if (agent.agentMode == 'standard') const _PlanToggle(),
-                          const Spacer(),
-                          const _ModeChip(),
-                          const SizedBox(width: 4),
-                          const Flexible(child: _ModelChip()),
-                          const SizedBox(width: 4),
-                          const _ThinkingChip(),
-                          const SizedBox(width: 6),
-                          const _ContextRing(),
-                          const SizedBox(width: 8),
-                          SizedBox.square(
-                            dimension: 34,
-                            child: IconButton.filled(
-                              tooltip: showStop ? '停止' : (running ? '插话' : '发送'),
-                              onPressed: showStop ? agent.abort : (hasContent && agent.isReady ? _send : null),
-                              padding: EdgeInsets.zero,
-                              style: IconButton.styleFrom(
-                                backgroundColor: showStop ? colors.ink : colors.accent,
-                                foregroundColor: colors.onAccent,
-                                disabledBackgroundColor: colors.accentSoft,
-                                disabledForegroundColor: colors.muted,
-                              ),
-                              icon: Icon(showStop ? Icons.stop_rounded : Icons.arrow_upward_rounded, size: 18),
+                        _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
+                        if (agent.agentMode == 'standard') const _PlanToggle(),
+                        const Spacer(),
+                        const _ModeChip(),
+                        const SizedBox(width: 4),
+                        const Flexible(child: _ModelChip()),
+                        const SizedBox(width: 4),
+                        const _ThinkingChip(),
+                        const SizedBox(width: 6),
+                        const _ContextRing(),
+                        const SizedBox(width: 8),
+                        SizedBox.square(
+                          dimension: 34,
+                          child: IconButton.filled(
+                            tooltip: showStop ? '停止' : (running ? '插话' : '发送'),
+                            onPressed: showStop ? agent.abort : (hasContent && agent.isReady ? _send : null),
+                            padding: EdgeInsets.zero,
+                            style: IconButton.styleFrom(
+                              backgroundColor: showStop ? colors.ink : colors.accent,
+                              foregroundColor: colors.onAccent,
+                              disabledBackgroundColor: colors.accentSoft,
+                              disabledForegroundColor: colors.muted,
                             ),
+                            icon: Icon(showStop ? Icons.stop_rounded : Icons.arrow_upward_rounded, size: 18),
                           ),
-                        ],
-                      ),
-                    ],
-                  ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],

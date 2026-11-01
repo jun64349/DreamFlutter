@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai";
 import type { Artifact, Material, Note, Notice, Task } from "../src/modules/tasks.ts";
@@ -182,5 +182,19 @@ describe("tasks and the desk", () => {
 		assert.equal(readFileSync(outside, "utf8"), "x");
 		const artifacts = (await t.core.call("artifacts.list", { cwd: t.workspace })) as Artifact[];
 		assert.equal(artifacts[0]!.path, outside);
+	});
+
+	it("a helper script written and removed again during the run is not a product", async () => {
+		const helper = join(t.workspace, "render.ps1");
+		t.respond(
+			fauxAssistantMessage([fauxToolCall("write", { file_path: "report.md", content: "# 报告" }), fauxToolCall("write", { file_path: "render.ps1", content: "echo" })], { stopReason: "toolUse" }),
+			() => {
+				rmSync(helper);
+				return fauxAssistantMessage("写好了，临时脚本已删除");
+			},
+		);
+		await prompt("写报告");
+		const artifacts = (await t.core.call("artifacts.list", { cwd: t.workspace })) as Artifact[];
+		assert.deepEqual(artifacts.map((a) => basename(a.path)), ["report.md"]);
 	});
 });

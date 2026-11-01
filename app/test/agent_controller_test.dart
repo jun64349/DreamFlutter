@@ -79,6 +79,18 @@ void main() {
       agent.dispose();
     });
 
+    test('context usage refreshes after each turn of a long run, not only at the end', () async {
+      final agent = await startController();
+      final pi = pis.single..startRun('long task');
+      await pumpEventQueue();
+      final before = pi.sent('get_session_stats').length;
+      pi.emit({'type': 'turn_end', 'message': {}, 'toolResults': []});
+      await pumpEventQueue();
+      expect(agent.isRunning, isTrue);
+      expect(pi.sent('get_session_stats').length, before + 1);
+      agent.dispose();
+    });
+
     test('sending during a run steers the agent', () async {
       final agent = await startController();
       pis.single.startRun('long task');

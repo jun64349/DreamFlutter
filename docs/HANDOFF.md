@@ -28,6 +28,14 @@
 - 顺手修了渠道编辑页「接口类型」下拉框在大字号下的溢出（深度测试第 2 条）。
 - 真实检查（需要用户的 Key）：`$env:OPENCODE_GO_API_KEY = "oc_sk_..."; cd core; node --disable-warning=ExperimentalWarning scripts/live-opencode.ts [模型] [anthropic]`。
 
+## v0.2 收尾：深度测试里的小修复（2026-11-01）
+
+- 上下文圆环每轮结束（`turn_end`）和压缩结束都刷新会话统计（`session_runtime.dart` 的 `_refreshStats`，同时只发一个请求），长任务里不再一直停在开始时的数字（第 19 条）。
+- 文件拖放：整个对话区（`chat_view.dart` 的 `_FileDropArea`）接收，经控制器的 `dropFiles` / `fileDrops` 交给输入框处理；输入框只负责高亮（`Composer(dragging:)`）（第 16 条）。真实拖放没有自动测试（模拟不了系统拖放），要手动试一下。
+- Ctrl + 滚轮缩放（`zoom.dart`）：一格一档，触控板连续滚动间隔 90 毫秒；按住 Ctrl 时列表不滚动（根部的 `_StillWhileZooming` 滚动规则）（第 8 条）。缩放比例那一栏按内容撑开，不再折成「100 / %」。
+- 设置去掉「后台会话」说明（第 7 条）；版本号全部改为 0.2.0（窗口、后台、package-lock、测试）。
+- 书桌产物：运行结束时只记录还存在的文件，Agent 写了又删的临时脚本不再出现（`tasks.ts`）。
+
 ## v0.2 阶段 5：页面重做 + 名画主题（2026-11-01）
 
 - **共用框架**（`ui/common.dart`）：`SectionedPage`（左栏：衬线标题、分区 `SideNavItem` 带计数/红点、筛选；右边内容，跟书桌和对话页一样的三栏感觉）、`ContentHeader`（宋体标题 + 一句说明 + 操作）、`EmptyState`（蝴蝶 + 一句话 + 下一步按钮）、`PanelLabel`、`FilterRow`、`PanelSwitch`。左栏底色用 `Material` 而不是有色 `Container`，不然里面的 `SwitchListTile` 画不出来（测试会报错）。

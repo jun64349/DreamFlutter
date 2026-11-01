@@ -144,6 +144,7 @@ class AgentController extends ChangeNotifier {
   final Set<String> _unseen = {};
   final _toasts = StreamController<String>.broadcast();
   final _mentions = StreamController<Mention>.broadcast();
+  final _drops = StreamController<List<String>>.broadcast();
   final _emptyTranscript = Transcript();
   StreamSubscription<Json>? _backendEvents;
   Timer? _reaper;
@@ -703,6 +704,7 @@ class AgentController extends ChangeNotifier {
     _runtimes.clear();
     _toasts.close();
     _mentions.close();
+    _drops.close();
     super.dispose();
   }
 
@@ -1021,6 +1023,11 @@ class AgentController extends ChangeNotifier {
   void mention(Mention mention) => _mentions.add(mention);
 
   Stream<Mention> get mentionRequests => _mentions.stream;
+
+  /// Asks the input box to attach files dropped anywhere on the conversation.
+  void dropFiles(List<String> paths) => _drops.add(paths);
+
+  Stream<List<String>> get fileDrops => _drops.stream;
 
   // --- Interrupted runs ------------------------------------------------------
 

@@ -99,19 +99,11 @@ class _SettingsPageState extends State<SettingsPage> {
               dense: true,
             ),
           ),
-          _Entry(
-            '后台会话 关窗口 后台运行',
-            _Row(
-              title: '后台会话',
-              subtitle: '会话运行在后台服务里：切走、新建会话或关掉窗口，运行中的会话都会继续。空闲的会话过一段时间会自动释放（内容保留在磁盘上）。'
-                  '当前窗口连着 ${agent.runtimes.length} 个会话，${agent.backgroundRunning} 个在后台运行。',
-            ),
-          ),
         ]),
       ]),
       _Category('外观', Icons.palette_outlined, [
         _Group([
-          _Entry('界面缩放 放大 缩小', const _Row(title: '界面缩放', subtitle: '整个界面一起放大或缩小。快捷键：Ctrl + 加号 / 减号，Ctrl + 0 恢复。', trailing: ZoomControl())),
+          _Entry('界面缩放 放大 缩小', const _Row(title: '界面缩放', subtitle: '整个界面一起放大或缩小。快捷键：Ctrl + 滚轮，或 Ctrl + 加号 / 减号，Ctrl + 0 恢复。', trailing: ZoomControl())),
           _Entry('文字大小 字号', const _Row(title: '文字大小', subtitle: '只调整文字，布局不变。', trailing: TextSizeControl())),
           _Entry('明暗 主题 深色 浅色 跟随系统', const _Row(title: '明暗', subtitle: '跟随系统时，白天用日间主题，夜里用夜间主题。', trailing: ThemeModeControl())),
         ]),

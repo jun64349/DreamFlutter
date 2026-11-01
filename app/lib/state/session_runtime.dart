@@ -333,8 +333,27 @@ class SessionRuntime extends ChangeNotifier {
       case SessionInfoChangedEvent() || ThinkingLevelChangedEvent():
         final client = _client;
         if (client != null) unawaited(_refreshState(client).then((_) => _notifyNow(), onError: (_) {}));
+      case TurnEndEvent() || CompactionEndEvent():
+        // Long runs have many turns: keep the context ring current instead of waiting for the end.
+        if (changed) _scheduleNotify();
+        unawaited(_refreshStats());
       default:
         if (changed) _scheduleNotify();
+    }
+  }
+
+  var _statsInFlight = false;
+
+  Future<void> _refreshStats() async {
+    final client = _client;
+    if (client == null || _statsInFlight) return;
+    _statsInFlight = true;
+    try {
+      stats = await client.getSessionStats();
+      _scheduleNotify();
+    } catch (_) {
+    } finally {
+      _statsInFlight = false;
     }
   }
 

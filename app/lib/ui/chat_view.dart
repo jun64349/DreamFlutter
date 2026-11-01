@@ -1,3 +1,4 @@
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -14,6 +15,35 @@ import 'providers_page.dart' show ProvidersPage;
 import 'run_summary.dart';
 import 'schedules.dart' show showScheduleEditor;
 import 'sidebar.dart' show WorkspaceSwitcher;
+
+/// Takes files dropped anywhere on the conversation (not just on the input
+/// box) and hands them to the input box.
+class _FileDropArea extends StatefulWidget {
+  const _FileDropArea({required this.enabled, required this.onDrop, required this.builder});
+
+  final bool enabled;
+  final ValueChanged<List<String>> onDrop;
+  final Widget Function(bool dragging) builder;
+
+  @override
+  State<_FileDropArea> createState() => _FileDropAreaState();
+}
+
+class _FileDropAreaState extends State<_FileDropArea> {
+  var _dragging = false;
+
+  @override
+  Widget build(BuildContext context) => DropTarget(
+    enable: widget.enabled,
+    onDragEntered: (_) => setState(() => _dragging = true),
+    onDragExited: (_) => setState(() => _dragging = false),
+    onDragDone: (details) {
+      setState(() => _dragging = false);
+      widget.onDrop([for (final f in details.files) f.path]);
+    },
+    child: widget.builder(_dragging),
+  );
+}
 
 /// The conversation: title bar, messages and the input box, with the run
 /// panel on the right when there is room.
@@ -37,39 +67,43 @@ class ChatView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _TopBar(panelToggle: roomForPanel, panelOpen: showPanel),
-                  if (agent.backendProblem != null && agent.status != ConnectionStatus.missingRuntime)
-                    _ProblemBanner(status: ConnectionStatus.crashed, detail: agent.backendProblem!, reconnecting: true)
-                  else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
-                    _ProblemBanner(status: agent.status, detail: agent.statusDetail),
-                  for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
-                  if (incognito)
-                    Container(
-                      margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
-                      padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 6),
-                      decoration: BoxDecoration(color: context.colors.accentSoft, borderRadius: BorderRadius.circular(context.radius)),
-                      child: Row(
-                        children: [
-                          Icon(Icons.visibility_off_outlined, size: 16, color: context.colors.muted),
-                          const SizedBox(width: AppTokens.gap),
-                          Text('临时对话：不会保存记录，也不会读写长期记忆。关掉后内容就没了。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-                        ],
+              child: _FileDropArea(
+                enabled: agent.isReady,
+                onDrop: agent.dropFiles,
+                builder: (dragging) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _TopBar(panelToggle: roomForPanel, panelOpen: showPanel),
+                    if (agent.backendProblem != null && agent.status != ConnectionStatus.missingRuntime)
+                      _ProblemBanner(status: ConnectionStatus.crashed, detail: agent.backendProblem!, reconnecting: true)
+                    else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
+                      _ProblemBanner(status: agent.status, detail: agent.statusDetail),
+                    for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
+                    if (incognito)
+                      Container(
+                        margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
+                        padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 6),
+                        decoration: BoxDecoration(color: context.colors.accentSoft, borderRadius: BorderRadius.circular(context.radius)),
+                        child: Row(
+                          children: [
+                            Icon(Icons.visibility_off_outlined, size: 16, color: context.colors.muted),
+                            const SizedBox(width: AppTokens.gap),
+                            Text('临时对话：不会保存记录，也不会读写长期记忆。关掉后内容就没了。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+                          ],
+                        ),
                       ),
+                    Expanded(
+                      child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
+                          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                          : agent.transcript.items.isEmpty
+                          ? const _EmptyState()
+                          : const _MessageList(),
                     ),
-                  Expanded(
-                    child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
-                        ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                        : agent.transcript.items.isEmpty
-                        ? const _EmptyState()
-                        : const _MessageList(),
-                  ),
-                  if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
-                    _ContextWarning(percent: agent.stats.contextPercent),
-                  const Composer(),
-                ],
+                    if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
+                      _ContextWarning(percent: agent.stats.contextPercent),
+                    Composer(dragging: dragging),
+                  ],
+                ),
               ),
             ),
             if (showPanel)

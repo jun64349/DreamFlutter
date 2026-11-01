@@ -385,7 +385,11 @@ export class TasksModule implements CoreModule {
 			now(),
 			task.id,
 		);
-		for (const file of run.files) this.addArtifact(task, isAbsolute(file) ? file : resolve(run.cwd, file));
+		// Products are the files left at the end: helper scripts the agent wrote and removed again are not.
+		for (const file of run.files) {
+			const path = isAbsolute(file) ? file : resolve(run.cwd, file);
+			if (existsSync(path)) this.addArtifact(task, path);
+		}
 		this.changed(task.id);
 		if (task.noteId) this.core.broadcast({ event: "desk.changed", cwd: task.cwd });
 	}

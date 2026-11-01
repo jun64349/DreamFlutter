@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -9,8 +10,8 @@ import '../theme.dart';
 import 'agent_scope.dart';
 
 /// Applies the text size, and zooms the whole interface (layout, text,
-/// dialogs and menus) like a browser: Ctrl + plus / minus / 0 anywhere in the
-/// window. The app is laid out at size / zoom and painted scaled up by zoom.
+/// dialogs and menus) like a browser: Ctrl + wheel or Ctrl + plus / minus / 0
+/// anywhere in the window. The app is laid out at size / zoom and painted scaled up by zoom.
 class AppZoom extends StatefulWidget {
   const AppZoom({super.key, required this.controller, required this.zoom, required this.textScale, required this.child});
 
@@ -66,9 +67,27 @@ class _AppZoomState extends State<AppZoom> {
     return true;
   }
 
+  DateTime _lastWheelStep = DateTime(0);
+
+  /// Ctrl + mouse wheel zooms, one step per notch (a touchpad's stream of small
+  /// scrolls is spaced out so one swipe does not jump to the end).
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !HardwareKeyboard.instance.isControlPressed || event.scrollDelta.dy == 0) return;
+    final now = DateTime.now();
+    if (now.difference(_lastWheelStep) < const Duration(milliseconds: 90)) return;
+    _lastWheelStep = now;
+    widget.controller.stepZoom(event.scrollDelta.dy < 0 ? 1 : -1);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) => _zoomed(context, constraints.biggest));
+    return Listener(
+      onPointerSignal: _onPointerSignal,
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(physics: const _StillWhileZooming(parent: ClampingScrollPhysics(parent: RangeMaintainingScrollPhysics()))),
+        child: LayoutBuilder(builder: (context, constraints) => _zoomed(context, constraints.biggest)),
+      ),
+    );
   }
 
   Widget _zoomed(BuildContext context, Size available) {
@@ -118,6 +137,17 @@ class _AppZoomState extends State<AppZoom> {
   }
 }
 
+/// Lists do not scroll while Ctrl is held, so Ctrl + wheel only zooms (as in a browser).
+class _StillWhileZooming extends ScrollPhysics {
+  const _StillWhileZooming({super.parent});
+
+  @override
+  _StillWhileZooming applyTo(ScrollPhysics? ancestor) => _StillWhileZooming(parent: buildParent(ancestor));
+
+  @override
+  bool shouldAcceptUserOffset(ScrollMetrics position) => !HardwareKeyboard.instance.isControlPressed && super.shouldAcceptUserOffset(position);
+}
+
 class _ZoomBadge extends StatelessWidget {
   const _ZoomBadge({required this.zoom});
 
@@ -155,11 +185,12 @@ class ZoomControl extends StatelessWidget {
           onPressed: zoom > Preferences.zoomLevels.first ? () => agent.stepZoom(-1) : null,
           icon: const Icon(Icons.remove, size: 18),
         ),
-        SizedBox(
-          width: 64,
+        // Grows with the text size instead of wrapping "100 %" onto two lines.
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 64),
           child: TextButton(
             onPressed: zoom == 1.0 ? null : () => agent.stepZoom(0),
-            child: Tooltip(message: '恢复 100%（Ctrl + 0）', child: Text(zoomPercent(zoom))),
+            child: Tooltip(message: '恢复 100%（Ctrl + 0）', child: Text(zoomPercent(zoom), maxLines: 1, softWrap: false)),
           ),
         ),
         IconButton(
@@ -246,7 +277,7 @@ Future<void> showAppearanceDialog(BuildContext context) => showDialog<void>(
           const SizedBox(height: 6),
           const ThemePicker(brightness: Brightness.dark),
           const SizedBox(height: 12),
-          Text('快捷键：Ctrl + 加号放大，Ctrl + 减号缩小，Ctrl + 0 恢复。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+          Text('快捷键：Ctrl + 滚轮或 Ctrl + 加号 / 减号缩放，Ctrl + 0 恢复。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
         ],
           ),
         ),

@@ -9,7 +9,7 @@ import 'ui/home_page.dart';
 import 'ui/zoom.dart';
 
 /// Shown in the settings page.
-const appVersion = '0.1.1';
+const appVersion = '0.2.0';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

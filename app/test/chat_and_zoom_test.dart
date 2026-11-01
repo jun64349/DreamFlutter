@@ -4,6 +4,7 @@ import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/ui/home_page.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -98,6 +99,27 @@ void main() {
     await ctrl(LogicalKeyboardKey.digit0);
     expect(agent.zoom, 1.0);
     expect(layoutSize(), base);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('Ctrl + mouse wheel zooms; the wheel alone does not', (tester) async {
+    await startApp(tester);
+    final center = tester.getCenter(find.byType(HomePage));
+    Future<void> wheel(double dy) async {
+      tester.binding.handlePointerEvent(PointerScrollEvent(position: center, scrollDelta: Offset(0, dy)));
+      await settle(tester);
+    }
+
+    await wheel(-100);
+    expect(agent.zoom, 1.0);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await wheel(-100);
+    expect(agent.zoom, 1.1);
+    // Steps are spaced out so a touchpad swipe does not jump to the end.
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 120)));
+    await wheel(100);
+    expect(agent.zoom, 1.0);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(seconds: 2));
   });
 

@@ -40,7 +40,7 @@ class FakeBackend implements AgentBackend {
     if (_disconnected.isCompleted) _disconnected = Completer<void>();
     _connected = true;
     return {
-      'version': '0.1.1',
+      'version': '0.2.0',
       'pid': 1,
       'settings': settings,
       'slots': liveSlots,
