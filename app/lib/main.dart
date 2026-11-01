@@ -35,8 +35,8 @@ class DreamFlutterApp extends StatelessWidget {
           return MaterialApp(
             title: 'DreamFlutter',
             debugShowCheckedModeBanner: false,
-            theme: buildTheme(Brightness.light),
-            darkTheme: buildTheme(Brightness.dark),
+            theme: buildTheme(Brightness.light, painting: PaintingTheme.byId(appearance.lightTheme, Brightness.light)),
+            darkTheme: buildTheme(Brightness.dark, painting: PaintingTheme.byId(appearance.darkTheme, Brightness.dark)),
             themeMode: appearance.themeMode,
             builder: (context, child) => AppZoom(controller: controller, zoom: appearance.zoom, textScale: appearance.textScale, child: child!),
             home: const HomePage(),

@@ -244,7 +244,7 @@ class _InboxCardState extends State<InboxCard> {
               width: double.infinity,
               constraints: const BoxConstraints(maxHeight: 160),
               padding: const EdgeInsets.all(AppTokens.gap),
-              decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+              decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radiusSm)),
               child: SingleChildScrollView(child: SelectableText(details, style: context.text.bodySmall)),
             ),
           ],

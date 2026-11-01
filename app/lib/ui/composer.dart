@@ -426,7 +426,7 @@ class _ComposerState extends State<Composer> {
                       color: _dragging ? colors.accent : (_focus.hasFocus ? colors.accent.withValues(alpha: 0.6) : colors.border),
                       width: _dragging ? 1.5 : 1,
                     ),
-                    borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+                    borderRadius: BorderRadius.circular(context.radiusLg),
                   ),
                   padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
                   child: Column(
@@ -565,7 +565,7 @@ class _Chip<T> extends StatelessWidget {
       child: Container(
         height: 30,
         padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(color: filled ? colors.accentSoft : null, borderRadius: BorderRadius.circular(AppTokens.radius)),
+        decoration: BoxDecoration(color: filled ? colors.accentSoft : null, borderRadius: BorderRadius.circular(context.radius)),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -822,7 +822,7 @@ class _AttachmentChip extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+        borderRadius: BorderRadius.circular(context.radiusSm),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -870,7 +870,7 @@ class _SuggestionList extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.card,
         border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -947,7 +947,7 @@ class MentionChip extends StatelessWidget {
       child: Container(
         height: 30,
         padding: EdgeInsets.only(left: 8, right: onRemove == null ? 10 : 0),
-        decoration: BoxDecoration(color: colors.accentSoft, borderRadius: BorderRadius.circular(AppTokens.radius)),
+        decoration: BoxDecoration(color: colors.accentSoft, borderRadius: BorderRadius.circular(context.radius)),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

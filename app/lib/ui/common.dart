@@ -136,9 +136,9 @@ class _SideNavRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
         color: selected ? colors.accentSoft : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
         child: InkWell(
-          borderRadius: BorderRadius.circular(AppTokens.radius),
+          borderRadius: BorderRadius.circular(context.radius),
           onTap: onTap,
           child: SizedBox(
             height: 38,
@@ -333,7 +333,7 @@ class FilterRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     return InkWell(
-      borderRadius: BorderRadius.circular(AppTokens.radius),
+      borderRadius: BorderRadius.circular(context.radius),
       onTap: onTap,
       child: SizedBox(
         height: 32,
@@ -399,7 +399,7 @@ class OutlinedCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: highlight == null ? colors.card : highlight!.withValues(alpha: 0.05),
         border: Border.all(color: highlight?.withValues(alpha: 0.5) ?? colors.border),
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
       ),
       child: child,
     );
@@ -432,7 +432,7 @@ class TagChip extends StatelessWidget {
     final tint = color ?? context.colors.muted;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(color: tint.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+      decoration: BoxDecoration(color: tint.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(context.radiusSm)),
       child: Text(label, style: context.text.labelSmall?.copyWith(color: tint)),
     );
   }

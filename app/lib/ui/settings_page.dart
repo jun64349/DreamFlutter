@@ -113,7 +113,23 @@ class _SettingsPageState extends State<SettingsPage> {
         _Group([
           _Entry('界面缩放 放大 缩小', const _Row(title: '界面缩放', subtitle: '整个界面一起放大或缩小。快捷键：Ctrl + 加号 / 减号，Ctrl + 0 恢复。', trailing: ZoomControl())),
           _Entry('文字大小 字号', const _Row(title: '文字大小', subtitle: '只调整文字，布局不变。', trailing: TextSizeControl())),
-          _Entry('主题 深色 浅色', const _Row(title: '主题', trailing: ThemeModeControl())),
+          _Entry('明暗 主题 深色 浅色 跟随系统', const _Row(title: '明暗', subtitle: '跟随系统时，白天用日间主题，夜里用夜间主题。', trailing: ThemeModeControl())),
+        ]),
+        _Group(title: '名画主题', [
+          _Entry(
+            '日间主题 名画 浅色 蛱蝶 草蝶 羽化 神思',
+            const Padding(
+              padding: EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, AppTokens.pad),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('日间'), SizedBox(height: 8), ThemePicker(brightness: Brightness.light)]),
+            ),
+          ),
+          _Entry(
+            '夜间主题 名画 深色 墨夜 幽华 琉光',
+            const Padding(
+              padding: EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, AppTokens.padLg),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('夜间'), SizedBox(height: 8), ThemePicker(brightness: Brightness.dark)]),
+            ),
+          ),
         ]),
       ]),
       _Category('模型与网关', Icons.hub_outlined, [
@@ -437,7 +453,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       dense: true,
                       selected: query.isEmpty && c.name == current.name,
                       selectedTileColor: colors.accentSoft,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radius)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radius)),
                       leading: Icon(c.icon, size: 18),
                       title: Text(c.name),
                       onTap: () => setState(() {
@@ -532,7 +548,7 @@ class _Section extends StatelessWidget {
                 clipBehavior: Clip.antiAlias,
                 shape: RoundedRectangleBorder(
                   side: BorderSide(color: colors.border),
-                  borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+                  borderRadius: BorderRadius.circular(context.radiusLg),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: AppTokens.gap),
@@ -624,7 +640,7 @@ class _ValueChip extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(maxWidth: 300),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(AppTokens.radius)),
+      decoration: BoxDecoration(border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(context.radius)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

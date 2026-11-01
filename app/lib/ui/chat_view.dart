@@ -50,7 +50,7 @@ class ChatView extends StatelessWidget {
                     Container(
                       margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
                       padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 6),
-                      decoration: BoxDecoration(color: context.colors.accentSoft, borderRadius: BorderRadius.circular(AppTokens.radius)),
+                      decoration: BoxDecoration(color: context.colors.accentSoft, borderRadius: BorderRadius.circular(context.radius)),
                       child: Row(
                         children: [
                           Icon(Icons.visibility_off_outlined, size: 16, color: context.colors.muted),
@@ -171,9 +171,9 @@ class _EmptyState extends StatelessWidget {
                       width: 210,
                       child: Material(
                         color: colors.card,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radiusLg), side: BorderSide(color: colors.border)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusLg), side: BorderSide(color: colors.border)),
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+                          borderRadius: BorderRadius.circular(context.radiusLg),
                           onTap: () => agent.insertIntoComposer(prompt),
                           child: Padding(
                             padding: const EdgeInsets.all(14),
@@ -246,7 +246,7 @@ class _FirstRunGuide extends StatelessWidget {
     return Container(
       width: 520,
       padding: const EdgeInsets.fromLTRB(18, 14, 12, 10),
-      decoration: BoxDecoration(color: colors.card, border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(AppTokens.radiusLg)),
+      decoration: BoxDecoration(color: colors.card, border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(context.radiusLg)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -468,7 +468,7 @@ class _ProblemBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.danger.withValues(alpha: 0.08),
         border: Border.all(color: colors.danger.withValues(alpha: 0.4)),
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -520,7 +520,7 @@ class _InterruptedRunCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.warning.withValues(alpha: 0.08),
         border: Border.all(color: colors.warning.withValues(alpha: 0.4)),
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
       ),
       child: Row(
         children: [

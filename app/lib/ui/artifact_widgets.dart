@@ -57,7 +57,7 @@ class ArtifactTile extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: exists ? colors.accentSoft : colors.codeBackground,
-              borderRadius: BorderRadius.circular(AppTokens.radius),
+              borderRadius: BorderRadius.circular(context.radius),
             ),
             child: ext.isEmpty || ext.length > 4
                 ? Icon(fileIcon(path), size: 16, color: exists ? colors.accent : colors.muted)

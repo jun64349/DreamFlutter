@@ -243,7 +243,7 @@ class _PlanModeNote extends StatelessWidget {
     final colors = context.colors;
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: colors.accentSoft, borderRadius: BorderRadius.circular(AppTokens.radius)),
+      decoration: BoxDecoration(color: colors.accentSoft, borderRadius: BorderRadius.circular(context.radius)),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -276,7 +276,7 @@ class _TabButton extends StatelessWidget {
       button: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
         child: Container(
           height: 56,
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -517,7 +517,7 @@ class _PanelRow extends StatelessWidget {
     final colors = context.colors;
     final row = InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(AppTokens.radius),
+      borderRadius: BorderRadius.circular(context.radius),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
         child: Row(
@@ -616,7 +616,7 @@ class _Fact extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.card,
         border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -650,7 +650,7 @@ class _TaskCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.card,
         border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

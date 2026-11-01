@@ -379,7 +379,7 @@ class _SkillTile extends StatelessWidget {
             width: 36,
             height: 36,
             alignment: Alignment.center,
-            decoration: BoxDecoration(color: s.enabled ? colors.accentSoft : colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radius)),
+            decoration: BoxDecoration(color: s.enabled ? colors.accentSoft : colors.codeBackground, borderRadius: BorderRadius.circular(context.radius)),
             child: Text(
               initial,
               style: context.serif(context.text.titleMedium).copyWith(color: s.enabled ? colors.accent : colors.muted, fontWeight: FontWeight.w600),
@@ -474,7 +474,7 @@ class _ProposalCard extends StatelessWidget {
             constraints: const BoxConstraints(maxHeight: 220),
             width: double.infinity,
             padding: const EdgeInsets.all(AppTokens.gap),
-            decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+            decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radiusSm)),
             child: SingleChildScrollView(
               child: SelectableText(
                 proposal.content,

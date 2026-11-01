@@ -157,7 +157,7 @@ class CodeBlock extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.codeBackground,
         border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

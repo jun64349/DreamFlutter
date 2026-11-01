@@ -117,7 +117,7 @@ class _Frame extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.card,
         border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+        borderRadius: BorderRadius.circular(context.radiusLg),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -636,7 +636,7 @@ class _CardViewState extends State<CardView> {
                   child: Container(
                     margin: const EdgeInsets.all(8),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(color: colors.card.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(AppTokens.radius), border: Border.all(color: colors.border)),
+                    decoration: BoxDecoration(color: colors.card.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(context.radius), border: Border.all(color: colors.border)),
                     child: Text(picture == null ? '点一下打开卡片' : '点一下激活', style: context.text.labelSmall?.copyWith(color: colors.muted)),
                   ),
                 )
@@ -700,7 +700,7 @@ class _PermissionDialog extends StatelessWidget {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radius)),
+              decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radius)),
               child: SelectableText(question.call, style: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, color: colors.ink)),
             ),
             if (question.danger) ...[
@@ -736,7 +736,7 @@ class _Warning extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     width: double.infinity,
     padding: const EdgeInsets.all(10),
-    decoration: BoxDecoration(color: color.withValues(alpha: 0.08), border: Border.all(color: color.withValues(alpha: 0.4)), borderRadius: BorderRadius.circular(AppTokens.radius)),
+    decoration: BoxDecoration(color: color.withValues(alpha: 0.08), border: Border.all(color: color.withValues(alpha: 0.4)), borderRadius: BorderRadius.circular(context.radius)),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

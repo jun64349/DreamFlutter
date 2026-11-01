@@ -127,7 +127,7 @@ class _ZoomBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.72), borderRadius: BorderRadius.circular(AppTokens.radiusLg)),
+      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.72), borderRadius: BorderRadius.circular(context.radiusLg)),
       child: Text(
         '缩放 ${zoomPercent(zoom)}',
         textDirection: TextDirection.ltr,
@@ -226,18 +226,167 @@ Future<void> showAppearanceDialog(BuildContext context) => showDialog<void>(
     );
     return AlertDialog(
       title: const Text('外观'),
-      content: Column(
+      content: SingleChildScrollView(
+        child: SizedBox(
+          // Room for the four daytime themes in one row.
+          width: 570,
+          child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           row('界面缩放', const ZoomControl()),
           row('文字大小', const TextSizeControl()),
-          row('主题', const ThemeModeControl()),
-          const SizedBox(height: 8),
+          row('明暗', const ThemeModeControl()),
+          const SizedBox(height: 12),
+          Text('日间主题', style: context.label),
+          const SizedBox(height: 6),
+          const ThemePicker(brightness: Brightness.light),
+          const SizedBox(height: 12),
+          Text('夜间主题', style: context.label),
+          const SizedBox(height: 6),
+          const ThemePicker(brightness: Brightness.dark),
+          const SizedBox(height: 12),
           Text('快捷键：Ctrl + 加号放大，Ctrl + 减号缩小，Ctrl + 0 恢复。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
         ],
+          ),
+        ),
       ),
       actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('完成'))],
     );
   },
 );
+
+/// The painting themes of one side (daytime or night) as small previews;
+/// tapping one makes it that side's theme.
+class ThemePicker extends StatelessWidget {
+  const ThemePicker({super.key, required this.brightness});
+
+  final Brightness brightness;
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final appearance = agent.appearance.value;
+    final current = PaintingTheme.byId(brightness == Brightness.dark ? appearance.darkTheme : appearance.lightTheme, brightness);
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        for (final t in PaintingTheme.all.where((t) => t.brightness == brightness))
+          Theme(
+            data: buildTheme(t.brightness, painting: t),
+            child: _ThemeSwatch(theme: t, selected: t.id == current.id, onTap: () => agent.setPaintingTheme(t)),
+          ),
+      ],
+    );
+  }
+}
+
+class _ThemeSwatch extends StatelessWidget {
+  const _ThemeSwatch({required this.theme, required this.selected, required this.onTap});
+
+  final PaintingTheme theme;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    // Inside a Theme of [theme]: context.colors are the swatch's own.
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${theme.name}：${theme.work}',
+      child: Tooltip(
+        message: theme.work,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(context.radiusLg),
+          child: Container(
+            width: 132,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: c.background,
+              borderRadius: BorderRadius.circular(context.radiusLg),
+              border: Border.all(color: selected ? c.accent : c.border, width: selected ? 2 : 1),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // A tiny window: rail, side panel, and a card with the butterfly.
+                SizedBox(
+                  height: 62,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(width: 10, color: c.rail),
+                      Container(
+                        width: 26,
+                        color: c.sidebar,
+                        padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+                        child: Column(
+                          children: [
+                            for (final w in [1.0, 0.7, 0.85]) ...[
+                              FractionallySizedBox(
+                                widthFactor: w,
+                                child: Container(height: 3, color: c.muted.withValues(alpha: 0.45)),
+                              ),
+                              const SizedBox(height: 4),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: c.card,
+                              borderRadius: BorderRadius.circular(context.radiusSm),
+                              border: Border.all(color: c.border),
+                            ),
+                            child: Stack(
+                              children: [
+                                const Center(child: ButterflyMark(size: 30)),
+                                Positioned(
+                                  left: 5,
+                                  bottom: 5,
+                                  child: Container(
+                                    width: 18,
+                                    height: 5,
+                                    decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(2)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Text(
+                      theme.name,
+                      style: context.serif(context.text.bodyMedium).copyWith(color: c.ink, fontWeight: FontWeight.w600),
+                    ),
+                    const Spacer(),
+                    if (selected) Icon(Icons.check, size: 14, color: c.accent),
+                  ],
+                ),
+                Text(
+                  theme.work,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.labelSmall?.copyWith(color: c.muted, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

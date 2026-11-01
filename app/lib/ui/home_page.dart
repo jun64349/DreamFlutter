@@ -163,7 +163,7 @@ class _NavButtonState extends State<_NavButton> {
           onEnter: (_) => setState(() => _hovered = true),
           onExit: (_) => setState(() => _hovered = false),
           child: InkWell(
-            borderRadius: BorderRadius.circular(AppTokens.radius),
+            borderRadius: BorderRadius.circular(context.radius),
             onTap: widget.onTap,
             child: AnimatedContainer(
               duration: AppTokens.fast,
@@ -171,7 +171,7 @@ class _NavButtonState extends State<_NavButton> {
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 6),
               decoration: BoxDecoration(
                 color: selected ? colors.accentSoft : (_hovered ? colors.accentSoft.withValues(alpha: 0.4) : null),
-                borderRadius: BorderRadius.circular(AppTokens.radius),
+                borderRadius: BorderRadius.circular(context.radius),
               ),
               child: Column(
                 children: [

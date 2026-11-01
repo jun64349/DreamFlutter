@@ -141,7 +141,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
               Container(
                 constraints: const BoxConstraints(maxHeight: 260),
                 padding: const EdgeInsets.all(AppTokens.pad),
-                decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+                decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radiusSm)),
                 child: SingleChildScrollView(child: SelectableText(detail, style: mono)),
               ),
             ],
@@ -217,7 +217,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
         child: Container(
           constraints: const BoxConstraints(maxHeight: 460),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+          decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radiusSm)),
           child: SingleChildScrollView(child: ReplyMarkdown(text: plan)),
         ),
       ),
@@ -250,7 +250,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
                   return ListTile(
                     title: Text(split < 0 ? option : option.substring(0, split)),
                     subtitle: split < 0 ? null : Text(option.substring(split + 3)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusSm)),
                     onTap: () => _answer(context, _Answer(value: option)),
                   );
                 },
@@ -271,7 +271,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
           for (final option in widget.request.options)
             ListTile(
               title: Text(option),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusSm)),
               onTap: () => _answer(context, _Answer(value: option)),
             ),
         ],

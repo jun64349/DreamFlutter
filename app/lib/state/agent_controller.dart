@@ -11,6 +11,7 @@ import 'mentions.dart';
 import 'preferences.dart';
 import 'session_runtime.dart';
 import 'gateway_models.dart';
+import '../theme.dart';
 import 'work_models.dart';
 
 export 'backend.dart' show AgentBackend, CoreBackend, asJsonMap;
@@ -82,8 +83,9 @@ class SearchHit {
 /// Top-level pages of the window (the navigation rail).
 enum AppSection { chat, desk, tasks, memory, library }
 
-/// How the window looks: theme, text size, and whole-interface zoom.
-typedef Appearance = ({ThemeMode themeMode, double textScale, double zoom});
+/// How the window looks: light / dark / system, the painting theme for each,
+/// text size, and whole-interface zoom.
+typedef Appearance = ({ThemeMode themeMode, String? lightTheme, String? darkTheme, double textScale, double zoom});
 
 /// A run the previous core process left unfinished (shown as a resume card).
 class InterruptedRun {
@@ -246,7 +248,13 @@ class AgentController extends ChangeNotifier {
   /// updates do not rebuild the whole app.
   late final appearance = ValueNotifier<Appearance>(_currentAppearance);
 
-  Appearance get _currentAppearance => (themeMode: preferences.themeMode, textScale: preferences.textScale, zoom: preferences.zoom);
+  Appearance get _currentAppearance => (
+    themeMode: preferences.themeMode,
+    lightTheme: preferences.lightTheme,
+    darkTheme: preferences.darkTheme,
+    textScale: preferences.textScale,
+    zoom: preferences.zoom,
+  );
 
   ThemeMode get themeMode => preferences.themeMode;
   double get textScale => preferences.textScale;
@@ -1141,6 +1149,17 @@ class AgentController extends ChangeNotifier {
 
   Future<void> setThemeMode(ThemeMode mode) async {
     await preferences.setThemeMode(mode);
+    appearance.value = _currentAppearance;
+    _notify();
+  }
+
+  /// Picks the painting theme for its side (daytime or night).
+  Future<void> setPaintingTheme(PaintingTheme theme) async {
+    if (theme.isDark) {
+      await preferences.setDarkTheme(theme.id);
+    } else {
+      await preferences.setLightTheme(theme.id);
+    }
     appearance.value = _currentAppearance;
     _notify();
   }

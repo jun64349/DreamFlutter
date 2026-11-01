@@ -209,7 +209,7 @@ class _RichBlockState extends State<RichBlock> {
         }
         final shown = result.width.clamp(0, constraints.maxWidth).toDouble();
         return Container(
-          decoration: BoxDecoration(color: colors.card, border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(AppTokens.radius)),
+          decoration: BoxDecoration(color: colors.card, border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(context.radius)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

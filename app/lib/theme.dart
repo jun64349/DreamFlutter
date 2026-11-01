@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 /// ochre and a cinnabar seal; Song typefaces, fine lines, almost no shadows.
 /// See docs/v0.2-design.md.
 class AppTokens {
+  // Corner radii of 「蛱蝶」; widgets use context.radius*, which follow the theme.
   static const radiusSm = 4.0;
   static const radius = 6.0;
   static const radiusLg = 10.0;
@@ -181,21 +182,348 @@ class AppColors extends ThemeExtension<AppColors> {
   AppColors lerp(ThemeExtension<AppColors>? other, double t) => t < 0.5 || other is! AppColors ? this : other;
 }
 
+/// What sits in the corner of the paper and beside the inscription.
+enum MarkKind {
+  /// A square cinnabar seal with two characters (「梦蝶」).
+  seal,
+
+  /// A plate label in italic serif, like a natural-history engraving.
+  plate,
+
+  /// The butterfly as a small solid glyph.
+  glyph,
+}
+
+/// A theme taken from one painting or artwork: its colors, the shape of
+/// corners, the heading face, and the small details that carry it (the mark,
+/// the inscription in the sidebar). Users pick one for daytime and one for
+/// night; see docs/research/art-themes.md for the sources.
+@immutable
+class PaintingTheme {
+  const PaintingTheme({
+    required this.id,
+    required this.name,
+    required this.work,
+    required this.colors,
+    this.brightness = Brightness.light,
+    this.radiusSm = 4,
+    this.radius = 6,
+    this.radiusLg = 10,
+    this.serifFamily = 'Noto Serif SC',
+    this.labelSpacing = 1.4,
+    this.mark = MarkKind.seal,
+    this.markText = '梦蝶',
+    this.inscription = '栩栩然胡蝶也',
+    this.verticalInscription = true,
+    this.butterflyStroke = 1.0,
+  });
+
+  final String id;
+
+  /// Two characters: 「蛱蝶」.
+  final String name;
+
+  /// The source, as shown in the theme picker.
+  final String work;
+  final AppColors colors;
+  final Brightness brightness;
+  final double radiusSm;
+  final double radius;
+  final double radiusLg;
+
+  /// Headings and replies; Latin letters come from this face, Chinese from
+  /// the Song fallbacks.
+  final String serifFamily;
+  final double labelSpacing;
+  final MarkKind mark;
+  final String markText;
+
+  /// Written in the sidebar: top to bottom for Chinese, turned sideways for Latin.
+  final String inscription;
+  final bool verticalInscription;
+
+  /// Line weight of the butterfly's outline (leaded glass draws it heavier).
+  final double butterflyStroke;
+
+  bool get isDark => brightness == Brightness.dark;
+
+  /// 赵昌《写生蛱蝶图》, the first theme.
+  static const jiadie = PaintingTheme(id: 'jiadie', name: '蛱蝶', work: '北宋 · 赵昌《写生蛱蝶图》', colors: AppColors.light);
+
+  /// The same painting by lamplight.
+  static const moye = PaintingTheme(id: 'moye', name: '墨夜', work: '北宋 · 赵昌《写生蛱蝶图》，灯下', colors: AppColors.dark, brightness: Brightness.dark);
+
+  /// Van Gogh, Long Grass with Butterflies (1890, National Gallery, London).
+  static const caodie = PaintingTheme(
+    id: 'caodie',
+    name: '草蝶',
+    work: '梵高《开花的长草与蝴蝶》，1890',
+    radiusSm: 6,
+    radius: 12,
+    radiusLg: 18,
+    serifFamily: 'Georgia',
+    labelSpacing: 0.8,
+    mark: MarkKind.glyph,
+    inscription: 'Long Grass with Butterflies',
+    verticalInscription: false,
+    colors: AppColors(
+      rail: Color(0xFFDDE3CB),
+      sidebar: Color(0xFFE8EBD8),
+      background: Color(0xFFF6F7EC),
+      userBubble: Color(0xFFE3E9D2),
+      onUserBubble: Color(0xFF1F281B),
+      card: Color(0xFFFFFFFB),
+      border: Color(0x2B1F281B),
+      ink: Color(0xFF1F281B),
+      ink2: Color(0xFF34402F),
+      muted: Color(0xFF525E4B),
+      accent: Color(0xFF3C6B32),
+      onAccent: Color(0xFFFFFFFB),
+      accentSoft: Color(0x1F3C6B32),
+      ochre: Color(0xFF8F5F12),
+      seal: Color(0xFFC0462C),
+      success: Color(0xFF3C6B32),
+      warning: Color(0xFF8F5F12),
+      danger: Color(0xFFB23A24),
+      codeBackground: Color(0xFFECEFDF),
+      terminal: Color(0xFF1F281B),
+      onTerminal: Color(0xFFE8EBD8),
+      terminalMuted: Color(0xFFB3BCA4),
+      terminalError: Color(0xFFE8A091),
+      wingUpper: Color(0xFFF4EDB8),
+      wingLower: Color(0xFFFFFFFB),
+      diffAdded: Color(0x293C6B32),
+      diffRemoved: Color(0x24B23A24),
+    ),
+  );
+
+  /// Maria Sibylla Merian, Metamorphosis insectorum Surinamensium (1705).
+  static const yuhua = PaintingTheme(
+    id: 'yuhua',
+    name: '羽化',
+    work: '梅里安《苏里南昆虫变态图谱》，1705',
+    radiusSm: 2,
+    radius: 2,
+    radiusLg: 3,
+    serifFamily: 'Sitka Heading',
+    labelSpacing: 2.4,
+    mark: MarkKind.plate,
+    markText: 'Tab. LVIII',
+    inscription: 'Metamorphosis insectorum Surinamensium',
+    verticalInscription: false,
+    colors: AppColors(
+      rail: Color(0xFFE4DCC6),
+      sidebar: Color(0xFFECE5D3),
+      background: Color(0xFFF7F3E9),
+      userBubble: Color(0xFFE9E2CF),
+      onUserBubble: Color(0xFF241E19),
+      card: Color(0xFFFFFFFF),
+      border: Color(0x33241E19),
+      ink: Color(0xFF241E19),
+      ink2: Color(0xFF3A3229),
+      muted: Color(0xFF5C5245),
+      accent: Color(0xFF18649A),
+      onAccent: Color(0xFFFFFFFF),
+      accentSoft: Color(0x1A18649A),
+      ochre: Color(0xFF456A40),
+      seal: Color(0xFFB0502F),
+      success: Color(0xFF456A40),
+      warning: Color(0xFF835519),
+      danger: Color(0xFFA04729),
+      codeBackground: Color(0xFFEFE9DA),
+      terminal: Color(0xFF241E19),
+      onTerminal: Color(0xFFECE5D3),
+      terminalMuted: Color(0xFFB8AD99),
+      terminalError: Color(0xFFE8A091),
+      wingUpper: Color(0xFF3F86BF),
+      wingLower: Color(0xFF2C5A8A),
+      diffAdded: Color(0x24456A40),
+      diffRemoved: Color(0x24A04729),
+    ),
+  );
+
+  /// Dosso Dossi, Jupiter, Mercury and Virtue (about 1523, Wawel Royal Castle).
+  static const shensi = PaintingTheme(
+    id: 'shensi',
+    name: '神思',
+    work: '多索·多西《朱庇特、墨丘利与美德》（画蝴蝶的朱庇特），约 1523',
+    radiusSm: 3,
+    radius: 6,
+    radiusLg: 8,
+    serifFamily: 'Palatino Linotype',
+    labelSpacing: 1.8,
+    mark: MarkKind.plate,
+    markText: 'Silentium',
+    inscription: 'Jupiter, Mercury and Virtue',
+    verticalInscription: false,
+    colors: AppColors(
+      rail: Color(0xFFE3D9C3),
+      sidebar: Color(0xFFECE4D2),
+      background: Color(0xFFF7F2E7),
+      userBubble: Color(0xFFEADFCB),
+      onUserBubble: Color(0xFF29211B),
+      card: Color(0xFFFFFDF8),
+      border: Color(0x2E29211B),
+      ink: Color(0xFF29211B),
+      ink2: Color(0xFF41372D),
+      muted: Color(0xFF5E5246),
+      accent: Color(0xFF9C3328),
+      onAccent: Color(0xFFFFF8F0),
+      accentSoft: Color(0x1A9C3328),
+      ochre: Color(0xFF7C591B),
+      seal: Color(0xFF3B728C),
+      success: Color(0xFF446940),
+      warning: Color(0xFF7C591B),
+      danger: Color(0xFF9C3328),
+      codeBackground: Color(0xFFEFE7D6),
+      terminal: Color(0xFF29211B),
+      onTerminal: Color(0xFFECE4D2),
+      terminalMuted: Color(0xFFBCAF98),
+      terminalError: Color(0xFFE8A091),
+      wingUpper: Color(0xFFD9A441),
+      wingLower: Color(0xFF6E9DB3),
+      diffAdded: Color(0x24446940),
+      diffRemoved: Color(0x249C3328),
+    ),
+  );
+
+  /// Jan Davidsz. de Heem's flower still lifes (about 1670): a white
+  /// butterfly against near-black.
+  static const youhua = PaintingTheme(
+    id: 'youhua',
+    name: '幽华',
+    work: '德·黑姆的花卉静物，约 1670',
+    brightness: Brightness.dark,
+    radiusSm: 4,
+    radius: 8,
+    radiusLg: 12,
+    serifFamily: 'Constantia',
+    mark: MarkKind.glyph,
+    inscription: 'Vanitas',
+    verticalInscription: false,
+    colors: AppColors(
+      rail: Color(0xFF0E1012),
+      sidebar: Color(0xFF1B1E22),
+      background: Color(0xFF131517),
+      userBubble: Color(0xFF2A2F35),
+      onUserBubble: Color(0xFFEDE7DD),
+      card: Color(0xFF21262B),
+      border: Color(0x24EDE7DD),
+      ink: Color(0xFFEDE7DD),
+      ink2: Color(0xFFD5CEC2),
+      muted: Color(0xFF9DA4AA),
+      accent: Color(0xFFE2676A),
+      onAccent: Color(0xFF1A0E0E),
+      accentSoft: Color(0x29E2676A),
+      ochre: Color(0xFFE0B042),
+      seal: Color(0xFFEAF0D0),
+      success: Color(0xFF93C08C),
+      warning: Color(0xFFE0B042),
+      danger: Color(0xFFEF7F76),
+      codeBackground: Color(0xFF0E1012),
+      terminal: Color(0xFF0B0C0E),
+      onTerminal: Color(0xFFE6E1D8),
+      terminalMuted: Color(0xFF9DA4AA),
+      terminalError: Color(0xFFEF9A8F),
+      wingUpper: Color(0xFFEAF0D0),
+      wingLower: Color(0xFFCFD6BC),
+      diffAdded: Color(0x3393C08C),
+      diffRemoved: Color(0x33EF7F76),
+    ),
+  );
+
+  /// Tiffany Studios' leaded-glass butterfly lamps (about 1900).
+  static const liuguang = PaintingTheme(
+    id: 'liuguang',
+    name: '琉光',
+    work: '蒂芙尼工作室的蝴蝶台灯，约 1900',
+    brightness: Brightness.dark,
+    radiusSm: 6,
+    radius: 12,
+    radiusLg: 16,
+    serifFamily: 'Georgia',
+    labelSpacing: 1.2,
+    mark: MarkKind.glyph,
+    inscription: 'Tiffany Studios',
+    verticalInscription: false,
+    butterflyStroke: 2.2,
+    colors: AppColors(
+      rail: Color(0xFF12100E),
+      sidebar: Color(0xFF201D1A),
+      background: Color(0xFF171513),
+      userBubble: Color(0xFF332D27),
+      onUserBubble: Color(0xFFF2EAE0),
+      card: Color(0xFF2A2622),
+      border: Color(0x2EF2EAE0),
+      ink: Color(0xFFF2EAE0),
+      ink2: Color(0xFFD8CFC2),
+      muted: Color(0xFFA39B8F),
+      accent: Color(0xFFE09F3E),
+      onAccent: Color(0xFF1E1608),
+      accentSoft: Color(0x29E09F3E),
+      ochre: Color(0xFF4FB3B1),
+      seal: Color(0xFFE09F3E),
+      success: Color(0xFF4FB3B1),
+      warning: Color(0xFFE09F3E),
+      danger: Color(0xFFE57A6A),
+      codeBackground: Color(0xFF12100E),
+      terminal: Color(0xFF0E0C0B),
+      onTerminal: Color(0xFFEDE5DA),
+      terminalMuted: Color(0xFFA39B8F),
+      terminalError: Color(0xFFEF9A8F),
+      wingUpper: Color(0xFFE09F3E),
+      wingLower: Color(0xFF2B908F),
+      diffAdded: Color(0x334FB3B1),
+      diffRemoved: Color(0x33E57A6A),
+    ),
+  );
+
+  static const all = [jiadie, caodie, yuhua, shensi, moye, youhua, liuguang];
+
+  /// The theme with [id] if it has the right brightness, else that side's default.
+  static PaintingTheme byId(String? id, Brightness brightness) {
+    final found = all.where((t) => t.id == id && t.brightness == brightness).firstOrNull;
+    return found ?? (brightness == Brightness.dark ? moye : jiadie);
+  }
+}
+
+/// The non-color parts of the active [PaintingTheme], for widgets.
+@immutable
+class AppStyle extends ThemeExtension<AppStyle> {
+  const AppStyle(this.theme);
+
+  final PaintingTheme theme;
+
+  @override
+  AppStyle copyWith() => this;
+
+  @override
+  AppStyle lerp(ThemeExtension<AppStyle>? other, double t) => t < 0.5 || other is! AppStyle ? this : other;
+}
+
 extension AppThemeContext on BuildContext {
   AppColors get colors => Theme.of(this).extension<AppColors>()!;
   TextTheme get text => Theme.of(this).textTheme;
+  PaintingTheme get painting => Theme.of(this).extension<AppStyle>()?.theme ?? PaintingTheme.jiadie;
 
-  /// [style] in the Song typeface used for headings and replies.
+  /// Corner radii of the active theme.
+  double get radiusSm => painting.radiusSm;
+  double get radius => painting.radius;
+  double get radiusLg => painting.radiusLg;
+
+  /// [style] in the theme's heading and reply face (Song for Chinese).
   TextStyle serif(TextStyle? style) =>
-      (style ?? const TextStyle()).copyWith(fontFamily: AppTokens.serifFamily, fontFamilyFallback: AppTokens.serifFallback);
+      (style ?? const TextStyle()).copyWith(fontFamily: painting.serifFamily, fontFamilyFallback: AppTokens.serifFallback);
 
   /// A small spaced-out section label (「今天」「步骤」).
-  TextStyle? get label => text.labelSmall?.copyWith(color: colors.muted, letterSpacing: AppTokens.labelSpacing);
+  TextStyle? get label => text.labelSmall?.copyWith(color: colors.muted, letterSpacing: painting.labelSpacing);
 }
 
-ThemeData buildTheme(Brightness brightness) {
-  final isDark = brightness == Brightness.dark;
-  final c = isDark ? AppColors.dark : AppColors.light;
+/// The Material theme for [brightness], from [painting] (by default 「蛱蝶」
+/// by day and 「墨夜」 by night).
+ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
+  final t = painting ?? PaintingTheme.byId(null, brightness);
+  final c = t.colors;
   final scheme = ColorScheme(
     brightness: brightness,
     primary: c.accent,
@@ -230,7 +558,7 @@ ThemeData buildTheme(Brightness brightness) {
     colorScheme: scheme,
     fontFamily: AppTokens.fontFamily,
     fontFamilyFallback: AppTokens.fontFallback,
-    extensions: [c],
+    extensions: [c, AppStyle(t)],
     visualDensity: VisualDensity.compact,
     dividerColor: c.border,
     scaffoldBackgroundColor: c.background,
@@ -238,7 +566,7 @@ ThemeData buildTheme(Brightness brightness) {
     splashFactory: InkSparkle.splashFactory,
   );
   TextStyle? serif(TextStyle? s, {FontWeight weight = FontWeight.w600}) =>
-      s?.copyWith(fontFamily: AppTokens.serifFamily, fontFamilyFallback: AppTokens.serifFallback, fontWeight: weight, color: c.ink);
+      s?.copyWith(fontFamily: t.serifFamily, fontFamilyFallback: AppTokens.serifFallback, fontWeight: weight, color: c.ink);
   final text = base.textTheme.apply(bodyColor: c.ink, displayColor: c.ink);
   final textTheme = text.copyWith(
     displayLarge: serif(text.displayLarge),
@@ -250,7 +578,7 @@ ThemeData buildTheme(Brightness brightness) {
     titleLarge: serif(text.titleLarge),
     titleMedium: serif(text.titleMedium),
   );
-  final radius = BorderRadius.circular(AppTokens.radius);
+  final radius = BorderRadius.circular(t.radius);
   final shape = RoundedRectangleBorder(borderRadius: radius);
   final border = OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: c.border));
   return base.copyWith(
@@ -284,7 +612,7 @@ ThemeData buildTheme(Brightness brightness) {
     dialogTheme: DialogThemeData(
       backgroundColor: c.card,
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radiusLg)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.radiusLg)),
       titleTextStyle: serif(text.titleLarge),
     ),
     popupMenuTheme: PopupMenuThemeData(
@@ -295,7 +623,7 @@ ThemeData buildTheme(Brightness brightness) {
     menuTheme: MenuThemeData(style: MenuStyle(backgroundColor: WidgetStatePropertyAll(c.card))),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 500),
-      decoration: BoxDecoration(color: c.ink.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+      decoration: BoxDecoration(color: c.ink.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(t.radiusSm)),
       textStyle: TextStyle(color: c.background, fontSize: 12),
     ),
     snackBarTheme: SnackBarThemeData(
@@ -347,20 +675,21 @@ class ButterflyMark extends StatelessWidget {
     final colors = context.colors;
     final painter = CustomPaint(
       size: Size(size, size * 0.75),
-      painter: _ButterflyPainter(ink: colors.ink, upper: colors.wingUpper, lower: colors.wingLower, spot: colors.ochre, veins: veins),
+      painter: _ButterflyPainter(ink: colors.ink, upper: colors.wingUpper, lower: colors.wingLower, spot: colors.ochre, veins: veins, stroke: context.painting.butterflyStroke),
     );
     return semanticLabel == null ? ExcludeSemantics(child: painter) : Semantics(label: semanticLabel, image: true, child: painter);
   }
 }
 
 class _ButterflyPainter extends CustomPainter {
-  _ButterflyPainter({required this.ink, required this.upper, required this.lower, required this.spot, required this.veins});
+  _ButterflyPainter({required this.ink, required this.upper, required this.lower, required this.spot, required this.veins, this.stroke = 1});
 
   final Color ink;
   final Color upper;
   final Color lower;
   final Color spot;
   final bool veins;
+  final double stroke;
 
   static Path _upperWing() => Path()
     ..moveTo(60, 40)
@@ -386,7 +715,7 @@ class _ButterflyPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeJoin = StrokeJoin.round
       // About one pixel wide at any size, never thinner than the drawing's own line.
-      ..strokeWidth = (1.1 / scale).clamp(0.8, 6.0);
+      ..strokeWidth = (1.1 * stroke / scale).clamp(0.8 * stroke, 6.0 * stroke);
     final mirror = Matrix4.identity()
       ..translateByDouble(120, 0, 0, 1)
       ..scaleByDouble(-1, 1, 1, 1);
@@ -429,7 +758,7 @@ class _ButterflyPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ButterflyPainter old) => old.ink != ink || old.upper != upper || old.lower != lower || old.veins != veins;
+  bool shouldRepaint(_ButterflyPainter old) => old.ink != ink || old.upper != upper || old.lower != lower || old.veins != veins || old.stroke != stroke;
 }
 
 /// The butterfly as a solid one-color glyph, for buttons and small icons.
@@ -483,6 +812,7 @@ class SealStamp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final seal = context.colors.seal;
+    final chars = context.painting.markText.characters.toList();
     final style = TextStyle(
       fontFamily: AppTokens.serifFamily,
       fontFamilyFallback: AppTokens.serifFallback,
@@ -492,7 +822,7 @@ class SealStamp extends StatelessWidget {
       color: seal,
     );
     return Semantics(
-      label: '朱印：梦蝶',
+      label: '朱印：${chars.join()}',
       image: true,
       child: Container(
         width: size,
@@ -502,11 +832,38 @@ class SealStamp extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            ExcludeSemantics(child: Text('蝶', style: style)),
-            ExcludeSemantics(child: Text('梦', style: style)),
+            for (final c in chars.reversed) ExcludeSemantics(child: Text(c, style: style)),
           ],
         ),
       ),
     );
+  }
+}
+
+/// The theme's mark: the 「梦蝶」 seal, a plate label, or a small butterfly.
+class ThemeMark extends StatelessWidget {
+  const ThemeMark({super.key, this.size = 34});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.painting;
+    final colors = context.colors;
+    return switch (theme.mark) {
+      MarkKind.seal => SealStamp(size: size),
+      MarkKind.plate => Semantics(
+        label: theme.markText,
+        child: Container(
+          padding: const EdgeInsets.only(bottom: 2),
+          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: colors.muted.withValues(alpha: 0.6), width: 0.6))),
+          child: Text(
+            theme.markText,
+            style: context.serif(TextStyle(fontSize: size * 0.38, fontStyle: FontStyle.italic, color: colors.muted, height: 1)),
+          ),
+        ),
+      ),
+      MarkKind.glyph => ButterflyGlyph(size: size * 0.8, color: colors.seal),
+    };
   }
 }

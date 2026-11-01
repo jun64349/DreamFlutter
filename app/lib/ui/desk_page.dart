@@ -420,11 +420,11 @@ class _NoteRow extends StatelessWidget {
       child: Material(
         color: selected ? colors.card : Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTokens.radius),
+          borderRadius: BorderRadius.circular(context.radius),
           side: BorderSide(color: selected ? colors.border : Colors.transparent),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(AppTokens.radius),
+          borderRadius: BorderRadius.circular(context.radius),
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 9),
@@ -499,7 +499,7 @@ class _MaterialRowState extends State<_MaterialRow> {
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: InkWell(
-        borderRadius: BorderRadius.circular(AppTokens.radius),
+        borderRadius: BorderRadius.circular(context.radius),
         onTap: _open,
         child: Tooltip(
           message: m.kind == 'text' ? (m.content ?? '') : (m.path ?? ''),
@@ -547,11 +547,11 @@ class _ActiveTask extends StatelessWidget {
       child: Material(
         color: colors.card,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTokens.radius),
+          borderRadius: BorderRadius.circular(context.radius),
           side: BorderSide(color: needsYou ? colors.warning.withValues(alpha: 0.6) : colors.border),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(AppTokens.radius),
+          borderRadius: BorderRadius.circular(context.radius),
           onTap: task.sessionFile == null ? null : () => agent.openTask(task),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -743,7 +743,7 @@ class _NoteEditorState extends State<NoteEditor> {
                       decoration: BoxDecoration(
                         color: colors.card,
                         border: Border.all(color: colors.border),
-                        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+                        borderRadius: BorderRadius.circular(context.radiusLg),
                       ),
                       child: Stack(
                         clipBehavior: Clip.none,
@@ -771,7 +771,7 @@ class _NoteEditorState extends State<NoteEditor> {
                               ),
                             ],
                           ),
-                          const Positioned(top: -8, right: -12, child: SealStamp()),
+                          const Positioned(top: -8, right: -12, child: ThemeMark()),
                         ],
                       ),
                     ),

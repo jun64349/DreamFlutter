@@ -69,24 +69,26 @@ class Sidebar extends StatelessWidget {
   }
 }
 
-/// 「栩栩然胡蝶也」 written top to bottom, beside the 梦蝶 seal.
+/// The theme's inscription beside its mark: 「栩栩然胡蝶也」 top to bottom
+/// for the Song themes, a painting's title turned sideways for the others.
 class _Inscription extends StatelessWidget {
   const _Inscription();
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.painting;
     final style = context.serif(context.text.bodySmall).copyWith(color: context.colors.muted, height: 1.45);
+    final text = theme.verticalInscription
+        ? Column(children: [for (final c in theme.inscription.characters) Text(c, style: style)])
+        : RotatedBox(quarterTurns: 3, child: Text(theme.inscription, style: style.copyWith(fontStyle: FontStyle.italic, letterSpacing: 0.6)));
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, AppTokens.pad, 6, 0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Semantics(
-            label: '栩栩然胡蝶也',
-            child: ExcludeSemantics(child: Column(children: [for (final c in '栩栩然胡蝶也'.split('')) Text(c, style: style)])),
-          ),
-          const SealStamp(),
+          Semantics(label: theme.inscription, child: ExcludeSemantics(child: text)),
+          const ThemeMark(),
         ],
       ),
     );
@@ -175,7 +177,7 @@ class WorkspaceSwitcher extends StatelessWidget {
               decoration: BoxDecoration(
                 color: colors.card,
                 border: Border.all(color: colors.border),
-                borderRadius: BorderRadius.circular(AppTokens.radius),
+                borderRadius: BorderRadius.circular(context.radius),
               ),
               child: Row(
                 children: [
@@ -302,7 +304,7 @@ class _SessionPaneState extends State<_SessionPane> {
                       icon: const Icon(Icons.close),
                     ),
               contentPadding: const EdgeInsets.symmetric(vertical: 8),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(context.radiusSm)),
             ),
           ),
         ),
@@ -340,7 +342,7 @@ class _SearchResults extends StatelessWidget {
       children: [
         for (final hit in hits)
           InkWell(
-            borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+            borderRadius: BorderRadius.circular(context.radiusSm),
             onTap: () => agent.openSearchHit(hit),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
@@ -555,9 +557,9 @@ class _SessionTileState extends State<_SessionTile> {
           padding: const EdgeInsets.only(bottom: 2),
           child: Material(
             color: selected ? colors.accentSoft : (_hovered ? colors.accentSoft.withValues(alpha: 0.4) : Colors.transparent),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radius)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radius)),
             child: InkWell(
-              borderRadius: BorderRadius.circular(AppTokens.radius),
+              borderRadius: BorderRadius.circular(context.radius),
               onTap: () => AgentScope.read(context).openSession(entry.path),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(8, 7, 4, 7),

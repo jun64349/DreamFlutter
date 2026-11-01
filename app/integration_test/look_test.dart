@@ -10,6 +10,7 @@ import 'dart:ui' as ui;
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -222,6 +223,21 @@ void main() {
       await tester.tap(onLibrary('待确认'));
       await shot('19_skill_proposals_$suffix');
     }
+
+    // Every painting theme on the desk and the chat page.
+    for (final t in PaintingTheme.all.where((t) => t != PaintingTheme.jiadie && t != PaintingTheme.moye)) {
+      await agent.setPaintingTheme(t);
+      await agent.setThemeMode(t.isDark ? ThemeMode.dark : ThemeMode.light);
+      agent.showSection(AppSection.desk);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await shot('20_${t.id}_desk');
+      agent.showSection(AppSection.chat);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await shot('21_${t.id}_chat');
+    }
+    await tester.tap(find.text('外观'));
+    await shot('22_appearance');
+    await tester.tap(find.text('完成'));
   });
 }
 

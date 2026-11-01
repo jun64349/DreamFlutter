@@ -46,7 +46,7 @@ class TaskTile extends StatelessWidget {
       formatDate(task.updatedAt?.millisecondsSinceEpoch),
     ];
     return InkWell(
-      borderRadius: BorderRadius.circular(AppTokens.radius),
+      borderRadius: BorderRadius.circular(context.radius),
       onTap: () => showTaskDetails(context, task),
       child: OutlinedCard(
         highlight: task.status == TaskStatus.needsInput ? context.colors.warning : null,

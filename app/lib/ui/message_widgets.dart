@@ -156,7 +156,7 @@ class _UserBubbleState extends State<_UserBubble> {
                 children: [
                   for (final image in item.images)
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(AppTokens.radius),
+                      borderRadius: BorderRadius.circular(context.radius),
                       child: Image.memory(
                         base64Decode(image.data),
                         height: 140,
@@ -178,7 +178,7 @@ class _UserBubbleState extends State<_UserBubble> {
               constraints: const BoxConstraints(maxWidth: 520),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(color: colors.userBubble, borderRadius: BorderRadius.circular(AppTokens.radiusLg)),
+                decoration: BoxDecoration(color: colors.userBubble, borderRadius: BorderRadius.circular(context.radiusLg)),
                 child: Text(question, style: context.text.bodyMedium?.copyWith(color: colors.onUserBubble, height: 1.7)),
               ),
             ),
@@ -297,7 +297,7 @@ class QueuedMessages extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 border: Border.all(color: colors.border),
-                borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+                borderRadius: BorderRadius.circular(context.radiusLg),
               ),
               child: Text('等这一步做完就插进去：$message', style: context.text.bodySmall?.copyWith(color: colors.muted)),
             ),
@@ -621,7 +621,7 @@ class _WorkBlockState extends State<WorkBlock> {
       decoration: BoxDecoration(
         color: colors.card,
         border: Border.all(color: errors > 0 ? colors.danger.withValues(alpha: 0.4) : colors.border),
-        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+        borderRadius: BorderRadius.circular(context.radiusLg),
       ),
       clipBehavior: Clip.antiAlias,
       child: AnimatedSize(
@@ -827,7 +827,7 @@ class _StepLine extends StatelessWidget {
     final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12, color: colors.muted);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+      borderRadius: BorderRadius.circular(context.radiusSm),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
@@ -1101,7 +1101,7 @@ class _PlanStepState extends State<_PlanStep> {
             decoration: BoxDecoration(
               border: Border(left: BorderSide(color: colors.accent, width: 2)),
               color: colors.codeBackground,
-              borderRadius: BorderRadius.circular(AppTokens.radius),
+              borderRadius: BorderRadius.circular(context.radius),
             ),
             child: ReplyMarkdown(text: plan),
           ),
@@ -1126,7 +1126,7 @@ class _OutputBox extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       constraints: const BoxConstraints(maxHeight: 300),
-      decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radius)),
+      decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radius)),
       padding: const EdgeInsets.all(10),
       child: SingleChildScrollView(
         child: Text(
@@ -1171,7 +1171,7 @@ class _TerminalStepState extends State<_TerminalStep> {
     final hidden = _all ? 0 : (lines.length - tail).clamp(0, lines.length);
     final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12, height: 1.6);
     return Container(
-      decoration: BoxDecoration(color: colors.terminal, borderRadius: BorderRadius.circular(AppTokens.radius)),
+      decoration: BoxDecoration(color: colors.terminal, borderRadius: BorderRadius.circular(context.radius)),
       padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1283,7 +1283,7 @@ class _DiffViewState extends State<DiffView> {
     final lines = _all ? widget.lines : widget.lines.take(limit).toList();
     final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12, height: 1.55, color: colors.ink2);
     return Container(
-      decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radius)),
+      decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radius)),
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1425,7 +1425,7 @@ class _VisionNoteState extends State<VisionNote> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: InkWell(
-        borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+        borderRadius: BorderRadius.circular(context.radiusSm),
         onTap: () => showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(

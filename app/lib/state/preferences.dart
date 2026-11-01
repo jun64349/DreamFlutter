@@ -82,6 +82,12 @@ class Preferences {
   };
   Future<void> setThemeMode(ThemeMode mode) => _prefs.setString('themeMode', mode.name);
 
+  /// The painting themes for daytime and night (ids from PaintingTheme).
+  String? get lightTheme => _prefs.getString('lightTheme');
+  Future<void> setLightTheme(String id) => _prefs.setString('lightTheme', id);
+  String? get darkTheme => _prefs.getString('darkTheme');
+  Future<void> setDarkTheme(String id) => _prefs.setString('darkTheme', id);
+
   double get textScale => _prefs.getDouble('textScale') ?? 1.0;
   Future<void> setTextScale(double value) => _prefs.setDouble('textScale', value);
 

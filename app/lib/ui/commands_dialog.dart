@@ -83,7 +83,7 @@ class _CommandsDialogState extends State<_CommandsDialog> {
                               for (final command in groups[source]!)
                                 ListTile(
                                   dense: true,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTokens.radiusSm)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusSm)),
                                   title: Text('/${command.name}', style: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback)),
                                   subtitle: command.description.isEmpty ? null : Text(command.description, maxLines: 2, overflow: TextOverflow.ellipsis),
                                   trailing: const Icon(Icons.north_west, size: 16),
