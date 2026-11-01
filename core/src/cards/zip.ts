@@ -77,11 +77,15 @@ export function readZip(buffer: Buffer, maxTotal = 200 * 1024 * 1024): ZipEntry[
 		const name = buffer.subarray(at + 46, at + 46 + nameLength).toString("utf8");
 		at += 46 + nameLength + extraLength + commentLength;
 		if (name.endsWith("/")) continue;
+		// A stored entry is copied as is: its two sizes must agree, or a forged
+		// "size 0" would slip past the total while copying the whole archive.
+		if (method === 0 && compressed !== size) throw new Error("zip 条目大小不一致");
 		total += size;
 		if (total > maxTotal) throw new Error("zip 解压后太大");
 		const localName = buffer.readUInt16LE(localAt + 26);
 		const localExtra = buffer.readUInt16LE(localAt + 28);
 		const start = localAt + 30 + localName + localExtra;
+		if (start + compressed > buffer.length) throw new Error("zip 条目超出文件范围");
 		const raw = buffer.subarray(start, start + compressed);
 		let data: Buffer;
 		if (method === 0) data = Buffer.from(raw);

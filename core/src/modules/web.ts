@@ -82,7 +82,13 @@ function charsetOf(contentType: string, head: Uint8Array): string {
 /** Downloads [url] (http/https only, size-capped) and returns readable text. */
 export async function fetchPage(
 	url: string,
-	options: { timeoutMs?: number; signal?: AbortSignal; allowHttpErrors?: boolean } = {},
+	options: {
+		timeoutMs?: number;
+		signal?: AbortSignal;
+		allowHttpErrors?: boolean;
+		/** Follows redirects one at a time, letting this refuse (throw) each next address. */
+		checkRedirect?: (next: URL) => Promise<void>;
+	} = {},
 ): Promise<{ url: string; title: string; text: string; contentType: string; status: number }> {
 	let parsed: URL;
 	try {
@@ -92,15 +98,20 @@ export async function fetchPage(
 	}
 	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("只支持 http 和 https 网址");
 	const signal = AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? 30_000), ...(options.signal ? [options.signal] : [])]);
-	const response = await fetch(parsed, {
-		signal,
-		redirect: "follow",
-		headers: {
-			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 DreamFlutter",
-			Accept: "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5",
-			"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-		},
-	});
+	const headers = {
+		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 DreamFlutter",
+		Accept: "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5",
+		"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+	};
+	let response = await fetch(parsed, { signal, headers, redirect: options.checkRedirect ? "manual" : "follow" });
+	for (let hops = 0; options.checkRedirect && response.status >= 300 && response.status < 400 && response.headers.has("location"); hops++) {
+		if (hops >= 5) throw new Error("网页跳转次数太多");
+		await response.body?.cancel();
+		parsed = new URL(response.headers.get("location")!, parsed);
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("只支持 http 和 https 网址");
+		await options.checkRedirect(parsed);
+		response = await fetch(parsed, { signal, headers, redirect: "manual" });
+	}
 	if (!response.ok && !options.allowHttpErrors) throw new Error(`网站返回 ${response.status} ${response.statusText}`);
 	const status = response.status;
 	const contentType = response.headers.get("content-type") ?? "";

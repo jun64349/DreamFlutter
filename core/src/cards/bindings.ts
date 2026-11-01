@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { lookup } from "node:dns/promises";
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fetchPage } from "../modules/web.ts";
 import { CODES, isPlainObject, type CardBinding } from "./document.ts";
 
@@ -115,6 +115,23 @@ function declaredDirs(binding: CardBinding, cwd: string): string[] {
 	return list(binding.input?.dirs).map((d) => resolve(cwd, d));
 }
 
+/** [path] with links (junctions, symlinks) resolved: the nearest existing ancestor's real path plus the rest. */
+function realTarget(path: string): string {
+	const rest: string[] = [];
+	let existing = path;
+	while (!existsSync(existing)) {
+		const parent = dirname(existing);
+		if (parent === existing) return path;
+		rest.unshift(basename(existing));
+		existing = parent;
+	}
+	try {
+		return join(realpathSync.native(existing), ...rest);
+	} catch {
+		return path;
+	}
+}
+
 function fileTarget(binding: CardBinding, input: Record<string, unknown>, ctx: BindingContext): { path: string; dir: string } {
 	const dirs = declaredDirs(binding, ctx.cwd);
 	if (!dirs.length) throw unavailable("这个绑定没有声明可访问的文件夹（manifest 的 input.dirs）");
@@ -122,6 +139,8 @@ function fileTarget(binding: CardBinding, input: Record<string, unknown>, ctx: B
 	const path = resolve(dirs[0]!, input.path);
 	const dir = dirs.find((d) => within(path, d));
 	if (!dir) throw unavailable(`${path} 不在这张卡声明的文件夹里`);
+	// A link inside the folder must not lead outside it.
+	if (!within(realTarget(path), realTarget(dir))) throw unavailable(`${path} 经由链接指向了声明的文件夹之外`);
 	return { path, dir };
 }
 
@@ -181,7 +200,8 @@ const TOOLS: Record<string, ToolSpec> = {
 				unit: { kind: "net", subject: url.hostname.toLowerCase() },
 				summary: `读取网页 ${url.href}`,
 				async run() {
-					const page = await fetchPage(url.href);
+					// Each redirect passes the same checks as the first address (declared host, https, no internal address).
+					const page = await fetchPage(url.href, { checkRedirect: async (next) => void (await checkTarget(binding, next.href, ctx)) });
 					return { url: page.url, title: page.title, text: page.text.slice(0, 100_000) };
 				},
 			};

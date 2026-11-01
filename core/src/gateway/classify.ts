@@ -18,10 +18,16 @@ export type FailureKind =
 	/** Anything else (bad request, context overflow...): not the channel's fault. */
 	| "other";
 
+/**
+ * Status or business codes as whole words: a code inside a request id or a
+ * redacted key's last four characters ("req_f401b", "****a401") does not count.
+ */
+const codes = (...list: number[]) => `(?<![0-9A-Za-z])(?:${list.join("|")})(?![0-9A-Za-z])`;
+
 const QUOTA = new RegExp(
 	[
 		// 智谱: 1309 plan expired, 1310 weekly/monthly limit, 1316 five-hour limit, 1317 seven-day limit.
-		"(?<![0-9])(?:1309|1310|1316|1317)(?![0-9])",
+		codes(1309, 1310, 1316, 1317),
 		"exceeded_current_quota",
 		"usage.?limit.?(?:exceeded|reached)",
 		"quota.?exceeded",
@@ -33,12 +39,12 @@ const QUOTA = new RegExp(
 	"i",
 );
 const BALANCE = new RegExp(
-	["(?<![0-9])(?:402|1113)(?![0-9])", "insufficient.?balance", "payment.?required", "余额不足", "欠费", "arrear"].join("|"),
+	[codes(402, 1113), "insufficient.?balance", "payment.?required", "余额不足", "欠费", "arrear"].join("|"),
 	"i",
 );
 const AUTH = new RegExp(
 	[
-		"(?<![0-9])(?:401|403)(?![0-9])",
+		codes(401, 403),
 		"unauthori[sz]ed",
 		"invalid.{0,20}(?:api.?key|token|x-api-key)",
 		"incorrect api key",
@@ -50,18 +56,18 @@ const AUTH = new RegExp(
 	"i",
 );
 const RATE_LIMIT = new RegExp(
-	["(?<![0-9])(?:429|1002|1302|1305)(?![0-9])", "rate.?limit", "too many requests", "concurren", "访问量过大", "请求过于频繁"].join("|"),
+	[codes(429, 1002, 1302, 1305), "rate.?limit", "too many requests", "concurren", "访问量过大", "请求过于频繁"].join("|"),
 	"i",
 );
 const SERVER = new RegExp(
-	["(?<![0-9])(?:500|502|503|504|520|524|529)(?![0-9])", "overloaded", "server.?(?:error|busy)", "internal.?error", "service.?(?:is.?)?(?:temporarily.?)?unavailable", "upstream"].join("|"),
+	[codes(500, 502, 503, 504, 520, 524, 529), "overloaded", "server.?(?:error|busy)", "internal.?error", "service.?(?:is.?)?(?:temporarily.?)?unavailable", "upstream"].join("|"),
 	"i",
 );
 const NETWORK = new RegExp(
 	["timed? ?out", "ECONN", "ENOTFOUND", "EAI_AGAIN", "fetch failed", "network", "socket", "terminated", "connection", "ended without", "stream ended"].join("|"),
 	"i",
 );
-const CONTEXT = /context.?(?:length|window|overflow)|maximum context|too many tokens|prompt is too long|(?<![0-9])1039(?![0-9])/i;
+const CONTEXT = new RegExp(`context.?(?:length|window|overflow)|maximum context|too many tokens|prompt is too long|${codes(1039)}`, "i");
 
 export function classifyFailure(message: string | undefined): FailureKind {
 	const text = message ?? "";

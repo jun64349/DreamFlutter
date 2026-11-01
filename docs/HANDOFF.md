@@ -1,7 +1,9 @@
 # DreamFlutter 开发交接（v0.1.1 → v0.2）
 
-更新时间：2026-11-01（阶段 5）
-当前分支：`main`（v0.1.0、v0.1.1 都已打 tag；下一阶段是 v0.2，计划见 [v0.2-plan.md](v0.2-plan.md)）
+更新时间：2026-11-01（v0.2.0 发布）
+当前分支：`main`（v0.1.0、v0.1.1、v0.2.0 都已打 tag；v0.2 做了什么见 [v0.2-release-notes.md](v0.2-release-notes.md)；接下来按 [roadmap.md](roadmap.md) 做 v0.3–v0.9）
+
+**下一步**：E2E 改成复用用户在应用里配好的 OpenCode Go 渠道（用户 2026-11-01 决定以后测试都走 OpenCode Go；不要在测试里新建渠道），然后开始 v0.3。
 
 ## 一句话现状
 
@@ -18,7 +20,7 @@
 | 7 | 可选项 | 未做 |
 | 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
 
-下一步：**v0.2 阶段 6**（审查、修复、全量测试和端到端验收，发布 v0.2）。阶段 5（四个页面重做 + 名画主题）已完成，见下一节。用户 2026-10-31 决定不再做 computer-use 人工测试。
+v0.2 的 6 个阶段都已完成，2026-11-01 打 tag v0.2.0（阶段 6：Codex 审查修复、全量测试、真实 DeepSeek E2E 通过）。用户 2026-10-31 决定不再做 computer-use 人工测试。
 
 ## v0.2 收尾：OpenCode Go 渠道（2026-11-01，用户深度测试第 20 条）
 
@@ -27,6 +29,19 @@
 - 模型信息（`gateway/catalog.ts`）：平台的 `modelsUrl`（公开、不需要 Key 的 `https://opencode.ai/inference/go/v1/models`）带上下文、最大输出、价格、图片、思考档位（`efforts`），「获取模型列表」按接口类型过滤并带上这些；注册渠道模型时，Pi 内置目录（`catalog: "opencode-go"`）认识的模型用它的 `thinkingLevelMap` 和 `compat`（`max_tokens`、DeepSeek 思考格式等），不认识的用列表里的 `efforts` 和平台默认 `compat`。例：deepseek-v4.1-flash 只有 low/high/max，选「中」时 Pi 会自动换成可用的档位。
 - 顺手修了渠道编辑页「接口类型」下拉框在大字号下的溢出（深度测试第 2 条）。
 - 真实检查（需要用户的 Key）：`$env:OPENCODE_GO_API_KEY = "oc_sk_..."; cd core; node --disable-warning=ExperimentalWarning scripts/live-opencode.ts [模型] [anthropic]`。
+
+## v0.2 阶段 6：Codex 审查（2026-11-01）
+
+只读审查 v0.1.1 以来的卡片、shell 审批、网关、任务/调度改动，8 条，核实后修 6 条（回归测试都标「v0.2 review」）：
+
+1. 审批：单个 `&`（PowerShell 7 后台运算符）能把写操作藏在只读命令后面 → 出现单个 `&` 就要确认（`ext/approval.ts`）。
+2. 审批：只读的 git 子命令带 `--open-files-in-pager` / `-O` / `--ext-diff`（含 git 允许的前缀缩写、短选项连写）会启动程序 → 要确认。
+3. 卡片 `fs.*`：授权文件夹里的链接（junction）能指到外面 → 按解析链接后的真实路径再查一次（`cards/bindings.ts` 的 `realTarget`；检查和使用之间被替换链接的竞态没处理）。
+4. 卡片 `web.read`：`fetchPage` 自动跟随跳转，已授权主机能把卡片带到本机/内网 → `fetchPage` 新增 `checkRedirect`，卡片每一跳都过 `checkTarget`；Agent 自己的 `web_fetch` 照旧。
+5. 网关分类：状态码只要求前后不是数字，请求编号、打码后的 Key 尾号里的「401」会把 Key 永久停用 → 状态码和业务码按整词匹配（`gateway/classify.ts` 的 `codes`）。
+6. 卡片 zip：stored 条目伪造解压大小能绕过总量限制、复制大量数据 → 两个大小必须一致，数据不能超出文件。
+
+没改的两条：短于 8 个字符的 Key 不打码（真实 Key 都很长，打短串会误伤错误信息）；跨月/跨天的那次运行的花费算在开始的那天/月（最多超一次运行，单次运行有轮数上限；要精确得给每个请求记账，目前只有经网关的请求有记录，以后再做）。
 
 ## v0.2 收尾：深度测试里的小修复（2026-11-01）
 

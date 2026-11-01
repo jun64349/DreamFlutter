@@ -41,6 +41,18 @@ const LISTING_GIT: Record<string, Set<string>> = {
 	remote: new Set(["-v", "--verbose"]),
 	tag: new Set(["-l", "--list"]),
 };
+/** git options that start other programs, even on reading subcommands (git accepts unique prefixes of long options). */
+const GIT_RUNNERS = ["--open-files-in-pager", "--ext-diff"];
+
+function gitArgRuns(arg: string): boolean {
+	if (arg.startsWith("--")) {
+		const name = arg.split("=")[0]!.toLowerCase();
+		return name.length >= 4 && GIT_RUNNERS.some((option) => option.startsWith(name));
+	}
+	// -O[<pager>] opens matches in a program; short options can be bundled (-nO).
+	return /^-[^-]*O/.test(arg);
+}
+
 /** Programs whose bare version query only reads. */
 const VERSION_PROGRAMS = new Set(["node", "npm", "npx", "pnpm", "yarn", "python", "python3", "py", "pip", "uv", "git", "dotnet", "java", "go", "rustc", "cargo", "flutter", "dart", "pwsh", "powershell"]);
 
@@ -55,6 +67,8 @@ export function isReadOnlyCommand(command: string): boolean {
 	if (text.length === 0) return false;
 	// Redirection, escapes, grouping and script blocks (which can hold any command), and code runners.
 	if (/[>`(){}\[\]]|@'|@"|\binvoke-|\biex\b|-command\b|-encodedcommand\b|start-process|-delete\b|--output\b|--pre\b|-outvariable\b|-ov\b/i.test(text)) return false;
+	// A lone & runs what follows as another command (PowerShell 7's background operator, bash too); && is split below.
+	if (/(^|[^&])&(?!&)/.test(text)) return false;
 	for (const raw of text.split(/\r?\n|;|\|\||&&|\|/)) {
 		const stage = raw.trim();
 		if (stage.length === 0) continue;
@@ -63,6 +77,7 @@ export function isReadOnlyCommand(command: string): boolean {
 		if (word === "git") {
 			const sub = rest[0]?.toLowerCase();
 			if (!sub) return false;
+			if (rest.slice(1).some(gitArgRuns)) return false;
 			if (READ_ONLY_GIT.has(sub)) continue;
 			const listing = LISTING_GIT[sub];
 			if (listing && rest.slice(1).every((arg) => listing.has(arg.toLowerCase()))) continue;

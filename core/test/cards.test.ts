@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -64,6 +64,15 @@ describe("card documents (host side)", () => {
 		assert.deepEqual(entries.map((e) => e.name), ["index.html", "assets/a.txt"]);
 		assert.equal(entries[0]!.data.toString(), "<html>卡片</html>");
 		assert.equal(entries[1]!.data.length, 5000);
+	});
+
+	it("v0.2 review: refuses stored entries whose sizes disagree (a forged size would dodge the total)", () => {
+		// "index.html" is stored (too short to deflate): forge its central-directory size to 0.
+		const zip = writeZip([{ name: "index.html", data: Buffer.from("<p>x</p>") }]);
+		const central = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+		assert.equal(zip.readUInt16LE(central + 10), 0, "the entry is stored");
+		zip.writeUInt32LE(0, central + 24);
+		assert.throws(() => readZip(zip), /大小不一致/);
 	});
 });
 
@@ -217,6 +226,48 @@ describe("cards", () => {
 		assert.equal(envelope(await request(card.id, "invoke", { bindingId: "f", input: { path: "../../x" } })).code, "CARD_HOST_TOOL_UNAVAILABLE", "outside the declared folder");
 		cards.allowLocalNetwork = true;
 		assert.equal(ask(await request(card.id, "invoke", { bindingId: "w", input: { url: apiUrl("/") } })).danger, true, "send-out asked after a file grant");
+	});
+
+	it("v0.2 review: a link inside a granted folder does not lead outside it", async () => {
+		const allowed = join(t.workspace, "allowed");
+		const secret = join(t.dir, "private");
+		mkdirSync(allowed, { recursive: true });
+		mkdirSync(secret, { recursive: true });
+		writeFileSync(join(secret, "secret.txt"), "机密");
+		writeFileSync(join(allowed, "ok.txt"), "公开");
+		symlinkSync(secret, join(allowed, "out"), "junction");
+		const { card } = await showCard({ title: "读文件", html: `${manifest({ f: { tool: "fs.read", input: { dirs: ["allowed"] } } })}<p>x</p>` });
+		const q = ask(await request(card.id, "invoke", { bindingId: "f", input: { path: "ok.txt" } }));
+		const grant = { answer: { grant: "session", epoch: q.epoch, digest: q.digest } };
+		assert.equal(envelope(await request(card.id, "invoke", { bindingId: "f", input: { path: "ok.txt" } }, grant)).result.text, "公开");
+		const escaped = envelope(await request(card.id, "invoke", { bindingId: "f", input: { path: "out/secret.txt" } }));
+		assert.equal(escaped.code, "CARD_HOST_TOOL_UNAVAILABLE");
+		assert.doesNotMatch(JSON.stringify(escaped), /机密/);
+	});
+
+	it("v0.2 review: web.read checks every redirect like the first address", async () => {
+		cards.allowLocalNetwork = true;
+		const site = createServer((req, res) => {
+			const port = (site.address() as AddressInfo).port;
+			if (req.url === "/go") {
+				res.writeHead(302, { location: `http://localhost:${port}/secret` });
+				res.end();
+			} else {
+				res.writeHead(200, { "content-type": "text/plain" });
+				res.end("内网机密");
+			}
+		});
+		await new Promise<void>((r) => site.listen(0, "127.0.0.1", r));
+		try {
+			const url = `http://127.0.0.1:${(site.address() as AddressInfo).port}/go`;
+			const { card } = await showCard({ title: "读网页", html: `${manifest({ r: { tool: "web.read", input: { hosts: ["127.0.0.1"] } } })}<p>x</p>` });
+			const q = ask(await request(card.id, "invoke", { bindingId: "r", input: { url } }));
+			const answer = envelope(await request(card.id, "invoke", { bindingId: "r", input: { url } }, { answer: { grant: "once", epoch: q.epoch, digest: q.digest } }));
+			assert.notEqual(answer.ok, true, "localhost is not a declared host");
+			assert.doesNotMatch(JSON.stringify(answer), /内网机密/);
+		} finally {
+			site.close();
+		}
 	});
 
 	it("history honesty and rate limits", async () => {

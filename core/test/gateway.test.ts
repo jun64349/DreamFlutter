@@ -25,6 +25,9 @@ describe("gateway: failure kinds", () => {
 		assert.equal(classifyFailure("fetch failed"), "network");
 		assert.equal(classifyFailure("400 This model's maximum context length is 128000 tokens"), "other", "context overflow is not the channel's fault");
 		assert.equal(classifyFailure("request id 14290511 failed validation"), "other", "codes inside longer numbers do not count");
+		assert.equal(classifyFailure("500 Internal Server Error; key=****a401"), "server", "nor a redacted key's last characters");
+		assert.equal(classifyFailure("bad request (request id req_f401b9)"), "other", "nor codes inside request ids");
+		assert.equal(classifyFailure('{"error":{"code":"1316"}}'), "quota");
 	});
 });
 

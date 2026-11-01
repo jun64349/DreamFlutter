@@ -300,6 +300,24 @@ describe("review fixes (stage 3a)", () => {
 		assert.equal(isReadOnlyCommand("git remote -v"), true);
 	});
 
+	it("v0.2 review: a lone & and git options that start programs need approval", () => {
+		for (const command of [
+			"echo ok & Remove-Item victim.txt",
+			"Get-ChildItem &",
+			"git grep --open-files-in-pager=calc.exe foo",
+			"git grep --op=calc.exe foo",
+			"git grep -Ocalc.exe foo",
+			"git grep -nO foo",
+			"git diff --ext-diff",
+			"git log -p --ext",
+		]) {
+			assert.equal(isReadOnlyCommand(command), false, command);
+		}
+		for (const command of ["git status && git log --oneline -3", "git grep -n foo", "git diff --stat", "git log --no-ext-diff -n 5"]) {
+			assert.equal(isReadOnlyCommand(command), true, command);
+		}
+	});
+
 	it("parallel edits of one file both land", async () => {
 		t.core.settings.update({ approvalMode: "off" });
 		const file = join(t.workspace, "two.txt");
