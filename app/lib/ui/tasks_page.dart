@@ -6,6 +6,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
 import 'schedules.dart';
+import 'sidebar.dart' show WorkspaceSwitcher;
 import 'task_widgets.dart';
 
 enum _Filter {
@@ -19,7 +20,8 @@ enum _Filter {
   final List<String>? statuses;
 }
 
-/// Everything waiting for the user (the inbox) and the task history.
+/// Everything waiting for the user (the inbox), the task history and the
+/// scheduled tasks, as sections in a left panel.
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key});
 
@@ -27,11 +29,12 @@ class TasksPage extends StatefulWidget {
   State<TasksPage> createState() => _TasksPageState();
 }
 
-class _TasksPageState extends State<TasksPage> with SingleTickerProviderStateMixin {
-  late final _tabs = TabController(length: 3, vsync: this);
+class _TasksPageState extends State<TasksPage> {
   late final AgentController _agent;
   List<InboxItem> _inbox = const [];
   List<TaskInfo> _tasks = const [];
+  var _scheduleCount = 0;
+  var _section = 0;
   var _filter = _Filter.all;
   var _allWorkspaces = false;
   String? _error;
@@ -50,7 +53,6 @@ class _TasksPageState extends State<TasksPage> with SingleTickerProviderStateMix
   void dispose() {
     _agent.workRevision.removeListener(_load);
     _agent.libraryRevision.removeListener(_load);
-    _tabs.dispose();
     super.dispose();
   }
 
@@ -63,9 +65,11 @@ class _TasksPageState extends State<TasksPage> with SingleTickerProviderStateMix
           'status': ?_filter.statuses,
           'limit': 200,
         }),
+        _agent.backend.call('schedules.list'),
       ]);
       _inbox = jsonRows(results[0]).map(InboxItem.fromJson).toList();
       _tasks = jsonRows(results[1]).map(TaskInfo.fromJson).toList();
+      _scheduleCount = jsonRows(results[2]).length;
       _error = null;
     } catch (e) {
       _error = SessionRuntime.describeError(e);
@@ -75,76 +79,123 @@ class _TasksPageState extends State<TasksPage> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    final pending = _inbox.length;
-    return PageFrame(
+    final colors = context.colors;
+    return SectionedPage(
       title: '任务',
-      subtitle: '等你处理的确认和卡片集中在「待处理」；每个会话、写笺和模板运行都是一个任务。',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TabBar(
-            controller: _tabs,
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            padding: const EdgeInsets.symmetric(horizontal: AppTokens.padLg),
-            tabs: [
-              Tab(child: Badge(isLabelVisible: pending > 0, label: Text('$pending'), offset: const Offset(14, -4), child: const Text('待处理'))),
-              const Tab(text: '全部任务'),
-              const Tab(text: '定时'),
-            ],
-          ),
-          const Divider(),
-          Expanded(
-            child: _error != null
-                ? Center(child: Text(_error!, style: TextStyle(color: context.colors.danger)))
-                : _loading
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : TabBarView(controller: _tabs, children: [_inboxTab(), _tasksTab(), const SchedulesTab()]),
+      header: WorkspaceSwitcher(key: ValueKey(_agent.workspace), compact: true),
+      items: [
+        SideNavItem('待处理', Icons.inbox_outlined, count: _inbox.length, alert: true),
+        SideNavItem('全部任务', Icons.task_alt, count: _tasks.length),
+        SideNavItem('定时', Icons.schedule, count: _scheduleCount),
+      ],
+      selected: _section,
+      onSelect: (i) => setState(() => _section = i),
+      panel: [
+        if (_section == 1) ...[
+          const PanelLabel('筛选'),
+          for (final f in _Filter.values)
+            _FilterRow(
+              label: f.label,
+              selected: f == _filter,
+              onTap: () {
+                setState(() => _filter = f);
+                _load();
+              },
+            ),
+          const SizedBox(height: AppTokens.gap),
+          SwitchListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+            title: Text('所有工作区', style: context.text.bodyMedium),
+            value: _allWorkspaces,
+            onChanged: (v) {
+              setState(() => _allWorkspaces = v);
+              _load();
+            },
           ),
         ],
-      ),
+      ],
+      child: _error != null
+          ? Center(child: Text(_error!, style: TextStyle(color: colors.danger)))
+          : _loading
+          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+          : switch (_section) {
+              0 => _inboxSection(),
+              1 => _tasksSection(),
+              _ => const SchedulesTab(),
+            },
     );
   }
 
-  Widget _inboxTab() {
+  Widget _inboxSection() {
     return PageBody(
       children: [
-        const SizedBox(height: AppTokens.gap),
-        if (_inbox.isEmpty) const EmptyNote('没有等你处理的事情。'),
+        const ContentHeader(title: '待处理', description: '等你批准的操作、要你补充的信息、被上限暂停或中断的任务，以及候选记忆和技能建议，都集中在这里。'),
+        if (_inbox.isEmpty) const EmptyState(title: '没有等你处理的事', message: 'Agent 需要你点头或补充信息时，会出现在这里。'),
         for (final item in _inbox) InboxCard(key: ValueKey('${item.kind}-${item.id}'), item: item, onDone: _load),
       ],
     );
   }
 
-  Widget _tasksTab() {
+  Widget _tasksSection() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    String group(TaskInfo t) {
+      final at = t.updatedAt;
+      if (at == null || at.isBefore(today.subtract(const Duration(days: 6)))) return '更早';
+      if (!at.isBefore(today)) return '今天';
+      if (!at.isBefore(today.subtract(const Duration(days: 1)))) return '昨天';
+      return '这一周';
+    }
+
+    final groups = <String, List<TaskInfo>>{};
+    for (final t in _tasks) {
+      groups.putIfAbsent(group(t), () => []).add(t);
+    }
     return PageBody(
       children: [
-        const SizedBox(height: AppTokens.gap),
-        Row(
+        ContentHeader(
+          title: '全部任务',
+          description: '每个会话、写笺和模板运行都是一个任务。点开看目标、结果、产物和每次运行。${_filter == _Filter.all ? '' : '（只看「${_filter.label}」）'}',
+        ),
+        if (_tasks.isEmpty) EmptyState(title: _allWorkspaces ? '还没有任务' : '这个工作区还没有任务', message: '在对话里提一个要求，或者在书桌上把写笺交给 Agent。'),
+        for (final e in groups.entries) ...[
+          PanelLabel(e.key, count: e.value.length),
+          for (final t in e.value) TaskTile(task: t, showWorkspace: _allWorkspaces),
+        ],
+      ],
+    );
+  }
+}
+
+class _FilterRow extends StatelessWidget {
+  const _FilterRow({required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTokens.radius),
+      onTap: onTap,
+      child: SizedBox(
+        height: 32,
+        child: Row(
           children: [
-            SegmentedButton<_Filter>(
-              segments: [for (final f in _Filter.values) ButtonSegment(value: f, label: Text(f.label))],
-              selected: {_filter},
-              onSelectionChanged: (s) {
-                setState(() => _filter = s.first);
-                _load();
-              },
+            const SizedBox(width: 12),
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: selected ? colors.accent : Colors.transparent, border: Border.all(color: selected ? colors.accent : colors.muted)),
             ),
-            const Spacer(),
-            FilterChip(
-              label: const Text('所有工作区'),
-              selected: _allWorkspaces,
-              onSelected: (v) {
-                setState(() => _allWorkspaces = v);
-                _load();
-              },
-            ),
+            const SizedBox(width: 12),
+            Text(label, style: context.text.bodyMedium?.copyWith(color: selected ? colors.ink : colors.muted)),
           ],
         ),
-        const SizedBox(height: AppTokens.pad),
-        if (_tasks.isEmpty) EmptyNote(_allWorkspaces ? '还没有任务。' : '这个工作区还没有任务。'),
-        for (final t in _tasks) TaskTile(task: t, showWorkspace: _allWorkspaces),
-      ],
+      ),
     );
   }
 }

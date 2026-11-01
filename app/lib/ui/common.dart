@@ -28,10 +28,7 @@ class PageFrame extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(title, style: context.text.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
-                      Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-                    ],
+                    if (subtitle != null) ...[const SizedBox(height: 2), Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted))],
                   ],
                 ),
               ),
@@ -42,6 +39,209 @@ class PageFrame extends StatelessWidget {
         const Divider(),
         Expanded(child: child),
       ],
+    );
+  }
+}
+
+/// One section in the left panel of a [SectionedPage].
+class SideNavItem {
+  const SideNavItem(this.label, this.icon, {this.count, this.alert = false});
+
+  final String label;
+  final IconData icon;
+  final int? count;
+
+  /// Shows the count as a filled badge (things waiting for the user).
+  final bool alert;
+}
+
+/// The frame of the work pages (tasks, memory, skills), like the desk and
+/// the chat: a left panel with the page title, its sections and any filters,
+/// and the selected section on the right.
+class SectionedPage extends StatelessWidget {
+  const SectionedPage({
+    super.key,
+    required this.title,
+    required this.items,
+    required this.selected,
+    required this.onSelect,
+    required this.child,
+    this.header,
+    this.panel = const [],
+  });
+
+  final String title;
+
+  /// Under the title (e.g. the workspace switcher).
+  final Widget? header;
+  final List<SideNavItem> items;
+  final int selected;
+  final ValueChanged<int> onSelect;
+
+  /// Extra panel content under the sections (filters...).
+  final List<Widget> panel;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          width: AppTokens.sidebarWidth,
+          decoration: BoxDecoration(
+            border: Border(right: BorderSide(color: colors.border)),
+          ),
+          // A Material (not a colored box) so list tiles in the panel can paint.
+          child: Material(
+            color: colors.sidebar,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(10, AppTokens.padLg, 10, AppTokens.padLg),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Text(title, style: context.serif(context.text.titleMedium).copyWith(fontSize: 18, fontWeight: FontWeight.w600)),
+                ),
+                if (header != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+                    child: Align(alignment: Alignment.centerLeft, child: header),
+                  ),
+                const SizedBox(height: AppTokens.pad),
+                for (final (i, item) in items.indexed) _SideNavRow(item: item, selected: i == selected, onTap: () => onSelect(i)),
+                ...panel,
+              ],
+            ),
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
+class _SideNavRow extends StatelessWidget {
+  const _SideNavRow({required this.item, required this.selected, required this.onTap});
+
+  final SideNavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final count = item.count;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: selected ? colors.accentSoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppTokens.radius),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTokens.radius),
+          onTap: onTap,
+          child: SizedBox(
+            height: 38,
+            child: Row(
+              children: [
+                const SizedBox(width: 10),
+                Icon(item.icon, size: 18, color: selected ? colors.accent : colors.muted),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.label,
+                    style: context.text.bodyMedium?.copyWith(
+                      color: selected ? colors.ink : colors.ink2,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ),
+                if (count != null && (count > 0 || !item.alert))
+                  item.alert
+                      ? Container(
+                          constraints: const BoxConstraints(minWidth: 20),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(color: colors.seal, borderRadius: BorderRadius.circular(10)),
+                          child: Text(
+                            '$count',
+                            textAlign: TextAlign.center,
+                            style: context.text.labelSmall?.copyWith(color: colors.onAccent, fontWeight: FontWeight.w600),
+                          ),
+                        )
+                      : Text('$count', style: context.label),
+                const SizedBox(width: 10),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The heading of a section's content: a Song-type title, one line on what
+/// the section is for, and its actions.
+class ContentHeader extends StatelessWidget {
+  const ContentHeader({super.key, required this.title, this.description, this.actions = const []});
+
+  final String title;
+  final String? description;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppTokens.pad, bottom: AppTokens.padLg),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: context.serif(context.text.headlineSmall).copyWith(fontSize: 22, fontWeight: FontWeight.w600)),
+                if (description != null) ...[
+                  const SizedBox(height: 4),
+                  Text(description!, style: context.text.bodySmall?.copyWith(color: context.colors.muted, height: 1.6)),
+                ],
+              ],
+            ),
+          ),
+          if (actions.isNotEmpty) ...[const SizedBox(width: AppTokens.pad), Wrap(spacing: AppTokens.gap, children: actions)],
+        ],
+      ),
+    );
+  }
+}
+
+/// A quiet empty state: the butterfly, a line, and what to do next.
+class EmptyState extends StatelessWidget {
+  const EmptyState({super.key, required this.title, this.message, this.action});
+
+  final String title;
+  final String? message;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48),
+      child: Column(
+        children: [
+          const ButterflyMark(size: 64, veins: true),
+          const SizedBox(height: AppTokens.pad),
+          Text(title, style: context.serif(context.text.titleMedium)),
+          if (message != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              message!,
+              textAlign: TextAlign.center,
+              style: context.text.bodySmall?.copyWith(color: context.colors.muted, height: 1.6),
+            ),
+          ],
+          if (action != null) ...[const SizedBox(height: AppTokens.padLg), action!],
+        ],
+      ),
     );
   }
 }
@@ -59,7 +259,10 @@ class PageBody extends StatelessWidget {
       children: [
         for (final child in children)
           Center(
-            child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth), child: child),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth),
+              child: child,
+            ),
           ),
       ],
     );
@@ -105,7 +308,9 @@ class PanelLabel extends StatelessWidget {
         height: 28,
         child: Row(
           children: [
-            Flexible(child: Text(text, style: context.label, overflow: TextOverflow.ellipsis)),
+            Flexible(
+              child: Text(text, style: context.label, overflow: TextOverflow.ellipsis),
+            ),
             if (count != null) ...[const SizedBox(width: 6), Text('$count', style: context.label)],
             const Spacer(),
             ?trailing,
@@ -209,7 +414,10 @@ Future<void> showTextDialog(BuildContext context, {required String title, requir
           ),
         ),
       ),
-      actions: [...actions, TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
+      actions: [
+        ...actions,
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
+      ],
     ),
   );
 }
@@ -298,7 +506,10 @@ class _FieldsDialogState extends State<_FieldsDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (widget.description != null)
-                Padding(padding: const EdgeInsets.only(bottom: AppTokens.pad), child: Text(widget.description!, style: context.text.bodySmall)),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppTokens.pad),
+                  child: Text(widget.description!, style: context.text.bodySmall),
+                ),
               for (final (i, f) in widget.fields.indexed)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppTokens.gap),

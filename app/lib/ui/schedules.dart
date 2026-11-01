@@ -167,22 +167,20 @@ class _SchedulesTabState extends State<SchedulesTab> {
     if (_loading) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     return PageBody(
       children: [
-        SectionTitle(
-          '定时任务',
-          trailing: FilledButton.tonalIcon(
-            onPressed: () async {
-              if (await showScheduleEditor(context)) await _load();
-            },
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('新建定时任务'),
-          ),
+        ContentHeader(
+          title: '定时',
+          description: '到时间由后台自动执行（关掉窗口也会运行），带上你的记忆；只能用你允许的工具，不会弹确认框。可以每次新开一个会话，也可以一直接着同一个会话。',
+          actions: [
+            FilledButton.icon(
+              onPressed: () async {
+                if (await showScheduleEditor(context)) await _load();
+              },
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('新建定时任务'),
+            ),
+          ],
         ),
-        Text(
-          '到时间由后台自动执行（关掉窗口也会运行）。每次执行是一个独立的会话，带上你的记忆；只能用你允许的工具，不会弹确认框。',
-          style: context.text.bodySmall?.copyWith(color: context.colors.muted),
-        ),
-        const SizedBox(height: AppTokens.pad),
-        if (_schedules.isEmpty) const EmptyNote('还没有定时任务。也可以直接对 Agent 说「每天早上 8 点帮我……」，它会提交给你确认。'),
+        if (_schedules.isEmpty) const EmptyState(title: '还没有定时任务', message: '也可以直接对 Agent 说「每天早上 8 点帮我……」，它会提交给你确认。'),
         for (final s in _schedules) _ScheduleCard(schedule: s, onAction: _call, onChanged: _load),
       ],
     );
@@ -246,6 +244,7 @@ class _ScheduleCard extends StatelessWidget {
             [
               s.describe,
               p.basename(s.cwd),
+              if (s.sessionMode == 'bound') '接着同一个会话',
               if (s.nextRunAt != null) '下次：${formatDate(s.nextRunAt)}',
               if (last != null) '上次：${last.statusLabel}${last.deliveryLabel.isNotEmpty ? '（${last.deliveryLabel}）' : ''}',
               if (s.createdBy == 'agent') 'Agent 创建',
@@ -345,16 +344,18 @@ Future<void> showScheduleHistory(BuildContext context, ScheduleInfo schedule) as
   );
 }
 
-/// New or edit; returns true when saved.
-Future<bool> showScheduleEditor(BuildContext context, {ScheduleInfo? existing}) async {
-  final saved = await showDialog<bool>(context: context, builder: (_) => _ScheduleEditor(existing: existing));
+/// New or edit; returns true when saved. [session] starts a new schedule
+/// that keeps running in that session (from the chat's menu).
+Future<bool> showScheduleEditor(BuildContext context, {ScheduleInfo? existing, String? session}) async {
+  final saved = await showDialog<bool>(context: context, builder: (_) => _ScheduleEditor(existing: existing, session: session));
   return saved == true;
 }
 
 class _ScheduleEditor extends StatefulWidget {
-  const _ScheduleEditor({this.existing});
+  const _ScheduleEditor({this.existing, this.session});
 
   final ScheduleInfo? existing;
+  final String? session;
 
   @override
   State<_ScheduleEditor> createState() => _ScheduleEditorState();
@@ -382,6 +383,11 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
   late var _missed = widget.existing?.missedPolicy ?? 'latest';
   late var _cwd = widget.existing?.cwd ?? _agent.workspace;
   late final Set<String> _tools = {...?widget.existing?.allowedTools};
+  late var _sessionMode = widget.session != null ? 'bound' : widget.existing?.sessionMode ?? 'fresh';
+  late String? _sessionFile = widget.session ?? widget.existing?.sessionFile;
+
+  /// Sessions of the chosen workspace, as (path, title), for "keep running in".
+  List<(String, String)> _sessions = const [];
   late DateTime _at = (widget.existing?.trigger['at'] as num?) != null
       ? DateTime.fromMillisecondsSinceEpoch((widget.existing!.trigger['at'] as num).toInt())
       : DateTime.now().add(const Duration(hours: 1));
@@ -398,6 +404,7 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
   @override
   void initState() {
     super.initState();
+    _loadSessions();
     if (_timezone.text.isEmpty) {
       _agent.backend.call('schedules.defaults').then((v) {
         if (mounted && _timezone.text.isEmpty) setState(() => _timezone.text = asJsonMap(v)['timezone'] as String? ?? '');
@@ -433,6 +440,14 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
     } catch (_) {}
   }
 
+  Future<void> _loadSessions() async {
+    try {
+      final rows = jsonRows(await _agent.backend.call('sessions.list', {'cwd': _cwd}));
+      if (!mounted) return;
+      setState(() => _sessions = [for (final r in rows) if (r['path'] is String) (r['path'] as String, r['title'] as String? ?? '未命名会话')]);
+    } catch (_) {}
+  }
+
   Future<void> _pickTime() async {
     final date = await showDatePicker(context: context, initialDate: _at, firstDate: DateTime.now().subtract(const Duration(days: 1)), lastDate: DateTime.now().add(const Duration(days: 3650)));
     if (date == null || !mounted) return;
@@ -453,7 +468,8 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
         'kind': _kind,
         'trigger': _trigger,
         'missedPolicy': _missed,
-        'sessionMode': 'fresh',
+        'sessionMode': _sessionMode,
+        'sessionFile': ?(_sessionMode == 'bound' ? _sessionFile : null),
         'allowedTools': _tools.isEmpty ? null : _tools.toList(),
       });
       if (mounted) Navigator.pop(context, true);
@@ -593,6 +609,32 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
                   ),
                 ),
               const SizedBox(height: AppTokens.pad),
+              Text('在哪个会话里运行', style: label),
+              const SizedBox(height: 6),
+              SegmentedButton<String>(
+                segments: const [ButtonSegment(value: 'fresh', label: Text('每次新开一个会话')), ButtonSegment(value: 'bound', label: Text('接着同一个会话'))],
+                selected: {_sessionMode},
+                onSelectionChanged: (s) => setState(() => _sessionMode = s.first),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _sessionMode == 'bound'
+                    ? '每次都在这个会话里继续，Agent 能看到之前几次的结果，适合「接着上次的进度」。会话变长后会自动压缩。'
+                    : '每次都是干净的新会话，互不影响。',
+                style: muted,
+              ),
+              if (_sessionMode == 'bound') ...[
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  initialValue: _sessions.any((s) => s.$1 == _sessionFile) ? _sessionFile : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: '选择会话'),
+                  hint: Text(_sessions.isEmpty ? '这个工作区还没有会话' : '选择一个会话'),
+                  items: [for (final (path, title) in _sessions) DropdownMenuItem(value: path, child: Text(title, overflow: TextOverflow.ellipsis))],
+                  onChanged: (v) => setState(() => _sessionFile = v),
+                ),
+              ],
+              const SizedBox(height: AppTokens.pad),
               Text('允许使用的工具（读取、查找、抓取网页总是允许）', style: label),
               Wrap(
                 spacing: 6,
@@ -613,7 +655,12 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
                   TextButton(
                     onPressed: () async {
                       final dir = await getDirectoryPath(initialDirectory: _cwd, confirmButtonText: '选择');
-                      if (dir != null) setState(() => _cwd = dir);
+                      if (dir == null) return;
+                      setState(() {
+                        _cwd = dir;
+                        if (widget.session == null) _sessionFile = null;
+                      });
+                      _loadSessions();
                     },
                     child: const Text('更换'),
                   ),
@@ -626,7 +673,7 @@ class _ScheduleEditorState extends State<_ScheduleEditor> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
         FilledButton(
-          onPressed: _saving || _name.text.trim().isEmpty || _prompt.text.trim().isEmpty ? null : _save,
+          onPressed: _saving || _name.text.trim().isEmpty || _prompt.text.trim().isEmpty || (_sessionMode == 'bound' && _sessionFile == null) ? null : _save,
           child: const Text('保存'),
         ),
       ],

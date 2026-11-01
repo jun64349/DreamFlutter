@@ -191,6 +191,27 @@ describe("scheduler", () => {
 		assert.equal(after.nextRunAt, s.nextRunAt);
 	});
 
+	it("a bound schedule keeps running in the session it was given", async () => {
+		const first = await save({ trigger: { type: "interval", everyMs: 60 * MIN } });
+		t.respond(fauxAssistantMessage("第一次：价格 100"));
+		await t.core.call("schedules.runNow", { id: first.id });
+		await t.waitFor(() => doneRuns(first.id) === 1);
+		const sessionFile = (await get(first.id)).runs[0]!.sessionFile!;
+		assert.ok(sessionFile);
+
+		await assert.rejects(save({ name: "接着", trigger: { type: "interval", everyMs: 60 * MIN }, sessionMode: "bound" }), /需要指定会话/);
+		const bound = await save({ name: "接着", trigger: { type: "interval", everyMs: 60 * MIN }, sessionMode: "bound", sessionFile });
+		assert.equal(bound.sessionMode, "bound");
+		const seen: string[] = [];
+		t.respond(capture(seen, "第二次：价格 101"));
+		await t.core.call("schedules.runNow", { id: bound.id });
+		await t.waitFor(() => doneRuns(bound.id) === 1);
+		const [run] = (await get(bound.id)).runs;
+		assert.equal(run!.status, "done");
+		assert.equal(run!.sessionFile?.toLowerCase(), sessionFile.toLowerCase());
+		assert.match(seen[0]!, /第一次：价格 100/, "the second run sees the first run's reply");
+	});
+
 	it("schedules proposed by the agent wait for approval and respect the minimum interval", async () => {
 		await t.core.call("slot.open", { slotId: "s1", cwd: t.workspace }, t.client);
 		t.respond(

@@ -194,6 +194,15 @@ void main() {
       agent.showSection(AppSection.desk);
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
       await shot('10_desk_$suffix');
+      agent.showSection(AppSection.tasks);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await shot('11_inbox_$suffix');
+      await tester.tap(find.text('全部任务'));
+      await shot('12_tasks_$suffix');
+      await tester.tap(find.text('定时'));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await shot('13_schedules_$suffix');
+      await tester.tap(find.text('待处理'));
     }
   });
 }
@@ -236,5 +245,26 @@ Map<String, Object? Function(Json)> _workPages(String cwd, int now) {
     'cards.list': (_) => const [],
     'tasks.list': (p) => p['noteId'] == 'w1' ? [tasks.first] : tasks,
     'artifacts.list': (_) => const [],
+    'inbox.list': (_) => [
+      {
+        'kind': 'approval',
+        'id': 'ui-1',
+        'title': 'Agent 请求执行操作\n\n执行命令：\nnpm publish --access public',
+        'createdAt': now - 60000,
+        'cwd': cwd,
+        'sessionFile': r'C:\s\a.jsonl',
+        'data': {
+          'method': 'select',
+          'options': ['允许', '拒绝'],
+        },
+      },
+      {'kind': 'limit', 'id': 'n1', 'title': '已达到单次运行的最大轮数（60 轮）', 'body': '任务「竞品调研」已暂停，可以继续或到此为止。', 'createdAt': now - 3600000, 'cwd': cwd},
+      {'kind': 'memory', 'id': 'm1', 'title': '用户写周报时喜欢先给结论，再给表格。', 'createdAt': now - 7200000},
+    ],
+    'schedules.list': (_) => [
+      {'id': 's1', 'name': '华东区周报', 'prompt': '读取 data/ 里这周的销售表，写成周报存到 reports/，最后给三条建议。', 'cwd': cwd, 'kind': 'report', 'trigger': {'type': 'cron', 'cron': '0 9 * * 1'}, 'status': 'active', 'describe': '每周一 9:00', 'nextRunAt': now + 3 * 24 * hour, 'lastRun': {'id': 'r1', 'status': 'done', 'deliveries': [{'channel': 'window', 'status': 'delivered'}]}},
+      {'id': 's2', 'name': '接着写读书笔记', 'prompt': '接着上次读到的地方，整理下一章的要点。', 'cwd': cwd, 'kind': 'task', 'trigger': {'type': 'cron', 'cron': '0 21 * * *'}, 'status': 'active', 'describe': '每天 21:00', 'sessionMode': 'bound', 'sessionFile': r'C:\s\b.jsonl', 'nextRunAt': now + 5 * hour},
+      {'id': 's3', 'name': '比特币价格', 'prompt': '价格跌破 6 万时提醒我。', 'cwd': cwd, 'kind': 'monitor', 'trigger': {'type': 'interval', 'everyMs': hour}, 'status': 'pending_approval', 'describe': '每 1 小时', 'createdBy': 'agent'},
+    ],
   };
 }

@@ -199,6 +199,41 @@ void main() {
     expect(saved['name'], '周报提醒');
     expect(saved['trigger'], {'type': 'cron', 'cron': '0 9 * * 1-5', 'timezone': 'Asia/Shanghai'});
     expect(saved['allowedTools'], isNull);
+    expect(saved['sessionMode'], 'fresh');
+    expect(saved.containsKey('sessionFile'), isFalse);
+  });
+
+  testWidgets('a schedule can keep running in one chosen session', (tester) async {
+    await startApp(tester);
+    backend.sessionRows = [
+      {'path': r'C:\s\a.jsonl', 'title': '每周复盘', 'cwd': Directory.systemTemp.path, 'modifiedAt': 1},
+    ];
+    backend.handlers.addAll({
+      'schedules.list': (_) => const [],
+      'schedules.defaults': (_) => {'timezone': 'Asia/Shanghai'},
+      'schedules.preview': (_) => {'error': null, 'next': [1]},
+      'schedules.save': (p) => {...p, 'id': 's9'},
+    });
+    await tester.tap(find.text('任务').first);
+    await settle(tester);
+    await tester.tap(find.text('定时'));
+    await settle(tester);
+    await tester.tap(find.text('新建定时任务'));
+    await settle(tester);
+    await tester.enterText(find.widgetWithText(TextField, '名称'), '接着复盘');
+    await tester.enterText(find.widgetWithText(TextField, '每次要做的事'), '接着上次的复盘写本周的');
+    await tester.tap(find.text('接着同一个会话'));
+    await settle(tester);
+    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '保存')).onPressed, isNull, reason: 'a session must be chosen');
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await settle(tester);
+    await tester.tap(find.text('每周复盘').last);
+    await settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await settle(tester);
+    final saved = backend.callsTo('schedules.save').single;
+    expect(saved['sessionMode'], 'bound');
+    expect(saved['sessionFile'], r'C:\s\a.jsonl');
   });
 
   testWidgets('a limit notice from the core is announced', (tester) async {

@@ -12,6 +12,7 @@ import 'message_widgets.dart';
 import 'motion.dart';
 import 'providers_page.dart' show ProvidersPage;
 import 'run_summary.dart';
+import 'schedules.dart' show showScheduleEditor;
 import 'sidebar.dart' show WorkspaceSwitcher;
 
 /// The conversation: title bar, messages and the input box, with the run
@@ -378,6 +379,11 @@ class _SessionMenu extends StatelessWidget {
           enabled: hasContent,
           child: const ListTile(dense: true, leading: Icon(Icons.post_add_outlined), title: Text('存为模板'), subtitle: Text('把最后一条请求存成任务模板')),
         ),
+        PopupMenuItem(
+          value: 'schedule',
+          enabled: hasContent && agent.active?.sessionPath != null && !(agent.active?.incognito ?? false),
+          child: const ListTile(dense: true, leading: Icon(Icons.schedule), title: Text('定时接着做'), subtitle: Text('按时间在这个会话里继续，比如每天汇报进度')),
+        ),
         const PopupMenuDivider(),
         PopupMenuItem(
           value: 'snapshots',
@@ -413,6 +419,14 @@ class _SessionMenu extends StatelessWidget {
         if (saved && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('模板已保存，可以在「技能」页运行，或在输入框里输入 /模板名。'), behavior: SnackBarBehavior.floating, width: 520),
+          );
+        }
+      case 'schedule':
+        final path = agent.active?.sessionPath;
+        if (path == null) return;
+        if (await showScheduleEditor(context, session: path) && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('定时任务已保存，可以在「任务 › 定时」里查看和修改。'), behavior: SnackBarBehavior.floating, width: 520),
           );
         }
       case 'refresh':
