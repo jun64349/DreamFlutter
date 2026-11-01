@@ -10,6 +10,7 @@ import 'dart:ui' as ui;
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -211,6 +212,15 @@ void main() {
       await tester.tap(find.text('常驻记忆块'));
       await shot('16_memory_blocks_$suffix');
       await tester.tap(find.text('待确认'));
+      agent.showSection(AppSection.library);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      Finder onLibrary(String text) => find.descendant(of: find.byType(LibraryPage), matching: find.text(text));
+      await tester.tap(onLibrary('技能'));
+      await shot('17_skills_$suffix');
+      await tester.tap(onLibrary('任务模板'));
+      await shot('18_templates_$suffix');
+      await tester.tap(onLibrary('待确认'));
+      await shot('19_skill_proposals_$suffix');
     }
   });
 }
@@ -264,6 +274,29 @@ Map<String, Object? Function(Json)> _workPages(String cwd, int now) {
             {'id': 'm2', 'scope': 'global', 'kind': 'background', 'content': '在杭州做产品经理。', 'source': 'user', 'updatedAt': now - 80 * hour},
             {'id': 'm4', 'scope': 'global', 'kind': 'experience', 'content': '读销售表时先确认表头那一行，去年的表有合并单元格。', 'source': 'agent', 'updatedAt': now - 120 * hour},
           ],
+    'skills.list': (_) => [
+      {'name': 'weekly-report', 'description': '把销售表整理成周报：先给结论，再给分区域的表格和三条建议。', 'filePath': r'C:\skills\weekly-report\SKILL.md', 'scope': 'user'},
+      {'name': 'pdf-tools', 'description': '读取、合并、拆分 PDF，提取表格和图片。', 'filePath': r'C:\skills\pdf-tools\SKILL.md', 'scope': 'user'},
+      {'name': 'release-checklist', 'description': '这个项目的发布清单：版本号、更新日志、打包和上传。', 'filePath': r'C:\work\.pi\skills\release-checklist\SKILL.md', 'scope': 'project', 'enabled': false},
+    ],
+    'templates.list': (_) => [
+      {'name': '周报', 'description': '读取销售表写周报', 'body': '读取 {{文件}}，写成周报。', 'params': [{'name': '文件'}]},
+      {'name': '翻译', 'description': '把文件翻译成中文，保留格式', 'body': '把 {{文件}} 翻译成 {{语言}}。', 'params': [{'name': '文件'}, {'name': '语言', 'default': '中文'}]},
+    ],
+    'proposals.list': (_) => [
+      {
+        'id': 'p1',
+        'title': 'sales-table-check',
+        'createdAt': now - hour,
+        'payload': {
+          'name': 'sales-table-check',
+          'description': '读销售表前先检查表头和合并单元格。',
+          'content': '---\nname: sales-table-check\ndescription: 读销售表前先检查表头和合并单元格。\n---\n\n1. 先读前 5 行，确认表头在哪一行。\n2. 有合并单元格时先展开再汇总。',
+          'scope': 'user',
+          'reason': '这次任务里两次因为表头错位重算。',
+        },
+      },
+    ],
     'memory.blocks': (_) => [
       {'key': 'about_me', 'title': '关于我', 'content': '我叫小周，在杭州做产品经理，平时用 Windows。', 'locked': false},
       {'key': 'preferences', 'title': '偏好与习惯', 'content': '回答用中文，先给结论；代码注释用英文。', 'locked': true},

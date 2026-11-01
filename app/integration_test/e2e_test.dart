@@ -407,7 +407,7 @@ void main() {
     await waitFor(tester, 'template saved', () => find.text('保存任务模板').evaluate().isEmpty, agent);
     await tester.tap(nav('技能'));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('任务模板（'));
+    await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('任务模板')));
     await waitFor(tester, 'template listed', () => find.descendant(of: find.byType(LibraryPage), matching: find.text('/e2e周报')).evaluate().isNotEmpty, agent);
     await shot(tester, '22_templates');
     await agent.backend.call('templates.remove', {'name': 'e2e周报'});

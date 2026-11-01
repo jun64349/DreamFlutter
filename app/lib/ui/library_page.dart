@@ -22,7 +22,12 @@ class SkillInfo {
   final String scope;
   final bool enabled;
 
-  String get scopeLabel => switch (scope) { 'user' => '个人', 'project' => '本工作区', 'temporary' => '临时', _ => scope };
+  String get scopeLabel => switch (scope) {
+    'user' => '个人',
+    'project' => '本工作区',
+    'temporary' => '临时',
+    _ => scope,
+  };
 }
 
 class TemplateParam {
@@ -41,7 +46,10 @@ class TemplateInfo {
     : name = json['name'] as String? ?? '',
       description = json['description'] as String? ?? '',
       body = json['body'] as String? ?? '',
-      params = [for (final p in (json['params'] as List? ?? const [])) if (p is Map) TemplateParam.fromJson(p.cast<String, dynamic>())];
+      params = [
+        for (final p in (json['params'] as List? ?? const []))
+          if (p is Map) TemplateParam.fromJson(p.cast<String, dynamic>()),
+      ];
 
   final String name;
   final String description;
@@ -80,7 +88,7 @@ List<String> templatePlaceholders(String body) {
 }
 
 /// Skills (Pi's SKILL.md files), task templates with named parameters, and
-/// skill proposals waiting for the user.
+/// skill proposals waiting for the user, as sections in a left panel.
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
 
@@ -88,8 +96,7 @@ class LibraryPage extends StatefulWidget {
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
-class _LibraryPageState extends State<LibraryPage> with SingleTickerProviderStateMixin {
-  late final _tabs = TabController(length: 3, vsync: this);
+class _LibraryPageState extends State<LibraryPage> {
   List<SkillInfo> _skills = const [];
   List<TemplateInfo> _templates = const [];
   List<SkillProposal> _proposals = const [];
@@ -97,21 +104,22 @@ class _LibraryPageState extends State<LibraryPage> with SingleTickerProviderStat
   var _loading = true;
   late final AgentController _agent;
 
+  /// 0 skills, 1 templates, 2 proposals; proposals open first when there are any.
+  var _section = 0;
+  var _chose = false;
+  String? _scope;
+
   @override
   void initState() {
     super.initState();
     _agent = AgentScope.read(context);
     _agent.libraryRevision.addListener(_load);
     _load();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_agent.pendingProposals > 0) _tabs.index = 2;
-    });
   }
 
   @override
   void dispose() {
     _agent.libraryRevision.removeListener(_load);
-    _tabs.dispose();
     super.dispose();
   }
 
@@ -127,14 +135,17 @@ class _LibraryPageState extends State<LibraryPage> with SingleTickerProviderStat
       _templates = rows(results[1]).map(TemplateInfo.fromJson).toList();
       _proposals = rows(results[2]).map(SkillProposal.fromJson).toList();
       _error = null;
+      if (!_chose) {
+        _chose = true;
+        if (_proposals.isNotEmpty) _section = 2;
+      }
     } catch (e) {
       _error = SessionRuntime.describeError(e);
     }
     if (mounted) setState(() => _loading = false);
   }
 
-  void _snack(String text) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating, width: 520));
+  void _snack(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating, width: 520));
 
   Future<bool> _call(String method, Json params, {String? done}) async {
     try {
@@ -151,99 +162,68 @@ class _LibraryPageState extends State<LibraryPage> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    final body = _error != null
-        ? Center(child: Text(_error!, style: TextStyle(color: context.colors.danger)))
-        : _loading
-        ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-        : TabBarView(controller: _tabs, children: [_skillsTab(), _templatesTab(), _proposalsTab()]);
-    return PageFrame(
+    final scopes = {for (final s in _skills) s.scope: s.scopeLabel};
+    return SectionedPage(
       title: '技能与模板',
-      subtitle: '技能是 Agent 按需读取的做事方法；模板是你常用的任务说明，输入 /模板名 或在这里填表运行。',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TabBar(
-            controller: _tabs,
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            padding: const EdgeInsets.symmetric(horizontal: AppTokens.padLg),
-            tabs: [
-              Tab(text: '技能（${_skills.length}）'),
-              Tab(text: '任务模板（${_templates.length}）'),
-              Tab(child: Badge(isLabelVisible: _proposals.isNotEmpty, label: Text('${_proposals.length}'), offset: const Offset(14, -4), child: const Text('待确认'))),
-            ],
-          ),
-          const Divider(),
-          Expanded(child: body),
+      items: [
+        SideNavItem('技能', Icons.auto_stories_outlined, count: _skills.length),
+        SideNavItem('任务模板', Icons.post_add_outlined, count: _templates.length),
+        SideNavItem('待确认', Icons.rule, count: _proposals.length, alert: true),
+      ],
+      selected: _section,
+      onSelect: (i) => setState(() => _section = i),
+      panel: [
+        if (_section == 0 && scopes.length > 1) ...[
+          const PanelLabel('来源'),
+          FilterRow(label: '全部', selected: _scope == null, onTap: () => setState(() => _scope = null)),
+          for (final e in scopes.entries) FilterRow(label: e.value, selected: _scope == e.key, onTap: () => setState(() => _scope = e.key)),
         ],
-      ),
+      ],
+      child: _error != null
+          ? Center(
+              child: Text(_error!, style: TextStyle(color: context.colors.danger)),
+            )
+          : _loading
+          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+          : switch (_section) {
+              1 => _templatesTab(),
+              2 => _proposalsTab(),
+              _ => _skillsTab(),
+            },
     );
   }
 
   // ---- skills ----------------------------------------------------------------------
 
   Widget _skillsTab() {
+    final shown = [
+      for (final s in _skills)
+        if (_scope == null || s.scope == _scope) s,
+    ];
     return PageBody(
       children: [
-        SectionTitle(
-          '已安装的技能',
-          trailing: Wrap(
-            spacing: AppTokens.gap,
-            children: [
-              OutlinedButton.icon(onPressed: _importSkill, icon: const Icon(Icons.drive_folder_upload_outlined, size: 18), label: const Text('从文件夹导入')),
-              FilledButton.tonalIcon(
-                onPressed: _agent.active == null || _agent.active!.isPristine ? null : _draftFromSession,
-                icon: const Icon(Icons.auto_fix_high_outlined, size: 18),
-                label: const Text('从当前会话整理'),
-              ),
-            ],
-          ),
-        ),
-        Text(
-          'Agent 平时只看到技能的名称和简介，需要时才读取全文。停用的技能不会出现在 Agent 的列表里。',
-          style: context.text.bodySmall?.copyWith(color: context.colors.muted),
-        ),
-        const SizedBox(height: AppTokens.pad),
-        if (_skills.isEmpty) const EmptyNote('还没有技能。可以从文件夹导入（文件夹里要有 SKILL.md），或者让 Agent 完成任务后建议保存。'),
-        for (final s in _skills)
-          OutlinedCard(
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(child: Text(s.name, style: context.text.titleSmall?.copyWith(color: s.enabled ? null : context.colors.muted))),
-                          const SizedBox(width: AppTokens.gap),
-                          TagChip(s.scopeLabel),
-                          if (!s.enabled) ...[const SizedBox(width: 6), TagChip('已停用', color: context.colors.warning)],
-                        ],
-                      ),
-                      if (s.description.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(s.description, maxLines: 3, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-                      ],
-                    ],
-                  ),
-                ),
-                Tooltip(
-                  message: s.enabled ? '停用' : '启用',
-                  child: Switch(value: s.enabled, onChanged: (v) => _call('skills.setEnabled', {'filePath': s.filePath, 'enabled': v})),
-                ),
-                PopupMenuButton<String>(
-                  tooltip: '操作',
-                  icon: const Icon(Icons.more_horiz, size: 18),
-                  onSelected: (v) => switch (v) { 'view' => _viewSkill(s), 'folder' => _agent.revealInExplorer(p.dirname(s.filePath)), _ => _removeSkill(s) },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'view', child: ListTile(dense: true, leading: Icon(Icons.article_outlined), title: Text('查看内容'))),
-                    PopupMenuItem(value: 'folder', child: ListTile(dense: true, leading: Icon(Icons.folder_open_outlined), title: Text('打开所在文件夹'))),
-                    PopupMenuItem(value: 'remove', child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除'))),
-                  ],
-                ),
-              ],
+        ContentHeader(
+          title: '技能',
+          description: 'Agent 平时只看到技能的名称和简介，需要时才读取全文。停用的技能不会出现在 Agent 的列表里。',
+          actions: [
+            OutlinedButton.icon(onPressed: _importSkill, icon: const Icon(Icons.drive_folder_upload_outlined, size: 18), label: const Text('从文件夹导入')),
+            FilledButton.icon(
+              onPressed: _agent.active == null || _agent.active!.isPristine ? null : _draftFromSession,
+              icon: const Icon(Icons.auto_fix_high_outlined, size: 18),
+              label: const Text('从当前会话整理'),
             ),
+          ],
+        ),
+        if (shown.isEmpty) const EmptyState(title: '还没有技能', message: '可以从文件夹导入（文件夹里要有 SKILL.md），\n或者让 Agent 完成任务后建议保存。'),
+        for (final s in shown)
+          _SkillTile(
+            skill: s,
+            onToggle: (v) => _call('skills.setEnabled', {'filePath': s.filePath, 'enabled': v}),
+            onAction: (v) => switch (v) {
+              'view' => _viewSkill(s),
+              'folder' => _agent.revealInExplorer(p.dirname(s.filePath)),
+              _ => _removeSkill(s),
+            },
           ),
       ],
     );
@@ -279,7 +259,7 @@ class _LibraryPageState extends State<LibraryPage> with SingleTickerProviderStat
     _snack('正在用辅助模型整理当前会话，大约需要几十秒…');
     if (await _agent.draftSkillFromSession()) {
       await _load();
-      _tabs.animateTo(2);
+      if (mounted) setState(() => _section = 2);
     }
   }
 
@@ -288,37 +268,41 @@ class _LibraryPageState extends State<LibraryPage> with SingleTickerProviderStat
   Widget _templatesTab() {
     return PageBody(
       children: [
-        SectionTitle(
-          '任务模板',
-          trailing: FilledButton.tonalIcon(onPressed: () => _editTemplate(null), icon: const Icon(Icons.add, size: 18), label: const Text('新建模板')),
+        ContentHeader(
+          title: '任务模板',
+          description: '用 {{参数名}} 标出每次会变的部分，运行时会弹出表单让你填写。在输入框里输入 /模板名 也能用。',
+          actions: [FilledButton.icon(onPressed: () => _editTemplate(null), icon: const Icon(Icons.add, size: 18), label: const Text('新建模板'))],
         ),
-        Text(
-          '用 {{参数名}} 标出每次会变的部分，运行时会弹出表单让你填写。模板保存在 Pi 的提示词目录里，在输入框里输入 /模板名 也能用。',
-          style: context.text.bodySmall?.copyWith(color: context.colors.muted),
-        ),
-        const SizedBox(height: AppTokens.pad),
-        if (_templates.isEmpty) const EmptyNote('还没有模板。可以在对话页右上角菜单里把一次对话存成模板。'),
+        if (_templates.isEmpty) const EmptyState(title: '还没有模板', message: '可以在对话页右上角菜单里把一次对话存成模板。'),
         for (final t in _templates)
           OutlinedCard(
+            padding: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.gap, AppTokens.pad),
             child: Row(
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('/${t.name}', style: context.text.titleSmall),
+                      Text(
+                        '/${t.name}',
+                        style: context.text.titleSmall?.copyWith(
+                          fontFamily: AppTokens.monoFamily,
+                          fontFamilyFallback: AppTokens.monoFallback,
+                          color: context.colors.accent,
+                        ),
+                      ),
                       if (t.description.isNotEmpty && t.description != t.name) ...[
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 4),
                         Text(t.description, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
                       ],
                       if (t.params.isNotEmpty) ...[
                         const SizedBox(height: 6),
-                        Wrap(spacing: 6, runSpacing: 4, children: [for (final param in t.params) TagChip(param.name, color: Theme.of(context).colorScheme.primary)]),
+                        Wrap(spacing: 6, runSpacing: 4, children: [for (final param in t.params) TagChip('{{${param.name}}}', color: context.colors.ochre)]),
                       ],
                     ],
                   ),
                 ),
-                FilledButton(onPressed: () => runTemplateWithForm(context, t), child: const Text('运行')),
+                OutlinedButton.icon(onPressed: () => runTemplateWithForm(context, t), icon: const Icon(Icons.play_arrow, size: 18), label: const Text('运行')),
                 PopupMenuButton<String>(
                   tooltip: '操作',
                   icon: const Icon(Icons.more_horiz, size: 18),
@@ -330,8 +314,14 @@ class _LibraryPageState extends State<LibraryPage> with SingleTickerProviderStat
                     }
                   },
                   itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'edit', child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('编辑'))),
-                    PopupMenuItem(value: 'remove', child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除'))),
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('编辑')),
+                    ),
+                    PopupMenuItem(
+                      value: 'remove',
+                      child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除')),
+                    ),
                   ],
                 ),
               ],
@@ -358,15 +348,95 @@ class _LibraryPageState extends State<LibraryPage> with SingleTickerProviderStat
   Widget _proposalsTab() {
     return PageBody(
       children: [
-        const SectionTitle('等你确认的技能'),
-        Text(
-          'Agent 觉得值得保存的做法，或者你让它从会话里整理的技能。确认后才会写入技能目录。',
-          style: context.text.bodySmall?.copyWith(color: context.colors.muted),
-        ),
-        const SizedBox(height: AppTokens.pad),
-        if (_proposals.isEmpty) const EmptyNote('没有待确认的技能建议。'),
+        const ContentHeader(title: '等你确认的技能', description: 'Agent 觉得值得保存的做法，或者你让它从会话里整理的技能。确认后才会写入技能目录。'),
+        if (_proposals.isEmpty) const EmptyState(title: '没有待确认的技能建议', message: '在对话页右上角菜单里选「存成技能」，整理好的草稿会出现在这里。'),
         for (final proposal in _proposals) _ProposalCard(proposal: proposal, onAction: _call),
       ],
+    );
+  }
+}
+
+/// One installed skill: a letter badge, name, source and description, an
+/// on/off switch and a menu.
+class _SkillTile extends StatelessWidget {
+  const _SkillTile({required this.skill, required this.onToggle, required this.onAction});
+
+  final SkillInfo skill;
+  final ValueChanged<bool> onToggle;
+  final ValueChanged<String> onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final s = skill;
+    final initial = s.name.isEmpty ? '?' : s.name.characters.first.toUpperCase();
+    return OutlinedCard(
+      padding: const EdgeInsets.fromLTRB(AppTokens.pad, AppTokens.pad, AppTokens.gap, AppTokens.pad),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: s.enabled ? colors.accentSoft : colors.codeBackground, borderRadius: BorderRadius.circular(AppTokens.radius)),
+            child: Text(
+              initial,
+              style: context.serif(context.text.titleMedium).copyWith(color: s.enabled ? colors.accent : colors.muted, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: AppTokens.pad),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(s.name, style: context.text.titleSmall?.copyWith(color: s.enabled ? null : colors.muted)),
+                    ),
+                    const SizedBox(width: AppTokens.gap),
+                    TagChip(s.scopeLabel),
+                    if (!s.enabled) ...[const SizedBox(width: 6), TagChip('已停用', color: colors.warning)],
+                  ],
+                ),
+                if (s.description.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    s.description,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.5),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Tooltip(
+            message: s.enabled ? '停用' : '启用',
+            child: Switch(value: s.enabled, onChanged: onToggle),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '操作',
+            icon: const Icon(Icons.more_horiz, size: 18),
+            onSelected: onAction,
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'view',
+                child: ListTile(dense: true, leading: Icon(Icons.article_outlined), title: Text('查看内容')),
+              ),
+              PopupMenuItem(
+                value: 'folder',
+                child: ListTile(dense: true, leading: Icon(Icons.folder_open_outlined), title: Text('打开所在文件夹')),
+              ),
+              PopupMenuItem(
+                value: 'remove',
+                child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除')),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -415,12 +485,18 @@ class _ProposalCard extends StatelessWidget {
           const SizedBox(height: AppTokens.gap),
           Row(
             children: [
-              FilledButton(onPressed: () => onAction('proposals.accept', {'id': proposal.id}, done: '技能「${proposal.name}」已保存'), child: const Text('保存技能')),
+              FilledButton(
+                onPressed: () => onAction('proposals.accept', {'id': proposal.id}, done: '技能「${proposal.name}」已保存'),
+                child: const Text('保存技能'),
+              ),
               const SizedBox(width: AppTokens.gap),
               OutlinedButton(onPressed: () => _edit(context), child: const Text('修改后保存')),
               if (updating) ...[
                 const SizedBox(width: AppTokens.gap),
-                TextButton(onPressed: () => showTextDialog(context, title: '现在的版本', text: proposal.previous!), child: const Text('对比现在的版本')),
+                TextButton(
+                  onPressed: () => showTextDialog(context, title: '现在的版本', text: proposal.previous!),
+                  child: const Text('对比现在的版本'),
+                ),
               ],
               const Spacer(),
               TextButton(onPressed: () => onAction('proposals.reject', {'id': proposal.id}), child: const Text('不需要')),
@@ -547,7 +623,10 @@ class _TemplateEditorState extends State<_TemplateEditor> {
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: AppTokens.pad),
-              TextField(controller: _description, decoration: const InputDecoration(labelText: '一句话说明')),
+              TextField(
+                controller: _description,
+                decoration: const InputDecoration(labelText: '一句话说明'),
+              ),
               const SizedBox(height: AppTokens.pad),
               TextField(
                 controller: _body,
@@ -563,7 +642,10 @@ class _TemplateEditorState extends State<_TemplateEditor> {
                 for (final name in placeholders)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: TextField(controller: _defaultFor(name), decoration: InputDecoration(labelText: name)),
+                    child: TextField(
+                      controller: _defaultFor(name),
+                      decoration: InputDecoration(labelText: name),
+                    ),
                   ),
               ],
               if (_error != null) ...[const SizedBox(height: AppTokens.pad), Text(_error!, style: TextStyle(color: context.colors.danger))],
@@ -573,10 +655,7 @@ class _TemplateEditorState extends State<_TemplateEditor> {
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-        FilledButton(
-          onPressed: _saving || _name.text.trim().isEmpty || _body.text.trim().isEmpty ? null : _save,
-          child: const Text('保存'),
-        ),
+        FilledButton(onPressed: _saving || _name.text.trim().isEmpty || _body.text.trim().isEmpty ? null : _save, child: const Text('保存')),
       ],
     );
   }

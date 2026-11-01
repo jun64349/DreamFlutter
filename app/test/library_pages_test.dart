@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
@@ -142,17 +143,17 @@ void main() {
     await settle(tester);
     expect(backend.callsTo('proposals.accept').single, {'id': 'p1'});
 
-    await tester.tap(find.textContaining('技能（'));
+    await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('技能')));
     await settle(tester);
     expect(find.text('pdf-tools'), findsOneWidget);
     await tester.tap(find.byType(Switch).first);
     await settle(tester);
     expect(backend.callsTo('skills.setEnabled').single, {'filePath': r'C:\skills\pdf-tools\SKILL.md', 'enabled': false});
 
-    await tester.tap(find.textContaining('任务模板（'));
+    await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('任务模板')));
     await settle(tester);
     expect(find.text('/周报'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, '运行'));
+    await tester.tap(find.widgetWithText(OutlinedButton, '运行'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'a.md');
     await tester.tap(find.widgetWithText(FilledButton, '运行').last);
