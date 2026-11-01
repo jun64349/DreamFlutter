@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, it } from "node:test";
-import { type AssistantMessage, fauxAssistantMessage, type FauxResponseFactory } from "@earendil-works/pi-ai";
+import { type Api, type AssistantMessage, fauxAssistantMessage, type FauxResponseFactory, type Model } from "@earendil-works/pi-ai";
+import { levelMap, readModelList } from "../src/gateway/catalog.ts";
 import { classifyFailure } from "../src/gateway/classify.ts";
 import { type ChannelStatus, channelProvider, type Transport } from "../src/gateway/gateway.ts";
 import { HealthBook } from "../src/gateway/health.ts";
@@ -218,6 +219,102 @@ describe("gateway: in a session", () => {
 		const auto = groups.find((g) => g.id === "auto");
 		assert.equal(auto?.name, "自动");
 		assert.deepEqual(auto?.entries.map((e) => `${e.channel}|${e.model}`), ["pi:faux|faux-1", "gone|m"]);
+	});
+
+	it("sends OpenCode Go its conversation header, max_tokens and the model's own thinking levels", async () => {
+		await start();
+		const { id } = (await t!.core.call("gateway.saveChannel", {
+			name: "OpenCode Go",
+			platform: "opencode-go",
+			api: "openai-completions",
+			baseUrl: "https://opencode.ai/inference/go/openai/v1",
+			models: [
+				{ id: "deepseek-v4.1-flash", reasoning: true, contextWindow: 1_000_000, maxTokens: 384_000 },
+				{ id: "not-in-pi-catalog", reasoning: true, efforts: ["none", "low", "high"] },
+			],
+			keys: [{ secret: "oc_sk_test" }],
+		})) as { id: string };
+		const seen: { model: Model<Api>; headers: Record<string, unknown>; sessionId: string | undefined }[] = [];
+		const reply: FauxResponseFactory = (_context, options, _state, model) => {
+			seen.push({ model: model as Model<Api>, headers: { ...options?.headers }, sessionId: options?.sessionId });
+			return fauxAssistantMessage("ok");
+		};
+		t!.respond(reply);
+		t!.core.settings.update({ defaultModel: `${channelProvider(id)}/deepseek-v4.1-flash` });
+		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await ask("s1", "你好");
+
+		const chat = seen[0]!;
+		assert.ok(chat.sessionId, "Pi sends the session id");
+		assert.equal(chat.headers["x-opencode-session"], chat.sessionId, "one stable header per conversation");
+		const compat = chat.model.compat as Record<string, unknown>;
+		assert.equal(compat.maxTokensField, "max_tokens");
+		assert.equal(compat.thinkingFormat, "deepseek", "from Pi's catalog for OpenCode Go");
+		assert.equal(compat.supportsStore, false);
+		assert.equal(chat.model.thinkingLevelMap?.medium, null, "deepseek-v4.1-flash has no medium effort");
+		assert.equal(chat.model.thinkingLevelMap?.max, "max");
+
+		// Work outside a conversation (a connection test, titles, memory) gets a steady header too.
+		t!.respond(reply);
+		await t!.core.call("gateway.testChannel", { channel: id, model: "not-in-pi-catalog" });
+		const test = seen[1]!;
+		assert.ok(String(test.headers["x-opencode-session"] ?? "").length > 0);
+		assert.deepEqual(test.model.thinkingLevelMap, { minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: null, off: "none" }, "from the efforts the model list names");
+		assert.equal((test.model.compat as Record<string, unknown>).maxTokensField, "max_tokens", "the platform's defaults for models Pi does not know");
+	});
+
+	it("suggests OpenCode Go models with what Pi's catalog knows about them", async () => {
+		await start();
+		const platforms = (await t!.core.call("gateway.platforms", {})) as { id: string; modelDetails: { id: string; contextWindow?: number; efforts?: string[] }[] }[];
+		const go = platforms.find((p) => p.id === "opencode-go")!;
+		const flash = go.modelDetails.find((m) => m.id === "deepseek-v4.1-flash")!;
+		assert.equal(flash.contextWindow, 1_000_000);
+		assert.deepEqual(flash.efforts, ["low", "high", "max"]);
+	});
+});
+
+describe("gateway: model lists", () => {
+	// Trimmed from https://opencode.ai/inference/go/v1/models (2026-11-01).
+	const opencode = {
+		object: "list",
+		data: [
+			{
+				id: "deepseek-v4.1-flash",
+				name: "DeepSeek V4.1 Flash",
+				type: "chat",
+				modalities: { input: ["text", "image/jpeg", "image/png"], output: ["text"] },
+				capabilities: { tools: { supported: true }, reasoning: { supported: true, effort: ["low", "high", "max"] } },
+				limit: { context: 1000000, output: 384000 },
+				cost: { text: { input: { price: 0.15, cache: { read: 0.003 } }, output: { price: 0.6 } } },
+				api: { "chat-completions": { base_url: "https://opencode.ai/inference/go/openai/v1" } },
+			},
+			{
+				id: "claude-haiku-5-5",
+				name: "Claude Haiku 5.5",
+				type: "chat",
+				limit: { context: 1000000, output: 128000 },
+				api: { messages: { base_url: "https://opencode.ai/inference/go/anthropic/v1" } },
+			},
+			{ id: "some-image-model", type: "image", api: { "chat-completions": {} } },
+		],
+	};
+
+	it("keeps the models the channel's API can call, with their limits, prices and thinking levels", () => {
+		const openai = readModelList(opencode, "openai-completions");
+		assert.deepEqual(openai, [
+			{ id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", contextWindow: 1000000, maxTokens: 384000, input: ["text", "image"], reasoning: true, efforts: ["low", "high", "max"], cost: { input: 0.15, output: 0.6, cacheRead: 0.003, cacheWrite: 0 } },
+		]);
+		assert.deepEqual(readModelList(opencode, "anthropic-messages").map((m) => m.id), ["claude-haiku-5-5"]);
+	});
+
+	it("still reads plain OpenAI and Anthropic lists", () => {
+		assert.deepEqual(readModelList({ data: [{ id: "b", object: "model" }, { id: "a", object: "model" }] }, "openai-completions"), [{ id: "a", name: "a" }, { id: "b", name: "b" }]);
+		assert.deepEqual(readModelList({ data: [{ type: "model", id: "claude-x", display_name: "Claude X" }] }, "anthropic-messages"), [{ id: "claude-x", name: "Claude X" }]);
+	});
+
+	it("maps a list's efforts onto Pi's thinking levels", () => {
+		assert.deepEqual(levelMap(["low", "high", "max"]), { minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" });
+		assert.equal(levelMap([]), undefined);
 	});
 });
 

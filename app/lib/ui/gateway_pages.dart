@@ -208,7 +208,7 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
       } else {
         _api = platform.id == 'anthropic-relay' ? 'anthropic-messages' : 'openai-completions';
       }
-      if (_models.isEmpty) _models.addAll([for (final id in platform.models) ModelEntry(id: id)]);
+      if (_models.isEmpty) _models.addAll([for (final m in platform.modelDetails) ModelEntry.fromJson(m)]);
     });
   }
 
@@ -230,15 +230,17 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
       final list = await _agent.backend.call('gateway.fetchModels', {
         'baseUrl': _baseUrl.text.trim(),
         'api': _api,
+        'platform': ?_platform,
         if (typed != null) 'apiKey': typed else if (_editing) 'channel': widget.existing!.id,
       });
-      final ids = [for (final m in jsonRows(list)) m['id'] as String];
+      // Lists that describe their models (limits, prices, thinking levels) fill those in.
+      final listed = {for (final m in jsonRows(list)) m['id'] as String: m};
       if (!mounted) return;
-      final chosen = await showDialog<List<String>>(context: context, builder: (_) => PickModelsDialog(ids: ids, existing: _models.map((m) => m.id).toSet()));
+      final chosen = await showDialog<List<String>>(context: context, builder: (_) => PickModelsDialog(ids: listed.keys.toList(), existing: _models.map((m) => m.id).toSet()));
       if (chosen != null) {
         setState(() {
           for (final id in chosen) {
-            if (_models.every((m) => m.id != id)) _models.add(ModelEntry(id: id));
+            if (_models.every((m) => m.id != id)) _models.add(ModelEntry.fromJson(listed[id]!));
           }
         });
       }
@@ -329,8 +331,9 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
                 width: 200,
                 child: DropdownButtonFormField<String>(
                   initialValue: _kind,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: '类型'),
-                  items: [for (final e in channelKindNames.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
+                  items: [for (final e in channelKindNames.entries) DropdownMenuItem(value: e.key, child: Text(e.value, overflow: TextOverflow.ellipsis))],
                   onChanged: (v) => setState(() => _kind = v ?? _kind),
                 ),
               ),
@@ -344,8 +347,10 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
                 child: DropdownButtonFormField<String>(
                   key: ValueKey('api-$_platform'),
                   initialValue: apis.contains(_api) ? _api : apis.first,
+                  // Long labels at large text sizes would overflow the fixed width.
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: '接口类型'),
-                  items: [for (final api in apis) DropdownMenuItem(value: api, child: Text(apiLabels[api] ?? api))],
+                  items: [for (final api in apis) DropdownMenuItem(value: api, child: Text(apiLabels[api] ?? api, overflow: TextOverflow.ellipsis))],
                   onChanged: (v) => _setApi(v ?? _api),
                 ),
               ),

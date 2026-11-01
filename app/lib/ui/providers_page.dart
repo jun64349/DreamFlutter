@@ -17,6 +17,7 @@ class ModelEntry {
     this.inputPrice = 0,
     this.outputPrice = 0,
     this.cacheReadPrice = 0,
+    this.efforts = const [],
   });
 
   factory ModelEntry.fromJson(Json json) {
@@ -31,6 +32,7 @@ class ModelEntry {
       inputPrice: (cost['input'] as num?)?.toDouble() ?? 0,
       outputPrice: (cost['output'] as num?)?.toDouble() ?? 0,
       cacheReadPrice: (cost['cacheRead'] as num?)?.toDouble() ?? 0,
+      efforts: [for (final e in json['efforts'] as List? ?? const []) e as String],
     );
   }
 
@@ -44,6 +46,9 @@ class ModelEntry {
   double outputPrice;
   double cacheReadPrice;
 
+  /// The model's own thinking values from the model list (kept, not edited here).
+  final List<String> efforts;
+
   Json toJson() => {
     'id': id.trim(),
     'name': name.trim().isEmpty ? id.trim() : name.trim(),
@@ -52,6 +57,7 @@ class ModelEntry {
     'input': ['text', if (images) 'image'],
     'reasoning': reasoning,
     'cost': {'input': inputPrice, 'output': outputPrice, 'cacheRead': cacheReadPrice, 'cacheWrite': 0},
+    if (efforts.isNotEmpty) 'efforts': efforts,
   };
 }
 

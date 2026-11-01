@@ -20,6 +20,14 @@
 
 下一步：**v0.2 阶段 6**（审查、修复、全量测试和端到端验收，发布 v0.2）。阶段 5（四个页面重做 + 名画主题）已完成，见下一节。用户 2026-10-31 决定不再做 computer-use 人工测试。
 
+## v0.2 收尾：OpenCode Go 渠道（2026-11-01，用户深度测试第 20 条）
+
+- 平台预设 `opencode-go`（`platforms.ts`）：OpenAI 接口 `https://opencode.ai/inference/go/openai/v1`、Anthropic 接口 `https://opencode.ai/inference/go/anthropic`，套餐类（5 小时 / 每周 / 每月），没有额度查询接口。不带 `/go` 的路径是按量付费的 Zen，Go 的 Key 打过去会 402。
+- 会话头 `x-opencode-session`：Pi 1.4.0 的运行时对 opencode.ai 地址会自动按会话 ID 加上（测试锁住）；网关在没有会话 ID 的后台请求（标题、记忆、测试连接）里补 `dreamflutter-<渠道id>`。
+- 模型信息（`gateway/catalog.ts`）：平台的 `modelsUrl`（公开、不需要 Key 的 `https://opencode.ai/inference/go/v1/models`）带上下文、最大输出、价格、图片、思考档位（`efforts`），「获取模型列表」按接口类型过滤并带上这些；注册渠道模型时，Pi 内置目录（`catalog: "opencode-go"`）认识的模型用它的 `thinkingLevelMap` 和 `compat`（`max_tokens`、DeepSeek 思考格式等），不认识的用列表里的 `efforts` 和平台默认 `compat`。例：deepseek-v4.1-flash 只有 low/high/max，选「中」时 Pi 会自动换成可用的档位。
+- 顺手修了渠道编辑页「接口类型」下拉框在大字号下的溢出（深度测试第 2 条）。
+- 真实检查（需要用户的 Key）：`$env:OPENCODE_GO_API_KEY = "oc_sk_..."; cd core; node --disable-warning=ExperimentalWarning scripts/live-opencode.ts [模型] [anthropic]`。
+
 ## v0.2 阶段 5：页面重做 + 名画主题（2026-11-01）
 
 - **共用框架**（`ui/common.dart`）：`SectionedPage`（左栏：衬线标题、分区 `SideNavItem` 带计数/红点、筛选；右边内容，跟书桌和对话页一样的三栏感觉）、`ContentHeader`（宋体标题 + 一句说明 + 操作）、`EmptyState`（蝴蝶 + 一句话 + 下一步按钮）、`PanelLabel`、`FilterRow`、`PanelSwitch`。左栏底色用 `Material` 而不是有色 `Container`，不然里面的 `SwitchListTile` 画不出来（测试会报错）。

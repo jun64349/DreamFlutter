@@ -2,6 +2,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync, copyFileSync } fro
 import { join } from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Core } from "../core.ts";
+import { type DescribedModel, readModelList } from "../gateway/catalog.ts";
 import { RpcError, requireStr, str } from "../core.ts";
 import type { Llm } from "./llm.ts";
 import { isSecretReference, SecretStore } from "./secrets.ts";
@@ -205,8 +206,12 @@ export class Providers {
 		}
 	}
 
-	/** Lists the models an endpoint offers (OpenAI-compatible `/models`, Anthropic `/v1/models`). */
-	async fetchModels(params: { baseUrl?: string; api?: string; apiKey?: string; provider?: string }): Promise<{ id: string; name: string }[]> {
+	/**
+	 * Lists the models an endpoint offers (OpenAI-compatible `/models`, Anthropic
+	 * `/v1/models`, or [modelsUrl]), with the limits, prices and thinking levels
+	 * the list carries.
+	 */
+	async fetchModels(params: { baseUrl?: string; api?: string; apiKey?: string; provider?: string; modelsUrl?: string }): Promise<DescribedModel[]> {
 		let baseUrl = params.baseUrl?.trim().replace(/\/+$/, "");
 		let api = params.api;
 		let apiKey = params.apiKey?.trim();
@@ -217,9 +222,9 @@ export class Providers {
 			api ??= runtime.getModels(params.provider)[0]?.api;
 			if (!apiKey) apiKey = (await runtime.getAuth(params.provider).catch(() => undefined))?.auth.apiKey;
 		}
-		if (!baseUrl) throw new RpcError("bad_request", "缺少接口地址");
+		if (!baseUrl && !params.modelsUrl) throw new RpcError("bad_request", "缺少接口地址");
 		const anthropic = api === "anthropic-messages";
-		const url = anthropic ? `${baseUrl.replace(/\/v1$/, "")}/v1/models?limit=1000` : `${baseUrl}/models`;
+		const url = params.modelsUrl ?? (anthropic ? `${baseUrl!.replace(/\/v1$/, "")}/v1/models?limit=1000` : `${baseUrl}/models`);
 		const headers: Record<string, string> = anthropic
 			? { "anthropic-version": "2023-06-01", ...(apiKey ? { "x-api-key": apiKey } : {}) }
 			: apiKey
@@ -232,12 +237,7 @@ export class Providers {
 			throw new RpcError("network", `连接失败：${friendlyError(error)}`);
 		}
 		if (!response.ok) throw new RpcError("http", `接口返回 ${response.status}${response.status === 401 ? "（API Key 不对或已失效）" : ""}`);
-		const body = (await response.json()) as { data?: { id?: string; display_name?: string; name?: string }[]; models?: { id?: string; name?: string; display_name?: string }[] };
-		const items = body.data ?? body.models ?? [];
-		return items
-			.filter((m) => typeof m.id === "string")
-			.map((m) => ({ id: m.id!, name: m.display_name ?? m.name ?? m.id! }))
-			.sort((a, b) => a.id.localeCompare(b.id));
+		return readModelList(await response.json(), api);
 	}
 
 	private readonly listeners: (() => void)[] = [];

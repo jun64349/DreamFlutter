@@ -23,6 +23,12 @@ export interface Platform {
 	sharedEndpoints?: boolean;
 	/** Suggested models when the endpoint cannot list them. */
 	models?: string[];
+	/** Where the model list lives when it is not `<baseUrl>/models` (it may carry limits, prices and thinking levels). */
+	modelsUrl?: string;
+	/** Pi's built-in provider whose catalog describes these models (thinking levels, compatibility settings). */
+	catalog?: string;
+	/** OpenAI-compatible settings for models the catalog does not know. */
+	compat?: Record<string, unknown>;
 }
 
 export const PLATFORMS: Platform[] = [
@@ -83,6 +89,24 @@ export const PLATFORMS: Platform[] = [
 		],
 		quota: "moonshot-balance",
 	},
+	{
+		// https://opencode.ai/v2/docs/console/go/ : every request needs a per-conversation
+		// `x-opencode-session` header (Pi adds it for opencode.ai addresses; the gateway
+		// fills one in for requests outside a session). The /zen and /openai/v1 paths
+		// without /go are the pay-as-you-go service and answer 402 to a Go key.
+		id: "opencode-go",
+		name: "OpenCode Go",
+		kind: "plan",
+		endpoints: [
+			{ api: "openai-completions", baseUrl: "https://opencode.ai/inference/go/openai/v1" },
+			{ api: "anthropic-messages", baseUrl: "https://opencode.ai/inference/go/anthropic" },
+		],
+		windows: ["5h", "week", "month"],
+		models: ["deepseek-v4.1-flash", "deepseek-v4-pro", "glm-5.3", "kimi-k3"],
+		modelsUrl: "https://opencode.ai/inference/go/v1/models",
+		catalog: "opencode-go",
+		compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: "max_tokens" },
+	},
 	{ id: "openai-relay", name: "OpenAI 兼容中转", kind: "relay", endpoints: [] },
 	{ id: "anthropic-relay", name: "Anthropic 兼容中转", kind: "relay", endpoints: [] },
 ];
@@ -98,7 +122,7 @@ export function platformForUrl(baseUrl: string | null | undefined): Platform | u
 	return PLATFORMS.find((p) => !p.sharedEndpoints && p.endpoints.some((e) => hostOf(e.baseUrl) === host && (p.kind !== "plan" || baseUrl.includes(new URL(e.baseUrl).pathname))));
 }
 
-function hostOf(url: string): string {
+export function hostOf(url: string): string {
 	try {
 		return new URL(url).host.toLowerCase();
 	} catch {

@@ -8,9 +8,10 @@ import { num, RpcError, requireStr, str } from "../core.ts";
 import { json, now, parseJson } from "../db.ts";
 import type { Providers } from "../modules/providers.ts";
 import { classifyFailure, FAILURE_LABEL, type FailureKind, isChannelFailure } from "./classify.ts";
+import { catalogModel, describeCatalogModel, levelMap } from "./catalog.ts";
 import { HealthBook } from "./health.ts";
 import { type QuotaReading, readQuota } from "./quota.ts";
-import { type ChannelApi, type ChannelKind, PLATFORMS, platform, platformForUrl } from "./platforms.ts";
+import { type ChannelApi, type ChannelKind, hostOf, PLATFORMS, platform, platformForUrl } from "./platforms.ts";
 import { type CandidateInfo, describe, type GroupEntry, type ModelGroup, pickEntry, type RouteState, type Unavailable } from "./router.ts";
 
 /** Provider id of the model groups (the old fallback chain lives here too, as group "auto"). */
@@ -22,6 +23,8 @@ const PI_PREFIX = "pi:";
 /** Pi needs a key on the provider to call it available; the wrapper sends the real one. */
 const KEY_PLACEHOLDER = "dreamflutter-gateway";
 const QUOTA_INTERVAL_MS = 10 * 60_000;
+/** OpenCode's per-conversation routing header (required by OpenCode Go). */
+const OPENCODE_SESSION = "x-opencode-session";
 
 export interface ChannelModel {
 	id: string;
@@ -31,6 +34,8 @@ export interface ChannelModel {
 	contextWindow?: number;
 	maxTokens?: number;
 	cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+	/** The model's own thinking values, from the model list (e.g. low/high/max). */
+	efforts?: string[];
 }
 
 export interface ChannelKeyInfo {
@@ -597,15 +602,7 @@ export class Gateway implements CoreModule {
 						headers: channel.headers ?? {},
 						authHeader: channel.authHeader,
 						streamSimple: this.wrap(channel.id),
-						models: channel.models.map((m) => ({
-							id: m.id,
-							name: m.name || m.id,
-							reasoning: m.reasoning ?? false,
-							input: m.input?.length ? m.input : ["text"],
-							contextWindow: m.contextWindow ?? 128_000,
-							maxTokens: m.maxTokens ?? 16_384,
-							cost: { input: m.cost?.input ?? 0, output: m.cost?.output ?? 0, cacheRead: m.cost?.cacheRead ?? 0, cacheWrite: m.cost?.cacheWrite ?? 0 },
-						})),
+						models: channel.models.map((m) => modelConfig(channel, m)),
 					}),
 				);
 			} else if (inGroups.has(channel.id) && !registered.providers.has(channel.provider)) {
@@ -748,6 +745,11 @@ export class Gateway implements CoreModule {
 				const headers = options?.headers ? Object.fromEntries(Object.entries(options.headers).map(([k, v]) => [k, typeof v === "string" ? v.split(KEY_PLACEHOLDER).join(secret) : v])) : undefined;
 				request = { ...options, apiKey: secret, ...(headers ? { headers } : {}) };
 			}
+			// OpenCode rejects requests without a conversation header. Pi adds it from the
+			// session; background work (titles, memory) has none, so it gets a steady one.
+			if (hostOf(model.baseUrl) === "opencode.ai" && !Object.keys(request?.headers ?? {}).some((h) => h.toLowerCase() === OPENCODE_SESSION)) {
+				request = { ...request, headers: { ...request?.headers, [OPENCODE_SESSION]: `dreamflutter-${channelId}` } };
+			}
 			const inner = this.transport(model, context, request);
 			for await (const event of inner as AsyncIterable<AssistantMessageEvent>) {
 				if (event.type === "done") {
@@ -840,7 +842,10 @@ export class Gateway implements CoreModule {
 
 	private register(): void {
 		const core = this.core;
-		core.register("gateway.platforms", () => PLATFORMS);
+		// Suggested models come with what the catalog knows (limits, prices, thinking levels).
+		core.register("gateway.platforms", () =>
+			PLATFORMS.map((p) => ({ ...p, modelDetails: (p.models ?? []).map((id) => mapOr(catalogModel(p.catalog, id), describeCatalogModel, { id, name: id })) })),
+		);
 		core.register("gateway.channels", () => this.channels());
 		core.register("gateway.saveChannel", async (params) => ({ id: await this.saveChannel(params as unknown as ChannelInput) }));
 		core.register("gateway.removeChannel", (params) => {
@@ -861,7 +866,8 @@ export class Gateway implements CoreModule {
 		core.register("gateway.fetchModels", async (params) => {
 			const channel = str(params.channel) ? this.channel(str(params.channel)!) : undefined;
 			const apiKey = str(params.apiKey) ?? (channel?.source === "df" ? await this.firstSecret(channel) : undefined);
-			return this.providers.fetchModels({ baseUrl: str(params.baseUrl), api: str(params.api), apiKey, provider: channel?.source === "pi" ? channel.provider : undefined });
+			const modelsUrl = platform(str(params.platform) ?? channel?.platform)?.modelsUrl;
+			return this.providers.fetchModels({ baseUrl: str(params.baseUrl), api: str(params.api), apiKey, provider: channel?.source === "pi" ? channel.provider : undefined, modelsUrl });
 		});
 		core.register("gateway.testChannel", async (params) => {
 			const channel = this.channel(requireStr(params.channel, "channel"));
@@ -894,6 +900,35 @@ export function redact(text: string, secrets: (string | undefined)[]): string {
 		if (secret && secret.length >= 8 && secret !== KEY_PLACEHOLDER) out = out.split(secret).join(`****${secret.slice(-4)}`);
 	}
 	return out;
+}
+
+/**
+ * What Pi registers for a channel's model. Thinking levels and compatibility
+ * settings come from Pi's catalog for the platform when it knows the model
+ * (served by the same API), else from the model list's efforts and the
+ * platform's defaults; Pi guesses the rest from the address.
+ */
+function modelConfig(channel: ChannelInfo, m: ChannelModel): Record<string, unknown> {
+	const preset = platform(channel.platform);
+	const known = catalogModel(preset?.catalog, m.id);
+	const sameApi = known?.api === channel.api;
+	const thinkingLevelMap = (sameApi ? known?.thinkingLevelMap : undefined) ?? levelMap(m.efforts);
+	const compat = channel.api === "openai-completions" && (preset?.compat || (sameApi && known?.compat)) ? { ...preset?.compat, ...(sameApi ? known?.compat : {}) } : undefined;
+	return {
+		id: m.id,
+		name: m.name || m.id,
+		reasoning: m.reasoning ?? known?.reasoning ?? false,
+		input: m.input?.length ? m.input : (known?.input ?? ["text"]),
+		contextWindow: m.contextWindow ?? known?.contextWindow ?? 128_000,
+		maxTokens: m.maxTokens ?? known?.maxTokens ?? 16_384,
+		cost: { input: m.cost?.input ?? 0, output: m.cost?.output ?? 0, cacheRead: m.cost?.cacheRead ?? 0, cacheWrite: m.cost?.cacheWrite ?? 0 },
+		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+		...(compat ? { compat } : {}),
+	};
+}
+
+function mapOr<T, R>(value: T | undefined, map: (value: T) => R, fallback: R): R {
+	return value === undefined ? fallback : map(value);
 }
 
 function sessionIdOf(ctx: ExtensionContext | undefined): string | undefined {

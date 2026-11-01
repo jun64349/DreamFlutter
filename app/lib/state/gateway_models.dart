@@ -143,6 +143,7 @@ class GatewayPlatform {
       kind = json['kind'] as String? ?? 'relay',
       endpoints = [for (final e in jsonRows(json['endpoints'])) (api: e['api'] as String, baseUrl: e['baseUrl'] as String)],
       models = [for (final m in json['models'] as List? ?? const []) m as String],
+      modelDetails = jsonRows(json['modelDetails']),
       canQuery = json['quota'] != null;
 
   final String id;
@@ -150,6 +151,9 @@ class GatewayPlatform {
   final String kind;
   final List<({String api, String baseUrl})> endpoints;
   final List<String> models;
+
+  /// The suggested models with what the catalog knows about them (limits, prices, thinking levels).
+  final List<Json> modelDetails;
   final bool canQuery;
 }
 
