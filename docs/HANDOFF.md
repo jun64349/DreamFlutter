@@ -1,28 +1,38 @@
-# DreamFlutter 开发交接（v0.1.1 → v0.2）
+# DreamFlutter 开发交接
 
-更新时间：2026-11-01（v0.2.0 发布）
-当前分支：`main`（v0.1.0、v0.1.1、v0.2.0 都已打 tag；v0.2 做了什么见 [v0.2-release-notes.md](v0.2-release-notes.md)；接下来按 [roadmap.md](roadmap.md) 做 v0.3–v0.9）
+更新时间：2026-11-01（v0.2.0 发布后）
 
-**测试模型**：用户 2026-11-01 决定以后测试都走 OpenCode Go。E2E 启动前用 `core/scripts/copy-channels.ts` 把用户在应用里配好的 OpenCode Go 渠道（加密的 Key 文件原样）复制进测试自己的后台，用 `deepseek-v4.1-flash`；不要在测试里新建渠道。没有这个渠道或给了 `--dart-define=E2E_MODEL=…` 时用 Pi 配置的模型。跑 E2E 前用户的应用要退出（调试版 exe 会被占用）。
+## 新窗口从这里开始
 
-**下一步**：按 [roadmap.md](roadmap.md) 开始 v0.3。
+**现状**：v0.2.0 已发布：`main` 上的 annotated tag `v0.2.0` → 提交 `001d03c`。仓库只在本地，没有远端，什么都不推送。工作区干净。
 
-## 一句话现状
+**下一步**：
+1. 用户在新窗口先审阅 [roadmap.md](roadmap.md)（v0.3–v1.0 的详细开发计划），纠错、调整细节。**先看它的第二节**：那是和用户原文逐条核对后，我的理解和原文不完全一样、需要用户拍板的地方（沙箱是整个后台进容器还是只隔离执行环境、记忆是只设计还是 0.3–0.4 就做出来、总路由的实现方式等）。改动直接改那份文件，并在文末「修订记录」写一行。
+2. 审阅完开始 v0.3。开工第一件：问清附录 B 里 0.3 要用户定的事（尤其是能否装 Docker Desktop），同时让 Antigravity 做安全调研（工作项 3.1）。
 
-[v0.1.1-plan.md](v0.1.1-plan.md) 的 6 个阶段的「必做」项都已完成并有测试：
+**先读这些**：
 
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| 1 | 后台地基（A1–A6、索引底座） | 完成 |
-| 2 | 供应商与会话（B1–B6、C1–C6） | 完成 |
-| 3 | 记忆与技能（D1–D7、E1–E3），含界面 | 完成 |
-| 4 | 任务、卡片、书桌、运行上限（F1–F6、G1–G4） | 完成 |
-| 5 | 定时任务（H1–H10） | 完成 |
-| 6 | MCP 管理页、`web_fetch`（I1–I2） | 完成 |
-| 7 | 可选项 | 未做 |
-| 8 | 审查 → 修复 → 全量测试 → 发布 | Codex 审查的 18 个问题已全部修复并加了回归测试；全量测试和 E2E 通过；未打 tag |
+| 文档 | 内容 |
+|---|---|
+| [roadmap.md](roadmap.md) | v0.3–v1.0 计划、v0.2.0 已有能力对照表、35 条反馈的去向、要用户定的事 |
+| [v0.2-release-notes.md](v0.2-release-notes.md) | v0.2 做了什么、已知限制 |
+| [architecture.md](architecture.md) | 整体架构 |
+| 本文件「架构」「怎么运行应用」「怎么跑测试」「踩过的坑」几节 | 日常开发要用的 |
+| [agent-modes.md](agent-modes.md)、[v0.2-gateway.md](v0.2-gateway.md)、[v0.2-multimodal.md](v0.2-multimodal.md)、[v0.2-design.md](v0.2-design.md) | Agent 模式、模型网关、卡片与多模态、视觉设计的细节 |
+| 用户的深度测试记录 `C:\Users\21669\Desktop\本科毕设\毕设学习\2026-11-01 df测试记录.md` | 35 条原文和截图（截图在同目录 `Pasted image 20261101*.png`） |
 
-v0.2 的 6 个阶段都已完成，2026-11-01 打 tag v0.2.0（阶段 6：Codex 审查修复、全量测试、真实 DeepSeek E2E 通过）。用户 2026-10-31 决定不再做 computer-use 人工测试。
+**和用户合作的约定**：
+- 用户不是开发者：说话用平实的中文；需要用户运行的命令给完整、可直接复制的（PowerShell，先 `cd` 到目录）。也可以用终端面板替用户启动应用（`flutter run -d windows`，在 `app` 目录）。
+- 分工：Claude 写全部代码（前后端）；Codex 只做必要的只读审查（额度少，经 Agent Bridge 后台任务，`cwd: E:\claude\DreamFlutter`）；广泛调研交给 Antigravity（Agent Bridge）。
+- **测试模型走 OpenCode Go**（用户 2026-11-01 决定）。
+  - 用户在应用里自己填 Key、配渠道（渠道 `c13903cbb`，模型 `deepseek-v4.1-flash`）。**不要在测试里新建渠道，也不要经手 Key。**
+  - E2E 启动前用 `core/scripts/copy-channels.ts` 把这个渠道（加密的 Key 文件原样）复制进测试自己的后台；没有这个渠道或给了 `--dart-define=E2E_MODEL=…` 时，用 Pi 配置的模型。
+  - 用户的 DeepSeek 官方余额不多，不要再默认用它。
+- **提交、打 tag 都等用户说**；不推送。
+- **改了后台代码**之后，用户要从托盘「退出并停止后台」一次，新代码才生效（应用不会自动替换旧后台；直接结束后台进程会被权限检查拦下）。跑 E2E 或视觉检查前，用户的应用要先退出：调试版 `dreamflutter.exe` 会被占用。
+- 外部标准（如 Showcard）按官方规范、原样参考代码和官方一致性测试来做，列出偏差。
+
+v0.1.1 和 v0.2 各阶段的细节按时间倒序记在下面，查历史时再看。用户 2026-10-31 决定不再做 computer-use 人工测试。
 
 ## v0.2 收尾：OpenCode Go 渠道（2026-11-01，用户深度测试第 20 条）
 
@@ -99,7 +109,7 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 
 - 后台入口 `core/src/main.ts`，Node 22 类型剥离直接跑 .ts。模块在 `core/src/app.ts` 里接入。
 - 模块钩子（`CoreModule`）：`extensions`、`onSlotEvent`、`onSlotChanged`、`onRunStarted`、`onRunFinished`、`resolveTaskId`、`toolPolicy`、`start/stop`。
-- 数据库迁移 `core/src/schema.ts`（只能往后追加），目前第 5 版：1 设置/确认卡/运行记录，2 会话索引/用量，3 记忆/提案，4 任务/写笺/资料/产物/上限卡片，5 定时任务/执行记录/交付记录。
+- 数据库迁移 `core/src/schema.ts`（只能往后追加），目前第 7 版：1 设置/确认卡/运行记录，2 会话索引/用量，3 记忆/提案，4 任务/写笺/资料/产物/上限卡片，5 定时任务/执行记录/交付记录，6 网关（渠道/Key/模型组/请求/额度），7 卡片/授权/卡片事件/图片转述。
 - 窗口：`app/lib/state/agent_controller.dart`（会话、任务、收件箱计数、各页刷新信号 `libraryRevision` / `workRevision`），左侧导航 `app/lib/ui/home_page.dart`。
 
 ## v0.2 阶段 3b：模型网关、仪表盘、设置重组（2026-10-31）
@@ -194,15 +204,15 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：151 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
+# 后台测试：161 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：70 个
+# 窗口单元/组件测试：72 个
 cd app && flutter test test
 # 视觉检查：假后台、不联网、约 40 秒（对话页 + 各页面 + 每个主题），截图在 app/build/look_shots/
 cd app && flutter test integration_test/look_test.dart -d windows
 # Dart 协议层，含启动真实后台的测试
 cd packages/pi_rpc && dart test -x integration
-# 真实窗口端到端：用 DeepSeek，约 4~5 分钟（等待超时会存 zz_timeout.png），截图在 app/build/e2e_shots/（00~31），跑的时候不要最小化窗口
+# 真实窗口端到端：走用户在应用里配好的 OpenCode Go 渠道（deepseek-v4.1-flash），约 3 分钟；用户的应用要先退出（等待超时会存 zz_timeout.png），截图在 app/build/e2e_shots/（00~31），跑的时候不要最小化窗口
 cd app && flutter test integration_test/e2e_test.dart -d windows
 # 卡片与富内容（真实 WebView2）：不联网约 10 秒；加 --dart-define=CARDS_MODEL=true 用 DeepSeek 真做卡片和图（约 1.5 分钟），截图在 app/build/card_shots/
 cd app && flutter test integration_test/cards_test.dart -d windows
@@ -242,5 +252,5 @@ cd app && flutter test integration_test/cards_test.dart -d windows
 ## 未做 / 可选
 
 - 计划里的「可选」项都没做：B7 订阅登录、B8 本地模型、C7 标签批量、C8 文件检查点、D8 压缩前保存记忆、G5 网页资料与资料地图、H11 手机通知、I3 网页搜索。
-- 定时任务目前只支持「每次新会话」，后台支持绑定会话（`sessionMode: bound`），界面还没有入口。
+- （已做，v0.2 阶段 5）定时任务可以「接着同一个会话」运行：编辑框里选，或对话页菜单「定时接着做」。
 - 定时任务产生的会话会出现在对话侧栏里（可以打开看过程），以后可以考虑单独分组。
