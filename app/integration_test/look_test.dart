@@ -84,7 +84,8 @@ void main() {
       agent.dispose();
       sessions.deleteSync(recursive: true);
     });
-    await tester.pumpWidget(RepaintBoundary(key: key, child: DreamFlutterApp(controller: agent)));
+    // With the window's own title strip, as the real app runs.
+    await tester.pumpWidget(RepaintBoundary(key: key, child: DreamFlutterApp(controller: agent, ownTitleBar: true)));
     await tester.runAsync(agent.init);
     await tester.pump();
     await shot('00_empty_light');

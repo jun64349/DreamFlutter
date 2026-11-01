@@ -35,6 +35,7 @@
 - Ctrl + 滚轮缩放（`zoom.dart`）：一格一档，触控板连续滚动间隔 90 毫秒；按住 Ctrl 时列表不滚动（根部的 `_StillWhileZooming` 滚动规则）（第 8 条）。缩放比例那一栏按内容撑开，不再折成「100 / %」。
 - 设置去掉「后台会话」说明（第 7 条）；版本号全部改为 0.2.0（窗口、后台、package-lock、测试）。
 - 书桌产物：运行结束时只记录还存在的文件，Agent 写了又删的临时脚本不再出现（`tasks.ts`）。
+- 自绘顶栏（第 35 条简版）：`desktop_shell.dart` 隐藏系统标题栏（`TitleBarStyle.hidden`，保留边缘拖拽和贴靠），`ui/title_strip.dart` 是导航栏同色的 32 像素条：拖动、双击最大化、window_manager 自带的 Windows 样式按钮，关闭仍是隐藏到托盘。只在真实窗口（`DreamFlutterApp(ownTitleBar: true)`）出现，不随界面缩放；单元测试和 E2E 不带它，视觉检查的对话页那组带。v0.4 计划把页面标题并进这一条。
 
 ## v0.2 阶段 5：页面重做 + 名画主题（2026-11-01）
 

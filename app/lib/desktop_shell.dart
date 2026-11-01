@@ -15,6 +15,9 @@ class DesktopShell with WindowListener, TrayListener {
 
   Future<void> init() async {
     await windowManager.ensureInitialized();
+    // Our own title strip (ui/title_strip.dart) replaces the white system one;
+    // the window keeps its resize edges and snapping.
+    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
     await windowManager.setPreventClose(true);
     windowManager.addListener(this);
     await trayManager.setIcon('assets/tray_icon.ico');
