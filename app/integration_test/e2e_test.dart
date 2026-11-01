@@ -455,7 +455,6 @@ void main() {
     await shot(tester, '24_task_in_chat');
     await tester.tap(nav('书桌'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('返回书桌'));
     await waitFor(tester, 'artifact on desk', () => find.descendant(of: find.byType(DeskPage), matching: find.text('todo.md')).evaluate().isNotEmpty, agent);
     await shot(tester, '25_desk');
     await tester.tap(nav('任务'));

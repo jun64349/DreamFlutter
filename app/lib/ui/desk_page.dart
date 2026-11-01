@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart' show SessionStore;
@@ -10,12 +12,13 @@ import 'agent_scope.dart';
 import 'artifact_widgets.dart';
 import 'card_view.dart';
 import 'common.dart';
+import 'motion.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 import 'task_widgets.dart';
 
-/// The desk of the current workspace (user's draft §5): materials, notes,
-/// tasks and artifacts side by side. Notes open in an editor where they can
-/// be handed to the agent with chosen materials.
+/// The desk of the current workspace, in three columns like the design: notes
+/// and materials on the left, the open note as a sheet of paper in the
+/// middle, and what the agent is doing and has made on the right.
 class DeskPage extends StatefulWidget {
   const DeskPage({super.key});
 
@@ -33,9 +36,11 @@ class _DeskPageState extends State<DeskPage> {
   String? _error;
   var _loading = true;
   String _loadedFor = '';
+  var _dragging = false;
 
-  /// The note open in the editor (null = the four-column overview).
-  NoteInfo? _open;
+  /// The note in the middle column; the newest one opens on the first load.
+  String? _openId;
+  var _opened = false;
 
   @override
   void initState() {
@@ -56,7 +61,8 @@ class _DeskPageState extends State<DeskPage> {
     super.didChangeDependencies();
     // Workspace switched while the desk is open.
     if (_loadedFor.isNotEmpty && !SessionStore.samePath(AgentScope.of(context).workspace, _loadedFor)) {
-      _open = null;
+      _openId = null;
+      _opened = false;
       _load();
     }
   }
@@ -72,6 +78,11 @@ class _DeskPageState extends State<DeskPage> {
       _cards = jsonRows(await _agent.backend.call('cards.list', {'cwd': cwd, 'resident': true})).map(CardInfo.fromJson).toList();
       _error = null;
       _loadedFor = cwd;
+      if (!_opened) {
+        _opened = true;
+        _openId ??= _notes.firstOrNull?.id;
+      }
+      if (_openId != null && !_notes.any((n) => n.id == _openId)) _openId = null;
     } catch (e) {
       _error = SessionRuntime.describeError(e);
     }
@@ -84,10 +95,19 @@ class _DeskPageState extends State<DeskPage> {
   Future<void> _newNote() async {
     try {
       final note = NoteInfo.fromJson(asJsonMap(await _agent.backend.call('notes.save', {'cwd': _agent.workspace, 'content': ''})));
-      setState(() => _open = note);
+      setState(() {
+        _notes = [note, ..._notes.where((n) => n.id != note.id)];
+        _openId = note.id;
+      });
     } catch (e) {
       _snack('新建写笺失败：${SessionRuntime.describeError(e)}');
     }
+  }
+
+  /// Keeps the list in step with the editor's autosave (title, preview, order).
+  void _noteSaved(NoteInfo note) {
+    if (!mounted) return;
+    setState(() => _notes = [note, ..._notes.where((n) => n.id != note.id)]);
   }
 
   Future<void> _addMaterial(String kind) async {
@@ -112,6 +132,20 @@ class _DeskPageState extends State<DeskPage> {
             fields: const [FieldSpec('标题（可不填）'), FieldSpec('内容', minLines: 8, maxLines: 16, required: true)],
           );
           if (values != null) await _agent.backend.call('materials.add', {'cwd': cwd, 'kind': 'text', 'title': values[0], 'content': values[1]});
+      }
+    } catch (e) {
+      _snack('添加资料失败：${SessionRuntime.describeError(e)}');
+    }
+    await _load();
+  }
+
+  /// Files and folders dropped on the left column become materials.
+  Future<void> _addDropped(List<String> paths) async {
+    final cwd = _agent.workspace;
+    try {
+      for (final path in paths) {
+        final kind = FileSystemEntity.isDirectorySync(path) ? 'folder' : 'file';
+        await _agent.backend.call('materials.add', {'cwd': cwd, 'kind': kind, 'path': path});
       }
     } catch (e) {
       _snack('添加资料失败：${SessionRuntime.describeError(e)}');
@@ -144,38 +178,90 @@ class _DeskPageState extends State<DeskPage> {
 
   @override
   Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
-    final open = _open;
-    if (open != null) {
-      return NoteEditor(
-        key: ValueKey(open.id),
-        note: open,
-        materials: _materials,
-        onClose: () {
-          setState(() => _open = null);
-          _load();
-        },
-      );
-    }
-    return PageFrame(
-      title: '书桌',
-      subtitle: '每个工作区一张书桌：放资料、写笺，交给 Agent 处理，产物自动回到这里。',
-      actions: [SizedBox(width: 260, child: WorkspaceSwitcher(key: ValueKey(agent.workspace)))],
-      child: _error != null
-          ? Center(child: Text(_error!, style: TextStyle(color: context.colors.danger)))
-          : _loading
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          : Padding(
-              padding: const EdgeInsets.all(AppTokens.padLg),
+    final colors = context.colors;
+    if (_error != null) return Center(child: Text(_error!, style: TextStyle(color: colors.danger)));
+    if (_loading) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    final open = _notes.where((n) => n.id == _openId).firstOrNull;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _notesColumn(context),
+        Expanded(
+          child: open == null
+              ? _EmptyDesk(onNew: _newNote)
+              : NoteEditor(
+                  key: ValueKey(open.id),
+                  note: open,
+                  materials: _materials,
+                  onSaved: _noteSaved,
+                  onClose: () => setState(() => _openId = null),
+                  onDeleted: () {
+                    setState(() => _openId = null);
+                    _load();
+                  },
+                ),
+        ),
+        _sideColumn(context),
+      ],
+    );
+  }
+
+  Widget _notesColumn(BuildContext context) {
+    final colors = context.colors;
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _dragging = true),
+      onDragExited: (_) => setState(() => _dragging = false),
+      onDragDone: (details) {
+        setState(() => _dragging = false);
+        _addDropped([for (final f in details.files) f.path]);
+      },
+      child: AnimatedContainer(
+        duration: AppTokens.fast,
+        width: 272,
+        decoration: BoxDecoration(
+          color: _dragging ? Color.alphaBlend(colors.accentSoft, colors.sidebar) : colors.sidebar,
+          border: Border(right: BorderSide(color: colors.border)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.padLg, 14, 0),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _Column(
-                    title: '资料',
+                  Text('书桌', style: context.serif(context.text.titleMedium).copyWith(fontSize: 18, fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  Tooltip(
+                    message: '新写笺',
+                    child: FilledButton.icon(
+                      onPressed: _newNote,
+                      style: FilledButton.styleFrom(minimumSize: const Size(0, 30), padding: const EdgeInsets.symmetric(horizontal: 12)),
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('新写笺'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppTokens.padLg, 6, AppTokens.padLg, 0),
+              child: Align(alignment: Alignment.centerLeft, child: WorkspaceSwitcher(key: ValueKey(_agent.workspace), compact: true)),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(10, 4, 10, AppTokens.pad),
+                children: [
+                  PanelLabel('写笺', count: _notes.length),
+                  if (_notes.isEmpty) const _Hint('写下想法、要求或草稿，写好后交给 Agent。'),
+                  for (final n in _notes) _NoteRow(note: n, selected: n.id == _openId, onTap: () => setState(() => _openId = n.id)),
+                  PanelLabel(
+                    '资料',
                     count: _materials.length,
-                    action: PopupMenuButton<String>(
+                    trailing: PopupMenuButton<String>(
                       tooltip: '添加资料',
-                      icon: const Icon(Icons.add, size: 18),
+                      icon: const Icon(Icons.add, size: 16),
+                      iconSize: 16,
+                      padding: EdgeInsets.zero,
                       onSelected: _addMaterial,
                       itemBuilder: (_) => const [
                         PopupMenuItem(value: 'file', child: ListTile(dense: true, leading: Icon(Icons.description_outlined), title: Text('添加文件'))),
@@ -183,181 +269,134 @@ class _DeskPageState extends State<DeskPage> {
                         PopupMenuItem(value: 'text', child: ListTile(dense: true, leading: Icon(Icons.content_paste), title: Text('粘贴文本'))),
                       ],
                     ),
-                    empty: '把要参考的文件、文件夹或文字放在这里，交给 Agent 时可以选择带上。',
-                    children: [for (final m in _materials) MaterialTile(material: m, onRemove: () => _removeMaterial(m))],
                   ),
-                  _Column(
-                    title: '写笺',
-                    count: _notes.length,
-                    action: IconButton(tooltip: '新写笺', icon: const Icon(Icons.add, size: 18), onPressed: _newNote),
-                    empty: '写下想法、要求或草稿，写好后点「交给 Agent」。',
-                    children: [
-                      for (final n in _notes)
-                        _NoteTile(note: n, tasks: _tasks.where((t) => t.noteId == n.id).toList(), onTap: () => setState(() => _open = n)),
-                    ],
-                  ),
-                  _Column(
-                    title: '任务',
-                    count: _tasks.length,
-                    empty: '在这个工作区里做过的任务会出现在这里。',
-                    children: [for (final t in _tasks) TaskTile(task: t, compact: true)],
-                  ),
-                  _Column(
-                    title: '卡片',
-                    count: _cards.length,
-                    action: PopupMenuButton<String>(
-                      tooltip: '导入卡片',
-                      icon: const Icon(Icons.add, size: 18),
-                      onSelected: _importCard,
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'file', child: ListTile(dense: true, leading: Icon(Icons.style_outlined), title: Text('导入卡片文件（.card.html / .card.zip）'))),
-                        PopupMenuItem(value: 'folder', child: ListTile(dense: true, leading: Icon(Icons.folder_outlined), title: Text('导入卡片文件夹'))),
-                      ],
-                    ),
-                    empty: '对话里的卡片点「收进书桌」会复制一份放在这里，也可以导入别人分享的卡片。',
-                    children: [for (final c in _cards) DeskCardTile(key: ValueKey(c.id), card: c, onChanged: _load)],
-                  ),
-                  _Column(
-                    title: '产物',
-                    count: _artifacts.length,
-                    empty: 'Agent 写入或修改的文件会自动收集到这里。',
-                    children: [
-                      for (final a in _artifacts)
-                        ArtifactTile(
-                          path: a.path,
-                          exists: a.exists,
-                          onContinue: () {
-                            final task = _tasks.where((t) => t.id == a.taskId).firstOrNull;
-                            agent.continueWork(sessionFile: task?.sessionFile, cwd: agent.workspace, text: '继续修改 ${a.path}：');
-                          },
-                        ),
-                    ],
-                  ),
+                  if (_materials.isEmpty) const _Hint('要参考的文件、文件夹或文字放在这里，交给 Agent 时可以选择带上，对话里输入 @ 也能引用。'),
+                  for (final m in _materials) _MaterialRow(material: m, onRemove: () => _removeMaterial(m)),
                 ],
               ),
             ),
-    );
-  }
-}
-
-class _Column extends StatelessWidget {
-  const _Column({required this.title, required this.count, required this.children, required this.empty, this.action});
-
-  final String title;
-  final int count;
-  final List<Widget> children;
-  final String empty;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        decoration: BoxDecoration(color: colors.sidebar, borderRadius: BorderRadius.circular(AppTokens.radiusLg)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(AppTokens.pad, AppTokens.gap, 4, 0),
-              child: SizedBox(
-                height: 36,
-                child: Row(
-                  children: [
-                    Text(title, style: context.text.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-                    const SizedBox(width: 6),
-                    Text('$count', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-                    const Spacer(),
-                    ?action,
-                  ],
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: OutlinedButton(
+                onPressed: () => _addMaterial('text'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(36),
+                  foregroundColor: _dragging ? colors.accent : colors.muted,
+                  side: BorderSide(color: _dragging ? colors.accent : colors.border),
                 ),
+                child: Text(_dragging ? '松开，放到书桌上' : '拖入文件，或粘贴文字', style: context.text.bodySmall?.copyWith(color: _dragging ? colors.accent : colors.muted)),
               ),
-            ),
-            Expanded(
-              child: children.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.all(AppTokens.pad),
-                      child: Text(empty, style: context.text.bodySmall?.copyWith(color: colors.muted)),
-                    )
-                  : ListView(padding: const EdgeInsets.fromLTRB(AppTokens.gap, 4, AppTokens.gap, AppTokens.gap), children: children),
             ),
           ],
         ),
       ),
     );
   }
-}
 
-class MaterialTile extends StatelessWidget {
-  const MaterialTile({super.key, required this.material, this.onRemove, this.selected, this.onSelected});
-
-  final MaterialInfo material;
-  final VoidCallback? onRemove;
-
-  /// When set, the tile is a checkbox row (choosing materials for a task).
-  final bool? selected;
-  final ValueChanged<bool>? onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final icon = switch (material.kind) { 'folder' => Icons.folder_outlined, 'text' => Icons.notes, _ => Icons.description_outlined };
-    final subtitle = material.kind == 'text' ? (material.content ?? '').replaceAll(RegExp(r'\s+'), ' ') : material.path ?? '';
-    return OutlinedCard(
-      padding: const EdgeInsets.symmetric(horizontal: AppTokens.gap, vertical: 6),
-      child: Row(
+  Widget _sideColumn(BuildContext context) {
+    final colors = context.colors;
+    final agent = AgentScope.of(context);
+    final active = _tasks.where((t) => t.status.isActive).toList();
+    final recent = _tasks.where((t) => !t.status.isActive).take(8).toList();
+    final taskTitles = {for (final t in _tasks) t.id: t.title};
+    return Container(
+      width: 300,
+      decoration: BoxDecoration(color: colors.sidebar, border: Border(left: BorderSide(color: colors.border))),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, AppTokens.gap, 14, AppTokens.padLg),
         children: [
-          if (selected != null) Checkbox(value: selected, onChanged: (v) => onSelected?.call(v ?? false), visualDensity: VisualDensity.compact),
-          Icon(icon, size: 18, color: context.colors.muted),
-          const SizedBox(width: AppTokens.gap),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(material.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+          if (active.isNotEmpty) ...[
+            const PanelLabel('进行中'),
+            for (final t in active) _ActiveTask(task: t),
+          ],
+          PanelLabel('产物', count: _artifacts.length),
+          if (_artifacts.isEmpty) const _Hint('Agent 写入或修改的文件会自动收集到这里。'),
+          for (final a in _artifacts)
+            ArtifactTile(
+              path: a.path,
+              exists: a.exists,
+              subtitle: [
+                if (taskTitles[a.taskId] != null) '来自「${taskTitles[a.taskId]}」',
+                formatDate(a.updatedAt?.millisecondsSinceEpoch),
+              ].where((s) => s.isNotEmpty).join(' · ').ifEmpty(null),
+              onContinue: () {
+                final task = _tasks.where((t) => t.id == a.taskId).firstOrNull;
+                agent.continueWork(sessionFile: task?.sessionFile, cwd: agent.workspace, text: '继续修改 ${a.path}：');
+              },
+            ),
+          PanelLabel(
+            '卡片',
+            count: _cards.length,
+            trailing: PopupMenuButton<String>(
+              tooltip: '导入卡片',
+              icon: const Icon(Icons.add, size: 16),
+              iconSize: 16,
+              padding: EdgeInsets.zero,
+              onSelected: _importCard,
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'file', child: ListTile(dense: true, leading: Icon(Icons.style_outlined), title: Text('导入卡片文件（.card.html / .card.zip）'))),
+                PopupMenuItem(value: 'folder', child: ListTile(dense: true, leading: Icon(Icons.folder_outlined), title: Text('导入卡片文件夹'))),
               ],
             ),
           ),
-          if (onRemove != null)
-            IconButton(tooltip: '从书桌移除', icon: const Icon(Icons.close, size: 16), onPressed: onRemove, visualDensity: VisualDensity.compact),
+          if (_cards.isEmpty) const _Hint('对话里的卡片点「收进书桌」会复制一份放在这里，也可以导入别人分享的卡片。'),
+          for (final c in _cards) DeskCardTile(key: ValueKey(c.id), card: c, onChanged: _load),
+          PanelLabel(
+            '最近任务',
+            trailing: TextButton(
+              onPressed: () => agent.showSection(AppSection.tasks),
+              style: TextButton.styleFrom(minimumSize: const Size(0, 26), padding: const EdgeInsets.symmetric(horizontal: 6)),
+              child: Text('全部', style: context.text.labelSmall?.copyWith(color: colors.accent)),
+            ),
+          ),
+          if (recent.isEmpty && active.isEmpty) const _Hint('在这个工作区里做过的任务会出现在这里。'),
+          for (final t in recent) TaskTile(task: t, compact: true),
         ],
       ),
     );
   }
 }
 
-class _NoteTile extends StatelessWidget {
-  const _NoteTile({required this.note, required this.tasks, required this.onTap});
+extension on String {
+  String? ifEmpty(String? other) => isEmpty ? other : this;
+}
 
-  final NoteInfo note;
-  final List<TaskInfo> tasks;
-  final VoidCallback onTap;
+class _Hint extends StatelessWidget {
+  const _Hint(this.text);
+
+  final String text;
 
   @override
   Widget build(BuildContext context) {
-    final latest = tasks.firstOrNull;
-    final preview = note.content.replaceAll(RegExp(r'^#+\s*.*\n?'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppTokens.radius),
-      onTap: onTap,
-      child: OutlinedCard(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, AppTokens.gap),
+      child: Text(text, style: context.text.bodySmall?.copyWith(color: context.colors.muted, height: 1.5)),
+    );
+  }
+}
+
+/// The middle column when no note is open.
+class _EmptyDesk extends StatelessWidget {
+  const _EmptyDesk({required this.onNew});
+
+  final VoidCallback onNew;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = context.text.bodyMedium?.copyWith(color: context.colors.muted, height: 1.7);
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(note.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.titleSmall),
-            if (preview.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(preview, maxLines: 3, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-            ],
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Text(formatDate(note.updatedAt?.millisecondsSinceEpoch), style: context.text.labelSmall?.copyWith(color: context.colors.muted)),
-                const Spacer(),
-                if (latest != null) TaskStatusChip(status: latest.status),
-              ],
-            ),
+            const ButterflyMark(size: 96, veins: true),
+            const SizedBox(height: AppTokens.padLg),
+            Text('一张干净的书桌', style: context.serif(context.text.titleLarge)),
+            const SizedBox(height: AppTokens.gap),
+            Text('写下想法、要求或草稿，写好后交给 Agent。\n它写出的文件会自动回到右边的「产物」。', textAlign: TextAlign.center, style: muted),
+            const SizedBox(height: AppTokens.padLg),
+            OutlinedButton.icon(onPressed: onNew, icon: const Icon(Icons.edit_outlined, size: 16), label: const Text('写一份')),
           ],
         ),
       ),
@@ -365,14 +404,204 @@ class _NoteTile extends StatelessWidget {
   }
 }
 
-/// Full-width note editor: Markdown text with autosave, its tasks and
-/// artifacts, and "hand to the agent".
+class _NoteRow extends StatelessWidget {
+  const _NoteRow({required this.note, required this.selected, required this.onTap});
+
+  final NoteInfo note;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final preview = note.content.replaceAll(RegExp(r'^#+\s*.*\n?'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Material(
+        color: selected ? colors.card : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTokens.radius),
+          side: BorderSide(color: selected ? colors.border : Colors.transparent),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTokens.radius),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 9),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  note.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodyMedium?.copyWith(fontWeight: selected ? FontWeight.w600 : FontWeight.w400),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  preview.isEmpty ? formatDate(note.updatedAt?.millisecondsSinceEpoch) : preview,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.bodySmall?.copyWith(color: colors.muted),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One material in the left column: tap to look at it, × on hover to remove.
+class _MaterialRow extends StatefulWidget {
+  const _MaterialRow({required this.material, required this.onRemove});
+
+  final MaterialInfo material;
+  final VoidCallback onRemove;
+
+  @override
+  State<_MaterialRow> createState() => _MaterialRowState();
+}
+
+class _MaterialRowState extends State<_MaterialRow> {
+  var _hover = false;
+
+  void _open() {
+    final m = widget.material;
+    final agent = AgentScope.read(context);
+    switch (m.kind) {
+      case 'text':
+        showTextDialog(context, title: m.title, text: m.content ?? '');
+      case 'folder':
+        if (m.path != null) agent.revealInExplorer(m.path!);
+      default:
+        final path = m.path;
+        if (path == null) return;
+        if (canPreview(path)) {
+          showFilePreview(context, path);
+        } else {
+          agent.openFile(path);
+        }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.material;
+    final colors = context.colors;
+    final (icon, kind) = switch (m.kind) {
+      'folder' => (Icons.folder_outlined, '文件夹'),
+      'text' => (Icons.notes, '文字'),
+      _ => (fileIcon(m.path ?? ''), '文件'),
+    };
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTokens.radius),
+        onTap: _open,
+        child: Tooltip(
+          message: m.kind == 'text' ? (m.content ?? '') : (m.path ?? ''),
+          waitDuration: const Duration(milliseconds: 800),
+          child: SizedBox(
+            height: 34,
+            child: Row(
+              children: [
+                const SizedBox(width: 10),
+                Icon(icon, size: 15, color: colors.muted),
+                const SizedBox(width: AppTokens.gap),
+                Expanded(child: Text(m.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13))),
+                if (_hover)
+                  IconButton(
+                    tooltip: '从书桌移除',
+                    icon: const Icon(Icons.close, size: 14),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.onRemove,
+                  )
+                else
+                  Padding(padding: const EdgeInsets.only(right: 10), child: Text(kind, style: context.text.labelSmall?.copyWith(color: colors.muted))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A running or waiting task on the right: what it is doing now.
+class _ActiveTask extends StatelessWidget {
+  const _ActiveTask({required this.task});
+
+  final TaskInfo task;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final agent = AgentScope.read(context);
+    final needsYou = task.status == TaskStatus.needsInput;
+    final muted = context.text.bodySmall?.copyWith(color: colors.muted);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppTokens.gap),
+      child: Material(
+        color: colors.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTokens.radius),
+          side: BorderSide(color: needsYou ? colors.warning.withValues(alpha: 0.6) : colors.border),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTokens.radius),
+          onTap: task.sessionFile == null ? null : () => agent.openTask(task),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (task.status == TaskStatus.running)
+                      const BreathingDot()
+                    else
+                      Container(width: 7, height: 7, decoration: BoxDecoration(shape: BoxShape.circle, color: needsYou ? colors.warning : colors.muted)),
+                    const SizedBox(width: AppTokens.gap),
+                    Expanded(
+                      child: Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(task.status.label, style: muted),
+                  ],
+                ),
+                if (task.currentStep != null || needsYou) ...[
+                  const SizedBox(height: 6),
+                  Text(needsYou ? '等你确认，点开处理' : '正在：${task.currentStep}', maxLines: 2, overflow: TextOverflow.ellipsis, style: muted),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The open note as a sheet of paper: title and Markdown text with autosave,
+/// its tasks and artifacts underneath, and "hand to the agent".
 class NoteEditor extends StatefulWidget {
-  const NoteEditor({super.key, required this.note, required this.materials, required this.onClose});
+  const NoteEditor({
+    super.key,
+    required this.note,
+    required this.materials,
+    required this.onClose,
+    required this.onDeleted,
+    this.onSaved,
+  });
 
   final NoteInfo note;
   final List<MaterialInfo> materials;
   final VoidCallback onClose;
+  final VoidCallback onDeleted;
+  final ValueChanged<NoteInfo>? onSaved;
 
   @override
   State<NoteEditor> createState() => _NoteEditorState();
@@ -384,6 +613,8 @@ class _NoteEditorState extends State<NoteEditor> {
   late final AgentController _agent;
   Timer? _debounce;
   var _saved = true;
+  DateTime? _savedAt;
+
   /// Title the core derived (first line) when the title field is empty.
   late String _savedTitle = widget.note.title;
   List<TaskInfo> _tasks = const [];
@@ -393,6 +624,7 @@ class _NoteEditorState extends State<NoteEditor> {
   void initState() {
     super.initState();
     _agent = AgentScope.read(context);
+    _savedAt = widget.note.updatedAt;
     _agent.workRevision.addListener(_loadLinks);
     _loadLinks();
   }
@@ -430,7 +662,13 @@ class _NoteEditorState extends State<NoteEditor> {
     try {
       final saved = asJsonMap(await _agent.backend.call('notes.save', {'id': widget.note.id, 'cwd': widget.note.cwd, 'title': _title.text, 'content': _content.text}));
       _savedTitle = saved['title'] as String? ?? _savedTitle;
-      if (mounted) setState(() => _saved = true);
+      widget.onSaved?.call(NoteInfo.fromJson(saved));
+      if (mounted) {
+        setState(() {
+          _saved = true;
+          _savedAt = DateTime.now();
+        });
+      }
     } catch (_) {}
   }
 
@@ -446,83 +684,117 @@ class _NoteEditorState extends State<NoteEditor> {
     if (!await confirmAction(context, title: '删除这份写笺？', message: '已经完成的任务和产物不受影响。', confirm: '删除', danger: true)) return;
     await _agent.backend.call('notes.remove', {'id': widget.note.id});
     _saved = true;
-    widget.onClose();
+    widget.onDeleted();
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final muted = context.text.bodySmall?.copyWith(color: colors.muted);
+    const plain = InputDecoration(
+      border: InputBorder.none,
+      enabledBorder: InputBorder.none,
+      focusedBorder: InputBorder.none,
+      filled: false,
+      isDense: true,
+      contentPadding: EdgeInsets.zero,
+    );
+    final saveTime = _savedAt == null ? '' : ' · ${formatDate(_savedAt!.millisecondsSinceEpoch).replaceFirst('今天 ', '')}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, AppTokens.pad),
+        Container(
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: colors.border))),
           child: Row(
             children: [
-              IconButton(tooltip: '返回书桌', icon: const Icon(Icons.arrow_back), onPressed: () async {
-                await _save();
-                widget.onClose();
-              }),
-              const SizedBox(width: AppTokens.gap),
               Expanded(
-                child: TextField(
-                  controller: _title,
-                  style: context.text.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-                  decoration: const InputDecoration(hintText: '标题（不填就用第一行）', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none),
-                  onChanged: (_) => _changed(),
-                ),
+                child: Text(_savedTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.serif(context.text.titleMedium).copyWith(fontSize: 18, fontWeight: FontWeight.w600)),
               ),
-              Text(_saved ? '已保存' : '保存中…', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-              const SizedBox(width: AppTokens.pad),
-              IconButton(tooltip: '删除写笺', icon: const Icon(Icons.delete_outline), onPressed: _delete),
+              Text(_saved ? '已自动保存$saveTime' : '保存中…', style: muted),
               const SizedBox(width: AppTokens.gap),
-              FilledButton.icon(onPressed: _handOff, icon: const Icon(Icons.send_outlined, size: 18), label: const Text('交给 Agent')),
+              IconButton(tooltip: '删除写笺', icon: const Icon(Icons.delete_outline, size: 20), onPressed: _delete),
+              IconButton(
+                tooltip: '关闭写笺',
+                icon: const Icon(Icons.close, size: 20),
+                onPressed: () async {
+                  await _save();
+                  widget.onClose();
+                },
+              ),
+              const SizedBox(width: AppTokens.gap),
+              FilledButton.icon(onPressed: _handOff, icon: const ButterflyGlyph(size: 18), label: const Text('交给 Agent')),
             ],
           ),
         ),
-        const Divider(),
         Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppTokens.padLg),
-                  child: TextField(
-                    controller: _content,
-                    expands: true,
-                    maxLines: null,
-                    textAlignVertical: TextAlignVertical.top,
-                    style: context.text.bodyLarge?.copyWith(height: 1.6),
-                    decoration: const InputDecoration(hintText: '用 Markdown 写下你的想法、要求或草稿…'),
-                    onChanged: (_) => _changed(),
-                  ),
-                ),
-              ),
-              const VerticalDivider(width: 0.5),
-              SizedBox(
-                width: 320,
-                child: ListView(
-                  padding: const EdgeInsets.all(AppTokens.pad),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(32, 28, 32, 40),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SectionTitle('关联任务'),
-                    if (_tasks.isEmpty) const EmptyNote('还没有交给 Agent。'),
-                    for (final t in _tasks) TaskTile(task: t, compact: true),
-                    const SectionTitle('产物'),
-                    if (_artifacts.isEmpty) const EmptyNote('任务完成后，写出的文件会出现在这里。'),
-                    for (final a in _artifacts)
-                      ArtifactTile(
-                        path: a.path,
-                        exists: a.exists,
-                        onContinue: () {
-                          final task = _tasks.where((t) => t.id == a.taskId).firstOrNull;
-                          _agent.continueWork(sessionFile: task?.sessionFile, cwd: widget.note.cwd, text: '继续修改 ${a.path}：');
-                        },
+                    // The sheet of paper.
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(44, 36, 44, 40),
+                      decoration: BoxDecoration(
+                        color: colors.card,
+                        border: Border.all(color: colors.border),
+                        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
                       ),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(right: 48),
+                                child: TextField(
+                                  controller: _title,
+                                  style: context.serif(context.text.headlineSmall).copyWith(fontSize: 24, fontWeight: FontWeight.w600),
+                                  decoration: plain.copyWith(hintText: '标题（不填就用第一行）', hintStyle: TextStyle(color: colors.muted.withValues(alpha: 0.7))),
+                                  onChanged: (_) => _changed(),
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              TextField(
+                                controller: _content,
+                                minLines: 14,
+                                maxLines: null,
+                                style: context.serif(context.text.bodyLarge).copyWith(fontSize: 15, height: 1.9),
+                                decoration: plain.copyWith(hintText: '用 Markdown 写下你的想法、要求或草稿…', hintStyle: TextStyle(color: colors.muted.withValues(alpha: 0.7))),
+                                onChanged: (_) => _changed(),
+                              ),
+                            ],
+                          ),
+                          const Positioned(top: -8, right: -12, child: SealStamp()),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppTokens.padLg),
+                    PanelLabel('交给 Agent 的任务', count: _tasks.isEmpty ? null : _tasks.length),
+                    if (_tasks.isEmpty) const _Hint('还没有交给 Agent。写好后点右上角「交给 Agent」。'),
+                    for (final t in _tasks) TaskTile(task: t, compact: true),
+                    if (_artifacts.isNotEmpty) ...[
+                      PanelLabel('这份写笺的产物', count: _artifacts.length),
+                      for (final a in _artifacts)
+                        ArtifactTile(
+                          path: a.path,
+                          exists: a.exists,
+                          onContinue: () {
+                            final task = _tasks.where((t) => t.id == a.taskId).firstOrNull;
+                            _agent.continueWork(sessionFile: task?.sessionFile, cwd: widget.note.cwd, text: '继续修改 ${a.path}：');
+                          },
+                        ),
+                    ],
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ],
@@ -581,7 +853,7 @@ class _HandOffDialogState extends State<_HandOffDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('要它做什么', style: context.text.labelMedium),
+              Text('要它做什么', style: context.label),
               const SizedBox(height: 6),
               Wrap(
                 spacing: AppTokens.gap,
@@ -600,10 +872,10 @@ class _HandOffDialogState extends State<_HandOffDialog> {
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: AppTokens.padLg),
-              Text('带上哪些资料', style: context.text.labelMedium),
+              Text('带上哪些资料', style: context.label),
               const SizedBox(height: 6),
               if (widget.materials.isEmpty)
-                Text('书桌上还没有资料，可以在「资料」栏添加。', style: context.text.bodySmall?.copyWith(color: context.colors.muted))
+                Text('书桌上还没有资料，可以在左栏「资料」添加，或把文件拖到左栏。', style: context.text.bodySmall?.copyWith(color: context.colors.muted))
               else
                 for (final m in widget.materials)
                   MaterialTile(
@@ -627,6 +899,40 @@ class _HandOffDialogState extends State<_HandOffDialog> {
           child: const Text('开始'),
         ),
       ],
+    );
+  }
+}
+
+/// A material as a checkbox row (choosing materials for a task).
+class MaterialTile extends StatelessWidget {
+  const MaterialTile({super.key, required this.material, this.selected, this.onSelected});
+
+  final MaterialInfo material;
+  final bool? selected;
+  final ValueChanged<bool>? onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = switch (material.kind) { 'folder' => Icons.folder_outlined, 'text' => Icons.notes, _ => Icons.description_outlined };
+    final subtitle = material.kind == 'text' ? (material.content ?? '').replaceAll(RegExp(r'\s+'), ' ') : material.path ?? '';
+    return OutlinedCard(
+      padding: const EdgeInsets.symmetric(horizontal: AppTokens.gap, vertical: 6),
+      child: Row(
+        children: [
+          if (selected != null) Checkbox(value: selected, onChanged: (v) => onSelected?.call(v ?? false), visualDensity: VisualDensity.compact),
+          Icon(icon, size: 18, color: context.colors.muted),
+          const SizedBox(width: AppTokens.gap),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(material.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

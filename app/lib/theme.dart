@@ -432,6 +432,48 @@ class _ButterflyPainter extends CustomPainter {
   bool shouldRepaint(_ButterflyPainter old) => old.ink != ink || old.upper != upper || old.lower != lower || old.veins != veins;
 }
 
+/// The butterfly as a solid one-color glyph, for buttons and small icons.
+class ButterflyGlyph extends StatelessWidget {
+  const ButterflyGlyph({super.key, this.size = 18, this.color});
+
+  final double size;
+
+  /// Defaults to the surrounding icon color.
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = this.color ?? IconTheme.of(context).color ?? context.colors.ink;
+    return ExcludeSemantics(
+      child: CustomPaint(size: Size(size, size * 0.75), painter: _GlyphPainter(color)),
+    );
+  }
+}
+
+class _GlyphPainter extends CustomPainter {
+  _GlyphPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 120, size.height / 90);
+    final mirror = Matrix4.identity()
+      ..translateByDouble(120, 0, 0, 1)
+      ..scaleByDouble(-1, 1, 1, 1);
+    final paint = Paint()..color = color;
+    for (final wing in [_ButterflyPainter._upperWing(), _ButterflyPainter._lowerWing()]) {
+      canvas.drawPath(wing, paint);
+      canvas.drawPath(wing.transform(mirror.storage), paint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_GlyphPainter old) => old.color != color;
+}
+
 /// The cinnabar 「梦蝶」 seal.
 class SealStamp extends StatelessWidget {
   const SealStamp({super.key, this.size = 34});

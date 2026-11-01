@@ -31,22 +31,39 @@ IconData fileIcon(String path) {
 /// A file the agent wrote or changed: preview, open, show in Explorer, and
 /// optionally "continue working on it".
 class ArtifactTile extends StatelessWidget {
-  const ArtifactTile({super.key, required this.path, required this.exists, this.onContinue});
+  const ArtifactTile({super.key, required this.path, required this.exists, this.onContinue, this.subtitle});
 
   final String path;
   final bool exists;
+
+  /// Second line instead of the folder (「来自「周报」 · 14:32」).
+  final String? subtitle;
   final VoidCallback? onContinue;
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.read(context);
-    final muted = context.text.bodySmall?.copyWith(color: context.colors.muted);
+    final colors = context.colors;
+    final muted = context.text.bodySmall?.copyWith(color: colors.muted);
+    final ext = p.extension(path).replaceFirst('.', '').toUpperCase();
     return OutlinedCard(
-      padding: const EdgeInsets.symmetric(horizontal: AppTokens.gap, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(AppTokens.gap, 6, 2, 6),
       child: Row(
         children: [
-          Icon(fileIcon(path), size: 18, color: exists ? Theme.of(context).colorScheme.primary : context.colors.muted),
-          const SizedBox(width: AppTokens.gap),
+          // The file type as a small square badge (MD, PDF...).
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: exists ? colors.accentSoft : colors.codeBackground,
+              borderRadius: BorderRadius.circular(AppTokens.radius),
+            ),
+            child: ext.isEmpty || ext.length > 4
+                ? Icon(fileIcon(path), size: 16, color: exists ? colors.accent : colors.muted)
+                : Text(ext, style: context.text.labelSmall?.copyWith(fontSize: 9.5, fontWeight: FontWeight.w700, color: exists ? colors.accent : colors.muted)),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: InkWell(
               onTap: exists && canPreview(path) ? () => showFilePreview(context, path) : null,
@@ -54,7 +71,7 @@ class ArtifactTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(p.basename(path), maxLines: 1, overflow: TextOverflow.ellipsis, style: exists ? null : muted?.copyWith(decoration: TextDecoration.lineThrough)),
-                  Text(exists ? p.dirname(path) : '文件已不存在', maxLines: 1, overflow: TextOverflow.ellipsis, style: muted),
+                  Text(exists ? (subtitle ?? p.dirname(path)) : '文件已不存在', maxLines: 1, overflow: TextOverflow.ellipsis, style: muted),
                 ],
               ),
             ),

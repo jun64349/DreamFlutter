@@ -153,4 +153,88 @@ void main() {
     await tester.tap(find.text('设置').first);
     await shot('06_settings_dark');
   });
+
+  testWidgets('the work pages in light and dark', (tester) async {
+    final shots = Directory(p.join(Directory.current.path, 'build', 'look_shots'))..createSync(recursive: true);
+    final key = GlobalKey();
+    Future<void> shot(String name) async {
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.runAsync(() async {
+        final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+        final image = await boundary.toImage(pixelRatio: 1);
+        final png = await image.toByteData(format: ui.ImageByteFormat.png);
+        File(p.join(shots.path, '$name.png')).writeAsBytesSync(png!.buffer.asUint8List());
+      });
+    }
+
+    final sessions = Directory.systemTemp.createTempSync('df_look_');
+    SharedPreferences.setMockInitialValues({'workspace': sessions.path});
+    final backend = FakeBackend();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cwd = sessions.path;
+    backend.handlers.addAll(_workPages(cwd, now));
+    final agent = AgentController(
+      preferences: await Preferences.load(),
+      sessionStore: SessionStore(sessionsDir: sessions.path),
+      backend: backend,
+    );
+    addTearDown(() {
+      agent.dispose();
+      sessions.deleteSync(recursive: true);
+    });
+    await tester.pumpWidget(RepaintBoundary(key: key, child: DreamFlutterApp(controller: agent)));
+    await tester.runAsync(agent.init);
+    await tester.pump();
+
+    for (final dark in [false, true]) {
+      final suffix = dark ? 'dark' : 'light';
+      await agent.setThemeMode(dark ? ThemeMode.dark : ThemeMode.light);
+      agent.showSection(AppSection.desk);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await shot('10_desk_$suffix');
+    }
+  });
+}
+
+/// Fake core answers for the desk, tasks, memory and skills pages.
+Map<String, Object? Function(Json)> _workPages(String cwd, int now) {
+  const hour = 3600 * 1000;
+  final notes = [
+    {
+      'id': 'w1',
+      'cwd': cwd,
+      'title': '下周产品发布清单',
+      'content': '写给 Agent：按这份清单准备材料，缺的东西列出来问我。\n\n## 发布前\n- [x] 确认发布日期和渠道\n- [ ] 更新官网产品页的截图和价格\n- [ ] 准备三条社交媒体文案（参考品牌规范.pdf）\n\n## 发布当天\n- [ ] 上午 10 点发邮件给老客户\n- [ ] 下午看一次数据，晚上写一份简短复盘',
+      'updatedAt': now - hour,
+    },
+    {'id': 'w2', 'cwd': cwd, 'title': '读书笔记：《置身事内》', 'content': '第三章讲土地财政和地方债。', 'updatedAt': now - 26 * hour},
+    {'id': 'w3', 'cwd': cwd, 'title': '周末去杭州', 'content': '订周六上午的高铁，住西湖边。', 'updatedAt': now - 50 * hour},
+  ];
+  final tasks = [
+    {'id': 't1', 'title': '整理下周发布清单', 'goal': '', 'cwd': cwd, 'source': 'note', 'status': 'running', 'noteId': 'w1', 'currentStep': '起草社交媒体文案', 'updatedAt': now},
+    {'id': 't2', 'title': '华东区本周销售周报', 'goal': '', 'cwd': cwd, 'source': 'schedule', 'status': 'done', 'runs': 1, 'durationMs': 95000, 'cost': 0.012, 'updatedAt': now - 2 * hour},
+    {'id': 't3', 'title': '竞品调研', 'goal': '', 'cwd': cwd, 'source': 'chat', 'status': 'failed', 'runs': 2, 'durationMs': 240000, 'updatedAt': now - 30 * hour},
+  ];
+  return {
+    'desk.get': (_) => {
+      'notes': notes,
+      'materials': [
+        {'id': 'r1', 'kind': 'file', 'title': '去年发布数据.xlsx', 'path': r'C:\work\去年发布数据.xlsx'},
+        {'id': 'r2', 'kind': 'file', 'title': '品牌规范.pdf', 'path': r'C:\work\品牌规范.pdf'},
+        {'id': 'r3', 'kind': 'folder', 'title': '官网截图', 'path': r'C:\work\官网截图'},
+        {'id': 'r4', 'kind': 'text', 'title': '周一会议纪要', 'content': '决定下周一上线新版首页。'},
+      ],
+      'tasks': tasks,
+      'artifacts': [
+        {'id': 'a1', 'path': r'C:\work\reports\周报-W44.md', 'taskId': 't2', 'exists': true, 'updatedAt': now - 2 * hour},
+        {'id': 'a2', 'path': r'C:\work\发布文案-草稿.docx', 'taskId': 't1', 'exists': true, 'updatedAt': now - 3 * hour},
+        {'id': 'a3', 'path': r'C:\work\竞品价格对比.xlsx', 'taskId': 't3', 'exists': true, 'updatedAt': now - 30 * hour},
+      ],
+    },
+    'cards.list': (_) => const [],
+    'tasks.list': (p) => p['noteId'] == 'w1' ? [tasks.first] : tasks,
+    'artifacts.list': (_) => const [],
+  };
 }

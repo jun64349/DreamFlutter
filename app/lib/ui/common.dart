@@ -88,6 +88,34 @@ class SectionTitle extends StatelessWidget {
   }
 }
 
+/// A small spaced-out label heading a group in a side panel (「写笺 3」),
+/// with an optional action at the end.
+class PanelLabel extends StatelessWidget {
+  const PanelLabel(this.text, {super.key, this.count, this.trailing});
+
+  final String text;
+  final int? count;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, AppTokens.pad, 0, 4),
+      child: SizedBox(
+        height: 28,
+        child: Row(
+          children: [
+            Flexible(child: Text(text, style: context.label, overflow: TextOverflow.ellipsis)),
+            if (count != null) ...[const SizedBox(width: 6), Text('$count', style: context.label)],
+            const Spacer(),
+            ?trailing,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// A bordered card used for list rows and confirmation cards.
 class OutlinedCard extends StatelessWidget {
   const OutlinedCard({super.key, required this.child, this.highlight, this.padding = const EdgeInsets.all(AppTokens.pad)});
