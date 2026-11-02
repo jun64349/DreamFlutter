@@ -122,6 +122,29 @@ class ArtifactInfo {
   final DateTime? updatedAt;
 }
 
+/// Whether [path] is a file in a WSL distro (蝶君's sandbox) rather than on this machine.
+bool isSandboxPath(String path) {
+  final lower = path.toLowerCase();
+  return lower.startsWith(r'\\wsl.localhost\') || lower.startsWith(r'\\wsl$\');
+}
+
+/// A file 蝶君 delivered: in its sandbox's /workspace/outbox, opened from here through \\wsl.localhost.
+class OutboxFile {
+  OutboxFile.fromJson(Json json)
+    : name = json['name'] as String? ?? '',
+      path = json['path'] as String? ?? '',
+      size = (json['size'] as num?)?.toInt() ?? 0,
+      modifiedAt = _time(json['modifiedAt']);
+
+  /// Path under the outbox (forward slashes).
+  final String name;
+
+  /// Where this machine opens it.
+  final String path;
+  final int size;
+  final DateTime? modifiedAt;
+}
+
 /// Something waiting for the user: an approval or question from a running
 /// task, a run stopped by a limit, a memory candidate, a skill proposal, or
 /// an interrupted run.

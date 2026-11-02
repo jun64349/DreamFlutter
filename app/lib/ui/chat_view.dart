@@ -179,6 +179,12 @@ class _EmptyState extends StatelessWidget {
     (Icons.route_outlined, '规划一件事', '先问清目标和时间，再给出分步计划。', '帮我规划一件事：先问我目标和时间，再给出分步计划。'),
   ];
 
+  static const _butterflyIdeas = [
+    (Icons.table_chart_outlined, '处理一份表格', '把表格拖进来，让蝶君统计并画图。', '我会拖进一份表格。请统计主要指标、画几张图，把结果和图放进 outbox。'),
+    (Icons.code, '试一段代码', '不放心的代码，先在沙箱里跑跑看。', '帮我在沙箱里试一下这段代码，告诉我它做了什么、有没有问题：\n'),
+    (Icons.travel_explore_outlined, '查个资料', '上网查资料，整理成一页笔记。', '帮我查一下这个主题的资料，整理成一页 Markdown 笔记放进 outbox：'),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -194,15 +200,21 @@ class _EmptyState extends StatelessWidget {
               const SizedBox(height: 20),
               Text('今天想做点什么？', style: context.text.headlineSmall?.copyWith(fontSize: 26)),
               const SizedBox(height: 10),
-              Text('Agent 会在工作区里读写文件、运行命令，做好的东西会放到书桌上。', style: context.text.bodyMedium?.copyWith(color: colors.muted)),
+              Text(
+                agent.sandbox
+                    ? '蝶君在自己的沙箱里干活，装软件、跑代码都不用你批准，也碰不到你电脑上的文件。\n拖进来的文件会复制一份给它；做好的东西放进 outbox，在「工作」里查看和保存。'
+                    : 'Agent 会在工作区里读写文件、运行命令，改动的文件会列在右边。',
+                textAlign: TextAlign.center,
+                style: context.text.bodyMedium?.copyWith(color: colors.muted, height: 1.6),
+              ),
               const SizedBox(height: 28),
-              if (!agent.onboarded) ...[const _FirstRunGuide(), const SizedBox(height: 20)],
+              if (!agent.onboarded && !agent.sandbox) ...[const _FirstRunGuide(), const SizedBox(height: 20)],
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
                 alignment: WrapAlignment.center,
                 children: [
-                  for (final (icon, title, subtitle, prompt) in _ideas)
+                  for (final (icon, title, subtitle, prompt) in agent.sandbox ? _butterflyIdeas : _ideas)
                     SizedBox(
                       width: 210,
                       child: Material(
@@ -229,8 +241,7 @@ class _EmptyState extends StatelessWidget {
                     ),
                 ],
               ),
-              const SizedBox(height: 24),
-              const WorkspaceSwitcher(compact: true),
+              if (!agent.sandbox) ...[const SizedBox(height: 24), const WorkspaceSwitcher(compact: true)],
             ],
           ),
         ),

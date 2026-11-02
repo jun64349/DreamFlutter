@@ -544,6 +544,8 @@ export class CardsModule implements CoreModule {
 		const binding = Object.hasOwn(manifest.bindings, bindingId) ? manifest.bindings[bindingId]! : null;
 		if (!binding) return fail(CODES.TOOL_UNAVAILABLE, `this card declares no binding named ${JSON.stringify(bindingId)}`);
 		if (options.armed === false) return fail(CODES.TOOL_UNAVAILABLE, "这张卡片是从历史记录里恢复的，点一下卡片之后才能调用工具");
+		// 蝶君 lives in its sandbox: its cards get nothing on this machine (roadmap 3.5).
+		if (samePath(row.cwd, this.core.paths.butterflyDir)) return fail(CODES.TOOL_UNAVAILABLE, "蝶君的卡片不能使用这台电脑上的文件、网络或程序");
 		const args = input.input === undefined ? null : input.input;
 		const ctx = { cwd: row.cwd ?? process.cwd(), notify: (title: string, body: string) => this.core.notifier.notify(title, body), allowLocalNetwork: this.allowLocalNetwork };
 		let call;

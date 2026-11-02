@@ -16,6 +16,9 @@ class FakeBackend implements AgentBackend {
   final List<Json> interruptedRuns;
   final pis = <FakePi>[];
 
+  /// 蝶君's home as core.hello gives it (null: an older core without 蝶君).
+  String? butterflyHome;
+
   /// Rows for `sessions.list` (null = no index, the app falls back to files).
   List<Json>? sessionRows;
   List<Json> searchHits = const [];
@@ -46,6 +49,7 @@ class FakeBackend implements AgentBackend {
       'slots': liveSlots,
       'interruptedRuns': interruptedRuns,
       'pendingConfirmations': const [],
+      'butterflyHome': ?butterflyHome,
     };
   }
 

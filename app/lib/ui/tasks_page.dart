@@ -153,7 +153,7 @@ class _TasksPageState extends State<TasksPage> {
     return PageBody(
       children: [
         ContentHeader(title: '全部任务', description: '每个会话、写笺和模板运行都是一个任务。点开看目标、结果、产物和每次运行。${_filter == _Filter.all ? '' : '（只看「${_filter.label}」）'}'),
-        if (_tasks.isEmpty) EmptyState(title: _allWorkspaces ? '还没有任务' : '这个工作区还没有任务', message: '在对话里提一个要求，或者在书桌上把写笺交给 Agent。'),
+        if (_tasks.isEmpty) EmptyState(title: _allWorkspaces ? '还没有任务' : '这个工作区还没有任务', message: '在工作台里提一个要求，或者在「蝶君 › 工作」里把写笺交给蝶君。'),
         for (final e in groups.entries) ...[
           PanelLabel(e.key, count: e.value.length),
           for (final t in e.value) TaskTile(task: t, showWorkspace: _allWorkspaces),

@@ -10,6 +10,8 @@ export interface CorePaths {
 	infoFile: string;
 	lockFile: string;
 	logFile: string;
+	/** 蝶君's home on this machine: its sessions open here, apart from every workbench workspace. */
+	butterflyDir: string;
 }
 
 export function defaultDataDir(): string {
@@ -24,6 +26,7 @@ export function corePaths(dataDir = defaultDataDir()): CorePaths {
 		infoFile: join(dataDir, "core.json"),
 		lockFile: join(dataDir, "core.lock"),
 		logFile: join(dataDir, "core.log"),
+		butterflyDir: join(dataDir, "butterfly"),
 	};
 }
 

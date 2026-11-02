@@ -74,7 +74,7 @@ void main() {
 
     final sessions = Directory.systemTemp.createTempSync('df_look_');
     SharedPreferences.setMockInitialValues({'workspace': sessions.path});
-    final backend = FakeBackend();
+    final backend = FakeBackend()..butterflyHome = p.join(Directory.systemTemp.path, 'df_look_butterfly');
     final agent = AgentController(
       preferences: await Preferences.load(),
       sessionStore: SessionStore(sessionsDir: sessions.path),
@@ -174,7 +174,7 @@ void main() {
 
     final sessions = Directory.systemTemp.createTempSync('df_look_');
     SharedPreferences.setMockInitialValues({'workspace': sessions.path});
-    final backend = FakeBackend();
+    final backend = FakeBackend()..butterflyHome = p.join(Directory.systemTemp.path, 'df_look_butterfly');
     final now = DateTime.now().millisecondsSinceEpoch;
     final cwd = sessions.path;
     backend.handlers.addAll(_workPages(cwd, now));
@@ -194,7 +194,7 @@ void main() {
     for (final dark in [false, true]) {
       final suffix = dark ? 'dark' : 'light';
       await agent.setThemeMode(dark ? ThemeMode.dark : ThemeMode.light);
-      agent.showSection(AppSection.desk);
+      agent.showSection(AppSection.butterfly);
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
       await shot('10_desk_$suffix');
       agent.showSection(AppSection.tasks);
@@ -229,7 +229,7 @@ void main() {
     for (final t in PaintingTheme.all.where((t) => t != PaintingTheme.jiadie && t != PaintingTheme.moye)) {
       await agent.setPaintingTheme(t);
       await agent.setThemeMode(t.isDark ? ThemeMode.dark : ThemeMode.light);
-      agent.showSection(AppSection.desk);
+      agent.showSection(AppSection.butterfly);
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
       await shot('20_${t.id}_desk');
       agent.showSection(AppSection.chat);
@@ -262,6 +262,11 @@ Map<String, Object? Function(Json)> _workPages(String cwd, int now) {
     {'id': 't3', 'title': '竞品调研', 'goal': '', 'cwd': cwd, 'source': 'chat', 'status': 'failed', 'runs': 2, 'durationMs': 240000, 'updatedAt': now - 30 * hour},
   ];
   return {
+    'sandbox.status': (_) => {'state': 'ready', 'online': true},
+    'butterfly.outbox': (_) => [
+      {'name': '发布清单.md', 'path': r'\\wsl.localhost\DreamFlutterSandbox\workspace\outbox\发布清单.md', 'size': 3400, 'modifiedAt': now - 600000},
+      {'name': '图/销量对比.png', 'path': r'\\wsl.localhost\DreamFlutterSandbox\workspace\outbox\图\销量对比.png', 'size': 84000, 'modifiedAt': now - 900000},
+    ],
     'desk.get': (_) => {
       'notes': notes,
       'materials': [

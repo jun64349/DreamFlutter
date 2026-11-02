@@ -481,6 +481,7 @@ export class Core {
 			pid: process.pid,
 			port: this.httpPort,
 			dataDir: this.paths.dataDir,
+			butterflyHome: this.paths.butterflyDir,
 			agentDir: this.agentDir,
 			slots: [...this.slots.values()].map((s) => s.info()),
 			settings: this.settings.get(),

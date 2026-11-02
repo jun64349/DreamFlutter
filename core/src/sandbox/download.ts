@@ -71,3 +71,29 @@ export async function downloadFile(url: string, path: string, onProgress?: (rece
 	await rename(partial, path);
 	return hash.digest("hex");
 }
+
+/** Bytes per second fetching up to [maxBytes] of [url]; 0 when it fails or times out (for picking the fastest mirror). */
+export async function probeSpeed(url: string, maxBytes = 1_000_000, timeoutMs = 8_000): Promise<number> {
+	const started = Date.now();
+	let received = 0;
+	try {
+		const response = await open(url, timeoutMs);
+		await new Promise<void>((resolve) => {
+			const done = () => {
+				clearTimeout(timer);
+				response.destroy();
+				resolve();
+			};
+			const timer = setTimeout(done, timeoutMs);
+			response.on("data", (chunk: Buffer) => {
+				received += chunk.length;
+				if (received >= maxBytes) done();
+			});
+			response.on("end", done);
+			response.on("error", done);
+		});
+	} catch {
+		return 0;
+	}
+	return received / Math.max(0.05, (Date.now() - started) / 1000);
+}

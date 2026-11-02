@@ -80,8 +80,11 @@ class SearchHit {
   final DateTime? modifiedAt;
 }
 
-/// Top-level pages of the window (the navigation rail).
-enum AppSection { chat, desk, tasks, memory, library }
+/// Top-level pages of the window (the navigation rail): the workbench (chat), 蝶君, ...
+enum AppSection { chat, butterfly, tasks, memory, library }
+
+/// The two halves of 蝶君: talking with it, and its work (notes, materials, outbox).
+enum ButterflyTab { talk, work }
 
 /// How the window looks: light / dark / system, the painting theme for each,
 /// text size, and whole-interface zoom.
@@ -124,9 +127,20 @@ class AgentController extends ChangeNotifier {
     this.idleGrace = const Duration(minutes: 5),
     this.maxProcesses = 8,
     DateTime Function()? clock,
+    this.sandbox = false,
+    this.parentController,
   }) : backend = backend ?? CoreBackend(),
        _clock = clock ?? DateTime.now,
        sessionStore = sessionStore ?? SessionStore();
+
+  /// 蝶君's controller: its sessions run in the WSL sandbox and live in 蝶君's
+  /// home, apart from the workbench. It shares the window's connection and
+  /// lets the main controller ([main]) reconnect, show toasts and switch pages.
+  final bool sandbox;
+  final AgentController? parentController;
+
+  /// The window's own controller (this one, unless this is 蝶君's).
+  AgentController get main => parentController ?? this;
 
   final Preferences preferences;
   final SessionStore sessionStore;
@@ -208,9 +222,126 @@ class AgentController extends ChangeNotifier {
   AppSection section = AppSection.chat;
 
   void showSection(AppSection value) {
+    final parent = parentController;
+    if (parent != null) return parent.showSection(value);
     if (section == value) return;
     section = value;
     _notify();
+  }
+
+  // --- 蝶君 ------------------------------------------------------------------
+
+  /// 蝶君's home folder (its sessions' cwd), from the core; null for an older core.
+  String? get butterflyHome => main.coreInfo['butterflyHome'] as String?;
+
+  bool isButterflyCwd(String? cwd) {
+    final home = butterflyHome;
+    return home != null && cwd != null && SessionStore.samePath(cwd, home);
+  }
+
+  AgentController? _butterfly;
+
+  /// 蝶君's sessions; null until 蝶君's conversation is first opened.
+  AgentController? get butterfly => main._butterfly;
+
+  /// Which half of 蝶君 is shown.
+  final butterflyTab = ValueNotifier<ButterflyTab>(ButterflyTab.work);
+
+  /// Bumped when 蝶君's outbox changes (after each of its runs).
+  final outboxRevision = ValueNotifier<int>(0);
+
+  /// Shows 蝶君 (optionally one half) and returns its controller.
+  Future<AgentController?> openButterfly({ButterflyTab? tab}) async {
+    final m = main;
+    m.showSection(AppSection.butterfly);
+    if (tab != null) m.butterflyTab.value = tab;
+    return m.ensureButterfly();
+  }
+
+  /// Creates 蝶君's controller on first use (its sandbox must be set up).
+  Future<AgentController?> ensureButterfly() async {
+    final m = main;
+    final existing = m._butterfly;
+    if (existing != null) return existing;
+    final home = butterflyHome;
+    if (home == null) return null;
+    final controller = AgentController(
+      preferences: preferences,
+      backend: backend,
+      sessionStore: sessionStore,
+      idleGrace: idleGrace,
+      maxProcesses: maxProcesses,
+      clock: _clock,
+      sandbox: true,
+      parentController: m,
+    );
+    m._butterfly = controller;
+    // Called from a page's initState too: tell listeners only once it has started.
+    await controller._initShared(home);
+    // The rail shows when 蝶君 is working: only that change reaches the window
+    // (not every streamed token), and after the frame, as it may come during a build.
+    var busy = false;
+    controller.addListener(() {
+      final now = controller.isRunning || controller.backgroundRunning > 0;
+      if (now == busy) return;
+      busy = now;
+      scheduleMicrotask(m._notify);
+    });
+    m._notify();
+    return controller;
+  }
+
+  /// 蝶君's start: the main controller is connected already.
+  Future<void> _initShared(String home) async {
+    final parent = parentController!;
+    workspace = home;
+    coreInfo = parent.coreInfo;
+    coreSettings = parent.coreSettings;
+    gatewayChannels = parent.gatewayChannels;
+    modelGroups = parent.modelGroups;
+    _backendEvents = backend.events.listen(_onBackendEvent);
+    // Idle sessions are let go of by the main controller's timer.
+    await _attachLiveSlots(coreInfo);
+    final blank = _runtimes.where((r) => r.isPristine && !r.incognito).firstOrNull;
+    await _activate(blank ?? await _spawn());
+    unawaited(refreshSessions());
+  }
+
+  /// The main controller reconnected to a (possibly new) core.
+  Future<void> _reattach(Json hello) async {
+    coreInfo = hello;
+    coreSettings = asJsonMap(hello['settings']);
+    for (final runtime in List.of(_runtimes)) {
+      if (runtime.status == ConnectionStatus.crashed || !runtime.isReady) await runtime.restart();
+    }
+    await _attachLiveSlots(hello);
+    _notify();
+  }
+
+  /// Shows this controller's conversation: the workbench, or 蝶君's 交流.
+  void _showChat() {
+    if (sandbox) {
+      main.showSection(AppSection.butterfly);
+      main.butterflyTab.value = ButterflyTab.talk;
+    } else {
+      showSection(AppSection.chat);
+    }
+  }
+
+  /// Hands a note to 蝶君: materials are copied into its inbox and the task runs in a new 蝶君 session.
+  Future<void> handOffNote(String noteId, {String? title}) async {
+    if (!sandbox) {
+      final butterfly = await ensureButterfly();
+      return butterfly?.handOffNote(noteId, title: title);
+    }
+    Json created;
+    try {
+      created = asJsonMap(await backend.call('butterfly.handOff', {'noteId': noteId}, const Duration(minutes: 5)));
+    } catch (e) {
+      _toast('交给蝶君失败：${SessionRuntime.describeError(e)}');
+      return;
+    }
+    await _runTask(created, title: title);
   }
 
   // --- The active session, as the chat view sees it -------------------------
@@ -327,7 +458,10 @@ class AgentController extends ChangeNotifier {
     await Directory(workspace).create(recursive: true);
     await preferences.setWorkspace(workspace);
     _backendEvents = backend.events.listen(_onBackendEvent);
-    _reaper = Timer.periodic(const Duration(seconds: 30), (_) => reapIdle());
+    _reaper = Timer.periodic(const Duration(seconds: 30), (_) {
+      reapIdle();
+      _butterfly?.reapIdle();
+    });
     final hello = await _connect();
     if (hello == null) return;
     await _attachLiveSlots(hello);
@@ -386,6 +520,8 @@ class AgentController extends ChangeNotifier {
       final slotId = info['slotId'] as String?;
       final cwd = info['cwd'] as String?;
       if (slotId == null || cwd == null || info['unattended'] == true) continue;
+      // 蝶君's sessions belong to its controller, the rest to the workbench.
+      if ((info['sandbox'] == true) != sandbox) continue;
       if (_runtimes.any((r) => r.slotId == slotId)) continue;
       final runtime = _newRuntime(cwd, incognito: info['incognito'] == true);
       await runtime.start(attachSlotId: slotId);
@@ -406,6 +542,7 @@ class AgentController extends ChangeNotifier {
           if (runtime.status == ConnectionStatus.crashed || !runtime.isReady) await runtime.restart();
         }
         await _attachLiveSlots(hello);
+        await _butterfly?._reattach(hello);
         break;
       }
       await Future<void>.delayed(Duration(seconds: attempt.clamp(1, 10)));
@@ -414,8 +551,19 @@ class AgentController extends ChangeNotifier {
     _notify();
   }
 
+  /// Events only the main controller acts on (toasts, badges, the sandbox panel), so 蝶君's does not repeat them.
+  static const _mainOnlyEvents = {
+    'memory.changed', 'proposals.changed', 'skills.changed', 'templates.changed', 'schedules.delivered', //
+    'gateway.switched', 'gateway.alert', 'vision.missing', 'notices.changed', 'sandbox.changed', 'butterfly.outbox',
+  };
+
   void _onBackendEvent(Json message) {
+    if (sandbox && _mainOnlyEvents.contains(message['event'])) return;
     switch (message['event']) {
+      case 'butterfly.outbox':
+        outboxRevision.value++;
+        final fresh = (message['fresh'] as List?)?.whereType<String>().toList() ?? const [];
+        if (fresh.isNotEmpty) _toast('蝶君交付了：${fresh.take(3).join('、')}${fresh.length > 3 ? ' 等 ${fresh.length} 个文件' : ''}。在「蝶君 › 工作」里查看。');
       case 'settings.changed':
         coreSettings = asJsonMap(message['settings']);
         _notify();
@@ -496,6 +644,7 @@ class AgentController extends ChangeNotifier {
 
   /// Counts for the navigation badges.
   Future<void> refreshPendingCounts() async {
+    if (sandbox) return; // the badges are the main controller's
     try {
       final memories = await backend.call('memory.list', {'status': 'candidate'});
       final proposals = await backend.call('proposals.list', {'status': 'pending'});
@@ -546,9 +695,14 @@ class AgentController extends ChangeNotifier {
       _toast('创建任务失败：${SessionRuntime.describeError(e)}');
       return;
     }
+    await _runTask(created, title: title, goal: goal);
+  }
+
+  /// Runs a task the core created ({task, prompt}) in a fresh session of this controller.
+  Future<void> _runTask(Json created, {String? title, String goal = ''}) async {
     final taskId = asJsonMap(created['task'])['id'] as String?;
     final prompt = created['prompt'] as String? ?? goal;
-    showSection(AppSection.chat);
+    _showChat();
     await newSession();
     final runtime = _active;
     if (runtime == null || !runtime.isReady) return;
@@ -570,15 +724,25 @@ class AgentController extends ChangeNotifier {
       _toast('这个任务还没有会话记录，或者会话已经被删除。');
       return;
     }
-    showSection(AppSection.chat);
-    if (!SessionStore.samePath(task.cwd, workspace) && Directory(task.cwd).existsSync()) await setWorkspace(task.cwd);
+    // Each side opens its own sessions.
+    final owner = await _ownerOf(task.cwd);
+    if (owner == null) return;
+    if (owner != this) return owner.openTask(task);
+    _showChat();
+    if (!sandbox && !SessionStore.samePath(task.cwd, workspace) && Directory(task.cwd).existsSync()) await setWorkspace(task.cwd);
     await openSession(file);
   }
+
+  /// The controller whose sessions run in [cwd]: 蝶君's for its home, the workbench's otherwise.
+  Future<AgentController?> _ownerOf(String? cwd) async => isButterflyCwd(cwd) ? (sandbox ? this : await ensureButterfly()) : main;
 
   /// Opens [sessionFile] (when given) and puts a "keep working on this"
   /// request into the composer, for the user to complete and send.
   Future<void> continueWork({String? sessionFile, String? cwd, required String text}) async {
-    showSection(AppSection.chat);
+    final owner = await _ownerOf(cwd ?? workspace);
+    if (owner == null) return;
+    if (owner != this) return owner.continueWork(sessionFile: sessionFile, cwd: cwd, text: text);
+    _showChat();
     if (cwd != null && !SessionStore.samePath(cwd, workspace) && Directory(cwd).existsSync()) await setWorkspace(cwd);
     if (sessionFile != null && File(sessionFile).existsSync()) {
       await openSession(sessionFile);
@@ -708,6 +872,7 @@ class AgentController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _butterfly?.dispose();
     _reaper?.cancel();
     _backendEvents?.cancel();
     for (final runtime in _runtimes) {
@@ -725,6 +890,7 @@ class AgentController extends ChangeNotifier {
       workspace: cwd,
       incognito: incognito,
       requestedAgentMode: agentMode,
+      sandbox: sandbox,
       launch: backend.launch,
       onToast: _toast,
       onSettled: _onRuntimeSettled,
@@ -862,7 +1028,7 @@ class AgentController extends ChangeNotifier {
   }
 
   Future<void> setWorkspace(String directory) async {
-    if (SessionStore.samePath(directory, workspace)) return;
+    if (sandbox || SessionStore.samePath(directory, workspace)) return; // 蝶君 always works in its home
     workspace = directory;
     await preferences.setWorkspace(directory);
     _diskSessions = const [];
@@ -897,9 +1063,15 @@ class AgentController extends ChangeNotifier {
 
   /// Reconnects to the core if needed and reopens the active session.
   Future<void> restart() async {
+    final parent = parentController;
+    if (parent != null && !backend.isConnected) {
+      await parent.restart(); // reconnects, and reattaches 蝶君's sessions
+      return;
+    }
     if (!backend.isConnected) {
       final hello = await _connect();
       if (hello == null) return;
+      await _butterfly?._reattach(hello);
     }
     final active = _active;
     if (active == null) {
@@ -934,13 +1106,16 @@ class AgentController extends ChangeNotifier {
         _diskSessions = const [];
       }
     }
-    try {
-      final seen = <String>{};
-      recentWorkspaces = [
-        for (final w in [...preferences.recentWorkspaces, ...await sessionStore.workspaces()])
-          if (seen.add(_key(w)) && Directory(w).existsSync()) w,
-      ].take(Preferences.maxRecentWorkspaces).toList();
-    } catch (_) {}
+    if (!sandbox) {
+      try {
+        final seen = <String>{};
+        recentWorkspaces = [
+          // 蝶君's home has sessions too, but it is not a workspace.
+          for (final w in [...preferences.recentWorkspaces, ...await sessionStore.workspaces()])
+            if (seen.add(_key(w)) && !isButterflyCwd(w) && Directory(w).existsSync()) w,
+        ].take(Preferences.maxRecentWorkspaces).toList();
+      } catch (_) {}
+    }
     _notify();
   }
 
@@ -979,6 +1154,13 @@ class AgentController extends ChangeNotifier {
   /// Opens a search hit, switching workspace when it belongs to another one.
   Future<void> openSearchHit(SearchHit hit) async {
     final cwd = hit.cwd;
+    final owner = await _ownerOf(cwd ?? workspace);
+    if (owner == null) return;
+    if (owner != this) {
+      owner._showChat();
+      return owner.openSearchHit(hit);
+    }
+    if (sandbox) return openSession(hit.path);
     if (cwd != null && !SessionStore.samePath(cwd, workspace) && Directory(cwd).existsSync()) await setWorkspace(cwd);
     await openSession(hit.path);
   }
@@ -1053,13 +1235,16 @@ class AgentController extends ChangeNotifier {
   /// Reopens the session of an interrupted run and asks the agent to go on.
   Future<void> resumeInterrupted(InterruptedRun run) async {
     await dismissInterrupted(run);
-    showSection(AppSection.chat);
+    final owner = await _ownerOf(run.cwd);
+    if (owner == null) return;
+    if (owner != this) return owner.resumeInterrupted(run);
+    _showChat();
     final file = run.sessionFile;
     if (file == null || !File(file).existsSync()) {
       _toast('这个任务的会话文件已经不在了。');
       return;
     }
-    if (!SessionStore.samePath(run.cwd, workspace) && Directory(run.cwd).existsSync()) await setWorkspace(run.cwd);
+    if (!sandbox && !SessionStore.samePath(run.cwd, workspace) && Directory(run.cwd).existsSync()) await setWorkspace(run.cwd);
     await openSession(file);
     await _active?.send('上次运行被中断了（后台重启或电脑关机）。请检查已经完成到哪一步，然后继续完成剩下的部分。');
   }
@@ -1273,6 +1458,8 @@ class AgentController extends ChangeNotifier {
   }
 
   void _toast(String message) {
+    final parent = parentController;
+    if (parent != null) return parent._toast(message);
     if (!_toasts.isClosed) _toasts.add(message);
   }
 

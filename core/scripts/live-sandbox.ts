@@ -3,7 +3,8 @@
  * separate distro (DFSandboxLiveCheck, in a temp folder), boots it, runs the
  * escape self-test, goes offline and back, resets it, and removes it again.
  *   node --disable-warning=ExperimentalWarning scripts/live-sandbox.ts [--keep]
- * Takes about 5 minutes (download + apt). --keep leaves the distro registered.
+ * Uses the image in core/sandbox-image/ (scripts/build-sandbox-image.ts): about 2 minutes;
+ * without one it builds the image online first (10–20 minutes). --keep leaves the distro registered.
  */
 import { mkdtempSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -60,6 +61,10 @@ try {
 
 	const tools = await agent("python3 -c 'import pandas, matplotlib; print(\"py\")'; rg --version | head -1; fd --version");
 	expect(tools.stdout.includes("py") && tools.stdout.includes("ripgrep") && tools.stdout.includes("fd"), `tools: ${tools.stdout.trim().replaceAll("\n", " | ")}`);
+
+	const debian = await agent(`grep -h '^VERSION_ID' /etc/os-release; python3 -c "from matplotlib import font_manager as f; print(f.findfont('WenQuanYi Micro Hei', fallback_to_default=False))"`);
+	expect(debian.stdout.includes('VERSION_ID="13"'), `Debian 13: ${debian.stdout.split("\n")[0]}`);
+	expect(/wqy/i.test(debian.stdout), `charts find the Chinese font: ${debian.stdout.split("\n")[1] ?? debian.stderr.trim()}`);
 
 	const online = await agent("curl -s -m 8 -o /dev/null -w '%{http_code}' http://mirrors.aliyun.com/");
 	expect(/^[23]\d\d$/.test(online.stdout.trim()), `online: ${online.stdout.trim()}`);

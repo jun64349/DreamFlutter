@@ -175,7 +175,8 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			})(),
 		});
 		// dsh compositions own the tool catalog: no code mode, and the minimal mode no MCP either.
-		const builtIns = mode === "minimal" ? [] : builtInExtensions().filter((e) => e.name === "mcp" || e.name === "tool-search");
+		// 蝶君 has no MCP: its servers run on this machine, outside the sandbox.
+		const builtIns = mode === "minimal" ? [] : builtInExtensions().filter((e) => (e.name === "mcp" && !sandbox) || e.name === "tool-search");
 		services = await createAgentSessionServices({
 			cwd,
 			agentDir,

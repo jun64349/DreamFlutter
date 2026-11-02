@@ -99,7 +99,8 @@ class _RunPanelState extends State<RunPanel> {
               child: Row(
                 children: [
                   _TabButton(label: '本次运行', selected: _tab == 0, onTap: () => setState(() => _tab = 0), dot: running),
-                  _TabButton(label: '书桌', selected: _tab == 1, onTap: () => setState(() => _tab = 1)),
+                  // The desk is 蝶君's 「工作」 now: only its conversations get the tab.
+                  if (agent.sandbox) _TabButton(label: '写笺', selected: _tab == 1, onTap: () => setState(() => _tab = 1)),
                   _TabButton(label: '分支', selected: _tab == 2, onTap: () => setState(() => _tab = 2)),
                   const Spacer(),
                   IconButton(tooltip: '收起右栏', onPressed: widget.onClose, icon: const Icon(Icons.close, size: 18)),
@@ -108,7 +109,7 @@ class _RunPanelState extends State<RunPanel> {
             ),
           ),
           Divider(height: 0.5, color: colors.border),
-          if (_tab == 1)
+          if (_tab == 1 && agent.sandbox)
             const Expanded(child: _DeskTab())
           else if (_tab == 2)
             const Expanded(child: _BranchTab())
@@ -333,7 +334,8 @@ class _DeskTabState extends State<_DeskTab> {
       if (!mounted) return;
       setState(() {
         _notes = jsonRows(desk['notes']).map(NoteInfo.fromJson).toList();
-        _materials = jsonRows(desk['materials']).map(MaterialInfo.fromJson).toList();
+        // 蝶君 cannot open this machine's paths: only pasted text can be attached here.
+        _materials = jsonRows(desk['materials']).map(MaterialInfo.fromJson).where((m) => m.kind == 'text').toList();
       });
     } catch (_) {
       if (mounted) setState(() => _notes = const []);
@@ -380,12 +382,12 @@ class _DeskTabState extends State<_DeskTab> {
         if (notes.isEmpty && _materials.isEmpty)
           Padding(
             padding: const EdgeInsets.all(6),
-            child: Text('这个工作区的书桌还是空的。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+            child: Text('「工作」里还没有写笺和资料。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
           ),
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerLeft,
-          child: TextButton.icon(onPressed: () => _agent.showSection(AppSection.desk), icon: const Icon(Icons.edit_note, size: 16), label: const Text('去书桌')),
+          child: TextButton.icon(onPressed: () => _agent.openButterfly(tab: ButterflyTab.work), icon: const Icon(Icons.edit_note, size: 16), label: const Text('去「工作」')),
         ),
       ],
     );

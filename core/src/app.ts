@@ -2,6 +2,7 @@ import { CardsModule } from "./cards/cards.ts";
 import { Core, type CoreOptions } from "./core.ts";
 import { Gateway } from "./gateway/gateway.ts";
 import { AutoTitle } from "./modules/auto-title.ts";
+import { ButterflyModule } from "./modules/butterfly.ts";
 import { DocumentsModule } from "./modules/documents.ts";
 import { Llm } from "./modules/llm.ts";
 import { McpModule } from "./modules/mcp.ts";
@@ -31,6 +32,7 @@ export function buildCore(options: CoreOptions): Core {
 	const tasks = new TasksModule(core);
 	core.use(tasks);
 	core.use(new SchedulerModule(core, tasks));
+	core.use(new ButterflyModule(core, tasks));
 	core.use(new VisionModule(core, llm));
 	core.use(new DocumentsModule(core));
 	core.use(new CardsModule(core));

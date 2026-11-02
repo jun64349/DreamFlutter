@@ -417,4 +417,12 @@ export const MIGRATIONS: string[] = [
 		created_at INTEGER NOT NULL
 	);
 	`,
+	// 8: one-off data moves done by modules (the desk moving to 蝶君).
+	`
+	CREATE TABLE app_flags (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		at INTEGER NOT NULL
+	);
+	`,
 ];

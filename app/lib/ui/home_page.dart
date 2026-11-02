@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'butterfly_page.dart';
 import 'chat_view.dart';
-import 'desk_page.dart';
 import 'extension_dialogs.dart';
 import 'library_page.dart';
 import 'memory_page.dart';
@@ -72,7 +72,7 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                   // Built on first visit, so their data loads when opened.
-                  _visited.contains(AppSection.desk) ? const DeskPage() : const SizedBox(),
+                  _visited.contains(AppSection.butterfly) ? const ButterflyPage() : const SizedBox(),
                   _visited.contains(AppSection.tasks) ? const TasksPage() : const SizedBox(),
                   _visited.contains(AppSection.memory) ? const MemoryPage() : const SizedBox(),
                   _visited.contains(AppSection.library) ? const LibraryPage() : const SizedBox(),
@@ -86,7 +86,7 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/// The far-left navigation: the butterfly, the five places, and below them
+/// The far-left navigation: the butterfly, the five places (工作台, 蝶君, tasks, memory, skills), and below them
 /// the dashboard, appearance and settings.
 class _NavRail extends StatelessWidget {
   const _NavRail();
@@ -116,8 +116,15 @@ class _NavRail extends StatelessWidget {
         children: [
           const Tooltip(message: 'DreamFlutter · 梦蝶', child: ButterflyMark(size: 36, semanticLabel: 'DreamFlutter')),
           const SizedBox(height: 18),
-          item(AppSection.chat, Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded, '对话', dot: agent.backgroundRunning > 0 && agent.section != AppSection.chat),
-          item(AppSection.desk, Icons.edit_note_outlined, Icons.edit_note, '书桌'),
+          // Working names (roadmap 3.5); the final ones are settled in 0.4.
+          item(AppSection.chat, Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded, '工作台', dot: agent.backgroundRunning > 0 && agent.section != AppSection.chat),
+          item(
+            AppSection.butterfly,
+            Icons.filter_vintage_outlined,
+            Icons.filter_vintage,
+            '蝶君',
+            dot: (agent.butterfly?.backgroundRunning ?? 0) + ((agent.butterfly?.isRunning ?? false) ? 1 : 0) > 0 && agent.section != AppSection.butterfly,
+          ),
           item(AppSection.tasks, Icons.task_alt_outlined, Icons.task_alt, '任务', badge: agent.pendingInbox),
           item(AppSection.memory, Icons.lightbulb_outline, Icons.lightbulb, '记忆', badge: agent.pendingMemories),
           item(AppSection.library, Icons.auto_stories_outlined, Icons.auto_stories, '技能', badge: agent.pendingProposals),

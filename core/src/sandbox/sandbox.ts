@@ -3,7 +3,7 @@ import { copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
-import { downloadFile, fetchText } from "./download.ts";
+import { buildImage, bundledImage, IMAGE_FILE, verifyImage } from "./image.ts";
 
 /**
  * 蝶君's sandbox: a WSL2 distro of its own (roadmap 3.3, docs/v0.3-design.md).
@@ -17,7 +17,10 @@ import { downloadFile, fetchText } from "./download.ts";
  *   card off cuts all of them, so going offline drops only the agent user's
  *   traffic (nftables, by uid), which it cannot undo;
  * - /mnt/wsl (shared between distros) and /mnt/wslg (the GUI bridge) are
- *   unmounted by root at every start.
+ *   unmounted by root at every start; WSL links /etc/resolv.conf to
+ *   /mnt/wsl/resolv.conf again at every launch (checked 2026-11-02: a copy in
+ *   /etc was gone at the next wsl.exe call, which cut the agent's DNS), so a
+ *   private tmpfs with only resolv.conf takes /mnt/wsl's place.
  */
 
 export const SANDBOX_DISTRO = "DreamFlutterSandbox";
@@ -35,19 +38,14 @@ export interface Mirror {
 	apt: string;
 }
 
-/** Tried in order; the first that answers wins. Direct connections, no proxy. */
+/** Ubuntu Base for the throwaway builder of the sandbox image (image.ts). Direct connections, no proxy; the fastest wins. */
 export const MIRRORS: Mirror[] = [
+	// 7 MB/s from this machine on 2026-11-02, when Aliyun gave 0.23 MB/s; the builder takes the fastest.
+	{ id: "huawei", name: "华为云", image: `https://mirrors.huaweicloud.com/ubuntu-cdimage/ubuntu-base/releases/${BASE_RELEASE}/release/`, apt: "http://mirrors.huaweicloud.com/ubuntu/" },
 	{ id: "aliyun", name: "阿里云", image: `https://mirrors.aliyun.com/ubuntu-cdimage/ubuntu-base/releases/${BASE_RELEASE}/release/`, apt: "http://mirrors.aliyun.com/ubuntu/" },
 	{ id: "tuna", name: "清华", image: `https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/${BASE_RELEASE}/release/`, apt: "http://mirrors.tuna.tsinghua.edu.cn/ubuntu/" },
 	{ id: "ustc", name: "中科大", image: `https://mirrors.ustc.edu.cn/ubuntu-cdimage/ubuntu-base/releases/${BASE_RELEASE}/release/`, apt: "http://mirrors.ustc.edu.cn/ubuntu/" },
 	{ id: "ubuntu", name: "Ubuntu 官方", image: `https://cdimage.ubuntu.com/ubuntu-base/releases/${BASE_RELEASE}/release/`, apt: "http://archive.ubuntu.com/ubuntu/" },
-];
-const OFFICIAL_SUMS = `https://cdimage.ubuntu.com/ubuntu-base/releases/${BASE_RELEASE}/release/SHA256SUMS`;
-
-/** Packages the sandbox starts with (apt, so no pip builds on first use). */
-export const SANDBOX_PACKAGES = [
-	"ca-certificates", "curl", "git", "jq", "ripgrep", "fd-find", "unzip", "zip", "less", "file", "procps", "nftables",
-	"python3", "python3-venv", "python3-pip", "python3-numpy", "python3-pandas", "python3-matplotlib", "python3-openpyxl",
 ];
 
 export type SandboxState = "no-wsl" | "absent" | "provisioning" | "ready" | "error";
@@ -63,6 +61,8 @@ export interface SandboxStatus {
 	diskBytes: number | null;
 	distro: string;
 	mirror: string | null;
+	/** The app ships the sandbox image: setting up needs no download. */
+	bundled: boolean;
 }
 
 export interface WslResult {
@@ -96,50 +96,16 @@ export const runWsl: WslRunner = (args, options = {}) =>
 		else child.stdin.end();
 	});
 
-/** The script that turns Ubuntu Base into the sandbox (root, once). */
-export function setupScript(mirror: Mirror): string {
-	return `set -e
-cat > /etc/wsl.conf <<'CONF'
-[automount]
-enabled = false
-mountFsTab = false
-
-[interop]
-enabled = false
-appendWindowsPath = false
-
-[network]
-generateHosts = true
-generateResolvConf = true
-hostname = dreamflutter-sandbox
-
-[user]
-default = agent
-
-[boot]
-systemd = false
-CONF
-cat > /etc/apt/sources.list.d/ubuntu.sources <<'SRC'
-Types: deb
-URIs: ${mirror.apt}
-Suites: noble noble-updates noble-security
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-SRC
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -y -q --no-install-recommends ${SANDBOX_PACKAGES.join(" ")}
-ln -sf /usr/bin/fdfind /usr/local/bin/fd
-apt-get clean
-rm -rf /var/lib/apt/lists/*
-# The agent: an ordinary user, no sudo (none is installed), root locked.
-id agent >/dev/null 2>&1 || useradd --create-home --uid ${AGENT_UID} --user-group --shell /bin/bash agent
-passwd -l root >/dev/null
-mkdir -p ${SANDBOX_WORKSPACE}/inbox ${SANDBOX_WORKSPACE}/scratch ${SANDBOX_WORKSPACE}/outbox
-chown -R agent:agent ${SANDBOX_WORKSPACE}
-echo SETUP_OK
+/** Run as root after importing the image: is it the sandbox it should be? */
+export const CHECK_SCRIPT = `set -e
+id -u agent | grep -qx ${AGENT_UID}
+grep -q "default = agent" /etc/wsl.conf
+grep -q "enabled = false" /etc/wsl.conf
+test -d ${SANDBOX_WORKSPACE}/outbox
+for tool in python3 rg fd nft curl git; do command -v $tool >/dev/null; done
+if command -v sudo >/dev/null; then echo "sudo is installed" >&2; exit 1; fi
+echo CHECK_OK
 `;
-}
 
 /** Run as root at every start: cut the shared mounts, set the agent's network rules, check no drive is mounted. */
 export function bootScript(online: boolean): string {
@@ -152,12 +118,20 @@ export function bootScript(online: boolean): string {
     ${uid} ip6 daddr { fc00::/7, fe80::/10 } drop`
 		: `${uid} oifname "lo" accept
     ${uid} drop`;
-	// WSL keeps the DNS settings in /mnt/wsl and links /etc/resolv.conf there: keep a real copy before cutting /mnt/wsl.
-	return `if [ -s /mnt/wsl/resolv.conf ]; then cat /mnt/wsl/resolv.conf > /tmp/df-resolv && rm -f /etc/resolv.conf && cat /tmp/df-resolv > /etc/resolv.conf && rm -f /tmp/df-resolv; fi
+	// WSL keeps the DNS settings in /mnt/wsl (shared between distros) and links
+	// /etc/resolv.conf there again at every launch, so a copy in /etc is lost at
+	// the next command. Instead /mnt/wsl becomes a private tmpfs (source
+	// "dfresolv") holding only resolv.conf, writable by root alone.
+	return `if [ -s /mnt/wsl/resolv.conf ]; then cat /mnt/wsl/resolv.conf > /tmp/df-resolv; fi
 umount -l /mnt/wslg 2>/dev/null || true
-umount -l /mnt/wsl 2>/dev/null || true
+if ! grep -q '^dfresolv /mnt/wsl ' /proc/mounts; then
+  umount -l /mnt/wsl 2>/dev/null || true
+  mkdir -p /mnt/wsl && mount -t tmpfs -o size=64k,mode=755 dfresolv /mnt/wsl
+fi
+if [ -s /tmp/df-resolv ]; then cat /tmp/df-resolv > /mnt/wsl/resolv.conf; rm -f /tmp/df-resolv; fi
+ln -sfn /mnt/wsl/resolv.conf /etc/resolv.conf
 rm -rf /tmp/.X11-unix 2>/dev/null || true
-NS=$(awk '/^nameserver/ {print $2; exit}' /etc/resolv.conf)
+NS=$(awk '/^nameserver/ {print $2; exit}' /mnt/wsl/resolv.conf 2>/dev/null)
 NS=\${NS:-127.0.0.53}
 nft delete table inet dreamflutter 2>/dev/null || true
 nft -f - <<EOF
@@ -182,7 +156,8 @@ check no-sudo '! command -v sudo'
 check no-su-root '! su -c true root </dev/null'
 check wsl-conf-locked '! sh -c "echo x >> /etc/wsl.conf"'
 check interop-locked '! sh -c "echo :x:M::MZ::/init:PF > /proc/sys/fs/binfmt_misc/register"'
-check no-shared-mounts '! grep -qE " /mnt/(wsl|wslg)( |/)" /proc/mounts'
+check no-shared-mounts '! grep -E " /mnt/(wsl|wslg)( |/)" /proc/mounts | grep -qv "^dfresolv /mnt/wsl "'
+check dns-locked '! sh -c "echo nameserver 1.1.1.1 > /mnt/wsl/resolv.conf"'
 check firewall-locked '! nft flush ruleset'
 if [ -x /tmp/df-probe.exe ]; then
   out=$(timeout 20 /tmp/df-probe.exe 2>/dev/null)
@@ -223,7 +198,10 @@ export interface SandboxOptions {
 	/** Folder holding the disk, the clean copy and downloads (default <data>/sandbox). */
 	dir?: string;
 	wsl?: WslRunner;
+	/** Ubuntu mirrors for building the image when none is shipped. */
 	mirrors?: Mirror[];
+	/** The sandbox image; null = none shipped (build it). Default: the one shipped with the app. */
+	image?: string | null;
 }
 
 export class Sandbox implements CoreModule {
@@ -232,6 +210,7 @@ export class Sandbox implements CoreModule {
 	private readonly core: Core;
 	private readonly wsl: WslRunner;
 	private readonly mirrors: Mirror[];
+	private readonly image: string | undefined;
 	private state: SandboxState | null = null;
 	private step: string | null = null;
 	private progress: number | null = null;
@@ -246,6 +225,7 @@ export class Sandbox implements CoreModule {
 		this.dir = options.dir ?? join(core.paths.dataDir, "sandbox");
 		this.wsl = options.wsl ?? runWsl;
 		this.mirrors = options.mirrors ?? MIRRORS;
+		this.image = options.image === undefined ? bundledImage() : (options.image ?? undefined);
 		core.sandboxProvider = () => (existsSync(this.cleanPath) ? { distro: this.distro, ready: () => this.prepare() } : undefined);
 		core.register("sandbox.status", () => this.status());
 		core.register("sandbox.provision", () => {
@@ -324,6 +304,7 @@ export class Sandbox implements CoreModule {
 			diskBytes,
 			distro: this.distro,
 			mirror: this.mirror,
+			bundled: this.image !== undefined,
 		};
 	}
 
@@ -338,6 +319,7 @@ export class Sandbox implements CoreModule {
 	private async doProvision(): Promise<void> {
 		this.state = "provisioning";
 		this.error = null;
+		let built: string | undefined;
 		try {
 			this.setStep("检查 WSL");
 			if (!(await this.wslAvailable())) throw new Error("没有找到 WSL 2。请先安装 WSL（设置 › 蝶君沙箱里有步骤）。");
@@ -347,42 +329,30 @@ export class Sandbox implements CoreModule {
 			}
 			await mkdir(this.dir, { recursive: true });
 
-			this.setStep("寻找可用的下载源");
-			const { mirror, file, hash } = await this.pickMirror();
-			this.mirror = mirror.name;
-			const tarball = join(this.dir, file);
-			let ok = existsSync(tarball) && (await sha256(tarball)) === hash;
-			if (!ok) {
-				this.setStep(`下载系统镜像（${mirror.name}）`, 0);
-				let shown = 0;
-				const got = await downloadFile(`${mirror.image}${file}`, tarball, (received, total) => {
-					if (total <= 0) return;
-					this.progress = received / total;
-					// The window hears about every 5%.
-					if (this.progress - shown >= 0.05) {
-						shown = this.progress;
-						this.changed();
-					}
-				});
-				if (got !== hash) {
-					await rm(tarball, { force: true });
-					throw new Error("下载的系统镜像校验不通过，已删除。请稍后重试。");
-				}
-				ok = true;
+			// The image shipped with the app; without one (a development checkout), build it here.
+			let image = this.image;
+			if (image) {
+				this.setStep("检查沙箱镜像");
+				await verifyImage(image);
+				this.mirror = "随应用附带";
+			} else {
+				built = join(this.dir, IMAGE_FILE);
+				this.mirror = "在线构建";
+				await buildImage({ out: built, workDir: join(this.dir, "build"), wsl: this.wsl, ubuntuMirrors: this.mirrors, onStep: (step, progress) => this.setStep(step, progress ?? null) });
+				image = built;
 			}
 
 			this.setStep("导入沙箱");
-			const imported = await this.wsl(["--import", this.distro, join(this.dir, "disk"), tarball, "--version", "2"], { timeoutMs: 300_000 });
+			const imported = await this.wsl(["--import", this.distro, join(this.dir, "disk"), image, "--version", "2"], { timeoutMs: 600_000 });
 			if (imported.code !== 0) throw new Error(`导入失败：${imported.stderr.trim() || imported.stdout.trim()}`);
 
-			this.setStep(`安装 Python 和常用工具（${mirror.name}，约 3–5 分钟）`);
-			const setup = await this.wsl(["-d", this.distro, "-u", "root", "--", "sh", "-s"], { input: setupScript(mirror), timeoutMs: 1_200_000 });
-			if (!setup.stdout.includes("SETUP_OK")) throw new Error(`安装工具失败：${(setup.stderr || setup.stdout).trim().split("\n").slice(-5).join("\n")}`);
+			this.setStep("检查沙箱");
+			const check = await this.wsl(["-d", this.distro, "-u", "root", "--", "sh", "-s"], { input: CHECK_SCRIPT, timeoutMs: 120_000 });
+			if (!check.stdout.includes("CHECK_OK")) throw new Error(`沙箱镜像不完整：${(check.stderr || check.stdout).trim().split("\n").slice(-5).join("\n")}`);
 
 			this.setStep("保存干净的快照");
 			await this.wsl(["--terminate", this.distro], { timeoutMs: 60_000 });
 			await copyFile(this.diskPath, this.cleanPath);
-			await rm(tarball, { force: true });
 			this.booted = false;
 			this.state = "ready";
 			this.setStep(null);
@@ -391,25 +361,11 @@ export class Sandbox implements CoreModule {
 			this.error = error instanceof Error ? error.message : String(error);
 			this.setStep(null);
 			throw error;
+		} finally {
+			// An image built here is only needed for the import: the clean snapshot is what resets use.
+			if (built) await rm(built, { force: true }).catch(() => {});
+			await rm(join(this.dir, "build"), { recursive: true, force: true }).catch(() => {});
 		}
-	}
-
-	private async pickMirror(): Promise<{ mirror: Mirror; file: string; hash: string }> {
-		let official: string | undefined;
-		try {
-			official = await fetchText(OFFICIAL_SUMS, 8_000);
-		} catch {}
-		for (const mirror of this.mirrors) {
-			try {
-				const sums = official ?? (await fetchText(`${mirror.image}SHA256SUMS`, 8_000));
-				const newest = newestBase(sums);
-				if (!newest) continue;
-				// The mirror must actually serve the file the checksums name.
-				await fetchText(`${mirror.image}SHA256SUMS`, 8_000);
-				return { mirror, file: newest[0], hash: newest[1] };
-			} catch {}
-		}
-		throw new Error("所有下载源都连不上。请检查网络后重试。");
 	}
 
 	/** Prepares a started sandbox: shared mounts gone, the agent's network rules in place, no drive mounted. */
@@ -474,9 +430,4 @@ export class Sandbox implements CoreModule {
 		if (items.length === 0) throw new Error(`自检没有结果：${result.stderr.trim()}`);
 		return items;
 	}
-}
-
-async function sha256(path: string): Promise<string> {
-	const { createHash } = await import("node:crypto");
-	return createHash("sha256").update(await readFile(path)).digest("hex");
 }

@@ -6,6 +6,7 @@ import 'package:dreamflutter/state/preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_backend.dart';
@@ -22,7 +23,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1500, 1000));
     SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path});
     sessions = Directory.systemTemp.createTempSync('df_work_');
-    backend = FakeBackend();
+    backend = FakeBackend()..butterflyHome = p.join(sessions.path, 'butterfly');
     notes = [];
     inbox = [
       {
@@ -49,7 +50,9 @@ void main() {
           {'id': 't1', 'title': '整理周报', 'goal': '整理周报', 'cwd': Directory.systemTemp.path, 'source': 'note', 'status': 'done', 'noteId': 'w1', 'runs': 1, 'durationMs': 65000},
         ],
         'artifacts': [
-          {'id': 'a1', 'path': r'C:\work\report.md', 'taskId': 't1', 'exists': false},
+          {'id': 'a1', 'path': r'\\wsl.localhost\DreamFlutterSandbox\workspace\scratch\report.md', 'taskId': 't1', 'exists': false},
+          // Written on this machine by the v0.2 desk's agent: not 蝶君's.
+          {'id': 'a0', 'path': r'C:\work\old-desk.md', 'taskId': 't0', 'exists': true},
         ],
       },
       'notes.save': (p) {
@@ -63,6 +66,14 @@ void main() {
         'task': {'id': 't2', 'title': p['title'], 'goal': p['goal'], 'cwd': p['cwd'], 'source': p['source'], 'status': 'waiting'},
         'prompt': '${p['goal']}\n<写笺>…</写笺>',
       },
+      'butterfly.handOff': (p) => {
+        'task': {'id': 't3', 'title': '季度复盘', 'goal': '季度复盘', 'cwd': backend.butterflyHome, 'source': 'note', 'status': 'waiting', 'noteId': p['noteId']},
+        'prompt': '用户把下面这份写笺交给你。\n<写笺 标题="季度复盘">…</写笺>\n资料的副本已经放进 inbox：\n- /workspace/inbox/去年数据.md',
+      },
+      'butterfly.outbox': (_) => [
+        {'name': '图/销量.png', 'path': r'\\wsl.localhost\DreamFlutterSandbox\workspace\outbox\图\销量.png', 'size': 2048, 'modifiedAt': 1},
+      ],
+      'sandbox.status': (_) => {'state': 'ready', 'online': true},
       'inbox.list': (_) => inbox,
       'confirm.answer': (p) {
         inbox = inbox.where((i) => i['id'] != p['id']).toList();
@@ -93,38 +104,54 @@ void main() {
     sessions.deleteSync(recursive: true);
   });
 
-  testWidgets('a note handed to the agent becomes a bound task running in the chat', (tester) async {
+  testWidgets('a note handed to 蝶君 runs as a task in a sandbox session of its own', (tester) async {
     await startApp(tester);
-    await tester.tap(find.text('书桌').first); // the rail, not the run panel's tab
+    await tester.tap(find.text('蝶君'));
     await settle(tester);
+    // 「工作」: the old desk, in 蝶君's home, with what it delivered.
     expect(find.text('去年数据'), findsOneWidget);
     expect(find.text('整理周报'), findsOneWidget);
     expect(find.text('report.md'), findsOneWidget);
+    expect(find.text('old-desk.md'), findsNothing);
+    expect(find.text('图/销量.png'), findsOneWidget);
+    expect(backend.callsTo('desk.get').last['cwd'], backend.butterflyHome);
 
     await tester.tap(find.byTooltip('新写笺'));
     await settle(tester);
-    expect(find.text('交给 Agent'), findsOneWidget);
+    expect(find.text('交给蝶君'), findsOneWidget);
     await tester.enterText(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText?.startsWith('用 Markdown') == true), '季度复盘：收入增长 12%');
     await tester.pump(const Duration(seconds: 1));
     await settle(tester);
     expect(backend.callsTo('notes.save').last['content'], '季度复盘：收入增长 12%');
 
-    await tester.tap(find.text('交给 Agent'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('写成报告'));
-    await tester.tap(find.byType(Checkbox));
-    await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, '开始'));
+    // No dialog choosing what to do: straight to 蝶君 (extra feedback 6).
+    await tester.tap(find.text('交给蝶君'));
     await settle(tester);
+    await settle(tester);
+    expect(backend.callsTo('butterfly.handOff').single, {'noteId': 'w1'});
+    expect(backend.callsTo('tasks.create'), isEmpty);
+    expect(agent.section, AppSection.butterfly);
+    expect(agent.butterflyTab.value, ButterflyTab.talk);
+    final pi = backend.pis.lastWhere((p) => p.target.sandbox);
+    expect(pi.target.cwd, backend.butterflyHome);
+    expect(backend.callsTo('tasks.bind').single, {'taskId': 't3', 'slotId': pi.slotId});
+    expect(pi.sent('prompt').single, contains('/workspace/inbox/去年数据.md'));
+    // The workbench never sees 蝶君's session.
+    expect(backend.pis.where((p) => !p.target.sandbox).every((p) => p.sent('prompt').isEmpty), isTrue);
+    expect(agent.sidebar.any((e) => e.path == pi.sessionFile), isFalse);
+    expect(agent.butterfly!.currentSessionPath, pi.sessionFile);
+  });
 
-    final created = backend.callsTo('tasks.create').single;
-    expect(created['source'], 'note');
-    expect(created['noteId'], 'w1');
-    expect(created['materialIds'], ['r1']);
-    expect(created['goal'], contains('报告'));
-    expect(backend.callsTo('tasks.bind').single, {'taskId': 't2', 'slotId': backend.pis.single.slotId});
-    expect(agent.section, AppSection.chat);
-    expect(backend.pis.single.sent('prompt').single, contains('<写笺>'));
+  testWidgets('without a sandbox both halves of 蝶君 wait for it to be set up', (tester) async {
+    await startApp(tester);
+    backend.handlers['sandbox.status'] = (_) => {'state': 'absent', 'online': true};
+    await tester.tap(find.text('蝶君'));
+    await settle(tester);
+    expect(find.text('先给蝶君建一个沙箱'), findsOneWidget);
+    expect(find.text('交流'), findsNothing);
+    expect(find.text('工作'), findsNothing, reason: '「工作」 runs in the sandbox too');
+    expect(find.byTooltip('新写笺'), findsNothing);
+    expect(backend.callsTo('desk.get'), isEmpty);
   });
 
   testWidgets('the inbox answers approvals and limit cards', (tester) async {

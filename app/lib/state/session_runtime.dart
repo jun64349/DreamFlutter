@@ -81,12 +81,16 @@ class SessionRuntime extends ChangeNotifier {
     this.onThinkingChosen,
     this.incognito = false,
     this.requestedAgentMode,
+    this.sandbox = false,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now,
        lastActivity = (clock ?? DateTime.now)();
 
   /// The agent's working directory.
   final String workspace;
+
+  /// A 蝶君 session: its tools run in the WSL sandbox.
+  final bool sandbox;
 
   /// Temporary chat: kept in memory only, never saved, indexed or remembered.
   final bool incognito;
@@ -198,7 +202,7 @@ class SessionRuntime extends ChangeNotifier {
 
     try {
       final launched = launch(
-        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito, agentMode: requestedAgentMode),
+        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito, agentMode: requestedAgentMode, sandbox: sandbox),
       );
       final client = launched.client;
       _launched = launched;

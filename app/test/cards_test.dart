@@ -91,9 +91,27 @@ void main() {
 
     await tester.tap(find.byTooltip('更多'));
     await tester.pumpAndSettle();
-    expect(find.text('收进书桌'), findsOneWidget);
+    // The desk is 蝶君's 「工作」 now: workbench cards are not kept there.
+    expect(find.text('收进「工作」'), findsNothing);
     expect(find.text('导出…'), findsOneWidget);
     expect(find.text('权限'), findsOneWidget);
+    await tester.tapAt(Offset.zero);
+    await tester.pumpAndSettle();
+
+    // In a conversation with 蝶君 they are.
+    final butterfly = AgentController(preferences: agent.preferences, sessionStore: agent.sessionStore, backend: backend, sandbox: true, parentController: agent);
+    addTearDown(butterfly.dispose);
+    await tester.pumpWidget(
+      AgentScope(
+        controller: butterfly,
+        child: MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: SingleChildScrollView(child: CardBlock(run: run)))),
+      ),
+    );
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    expect(find.text('收进「工作」'), findsOneWidget);
   });
 
   test('theme variables are plain values cards can read', () {

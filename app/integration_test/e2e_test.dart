@@ -17,7 +17,6 @@ import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/theme.dart' show AppColors;
 import 'package:dreamflutter/ui/dashboard_page.dart' show DashboardPage;
-import 'package:dreamflutter/ui/desk_page.dart' show DeskPage;
 import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
 import 'package:dreamflutter/ui/memory_page.dart' show MemoryPage;
 import 'package:dreamflutter/ui/motion.dart' show BreathingDot;
@@ -430,7 +429,7 @@ void main() {
     await shot(tester, '20_memory_page');
 
     // 15. Save the request as a task template (drafted by the model), see it on the skills page.
-    await tester.tap(nav('对话'));
+    await tester.tap(nav('工作台'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('更多操作'));
     await tester.pumpAndSettle();
@@ -448,55 +447,23 @@ void main() {
     await waitFor(tester, 'template listed', () => find.descendant(of: find.byType(LibraryPage), matching: find.text('/e2e周报')).evaluate().isNotEmpty, agent);
     await shot(tester, '22_templates');
     await agent.backend.call('templates.remove', {'name': 'e2e周报'});
-    await tester.tap(nav('对话'));
+    await tester.tap(nav('工作台'));
     await tester.pumpAndSettle();
 
-    // 16. Desk: write a note, hand it to the agent with a pasted material; the
-    // task runs in the chat, its file shows up as an artifact on the desk.
-    await tester.tap(nav('书桌'));
-    await waitFor(tester, 'desk', () => find.byTooltip('新写笺').evaluate().isNotEmpty, agent);
-    await agent.backend.call('materials.add', {'cwd': agent.workspace, 'kind': 'text', 'title': '会议纪要', 'content': '周三和设计团队开会，决定下周一上线新版首页。'});
-    await tester.tap(find.byTooltip('新写笺'));
-    await waitFor(tester, 'note editor', () => find.text('交给 Agent').evaluate().isNotEmpty, agent);
-    await tester.enterText(
-      find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText?.startsWith('用 Markdown') == true),
-      '# 上线安排\n根据资料写一份待办清单，保存为 todo.md 文件（用 write 工具），然后用一句话回复。',
-    );
-    await idle(tester, const Duration(seconds: 1));
-    await tester.tap(find.text('交给 Agent'));
+    // 16. 蝶君: the test's core has no sandbox (setting one up takes minutes), so
+    // both halves wait for it; the hand-off is covered by core/test/butterfly.test.ts
+    // and, in a real sandbox, by core/test/sandbox-live.test.ts.
+    await tester.tap(nav('蝶君'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('自己写要求'));
-    await tester.pump();
-    await tester.enterText(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '写下你的要求'), '按写笺里的要求做。');
-    await tester.tap(find.byType(Checkbox).first);
-    await tester.pump();
-    await shot(tester, '23_hand_off');
-    await tester.tap(find.widgetWithText(FilledButton, '开始'));
-    await waitFor(tester, 'task started', () => agent.section == AppSection.chat && agent.isRunning, agent);
-    // Writing a file (and any command the model runs first) needs approval in "changes" mode.
-    final approve = find.widgetWithText(FilledButton, '允许');
-    while (agent.isRunning || lastText(agent).isEmpty) {
-      await waitFor(tester, 'approval or done', () => approve.evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
-      if (approve.evaluate().isNotEmpty) {
-        await tester.tap(approve.first);
-        await tester.pump();
-        await idle(tester);
-      }
-    }
-    expect(File(p.join(agent.workspace, 'todo.md')).existsSync(), isTrue, reason: describe(agent));
-    await waitFor(tester, 'run summary', () => find.textContaining('本次运行').evaluate().isNotEmpty, agent);
-    expect(find.textContaining('写笺任务'), findsOneWidget);
-    await shot(tester, '24_task_in_chat');
-    await tester.tap(nav('书桌'));
-    await tester.pumpAndSettle();
-    await waitFor(tester, 'artifact on desk', () => find.descendant(of: find.byType(DeskPage), matching: find.text('todo.md')).evaluate().isNotEmpty, agent);
-    await shot(tester, '25_desk');
+    await waitFor(tester, 'sandbox setup', () => find.text('先给蝶君建一个沙箱').evaluate().isNotEmpty, agent);
+    expect(find.byTooltip('新写笺'), findsNothing, reason: '「工作」 runs in the sandbox too');
+    await shot(tester, '23_butterfly_setup');
     await tester.tap(nav('任务'));
     await waitFor(tester, 'tasks page', () => find.text('全部任务').evaluate().isNotEmpty, agent);
     await tester.tap(find.text('全部任务'));
     await waitFor(tester, 'task listed', () => find.descendant(of: find.byType(TasksPage), matching: find.text('完成')).evaluate().isNotEmpty, agent);
     await shot(tester, '26_tasks');
-    await tester.tap(nav('对话'));
+    await tester.tap(nav('工作台'));
     await tester.pumpAndSettle();
 
     // 17. A scheduled task run on demand: it runs in the background (its own
@@ -536,7 +503,7 @@ void main() {
     await agent.backend.call('schedules.remove', {'id': schedule['id']});
 
     // 18. web_fetch reads a page without asking for approval.
-    await tester.tap(nav('对话'));
+    await tester.tap(nav('工作台'));
     await tester.pumpAndSettle();
     await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.byIcon(Icons.add)));
     await waitFor(tester, 'fresh session', () => agent.isReady && agent.transcript.items.isEmpty, agent);

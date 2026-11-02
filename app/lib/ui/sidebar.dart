@@ -28,9 +28,10 @@ class Sidebar extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text('对话', style: context.text.titleMedium?.copyWith(fontSize: 18)),
+                Text(agent.sandbox ? '和蝶君的对话' : '工作台', style: context.text.titleMedium?.copyWith(fontSize: 18)),
                 const SizedBox(width: AppTokens.gap),
-                const Expanded(child: Align(alignment: Alignment.centerRight, child: WorkspaceSwitcher(compact: true))),
+                // 蝶君 has one home, no workspaces.
+                if (!agent.sandbox) const Expanded(child: Align(alignment: Alignment.centerRight, child: WorkspaceSwitcher(compact: true))),
               ],
             ),
             const SizedBox(height: AppTokens.pad),
@@ -46,6 +47,7 @@ class Sidebar extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (!agent.sandbox) ...[
                 const SizedBox(width: AppTokens.gap),
                 SizedBox.square(
                   dimension: 36,
@@ -56,6 +58,7 @@ class Sidebar extends StatelessWidget {
                     icon: const Icon(Icons.visibility_off_outlined, size: 16),
                   ),
                 ),
+                ],
               ],
             ),
             const SizedBox(height: AppTokens.pad),

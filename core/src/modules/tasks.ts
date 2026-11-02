@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename, isAbsolute, posix, resolve } from "node:path";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { Core, CoreModule } from "../core.ts";
 import { normalizeCwd, num, RpcError, requireStr, str } from "../core.ts";
@@ -9,6 +9,8 @@ import { json, now, parseJson } from "../db.ts";
 import type { Run } from "../runs.ts";
 import { textOf } from "../runs.ts";
 import type { Slot } from "../slots/slot.ts";
+import { sandboxEnv } from "../agent/state.ts";
+import { SANDBOX_WORKSPACE } from "../sandbox/sandbox.ts";
 
 export type TaskStatus = "waiting" | "running" | "needs_input" | "done" | "no_change" | "failed" | "interrupted";
 export type TaskSource = "chat" | "note" | "template" | "schedule";
@@ -386,8 +388,10 @@ export class TasksModule implements CoreModule {
 			task.id,
 		);
 		// Products are the files left at the end: helper scripts the agent wrote and removed again are not.
+		// 蝶君's files are sandbox paths: kept as this machine opens them (\\wsl.localhost\...).
+		const distro = slot.sandboxed ? this.core.sandboxProvider?.()?.distro : undefined;
 		for (const file of run.files) {
-			const path = isAbsolute(file) ? file : resolve(run.cwd, file);
+			const path = distro ? sandboxEnv(distro).local(posix.resolve(SANDBOX_WORKSPACE, file)) : isAbsolute(file) ? file : resolve(run.cwd, file);
 			if (existsSync(path)) this.addArtifact(task, path);
 		}
 		this.changed(task.id);

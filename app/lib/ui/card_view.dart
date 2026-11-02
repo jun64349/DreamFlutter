@@ -190,11 +190,12 @@ class CardActions extends StatelessWidget {
           icon: const Icon(Icons.more_horiz),
           onSelected: (action) => _act(context, action),
           itemBuilder: (_) => [
-            if (!card.resident) const PopupMenuItem(value: 'pin', child: Text('收进书桌')),
+            // The desk is 蝶君's 「工作」 now: cards are kept from its conversations.
+            if (!card.resident && AgentScope.read(context).sandbox) const PopupMenuItem(value: 'pin', child: Text('收进「工作」')),
             const PopupMenuItem(value: 'export', child: Text('导出…')),
             const PopupMenuItem(value: 'grants', child: Text('权限')),
             const PopupMenuItem(value: 'reload', child: Text('重新载入')),
-            if (card.resident) const PopupMenuItem(value: 'delete', child: Text('从书桌删除')),
+            if (card.resident) const PopupMenuItem(value: 'delete', child: Text('从「工作」删除')),
           ],
         ),
       ],
@@ -210,7 +211,7 @@ class CardActions extends StatelessWidget {
         case 'pin':
           await agent.backend.call('cards.pin', {'id': card.id, 'cwd': agent.workspace});
           agent.workRevision.value++;
-          snack('已收进书桌：复制了一份，之后与对话里的这张互不影响，权限也要重新确认。');
+          snack('已收进「工作」：复制了一份，之后与对话里的这张互不影响。');
         case 'export':
           if (!context.mounted) return;
           await exportCard(context, card);

@@ -37,7 +37,8 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1400, 900));
       SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path, 'onboarded': true});
       sessions = Directory.systemTemp.createTempSync('df_panel_');
-      backend = FakeBackend();
+      backend = FakeBackend()..butterflyHome = '${sessions.path}${Platform.pathSeparator}butterfly';
+      backend.handlers['sandbox.status'] = (_) => {'state': 'ready', 'online': true};
       backend.handlers['desk.get'] = (_) => {
         'notes': [
           {'id': 'n1', 'title': '发布清单', 'content': '- 改价格'},
@@ -68,21 +69,27 @@ void main() {
 
     Finder input() => find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送'));
 
-    testWidgets('a desk item clicked in the panel goes along with the next message', (tester) async {
+    testWidgets('in 蝶君\'s conversation a note clicked in the panel goes along with the next message', (tester) async {
       await startApp(tester);
-      await tester.tap(find.text('书桌').last); // the panel's tab, not the rail
+      expect(find.text('写笺'), findsNothing, reason: 'the workbench has no desk any more');
+      final butterfly = (await tester.runAsync(() => agent.openButterfly(tab: ButterflyTab.talk)))!;
       await settle(tester);
-      await tester.tap(find.text('去年数据.xlsx'));
+      await tester.tap(find.text('写笺').last); // the panel's tab
       await settle(tester);
-      expect(find.widgetWithText(MentionChip, '去年数据.xlsx'), findsOneWidget);
+      expect(find.text('去年数据.xlsx'), findsNothing, reason: '蝶君 cannot open this machine\'s paths');
+      await tester.tap(find.text('发布清单'));
+      await settle(tester);
+      expect(find.widgetWithText(MentionChip, '发布清单'), findsOneWidget);
 
       await tester.enterText(input(), '按这个准备材料');
       await tester.pump();
       await tester.tap(find.byTooltip('发送'));
       await settle(tester);
-      final prompt = backend.pis.single.commands.lastWhere((c) => c['type'] == 'prompt')['message'] as String;
+      final pi = backend.pis.singleWhere((p) => p.target.sandbox);
+      expect(butterfly.active?.slotId, pi.slotId);
+      final prompt = pi.commands.lastWhere((c) => c['type'] == 'prompt')['message'] as String;
       expect(prompt, startsWith('按这个准备材料'));
-      expect(prompt, contains('<资料>\n- 文件：C:\\work\\去年数据.xlsx\n</资料>'));
+      expect(prompt, contains('<写笺 标题="发布清单">\n- 改价格\n</写笺>'));
       expect(find.byType(MentionChip), findsNothing, reason: 'sent, so the chips are gone');
     });
 

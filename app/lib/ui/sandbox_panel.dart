@@ -18,6 +18,7 @@ const sandboxCheckNames = {
   'wsl-conf-locked': '改不了沙箱配置',
   'interop-locked': '打不开「运行 Windows 程序」的通道',
   'no-shared-mounts': '和其他 WSL 系统的共享目录已断开',
+  'dns-locked': '改不了 DNS 设置',
   'firewall-locked': '改不了网络规则',
   'no-windows-programs': '运行不了 Windows 程序',
 };
@@ -108,6 +109,8 @@ class _SandboxPanelState extends State<SandboxPanel> {
     final colors = context.colors;
     final status = _status;
     final state = status?['state'] as String?;
+    // The app ships the sandbox image: no download (an older core does not say: assume it downloads).
+    final bundled = status?['bundled'] == true;
     final muted = context.text.bodySmall?.copyWith(color: colors.muted);
     final children = <Widget>[];
 
@@ -132,7 +135,10 @@ class _SandboxPanelState extends State<SandboxPanel> {
         const SizedBox(height: AppTokens.gap),
         LinearProgressIndicator(value: progress),
         const SizedBox(height: 6),
-        Text('第一次要下载约 30 MB 的系统镜像并安装 Python 等工具，一般 5 分钟左右。可以先去做别的，好了会在这里显示。', style: muted),
+        Text(
+          bundled ? '用应用自带的系统镜像建立，不用联网，一般 1–2 分钟。' : '这个版本没有附带系统镜像，要在线组装 Debian 并安装工具，大约 10–20 分钟。可以先去做别的，好了会在这里显示。',
+          style: muted,
+        ),
       ]);
     } else if (state == 'absent' || state == 'error') {
       children.addAll([
@@ -146,12 +152,17 @@ class _SandboxPanelState extends State<SandboxPanel> {
           alignment: Alignment.centerLeft,
           child: FilledButton.icon(
             onPressed: _busy != null ? null : () => _do('建立沙箱', 'sandbox.provision'),
-            icon: const Icon(Icons.download_outlined, size: 18),
+            icon: Icon(bundled ? Icons.add_box_outlined : Icons.download_outlined, size: 18),
             label: Text(state == 'error' ? '重新建立' : '建立沙箱'),
           ),
         ),
         const SizedBox(height: 6),
-        Text('会从国内镜像站下载约 30 MB 的 Ubuntu 系统镜像，再安装 Python、pandas、git 等工具，占用约 1.3 GB 磁盘。', style: muted),
+        Text(
+          bundled
+              ? '用应用自带的 Debian 系统镜像建立，已经装好 Python、pandas、matplotlib、git 等工具，不用联网，一般 1–2 分钟，占用约 1.5 GB 磁盘。'
+              : '这个版本没有附带系统镜像：会从国内镜像站在线组装 Debian 并安装 Python、pandas、git 等工具，大约 10–20 分钟，占用约 1.5 GB 磁盘。',
+          style: muted,
+        ),
       ]);
     } else {
       final online = status['online'] == true;

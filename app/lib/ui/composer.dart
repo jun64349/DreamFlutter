@@ -10,7 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/mentions.dart';
-import '../state/agent_controller.dart' show asJsonMap, groupProvider, jsonRows, MaterialInfo, NoteInfo;
+import '../state/agent_controller.dart' show asJsonMap, groupProvider, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'commands_dialog.dart' show commandSourceLabels, showCommandsDialog;
@@ -131,7 +131,9 @@ class _ComposerState extends State<Composer> {
       final desk = asJsonMap(await agent.backend.call('desk.get', {'cwd': workspace}));
       final items = [
         for (final n in jsonRows(desk['notes']).map(NoteInfo.fromJson)) (Mention(kind: MentionKind.note, title: n.title, content: n.content), '写笺'),
-        for (final m in jsonRows(desk['materials']).map(MaterialInfo.fromJson)) (mentionOf(m), m.path ?? '资料'),
+        // 蝶君 cannot open this machine's paths: only pasted text goes along (files reach it through the inbox).
+        for (final m in jsonRows(desk['materials']).map(MaterialInfo.fromJson))
+          if (!agent.sandbox || m.kind == 'text') (mentionOf(m), m.path ?? '资料'),
       ];
       if (mounted && _deskFor == workspace) setState(() => _deskItems = items);
     } catch (_) {
@@ -293,7 +295,16 @@ class _ComposerState extends State<Composer> {
     final agent = AgentScope.read(context);
     final rejected = <String>[];
     final failed = <String>[];
+    // 蝶君 gets copies in its inbox (images still go along as images).
+    final toInbox = <String>[];
     for (final path in paths) {
+      if (agent.sandbox) {
+        final ext = p.extension(path).toLowerCase().replaceFirst('.', '');
+        if (!_imageExtensions.contains(ext) || Directory(path).existsSync()) {
+          toInbox.add(path);
+          continue;
+        }
+      }
       if (Directory(path).existsSync()) {
         _addMention(Mention.file(path, folder: true));
         continue;
@@ -321,6 +332,17 @@ class _ComposerState extends State<Composer> {
         }
       }
       _addMention(Mention.file(path));
+    }
+    if (toInbox.isNotEmpty) {
+      try {
+        final copied = asJsonMap(await agent.backend.call('butterfly.import', {'paths': toInbox}, const Duration(minutes: 5)));
+        for (final path in (copied['paths'] as List? ?? const []).whereType<String>()) {
+          final local = toInbox.firstWhere((l) => p.basename(l) == p.posix.basename(path), orElse: () => '');
+          _addMention(Mention(kind: Directory(local).existsSync() ? MentionKind.folder : MentionKind.file, title: p.posix.basename(path), path: path));
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能复制给蝶君：${SessionRuntime.describeError(e)}')));
+      }
     }
     if (failed.isNotEmpty && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能转成文字，改为把路径交给 Agent：${failed.join('、')}')));
@@ -493,7 +515,8 @@ class _ComposerState extends State<Composer> {
                         _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
                         if (agent.agentMode == 'standard') const _PlanToggle(),
                         const Spacer(),
-                        const _ModeChip(),
+                        // 蝶君 always works in the standard mode.
+                        if (!agent.sandbox) const _ModeChip(),
                         const SizedBox(width: 4),
                         const Flexible(child: _ModelChip()),
                         const SizedBox(width: 4),

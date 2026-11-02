@@ -4,8 +4,9 @@
 #     app\        the window (Flutter release build + VC++ runtime DLLs)
 #     core\       the background service (src, assets, production node_modules)
 #     core\bin\   rg.exe, fd.exe for the search tools (core/src/agent/search-tools.ts)
+#     core\sandbox-image\  蝶君's sandbox image, Debian (core/scripts/build-sandbox-image.ts)
 #     runtime\    node.exe (the window finds it: PiRuntimeLocator.findNode)
-#     licenses\   Node.js, ripgrep, fd
+#     licenses\   Node.js, ripgrep, fd, the Debian packages in the sandbox image
 #
 # Run from the repository root in PowerShell:
 #   powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1
@@ -16,7 +17,9 @@
 
 param(
     [string]$OutDir = "dist",
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    # Leave 蝶君's sandbox image out (then the app builds it online when the sandbox is set up).
+    [switch]$NoSandboxImage
 )
 
 $ErrorActionPreference = "Stop"
@@ -64,6 +67,18 @@ foreach ($tool in "rg.exe", "fd.exe") {
     Copy-Item "$piBin\$tool" "$target\core\bin"
 }
 
+# 3b. 蝶君's sandbox image (Debian with the tools), so setting the sandbox up needs no download.
+$image = "$root\core\sandbox-image\dreamflutter-sandbox.tar.gz"
+if (-not $NoSandboxImage) {
+    if (-not (Test-Path $image) -or -not (Test-Path "$root\core\sandbox-image\dreamflutter-sandbox.json")) {
+        throw "$image is missing: build it first (cd core; node --disable-warning=ExperimentalWarning scripts\build-sandbox-image.ts), or pass -NoSandboxImage."
+    }
+    New-Item -ItemType Directory -Force "$target\core\sandbox-image" | Out-Null
+    foreach ($item in "dreamflutter-sandbox.tar.gz", "dreamflutter-sandbox.json", "dreamflutter-sandbox.packages.txt") {
+        Copy-Item "$root\core\sandbox-image\$item" "$target\core\sandbox-image"
+    }
+}
+
 # 4. Node.js.
 $node = (Get-Command node -ErrorAction Stop).Source
 New-Item -ItemType Directory -Force "$target\runtime", "$target\licenses" | Out-Null
@@ -75,12 +90,24 @@ ripgrep (rg.exe): https://github.com/BurntSushi/ripgrep, dual-licensed under the
 fd (fd.exe): https://github.com/sharkdp/fd, dual-licensed under MIT and Apache-2.0.
 desktop_drop (vendored in packages/desktop_drop): Apache-2.0, MixinNetwork/flutter-plugins.
 "@ | Set-Content -Encoding utf8 "$target\licenses\THIRD-PARTY.txt"
+if (-not $NoSandboxImage) {
+    @"
+
+The sandbox image (core\sandbox-image\dreamflutter-sandbox.tar.gz) is a Debian 13 system built from
+unmodified Debian packages (https://www.debian.org). Each package keeps its own license, found inside
+the image under /usr/share/doc/<package>/copyright. The packages and exact versions are listed in
+licenses\Debian-packages.txt; their source code is available from Debian at those versions
+(https://snapshot.debian.org, or apt-get source). DreamFlutter adds only configuration: /etc/wsl.conf,
+/etc/matplotlibrc font settings, the "agent" user, and the /workspace folders.
+"@ | Add-Content -Encoding utf8 "$target\licenses\THIRD-PARTY.txt"
+    Copy-Item "$root\core\sandbox-image\dreamflutter-sandbox.packages.txt" "$target\licenses\Debian-packages.txt"
+}
 
 @"
 DreamFlutter $version（Windows x64 免安装版）
 
 启动：双击 app\dreamflutter.exe。
-已包含 Node.js（runtime\）和搜索工具 rg / fd（core\bin\）。
+已包含 Node.js（runtime\）、搜索工具 rg / fd（core\bin\）和蝶君的沙箱镜像（core\sandbox-image\，建沙箱不用联网）。
 数据和开发版共用：%APPDATA%\DreamFlutter、%USERPROFILE%\.pi\agent。同一时间只运行一个版本；换版本前从托盘「退出并停止后台」。
 "@ | Set-Content -Encoding utf8 "$target\使用说明.txt"
 

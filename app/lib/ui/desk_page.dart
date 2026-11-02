@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:pi_rpc/pi_rpc.dart' show SessionStore;
 
 import '../state/agent_controller.dart';
 import '../theme.dart';
@@ -13,12 +12,13 @@ import 'artifact_widgets.dart';
 import 'card_view.dart';
 import 'common.dart';
 import 'motion.dart';
-import 'sidebar.dart' show WorkspaceSwitcher;
 import 'task_widgets.dart';
 
-/// The desk of the current workspace, in three columns like the design: notes
-/// and materials on the left, the open note as a sheet of paper in the
-/// middle, and what the agent is doing and has made on the right.
+/// 蝶君's 「工作」 (the v0.2 desk, moved over in v0.3), in three columns:
+/// notes and materials on the left, the open note as a sheet of paper in the
+/// middle, and what 蝶君 is doing and has delivered on the right. Handing a
+/// note over copies the materials into its inbox; what it delivers comes back
+/// through its outbox.
 class DeskPage extends StatefulWidget {
   const DeskPage({super.key});
 
@@ -33,9 +33,9 @@ class _DeskPageState extends State<DeskPage> {
   List<TaskInfo> _tasks = const [];
   List<ArtifactInfo> _artifacts = const [];
   List<CardInfo> _cards = const [];
+  List<OutboxFile> _outbox = const [];
   String? _error;
   var _loading = true;
-  String _loadedFor = '';
   var _dragging = false;
 
   /// The note in the middle column; the newest one opens on the first load.
@@ -47,37 +47,36 @@ class _DeskPageState extends State<DeskPage> {
     super.initState();
     _agent = AgentScope.read(context);
     _agent.workRevision.addListener(_load);
+    _agent.main.outboxRevision.addListener(_load);
     _load();
   }
 
   @override
   void dispose() {
     _agent.workRevision.removeListener(_load);
+    _agent.main.outboxRevision.removeListener(_load);
     super.dispose();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Workspace switched while the desk is open.
-    if (_loadedFor.isNotEmpty && !SessionStore.samePath(AgentScope.of(context).workspace, _loadedFor)) {
-      _openId = null;
-      _opened = false;
-      _load();
-    }
-  }
+  /// 蝶君's home: its notes, materials and cards are kept under it.
+  String get _cwd => _agent.butterflyHome ?? _agent.workspace;
 
   Future<void> _load() async {
-    final cwd = _agent.workspace;
+    final cwd = _cwd;
     try {
       final desk = asJsonMap(await _agent.backend.call('desk.get', {'cwd': cwd}));
       _notes = jsonRows(desk['notes']).map(NoteInfo.fromJson).toList();
       _materials = jsonRows(desk['materials']).map(MaterialInfo.fromJson).toList();
       _tasks = jsonRows(desk['tasks']).map(TaskInfo.fromJson).toList();
-      _artifacts = jsonRows(desk['artifacts']).map(ArtifactInfo.fromJson).toList();
+      // Files the v0.2 desk's agent wrote on this machine came along with their notes: not 蝶君's.
+      _artifacts = jsonRows(desk['artifacts']).map(ArtifactInfo.fromJson).where((a) => isSandboxPath(a.path)).toList();
       _cards = jsonRows(await _agent.backend.call('cards.list', {'cwd': cwd, 'resident': true})).map(CardInfo.fromJson).toList();
+      try {
+        _outbox = jsonRows(await _agent.backend.call('butterfly.outbox')).map(OutboxFile.fromJson).toList();
+      } catch (_) {
+        _outbox = const []; // an older core
+      }
       _error = null;
-      _loadedFor = cwd;
       if (!_opened) {
         _opened = true;
         _openId ??= _notes.firstOrNull?.id;
@@ -94,7 +93,7 @@ class _DeskPageState extends State<DeskPage> {
 
   Future<void> _newNote() async {
     try {
-      final note = NoteInfo.fromJson(asJsonMap(await _agent.backend.call('notes.save', {'cwd': _agent.workspace, 'content': ''})));
+      final note = NoteInfo.fromJson(asJsonMap(await _agent.backend.call('notes.save', {'cwd': _cwd, 'content': ''})));
       setState(() {
         _notes = [note, ..._notes.where((n) => n.id != note.id)];
         _openId = note.id;
@@ -111,16 +110,18 @@ class _DeskPageState extends State<DeskPage> {
   }
 
   Future<void> _addMaterial(String kind) async {
-    final cwd = _agent.workspace;
+    final cwd = _cwd;
+    // Pickers start in the workbench's folder: 蝶君's home holds nothing of the user's.
+    final start = _agent.main.workspace.isEmpty ? null : _agent.main.workspace;
     try {
       switch (kind) {
         case 'file':
-          final files = await openFiles(initialDirectory: cwd, confirmButtonText: '添加到书桌');
+          final files = await openFiles(initialDirectory: start, confirmButtonText: '添加到「工作」');
           for (final f in files) {
             await _agent.backend.call('materials.add', {'cwd': cwd, 'kind': 'file', 'path': f.path});
           }
         case 'folder':
-          final folder = await getDirectoryPath(initialDirectory: cwd, confirmButtonText: '添加到书桌');
+          final folder = await getDirectoryPath(initialDirectory: start, confirmButtonText: '添加到「工作」');
           if (folder != null) await _agent.backend.call('materials.add', {'cwd': cwd, 'kind': 'folder', 'path': folder});
         case 'text':
           if (!mounted) return;
@@ -141,7 +142,7 @@ class _DeskPageState extends State<DeskPage> {
 
   /// Files and folders dropped on the left column become materials.
   Future<void> _addDropped(List<String> paths) async {
-    final cwd = _agent.workspace;
+    final cwd = _cwd;
     try {
       for (final path in paths) {
         final kind = FileSystemEntity.isDirectorySync(path) ? 'folder' : 'file';
@@ -153,7 +154,7 @@ class _DeskPageState extends State<DeskPage> {
     await _load();
   }
 
-  /// Imports a shared card (`.card.html`, `.card.zip` or a package folder) onto this desk.
+  /// Imports a shared card (`.card.html`, `.card.zip` or a package folder) into 「工作」.
   Future<void> _importCard(String kind) async {
     try {
       String? path;
@@ -163,8 +164,8 @@ class _DeskPageState extends State<DeskPage> {
         path = (await openFile(acceptedTypeGroups: const [XTypeGroup(label: 'Showcard 卡片', extensions: ['html', 'htm', 'zip'])]))?.path;
       }
       if (path == null) return;
-      final card = CardInfo.fromJson(asJsonMap(await _agent.backend.call('cards.import', {'path': path, 'cwd': _agent.workspace})));
-      _snack('已导入「${card.title}」。它第一次要用网络、文件或程序时会先问你。');
+      final card = CardInfo.fromJson(asJsonMap(await _agent.backend.call('cards.import', {'path': path, 'cwd': _cwd})));
+      _snack('已导入「${card.title}」。蝶君的卡片不能使用这台电脑上的文件、网络或程序。');
     } catch (e) {
       _snack('导入失败：${SessionRuntime.describeError(e)}');
     }
@@ -192,7 +193,6 @@ class _DeskPageState extends State<DeskPage> {
               : NoteEditor(
                   key: ValueKey(open.id),
                   note: open,
-                  materials: _materials,
                   onSaved: _noteSaved,
                   onClose: () => setState(() => _openId = null),
                   onDeleted: () {
@@ -229,7 +229,7 @@ class _DeskPageState extends State<DeskPage> {
               padding: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.padLg, 14, 0),
               child: Row(
                 children: [
-                  Text('书桌', style: context.serif(context.text.titleMedium).copyWith(fontSize: 18, fontWeight: FontWeight.w600)),
+                  Text('写笺与资料', style: context.serif(context.text.titleMedium).copyWith(fontSize: 18, fontWeight: FontWeight.w600)),
                   const Spacer(),
                   Tooltip(
                     message: '新写笺',
@@ -243,16 +243,13 @@ class _DeskPageState extends State<DeskPage> {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(AppTokens.padLg, 6, AppTokens.padLg, 0),
-              child: Align(alignment: Alignment.centerLeft, child: WorkspaceSwitcher(key: ValueKey(_agent.workspace), compact: true)),
-            ),
+            const SizedBox(height: 6),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(10, 4, 10, AppTokens.pad),
                 children: [
                   PanelLabel('写笺', count: _notes.length),
-                  if (_notes.isEmpty) const _Hint('写下想法、要求或草稿，写好后交给 Agent。'),
+                  if (_notes.isEmpty) const _Hint('写下要求、想法或草稿，写好后交给蝶君。'),
                   for (final n in _notes) _NoteRow(note: n, selected: n.id == _openId, onTap: () => setState(() => _openId = n.id)),
                   PanelLabel(
                     '资料',
@@ -270,7 +267,7 @@ class _DeskPageState extends State<DeskPage> {
                       ],
                     ),
                   ),
-                  if (_materials.isEmpty) const _Hint('要参考的文件、文件夹或文字放在这里，交给 Agent 时可以选择带上，对话里输入 @ 也能引用。'),
+                  if (_materials.isEmpty) const _Hint('要用的文件、文件夹或文字放在这里。交给蝶君时，它们的副本会放进蝶君的 inbox，原文件不受影响。'),
                   for (final m in _materials) _MaterialRow(material: m, onRemove: () => _removeMaterial(m)),
                 ],
               ),
@@ -284,7 +281,7 @@ class _DeskPageState extends State<DeskPage> {
                   foregroundColor: _dragging ? colors.accent : colors.muted,
                   side: BorderSide(color: _dragging ? colors.accent : colors.border),
                 ),
-                child: Text(_dragging ? '松开，放到书桌上' : '拖入文件，或粘贴文字', style: context.text.bodySmall?.copyWith(color: _dragging ? colors.accent : colors.muted)),
+                child: Text(_dragging ? '松开，放进资料' : '拖入文件，或粘贴文字', style: context.text.bodySmall?.copyWith(color: _dragging ? colors.accent : colors.muted)),
               ),
             ),
           ],
@@ -309,8 +306,15 @@ class _DeskPageState extends State<DeskPage> {
             const PanelLabel('进行中'),
             for (final t in active) _ActiveTask(task: t),
           ],
-          PanelLabel('产物', count: _artifacts.length),
-          if (_artifacts.isEmpty) const _Hint('Agent 写入或修改的文件会自动收集到这里。'),
+          PanelLabel(
+            '交付',
+            count: _outbox.length,
+            trailing: IconButton(tooltip: '刷新', icon: const Icon(Icons.refresh, size: 16), visualDensity: VisualDensity.compact, onPressed: _load),
+          ),
+          if (_outbox.isEmpty) const _Hint('蝶君放进 outbox 的文件会出现在这里：可以预览、改一改，再保存到你的电脑。'),
+          for (final f in _outbox) OutboxTile(key: ValueKey(f.path), file: f, onChanged: _load),
+          PanelLabel('改过的文件', count: _artifacts.length),
+          if (_artifacts.isEmpty) const _Hint('蝶君在沙箱里写入或修改的文件会记在这里。'),
           for (final a in _artifacts)
             ArtifactTile(
               path: a.path,
@@ -321,7 +325,7 @@ class _DeskPageState extends State<DeskPage> {
               ].where((s) => s.isNotEmpty).join(' · ').ifEmpty(null),
               onContinue: () {
                 final task = _tasks.where((t) => t.id == a.taskId).firstOrNull;
-                agent.continueWork(sessionFile: task?.sessionFile, cwd: agent.workspace, text: '继续修改 ${a.path}：');
+                agent.continueWork(sessionFile: task?.sessionFile, cwd: _cwd, text: '继续修改 ${a.path}：');
               },
             ),
           PanelLabel(
@@ -339,7 +343,7 @@ class _DeskPageState extends State<DeskPage> {
               ],
             ),
           ),
-          if (_cards.isEmpty) const _Hint('对话里的卡片点「收进书桌」会复制一份放在这里，也可以导入别人分享的卡片。'),
+          if (_cards.isEmpty) const _Hint('和蝶君的对话里，卡片点「收进「工作」」会复制一份放在这里，也可以导入别人分享的卡片。'),
           for (final c in _cards) DeskCardTile(key: ValueKey(c.id), card: c, onChanged: _load),
           PanelLabel(
             '最近任务',
@@ -349,7 +353,7 @@ class _DeskPageState extends State<DeskPage> {
               child: Text('全部', style: context.text.labelSmall?.copyWith(color: colors.accent)),
             ),
           ),
-          if (recent.isEmpty && active.isEmpty) const _Hint('在这个工作区里做过的任务会出现在这里。'),
+          if (recent.isEmpty && active.isEmpty) const _Hint('交给蝶君的任务会出现在这里。'),
           for (final t in recent) TaskTile(task: t, compact: true),
         ],
       ),
@@ -392,9 +396,9 @@ class _EmptyDesk extends StatelessWidget {
           children: [
             const ButterflyMark(size: 96, veins: true),
             const SizedBox(height: AppTokens.padLg),
-            Text('一张干净的书桌', style: context.serif(context.text.titleLarge)),
+            Text('还没有打开的写笺', style: context.serif(context.text.titleLarge)),
             const SizedBox(height: AppTokens.gap),
-            Text('写下想法、要求或草稿，写好后交给 Agent。\n它写出的文件会自动回到右边的「产物」。', textAlign: TextAlign.center, style: muted),
+            Text('写下要求、想法或草稿，交给蝶君。\n它在自己的沙箱里做，做好的文件会出现在右边的「交付」。', textAlign: TextAlign.center, style: muted),
             const SizedBox(height: AppTokens.padLg),
             OutlinedButton.icon(onPressed: onNew, icon: const Icon(Icons.edit_outlined, size: 16), label: const Text('写一份')),
           ],
@@ -514,7 +518,7 @@ class _MaterialRowState extends State<_MaterialRow> {
                 Expanded(child: Text(m.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13))),
                 if (_hover)
                   IconButton(
-                    tooltip: '从书桌移除',
+                    tooltip: '从资料里移除',
                     icon: const Icon(Icons.close, size: 14),
                     visualDensity: VisualDensity.compact,
                     onPressed: widget.onRemove,
@@ -591,14 +595,12 @@ class NoteEditor extends StatefulWidget {
   const NoteEditor({
     super.key,
     required this.note,
-    required this.materials,
     required this.onClose,
     required this.onDeleted,
     this.onSaved,
   });
 
   final NoteInfo note;
-  final List<MaterialInfo> materials;
   final VoidCallback onClose;
   final VoidCallback onDeleted;
   final ValueChanged<NoteInfo>? onSaved;
@@ -619,6 +621,7 @@ class _NoteEditorState extends State<NoteEditor> {
   late String _savedTitle = widget.note.title;
   List<TaskInfo> _tasks = const [];
   List<ArtifactInfo> _artifacts = const [];
+  var _handingOff = false;
 
   @override
   void initState() {
@@ -645,8 +648,9 @@ class _NoteEditorState extends State<NoteEditor> {
         _agent.backend.call('tasks.list', {'noteId': widget.note.id}),
         _agent.backend.call('artifacts.list', {'noteId': widget.note.id}),
       ]);
-      _tasks = jsonRows(results[0]).map(TaskInfo.fromJson).toList();
-      _artifacts = jsonRows(results[1]).map(ArtifactInfo.fromJson).toList();
+      // Only 蝶君's own work: the v0.2 desk ran notes on the workbench, on this machine.
+      _tasks = jsonRows(results[0]).map(TaskInfo.fromJson).where((t) => _agent.isButterflyCwd(t.cwd)).toList();
+      _artifacts = jsonRows(results[1]).map(ArtifactInfo.fromJson).where((a) => isSandboxPath(a.path)).toList();
       if (mounted) setState(() {});
     } catch (_) {}
   }
@@ -672,12 +676,17 @@ class _NoteEditorState extends State<NoteEditor> {
     } catch (_) {}
   }
 
+  /// Straight to 蝶君, no choosing an action (extra feedback 6): it reads the
+  /// note, gets copies of all the materials, and asks when something is unclear.
   Future<void> _handOff() async {
     await _save();
     if (!mounted) return;
-    final choice = await showDialog<_HandOff>(context: context, builder: (_) => _HandOffDialog(materials: widget.materials));
-    if (choice == null) return;
-    await _agent.startTask(goal: choice.goal, title: '$_savedTitle：${choice.label}', noteId: widget.note.id, materialIds: choice.materialIds);
+    setState(() => _handingOff = true);
+    try {
+      await _agent.handOffNote(widget.note.id, title: _savedTitle);
+    } finally {
+      if (mounted) setState(() => _handingOff = false);
+    }
   }
 
   Future<void> _delete() async {
@@ -724,7 +733,11 @@ class _NoteEditorState extends State<NoteEditor> {
                 },
               ),
               const SizedBox(width: AppTokens.gap),
-              FilledButton.icon(onPressed: _handOff, icon: const ButterflyGlyph(size: 18), label: const Text('交给 Agent')),
+              FilledButton.icon(
+                onPressed: _handingOff ? null : _handOff,
+                icon: _handingOff ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const ButterflyGlyph(size: 18),
+                label: Text(_handingOff ? '正在交给蝶君…' : '交给蝶君'),
+              ),
             ],
           ),
         ),
@@ -776,8 +789,8 @@ class _NoteEditorState extends State<NoteEditor> {
                       ),
                     ),
                     const SizedBox(height: AppTokens.padLg),
-                    PanelLabel('交给 Agent 的任务', count: _tasks.isEmpty ? null : _tasks.length),
-                    if (_tasks.isEmpty) const _Hint('还没有交给 Agent。写好后点右上角「交给 Agent」。'),
+                    PanelLabel('交给蝶君的任务', count: _tasks.isEmpty ? null : _tasks.length),
+                    if (_tasks.isEmpty) const _Hint('还没有交给蝶君。写好后点右上角「交给蝶君」：资料的副本会一起放进它的 inbox。'),
                     for (final t in _tasks) TaskTile(task: t, compact: true),
                     if (_artifacts.isNotEmpty) ...[
                       PanelLabel('这份写笺的产物', count: _artifacts.length),
@@ -798,141 +811,6 @@ class _NoteEditorState extends State<NoteEditor> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _HandOff {
-  const _HandOff(this.goal, this.label, this.materialIds);
-
-  final String goal;
-  final String label;
-  final List<String> materialIds;
-}
-
-/// Picks the action and materials when handing a note to the agent.
-class _HandOffDialog extends StatefulWidget {
-  const _HandOffDialog({required this.materials});
-
-  final List<MaterialInfo> materials;
-
-  @override
-  State<_HandOffDialog> createState() => _HandOffDialogState();
-}
-
-class _HandOffDialogState extends State<_HandOffDialog> {
-  static const _actions = {
-    'summarize': ('总结', '总结这份写笺和附带的资料，提炼要点。'),
-    'check': ('核对', '核对这份写笺里的事实、数据和说法，指出错误、矛盾和缺失，并给出依据。'),
-    'report': ('写成报告', '根据这份写笺和附带的资料，写成一份结构清晰的报告，保存为 Markdown 文件。'),
-    'todos': ('提炼待办', '从这份写笺和附带的资料里提炼出待办事项清单（每项写清做什么、截止时间、负责人，没有就留空）。'),
-    'custom': ('自己写要求', ''),
-  };
-
-  var _action = 'summarize';
-  final _selected = <String>{};
-  final _extra = TextEditingController();
-
-  @override
-  void dispose() {
-    _extra.dispose();
-    super.dispose();
-  }
-
-  bool get _valid => _action != 'custom' || _extra.text.trim().isNotEmpty;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, instruction) = _actions[_action]!;
-    return AlertDialog(
-      title: const Text('交给 Agent'),
-      content: SizedBox(
-        width: 600,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('要它做什么', style: context.label),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: AppTokens.gap,
-                runSpacing: 6,
-                children: [
-                  for (final e in _actions.entries)
-                    ChoiceChip(label: Text(e.value.$1), selected: _action == e.key, onSelected: (_) => setState(() => _action = e.key)),
-                ],
-              ),
-              const SizedBox(height: AppTokens.pad),
-              TextField(
-                controller: _extra,
-                minLines: 2,
-                maxLines: 5,
-                decoration: InputDecoration(hintText: _action == 'custom' ? '写下你的要求' : '补充要求（可不填）'),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: AppTokens.padLg),
-              Text('带上哪些资料', style: context.label),
-              const SizedBox(height: 6),
-              if (widget.materials.isEmpty)
-                Text('书桌上还没有资料，可以在左栏「资料」添加，或把文件拖到左栏。', style: context.text.bodySmall?.copyWith(color: context.colors.muted))
-              else
-                for (final m in widget.materials)
-                  MaterialTile(
-                    material: m,
-                    selected: _selected.contains(m.id),
-                    onSelected: (v) => setState(() => v ? _selected.add(m.id) : _selected.remove(m.id)),
-                  ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        FilledButton(
-          onPressed: _valid
-              ? () => Navigator.pop(
-                  context,
-                  _HandOff([instruction, _extra.text.trim()].where((s) => s.isNotEmpty).join('\n'), label, _selected.toList()),
-                )
-              : null,
-          child: const Text('开始'),
-        ),
-      ],
-    );
-  }
-}
-
-/// A material as a checkbox row (choosing materials for a task).
-class MaterialTile extends StatelessWidget {
-  const MaterialTile({super.key, required this.material, this.selected, this.onSelected});
-
-  final MaterialInfo material;
-  final bool? selected;
-  final ValueChanged<bool>? onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final icon = switch (material.kind) { 'folder' => Icons.folder_outlined, 'text' => Icons.notes, _ => Icons.description_outlined };
-    final subtitle = material.kind == 'text' ? (material.content ?? '').replaceAll(RegExp(r'\s+'), ' ') : material.path ?? '';
-    return OutlinedCard(
-      padding: const EdgeInsets.symmetric(horizontal: AppTokens.gap, vertical: 6),
-      child: Row(
-        children: [
-          if (selected != null) Checkbox(value: selected, onChanged: (v) => onSelected?.call(v ?? false), visualDensity: VisualDensity.compact),
-          Icon(icon, size: 18, color: context.colors.muted),
-          const SizedBox(width: AppTokens.gap),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(material.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

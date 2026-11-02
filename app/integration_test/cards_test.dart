@@ -5,7 +5,8 @@ import 'dart:ui' as ui;
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
-import 'package:dreamflutter/ui/card_view.dart' show CardBlock, CardView, DeskCardTile;
+import 'package:dreamflutter/ui/card_view.dart' show CardBlock, CardView, showCardDialog;
+import 'package:dreamflutter/ui/chat_view.dart' show ChatView;
 import 'package:dreamflutter/ui/rich_blocks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -16,7 +17,7 @@ import 'package:pi_rpc/pi_rpc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Real window, real core, real WebView2: cards and rich output (v0.2 stage 4).
-/// Without a model: a card imported to the desk proves embedding, isolation,
+/// Without a model: a card imported on the workbench proves embedding, isolation,
 /// the permission flow and a binding; the renderer draws Mermaid and a chart.
 /// With `--dart-define=CARDS_MODEL=1` the agent (DeepSeek) also makes a card
 /// and pictures in a conversation. Screenshots: build/card_shots/.
@@ -107,14 +108,12 @@ void main() {
     unawaited(agent.init());
     await waitFor(tester, 'ready', () => agent.isReady);
 
-    // ---- 1. A card on the desk: embedded, isolated, asks before a binding runs.
+    // ---- 1. A workbench card, enlarged: embedded, isolated, asks before a binding runs.
+    // (Cards kept in 蝶君's 「工作」 get nothing on this machine, so this one stays on the workbench.)
     final imported = await tester.runAsync(() => agent.backend.call('cards.import', {'path': cardFile.path, 'cwd': workspace.path}));
     final cardId = asJsonMap(imported)['id'] as String;
-    agent.workRevision.value++;
-    await tester.tap(find.text('书桌').first);
-    await tester.pumpAndSettle();
-    await waitFor(tester, 'desk card tile', () => find.byType(DeskCardTile).evaluate().isNotEmpty);
-    await tester.tap(find.descendant(of: find.byType(DeskCardTile), matching: find.text('隔离测试卡')));
+    final card = CardInfo.fromJson(asJsonMap(await tester.runAsync<Object?>(() => agent.backend.call('cards.get', {'id': cardId}))));
+    unawaited(showCardDialog(tester.element(find.byType(ChatView)), card));
     await tester.pump();
     await waitFor(tester, 'permission question', () => find.textContaining('想要读取文件').evaluate().isNotEmpty);
     await shot(tester, '01_permission');
@@ -160,7 +159,7 @@ void main() {
     if (!withModel) return;
 
     // ---- 3. The agent makes a card and pictures in a conversation (DeepSeek).
-    await tester.tap(find.text('对话').first);
+    await tester.tap(find.text('工作台').first);
     await tester.pumpAndSettle();
     expect(find.textContaining('想要读取文件'), findsNothing, reason: 'closing the enlarged card does not run it again');
     // This step tests cards, not approvals: let the agent act without asking.

@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:path/path.dart' as p;
 
+import '../state/work_models.dart' show OutboxFile;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
@@ -135,4 +137,140 @@ Future<void> showFilePreview(BuildContext context, String path) async {
       ],
     ),
   );
+}
+
+String formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(bytes < 10 * 1024 ? 1 : 0)} KB';
+  return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+}
+
+/// Plain-text files small enough to change in place.
+bool canEditText(String path, int size) => _textExtensions.contains(p.extension(path).toLowerCase()) && size <= 512 * 1024;
+
+/// A file 蝶君 delivered to its outbox: preview, change a text file a
+/// little, save a copy to this computer, or open it.
+class OutboxTile extends StatelessWidget {
+  const OutboxTile({super.key, required this.file, this.onChanged});
+
+  final OutboxFile file;
+  final VoidCallback? onChanged;
+
+  Future<void> _save(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final location = await getSaveLocation(suggestedName: p.posix.basename(file.name), confirmButtonText: '保存到这里');
+    if (location == null) return;
+    try {
+      await File(file.path).copy(location.path);
+      messenger.showSnackBar(SnackBar(content: Text('已保存到 ${location.path}'), behavior: SnackBarBehavior.floating, width: 520));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('保存失败：$e'), behavior: SnackBarBehavior.floating, width: 520));
+    }
+  }
+
+  Future<void> _edit(BuildContext context) async {
+    String text;
+    try {
+      text = await File(file.path).readAsString();
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('读不了这个文件：$e')));
+      return;
+    }
+    if (!context.mounted) return;
+    final changed = await showDialog<String>(context: context, builder: (_) => _TextEditDialog(title: file.name, text: text));
+    if (changed == null || changed == text) return;
+    try {
+      await File(file.path).writeAsString(changed);
+      onChanged?.call();
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败：$e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.read(context);
+    final muted = context.text.bodySmall?.copyWith(color: context.colors.muted);
+    final editable = canEditText(file.path, file.size);
+    return OutlinedCard(
+      padding: const EdgeInsets.fromLTRB(AppTokens.gap, 6, 2, 6),
+      child: Row(
+        children: [
+          Icon(fileIcon(file.path), size: 18, color: context.colors.accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: InkWell(
+              onTap: () => canPreview(file.path) ? showFilePreview(context, file.path) : agent.openFile(file.path),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(file.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text('${formatBytes(file.size)} · ${formatDate(file.modifiedAt?.millisecondsSinceEpoch)}', maxLines: 1, style: muted),
+                ],
+              ),
+            ),
+          ),
+          IconButton(tooltip: '保存到这台电脑', icon: const Icon(Icons.download_outlined, size: 18), visualDensity: VisualDensity.compact, onPressed: () => _save(context)),
+          PopupMenuButton<String>(
+            tooltip: '操作',
+            icon: const Icon(Icons.more_horiz, size: 16),
+            onSelected: (v) => switch (v) {
+              'preview' => showFilePreview(context, file.path),
+              'edit' => _edit(context),
+              'open' => agent.openFile(file.path),
+              _ => agent.revealFile(file.path),
+            },
+            itemBuilder: (_) => [
+              if (canPreview(file.path)) const PopupMenuItem(value: 'preview', child: ListTile(dense: true, leading: Icon(Icons.visibility_outlined), title: Text('预览'))),
+              if (editable) const PopupMenuItem(value: 'edit', child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('修改'))),
+              const PopupMenuItem(value: 'open', child: ListTile(dense: true, leading: Icon(Icons.open_in_new), title: Text('用默认程序打开'))),
+              const PopupMenuItem(value: 'reveal', child: ListTile(dense: true, leading: Icon(Icons.folder_open_outlined), title: Text('在资源管理器中显示'))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TextEditDialog extends StatefulWidget {
+  const _TextEditDialog({required this.title, required this.text});
+
+  final String title;
+  final String text;
+
+  @override
+  State<_TextEditDialog> createState() => _TextEditDialogState();
+}
+
+class _TextEditDialogState extends State<_TextEditDialog> {
+  late final _controller = TextEditingController(text: widget.text);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 760,
+        height: 520,
+        child: TextField(
+          controller: _controller,
+          maxLines: null,
+          expands: true,
+          textAlignVertical: TextAlignVertical.top,
+          style: context.text.bodySmall?.copyWith(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, height: 1.5),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(onPressed: () => Navigator.pop(context, _controller.text), child: const Text('保存')),
+      ],
+    );
+  }
 }

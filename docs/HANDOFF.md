@@ -1,17 +1,16 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-02（v0.3 开工前，计划已重排）
+更新时间：2026-11-02（v0.3：沙箱联网修好，3.5 蝶君骨架完成）
 
 ## 新窗口从这里开始
 
-**现状**：v0.2.0 已发布：`main` 上的 annotated tag `v0.2.0` → 提交 `001d03c`。仓库只在本地，没有远端，什么都不推送。2026-11-02 和用户讨论后**重排了 v0.3–v1.0 计划**（[roadmap.md](roadmap.md)，用户已确认）：书桌升级为在 WSL2 沙箱里独立工作的「蝶君」，对话改名「工作台」；0.3 = 修复批 + 执行环境 + Agent 运行时与子 Agent + WSL 沙箱 + 蝶君骨架 + 记忆开发设计。
+**现状**：v0.2.0 已发布（annotated tag `v0.2.0` → `001d03c`）。**仓库已在 GitHub 公开：https://github.com/jun64349/DreamFlutter**（2026-11-02 推了 `main` 和 v0.1.0、v0.1.1、v0.2.0 三个 tag，`main` 跟踪 `origin/main`；本机已存 GitHub 凭据，推送没弹登录）。2026-11-02 和用户讨论后**重排了 v0.3–v1.0 计划**（[roadmap.md](roadmap.md)，用户已确认）：书桌升级为在 WSL2 沙箱里独立工作的「蝶君」，对话改名「工作台」；0.3 = 修复批 + 执行环境 + Agent 运行时与子 Agent + WSL 沙箱 + 蝶君骨架 + 记忆开发设计。
 
-**v0.3 进度（2026-11-02 额度用完时）**：
-- 完成并提交：3.0 修复批、3.1 三份调研、3.4 子 Agent。WSL 已装好（3.0.3）。
-- 完成、提交在最后一个提交里但**没完全验证**：3.2 执行环境抽象 + 3.3 WSL 沙箱。见下面「v0.3 沙箱」一节的「没解决」：先修**在线时沙箱上不了网**（`sandbox-live.test.ts` 已通过）。
-- 然后：3.5 蝶君骨架 → 3.6 工作区运行环境 → 3.7 记忆开发设计。
-- **版本管理**：用户要从 0.3.0 开始用 GitHub，见「v0.3 沙箱」一节末尾。
-- 修复批里的拖图片、子 Agent 都要用户在真实应用里试一下（改了后台，要先从托盘「退出并停止后台」）。
+**v0.3 进度**：
+- 完成并提交：3.0 修复批、3.1 三份调研、3.4 子 Agent、3.2 执行环境 + 3.3 WSL 沙箱。WSL 已装好（3.0.3）。
+- 2026-11-02 第二个窗口：**修好在线时沙箱上不了网**（见「v0.3 沙箱」一节）；**做完 3.5 蝶君骨架**并按用户试用意见修改；**沙箱改用 Debian 13 并随应用附带镜像**（建沙箱 8 秒，不联网）。都**还没提交**（等用户说）。用户还定了 v0.3.1 做备份迁移（见「v0.3.1 全平台备份」一节）。**用户说做完就可以提交**（2026-11-02）。
+- 然后：3.6 工作区运行环境 → 3.7 记忆开发设计。
+- 要用户在真实应用里试的：修复批里的拖图片、子 Agent、**蝶君整条流程**（改了后台，要先从托盘「退出并停止后台」）。
 
 **先读这些**：
 
@@ -27,22 +26,22 @@
 | 用户的深度测试记录 `C:\Users\21669\Desktop\本科毕设\毕设学习\2026-11-01 df测试记录.md` | 35 条原文和截图（截图在同目录 `Pasted image 20261101*.png`） |
 
 **和用户合作的约定**：
-- 用户不是开发者：说话用平实的中文；需要用户运行的命令给完整、可直接复制的（PowerShell，先 `cd` 到目录）。也可以用终端面板替用户启动应用（`flutter run -d windows`，在 `app` 目录）。
+- 用户不是开发者：说话用平实的中文；需要用户运行的命令给完整、可直接复制的（PowerShell，先 `cd` 到目录）。**不要用 Claude 的终端面板替用户启动应用来做真实试用**：Claude 桌面版是打包应用，从它启动的程序写 `%APPDATA%` 时会部分被重定向到 `%LOCALAPPDATA%PackagesClaude_pzs8sxrjxfjjcocalcacheroamingdreamflutter`（2026-11-02 实测：后台看到的数据库和外面不一致），建沙箱时 wsl 也找不到磁盘文件。让用户自己双击 `appbuildwindowsdunnerdebugdreamflutter.exe`（会自己找到 `core/src/main.ts`），或在自己打开的 powershell 里 `flutter run -d windows`。
 - 分工：Claude 写全部代码（前后端）；Codex 只做必要的只读审查（额度少，经 Agent Bridge 后台任务，`cwd: E:\claude\DreamFlutter`）；广泛调研交给 Antigravity（Agent Bridge）。
 - **测试模型走 OpenCode Go**（用户 2026-11-01 决定）。
   - 用户在应用里自己填 Key、配渠道（渠道 `c13903cbb`，模型 `deepseek-v4.1-flash`）。**不要在测试里新建渠道，也不要经手 Key。**
   - E2E 启动前用 `core/scripts/copy-channels.ts` 把这个渠道（加密的 Key 文件原样）复制进测试自己的后台；没有这个渠道或给了 `--dart-define=E2E_MODEL=…` 时，用 Pi 配置的模型。
   - 用户的 DeepSeek 官方余额不多，不要再默认用它。
-- **提交、打 tag 都等用户说**；不推送。
+- **提交、打 tag、推送都等用户说**（GitHub 公开仓库 jun64349/DreamFlutter）。
 - **改了后台代码**之后，用户要从托盘「退出并停止后台」一次，新代码才生效（应用不会自动替换旧后台；直接结束后台进程会被权限检查拦下）。跑 E2E 或视觉检查前，用户的应用要先退出：调试版 `dreamflutter.exe` 会被占用。
 - 外部标准（如 Showcard）按官方规范、原样参考代码和官方一致性测试来做，列出偏差。
 
-## v0.3 沙箱 3.2 / 3.3（2026-11-02，进行中）
+## v0.3 沙箱 3.2 / 3.3（2026-11-02）
 
 **WSL**：用户的电脑上 `wsl --install` 失败（`REGDB_E_CLASSNOTREG`，系统自带的引导调不动安装组件），改为从 github.com/microsoft/WSL/releases 下载官方 `wsl.3.0.3.0.x64.msi`（核对过微软签名）用 msiexec 装好，WSL 3.0.3、内核 6.18，不用重启。用户另有本机代理 `127.0.0.1:12450`（环境变量），WSL 每次都提示「localhost 代理未镜像」，无害。
 
 **手动验证过的事实**（比调研报告可靠，写进了 `core/src/sandbox/sandbox.ts` 文件头）：
-- 底包用 **Ubuntu Base 24.04**（约 30 MB，首次使用时下载，不涉及再分发）；校验值和 cdimage.ubuntu.com 官方 SHA256SUMS 一致。下载**直连不走代理**（用户要求；`sandbox/download.ts` 用 node:https，不用 Pi 的带代理 fetch）。这台电脑直连：阿里云通，清华、中科大连不上，所以阿里云排第一。
+- （2026-11-02 第二个窗口起**改用 Debian 13 并随应用附带镜像**，见「v0.3 沙箱镜像」一节；下面这条是原来的做法，Ubuntu Base 现在只用作构建镜像时临时的构建环境。）底包用 **Ubuntu Base 24.04**（约 30 MB，首次使用时下载，不涉及再分发）；校验值和 cdimage.ubuntu.com 官方 SHA256SUMS 一致。下载**直连不走代理**（用户要求；`sandbox/download.ts` 用 node:https，不用 Pi 的带代理 fetch）。这台电脑直连：阿里云通，清华、中科大连不上，所以阿里云排第一。
 - `wsl.conf` 关自动挂载 + 关互操作后：看不到磁盘；agent（无 sudo）挂不了 drvfs、改不了 wsl.conf、注册不了 binfmt；**沙箱里运行 Windows 程序会被宿主拒绝**（`UtilAcceptVsock accept4 failed`）。
 - **所有 WSL 发行版共用一个虚拟机和网卡**：`ip link set eth0 down` 会让用户所有 WSL 断网，重启发行版也不恢复（`wsl --shutdown` 才恢复）。所以离线 = nftables 只拦 agent 的 uid（**23456**，故意选罕见的，别的发行版不会撞）。
 - `/etc/resolv.conf` 是指向 `/mnt/wsl/resolv.conf` 的链接，卸载 `/mnt/wsl` 前要先复制成真文件（boot 脚本已做）。
@@ -57,12 +56,73 @@
 - 窗口：设置 › 蝶君沙箱（`ui/sandbox_panel.dart`）：没 WSL 时给安装说明、建立（进度条）、自检结果、联网开关、重置、删除。
 - 测试：`core/test/sandbox.test.ts`（纯函数）；`core/test/sandbox-live.test.ts`（真 WSL，`$env:DF_WSL_LIVE="1"` 才跑，会建沙箱约 5 分钟，**还没跑通过一次**）；`app/test/sandbox_panel_test.dart`；真实检查 `cd core; node --disable-warning=ExperimentalWarning scripts/live-sandbox.ts [--keep]`。
 
-**没解决（下个窗口先做）**：
-1. **在线状态下沙箱上不了网**（live-sandbox 的 `online: 000`；离线、自检、重置都对）。排查：`scripts/live-sandbox.ts --keep` 留下沙箱，然后看 boot 后的 `cat /etc/resolv.conf`、`nft list ruleset`、agent 的 `getent hosts mirrors.aliyun.com` 和 `curl -v`。怀疑：resolv.conf 复制时机（WSL 每次启动重建链接？）、`$NS` 落在 10.0.0.0/8 而 DNS 放行规则没生效、或 WSL 的 DNS 隧道走别的地址。改完让 live-sandbox 全部 OK。
-2. ~~跑通 `sandbox-live.test.ts`~~：2026-11-02 已通过（Agent 在真沙箱里 bash / 写 / 读 / 搜都对，没有审批框；测试发行版已自动删除）。
-3. 然后做 3.5 蝶君骨架（导航改名、蝶君的交流 / 工作、气闸舱 inbox/outbox、产物预览和保存到本机）。蝶君默认不开 MCP、不给卡片本机授权（还没做）。
+**在线时沙箱上不了网：已修好（2026-11-02 第二个窗口）**：
+- **根因**：WSL **每次新启动一个进程**（每次 `wsl.exe -d …`，包括 Agent 的 `rg` 搜索）都会把 `/etc/resolv.conf` 重新建成指向 `/mnt/wsl/resolv.conf` 的链接（实测：链接的时间戳等于每次启动的时间）。boot 脚本原来把 resolv.conf 复制成真文件、再卸载共享的 `/mnt/wsl`，下一次启动链接又回来了，指向已经卸载的地方，DNS 就断了；再 boot 时读不到 nameserver，退回 `127.0.0.53`，防火墙只放行它，真正的 DNS（DNS 隧道 `10.255.255.254`）落在 10.0.0.0/8 被拦。真实应用里也会出这个问题：Agent 用一次搜索（`rg` 是单独启动的），沙箱就断网。
+- **做法**（`sandbox.ts` 的 `bootScript`）：卸载共享的 `/mnt/wsl` 后，挂一个私有的 tmpfs（来源名 `dfresolv`，64K，root 才能写）在 `/mnt/wsl`，里面只放 resolv.conf；`/etc/resolv.conf` 保持指向它。WSL 重建的链接也就指向这个文件。已经是 `dfresolv` 就不重复挂。自检的 `no-shared-mounts` 不算 `dfresolv`，新增一项 `dns-locked`（agent 改不了 DNS 设置）。
+- **验证**：留下的测试沙箱里逐项：在线 aliyun 301、baidu 200 → 离线都是 000 → 再在线 301 / 200；中间单独启动一次 `rg` 后照样能上网；局域网（192.168.1.1）照样拦；自检 11 项全过。`scripts/live-sandbox.ts` 这次跑出的「online: 000」是旧 boot 脚本的结果（建沙箱 15 分钟，这台电脑当时网络慢，后来一度整机断网），修好后没再整套重跑；下次有空再完整跑一次 `live-sandbox.ts`（约 15 分钟）。
+- 坑：Git Bash 里调 `wsl.exe … --cd /workspace` 会被 MSYS 改写路径（报 `Wsl/ERROR_FILE_NOT_FOUND`），要 `export MSYS_NO_PATHCONV=1`。
+- 测试发行版 `DFSandboxLiveCheck` 和临时文件夹已删除。
 
-**版本管理（用户 2026-11-02 提出，从 0.3.0 开始做；用户定了：GitHub **公开**仓库，下个窗口做）**：用户已知道提交作者邮箱 superzyhj@gmail.com 和文档里的本机路径会公开；已扫描过，仓库里只有测试用的假 Key。步骤：用户在 github.com/new 建空的公开仓库 DreamFlutter（不勾 README），把地址给 Claude → `git remote add origin <地址>` → `git push -u origin main --tags`（第一次推送弹 GitHub 登录，用户点授权）。原计划：现在仓库只在本地、没有远端，也没装 gh。要做的：用户在 github.com 建一个**私有**仓库（或装 gh 后 `gh repo create`，需要用户本人登录），`git remote add origin …`，推 `main` 和所有 tag（v0.1.0、v0.1.1、v0.2.0，以后 v0.3.0）。推送前确认 `.gitignore` 覆盖了 `dist/`、`core/bin/`、`node_modules/`、build 目录，且仓库里没有 Key（Key 都在 `%APPDATA%` 加密存储，仓库里没有）。**推送要等用户点头**。
+**版本管理**：已完成。GitHub 公开仓库 https://github.com/jun64349/DreamFlutter，`origin` 已设好。以后推送仍然**等用户点头**（提交和打 tag 也是）。v0.3.0 发布时推 `main` 和新 tag。
+
+## v0.3 沙箱镜像：Debian 13，随应用附带（2026-11-02，没提交）
+
+用户试用后提出「安装包把东西都打包进去，不要在线下载」，选了**换 Debian 并打包**（Ubuntu 的商标政策限制再分发改过的镜像，Debian 没有这个问题）。
+
+- **构建**：`core/scripts/build-sandbox-image.ts` → `core/sandbox-image/dreamflutter-sandbox.tar.gz`（+ `.json`：sha256、Debian 版本、时间、大小、包数；+ `.packages.txt`：每个包和版本）。这个文件夹不进 git（`.gitignore`）。做法（`core/src/sandbox/image.ts`）：导入 Ubuntu Base 当临时构建环境 → 装 debootstrap 和 debian-archive-keyring → `debootstrap --variant=minbase`（校验签名）组装 Debian 13 trixie → chroot 里 apt 装工具（`IMAGE_PACKAGES`：原来那些 + passwd + `fonts-wqy-microhei`，`/etc/matplotlibrc` 设好中文字体）→ 写 wsl.conf、建 agent（uid 23456）、锁 root、建 /workspace → 列包清单、清掉 apt 缓存和 resolv.conf → `tar --numeric-owner -czf` → 拷出来 → 删除构建环境（`finally` 里一定删）。镜像里装了 sudo 就构建失败。
+- **下载源测速挑最快的**（`pickFastest`，并行各下 1MB）：2026-11-02 阿里云只有 0.24 MB/s，deb.debian.org（CDN）4.5 MB/s，华为云 Debian 2.3 MB/s、Ubuntu 7 MB/s；清华、中科大、163 连不上。Debian 源顺序：官方、华为云、阿里云；Ubuntu（只给构建环境用）加了华为云。
+- **实测**：镜像 282 MB（压缩后），240 个包，构建 349 秒。用镜像建沙箱 **8 秒**（原来在线装约 15 分钟）。`scripts/live-sandbox.ts` 全部通过（自检 11 项、工具、Debian 13、matplotlib 找到中文字体、在线 301 / 离线 000 / 再在线 301、重置）；`DF_WSL_LIVE=1` 的 `sandbox-live.test.ts` 通过。
+- **建沙箱**（`sandbox.ts` 的 `doProvision`）：有随附镜像（`bundledImage()`：`core/sandbox-image/` 或环境变量 `DREAMFLUTTER_SANDBOX_IMAGE`，要有 `.json`）就先校验 sha256 → `wsl --import` → `CHECK_SCRIPT`（agent 的 uid、wsl.conf、工具、没有 sudo）→ 保存干净快照；没有随附镜像（没跑过构建脚本的开发目录）就当场在线构建一份（10–20 分钟），用完删掉。`sandbox.status` 多了 `bundled`，设置面板按它显示「不用联网，一般 1–2 分钟」或在线构建的说明。
+- **安装包**：`scripts/package-windows.ps1` 把镜像三个文件拷进 `core\sandbox-image\`，`licenses\THIRD-PARTY.txt` 加 Debian 的说明（每个包的许可证在镜像的 /usr/share/doc/*/copyright，源码在 snapshot.debian.org），`licenses\Debian-packages.txt` 是包清单；没有镜像时报错，`-NoSandboxImage` 可以跳过。安装包因此大约多 282 MB。**还没实际打过一次包。**
+- 坑：`image.ts` 和 `sandbox.ts` 互相 import，模块顶层的常量不能跨这个环用（`IMAGE_PACKAGES` 因此放在 image.ts），只能在函数里用。
+
+## v0.3.1 全平台备份、迁移与恢复（已定，v0.3.0 发布后做）
+
+用户 2026-11-02 给了调研设计报告（Codex 写的）：`C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\2026-11-02 13-01 Codex-五项平台能力调研与设计\2026-11-02 13-01 Codex-01-v0.3.1全平台备份迁移与恢复-调研设计报告.md`，说「这个东西我们是要做的」，归在 v0.3.1（v0.3.0 发布后的第一个补丁）。同一个文件夹还有 4 份报告（三级记忆、DSH 与蝶君、Goal、后台压缩），还没看。
+
+**用户 2026-11-02 定了**：五个待定项按 Claude 的建议；旧版本「从 v0.3.0 起都支持」；**先做完并发布 v0.3.0，再做 v0.3.1**，然后用户真实测试反馈；另外 4 份报告在 v0.3.1 测完、0.4 开工前看。设计文档 [v0.3.1-backup-design.md](v0.3.1-backup-design.md)，roadmap 第二节第 9–11 条和「v0.3.1」一节。下面是给用户的核对意见（已写进设计文档）：
+- 报告漏了**蝶君的沙箱**：只打包沙箱里的 `/workspace` 和 agent 的家目录，不带整块磁盘（能用随附镜像重建）。
+- 会话文件在 Pi 的公共目录 `~\.pi\agent\sessions`（38 MB，混着用户自己的 Pi 会话和测试会话），要按后台的会话索引挑。
+- **到处是绝对路径**：数据库（任务、运行、卡片、资料）、Pi 按 cwd 编码的会话文件夹名（如 `--C--Users-21669-AppData-Roaming-DreamFlutter-butterfly--`）→ 要一张「路径对照表」，导入时改数据库和会话文件，平台自己的目录也算。
+- 「试装数据」实际是：后台数据库一直共用，窗口偏好分两份（`%APPDATA%\com.dreamflutter\dreamflutter\`、`%APPDATA%\DreamFlutter.Packaged\DreamFlutter-v0.2.0\`）。
+- 不备份：webview2（86 MB）、core.json/lock/log、core\bin、沙箱的 clean.vhdx。密钥在 `%APPDATA%\DreamFlutter\secrets`（DPAPI），Pi 的 auth.json 是空的；迁移密码用 Node 自带的 scrypt + AES-256-GCM。
+- 导出由后台做：有任务在跑先请用户等或停，暂停定时；数据库 `VACUUM INTO`；会话按当时长度复制。替换导入：后台先检查并解到暂存区、写切换记录，重启时打开数据库之前完成切换，失败回到旧数据。
+- 五个待定项：支持 v0.3.0 及以后（用户改的）；默认不含密钥，勾选含 API Key 时设迁移密码；工作区文件只记位置、蝶君资料默认随包（超 200 MB 提醒）；**第一版只做整套替换 + 替换前自动备份**（报告要求的「恢复成独立数据集」放以后，和报告不同，要用户拍板）；升级前、导入前自动备份各留 3 份，放 `%APPDATA%\DreamFlutter\backups`。
+- 每个模块声明自己的备份数据，加一个测试检查数据库每张表都有人认领。
+
+## v0.3 蝶君骨架 3.5（2026-11-02，没提交）
+
+按 roadmap 3.5 做的骨架。名字是工作名（0.4 品牌讨论时定）。
+
+**后台**（`core/src/modules/butterfly.ts`，模块 `ButterflyModule`）：
+- 蝶君有自己的「家」：`%APPDATA%\DreamFlutter\butterfly`（`CorePaths.butterflyDir`，`core.hello` 带 `butterflyHome`）。蝶君的会话都用这个 cwd 打开（`slot.open` 带 `sandbox: true`），所以 Pi 的会话按 cwd 分开存，**工作台的会话列表、工作区列表里都看不到它**（窗口还把这个文件夹从「最近工作区」里滤掉了）。
+- **数据迁移**：第一次启动时把所有工作区的写笺、资料、收进书桌的卡片（`on_desk = 1`）、写笺的产物都搬到蝶君的家（同一个文件被两张书桌加过的合成一条）；任务留在原工作区。只做一次：数据库第 8 版新表 `app_flags` 记 `desk_moved_to_butterfly`。
+- `butterfly.handOff {noteId}`：沙箱没建好就直接报错（不建任务）；把「工作」里的全部资料复制进沙箱 `/workspace/inbox`（文件、文件夹原样复制，粘贴的文字存成 `<标题>.md`，同名覆盖），建任务（`source: note`，cwd = 蝶君的家），返回提示词：写笺原文 + inbox 里的路径 + 「结果放进 /workspace/outbox」+「不清楚先问用户」。**去掉了选动作的弹窗**（额外反馈 6）。
+- `butterfly.import {paths}`：拖进蝶君对话的文件复制进 inbox，返回沙箱路径。
+- `butterfly.outbox`：列出 outbox 里的文件（经 `\\wsl.localhost\<发行版>\workspace\outbox`，最多 200 个，新的在前）。蝶君每次运行结束后对比 outbox，广播 `butterfly.outbox`（带 `fresh`：新增或改过的文件），窗口弹提示；没有窗口连着时发系统通知。
+- 沙箱会话写的文件按 `\\wsl.localhost\…` 记成任务产物（`tasks.ts`）。
+- **默认不开 MCP**（`pi/host.ts`：沙箱会话不加载 Pi 的 mcp 扩展）；**蝶君的卡片不给本机授权**（`cards.ts`：家里的卡片调用任何宿主工具都返回 TOOL_UNAVAILABLE「蝶君的卡片不能使用这台电脑上的文件、网络或程序」）。
+- 测试 `core/test/butterfly.test.ts`（7 个：家、迁移只一次、交付流程和 inbox 副本、没沙箱时拒绝且不建任务、拖入和 outbox 列表、卡片无本机授权、文件名）。测试里把 `ButterflyModule.local` 指到普通文件夹。
+
+**窗口**：
+- 导航：「对话」→「工作台」，「书桌」→「蝶君」（`AppSection.butterfly`，图标 `filter_vintage`）；工作台会话栏标题也改成「工作台」。
+- 蝶君页 `ui/butterfly_page.dart`：顶栏「蝶君 [交流][工作]」+ 沙箱联网状态；没有沙箱时「交流」显示说明和设置面板（`SandboxPanel`），建好后自动切到对话；后台太旧（hello 没有 `butterflyHome`）时提示从托盘退出后台。
+- **「交流」**：第二个 `AgentController`（`sandbox: true`，`parentController` = 主控制器，`AgentController.ensureButterfly()` 第一次用时创建），共用后台连接；会话都在沙箱里开（`SessionTarget.sandbox` → `slot.open sandbox`），用现成的 `Sidebar` + `ChatView`，外面包自己的 `AgentScope` 和 `ExtensionDialogHost`。蝶君控制器：不换工作区、不显示临时对话和模式切换（总是标准模式）、提示和徽标交给主控制器（`_mainOnlyEvents`）、空闲会话由主控制器的定时器回收、断线由主控制器重连后 `_reattach`。`openTask` / `continueWork` / `resumeInterrupted` / `openSearchHit` 按 cwd 交给对应的控制器（`_ownerOf`）。拖进蝶君对话的文件（图片以外）复制进 inbox，变成沙箱路径的附件；`@` 和右栏「写笺」只给写笺和粘贴的文字（本机路径蝶君打不开）。
+- **「工作」** = 原书桌（`desk_page.dart`，cwd 换成蝶君的家，去掉工作区切换）：右栏「交付」（outbox，`OutboxTile`：点开预览文本/图片，小于 512KB 的文本可以直接改，「保存到这台电脑」选位置复制，用默认程序打开、在资源管理器中显示）、「改过的文件」、卡片、最近任务。写笺右上角「交给蝶君」直接交付，切到「交流」看它干活。
+- 卡片菜单「收进书桌」只在蝶君的对话里出现，改叫「收进「工作」」；工作台没有书桌了，工作台对话的卡片不再能收起来。工作台右栏的「书桌」标签也只在蝶君对话里出现（叫「写笺」）。
+- 测试：`work_pages_test`（交给蝶君：调 `butterfly.handOff`、在沙箱会话里跑、绑定任务、工作台看不到）、`chat_panel_test`（工作台没有写笺标签；蝶君右栏的写笺能附上）、`cards_test`（收进「工作」只在蝶君里）；`FakeBackend.butterflyHome`。集成测试同步改了：`look_test` 看蝶君页，`cards_test` 在工作台直接放大卡片测授权，`e2e_test` 第 16 步改成蝶君 › 工作（测试后台没有沙箱，交付会提示「沙箱还没有建好」；真实交付由 `sandbox-live.test.ts` 和后台测试覆盖）。**集成测试这次没跑**。
+
+**用户试用后的修改（2026-11-02）**：
+- 用户：「工作部分也是要在独立环境里进行」→ 整个蝶君页都等沙箱：没建好时「交流」「工作」两个标签都不显示，只显示建立沙箱（`butterfly_page.dart`）。
+- 书桌遗留：v0.2 书桌的 Agent 在本机写的文件跟着写笺搬了过来，不该算蝶君的 → 「工作」的「改过的文件」和写笺下面的产物只列沙箱里的（`isSandboxPath`：`\\wsl.localhost\` / `\\wsl$\`），写笺下面的任务只列蝶君的（cwd = 蝶君的家）；空写笺页的「一张干净的书桌」、资料的「从书桌移除」改了说法；`NoteEditor` 去掉没用的 `materials` 参数。数据库里的旧记录没动。
+- **试用的坑**：从 Claude 的终端面板启动应用，数据目录被 Claude（MSIX 打包应用）部分重定向，见「和用户合作的约定」。让用户自己双击 `app\build\windows\x64\runner\Debug\dreamflutter.exe`。
+
+**没做 / 留到以后**：
+- 技能里的脚本复制进沙箱执行（roadmap 3.5「技能里的脚本复制进沙箱执行」）：蝶君现在能读技能说明，但脚本在本机路径，沙箱里跑不了。
+- 记忆的「蝶君」分区：现在只是按 cwd 自然分开（工作区范围的记忆），全局记忆两边共用；正式隔离在 0.5（5.5）。
+- outbox 里的 PDF / HTML 没接应用内的渲染页，只能用默认程序打开。
+- 「交流」里的会话标题、运行面板等都沿用工作台的样子；视觉在 0.4 统一。
+- 真实模型下的整条流程（交给蝶君 → 它在沙箱里用 Python 出图 → outbox → 保存到本机）**还没跑过**，要用户在应用里试，或下个窗口用真沙箱跑一次。
 
 ## v0.3 子 Agent 3.4（2026-11-02）
 
