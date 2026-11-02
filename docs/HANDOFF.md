@@ -8,7 +8,7 @@
 
 **v0.3 进度**：
 - 完成并提交：3.0 修复批、3.1 三份调研、3.4 子 Agent、3.2 执行环境 + 3.3 WSL 沙箱。WSL 已装好（3.0.3）。
-- 2026-11-02 第二个窗口（都已提交：`a7f982e`、`2546ef1` 和最后一个提交）：修好在线时沙箱上不了网；3.5 蝶君骨架（按用户试用意见改过）；沙箱改用 Debian 13 并随应用附带镜像（建沙箱 8 秒）；3.6 工作区运行环境（自带 uv 和便携 Python、每个工作区的 `.dreamflutter\`）；3.7 记忆开发设计 [memory-design.md](memory-design.md)（0.4 期间和用户逐项定稿，第十二节是 12 个待定项的建议值）。**用户说做完就可以提交**；推送到 GitHub 仍要问用户。
+- 2026-11-02 第二个窗口（都已提交：`a7f982e`、`2546ef1` 和最后一个提交）：修好在线时沙箱上不了网；3.5 蝶君骨架（按用户试用意见改过）；沙箱改用 Debian 13 并随应用附带镜像（建沙箱 8 秒）；3.6 工作区运行环境（自带 uv 和便携 Python、每个工作区的 `.dreamflutter\`）；3.7 记忆开发设计 [memory-design.md](memory-design.md)（0.4 期间和用户逐项定稿，第十二节是 12 个待定项的建议值）。**用户说做完就可以提交**；**推送：用户 2026-11-02 定了等 v0.3.1 全部做好再一起推**（v0.3.0 的 tag 也到那时一起推）。
 - **下一个窗口按顺序做**（用户 2026-11-02 定的顺序，额度紧时测试从简）：
   1. **发布 v0.3.0**：版本号改 0.3.0（`app/pubspec.yaml`、`core/package.json`、`core/src/` 里的 `CORE_VERSION`、测试里写死的版本、`FakeBackend` 的 0.2.0）；写 `docs/v0.3-release-notes.md`；先 `cd core; node --disable-warning=ExperimentalWarning scripts/build-sandbox-image.ts`（镜像已在 `core/sandbox-image/`，有就不用重做）和 `scripts/fetch-toolchain.ts`（已在），再 `powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1` 打包（**还没实际打过带镜像、uv、Python 的包**）；集成测试（look / cards / e2e）这次改过还没跑。**打 tag、推送前问用户。**
   2. **做 v0.3.1 备份迁移**：按 [v0.3.1-backup-design.md](v0.3.1-backup-design.md)。
