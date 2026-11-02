@@ -11,3 +11,6 @@ core/bin/
 
 # 蝶君 sandbox image (core/scripts/build-sandbox-image.ts), shipped in the installer, not in git
 core/sandbox-image/
+
+# Workbench toolchain (core/scripts/fetch-toolchain.ts): portable Python, shipped in the installer
+core/python/

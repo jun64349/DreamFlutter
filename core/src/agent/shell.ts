@@ -6,6 +6,7 @@ import { StringDecoder } from "node:string_decoder";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { HarnessState } from "./state.ts";
+import { toolchainEnv } from "./toolchain.ts";
 
 /**
  * dsh's shell tools for Windows: the standard preset's one-process-per-call
@@ -362,6 +363,7 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 				cwd: workdir,
 				windowsHide: true,
 				stdio: ["ignore", "pipe", "pipe"],
+				env: toolchainEnv(),
 			});
 			const stdout = new OutputStream("stdout");
 			const stderr = new OutputStream("stderr");
@@ -472,6 +474,7 @@ export class PersistentShell {
 			cwd: this.cwd(),
 			windowsHide: true,
 			stdio: ["pipe", "pipe", "pipe"],
+			env: toolchainEnv(),
 		});
 		// Decoders keep a character split across chunks whole; a runaway command keeps its head and tail only.
 		const append = (decoder: StringDecoder) => (chunk: Buffer) => {

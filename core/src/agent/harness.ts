@@ -38,6 +38,7 @@ import { SandboxShell, sandboxBashTool } from "./sandbox-shell.ts";
 import { globTool, grepTool, ripgrepPath } from "./search-tools.ts";
 import { JobRegistry, jobTools, PersistentShell, persistentPwshTool, pwshTool } from "./shell.ts";
 import { HarnessState, sandboxEnv, type TodoItem } from "./state.ts";
+import { prepareWorkspace, workspaceGuidance } from "./toolchain.ts";
 
 /**
  * The two agent modes, reproducing DeepSeek Harness's presets on Pi:
@@ -292,7 +293,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 
 		// ---- the system prompt ------------------------------------------------------------------
 		const activeNames = () => new Set(pi.getActiveTools());
-		const systemPrompt = (model: Model<never> | undefined): string => {
+		const systemPrompt = (model: Model<never> | undefined, cwd: string): string => {
 			if (mode === "minimal") return MINIMAL_PERSONA;
 			const active = activeNames();
 			const sections = [
@@ -301,7 +302,8 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				state.planMode ? PLAN_POLICY : "",
 				...TOOL_GUIDANCE.filter((g) => active.has(g.tool)).map((g) => g.text),
 				active.has("show_card") ? RICH_OUTPUT_GUIDANCE : "",
-				sandbox ? SANDBOX_ENVIRONMENT : "",
+				// The workbench: shipped tools, and .dreamflutter with the workspace notes (read fresh every run).
+				sandbox ? SANDBOX_ENVIRONMENT : workspaceGuidance(prepareWorkspace(cwd).notes),
 			];
 			return sections.filter((s) => s.length > 0).join("\n\n");
 		};
@@ -309,7 +311,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 		pi.on("before_agent_start", (_event, ctx) => {
 			currentModel = (ctx.model as Model<never> | undefined) ?? currentModel;
 			turn += 1;
-			return { systemPrompt: systemPrompt(currentModel) };
+			return { systemPrompt: systemPrompt(currentModel, ctx.cwd) };
 		});
 
 		// ---- context messages, each only when it changed (dsh pre-step contributors) ---------------

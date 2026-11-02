@@ -65,7 +65,15 @@
 
 **版本管理**：已完成。GitHub 公开仓库 https://github.com/jun64349/DreamFlutter，`origin` 已设好。以后推送仍然**等用户点头**（提交和打 tag 也是）。v0.3.0 发布时推 `main` 和新 tag。
 
-## v0.3 沙箱镜像：Debian 13，随应用附带（2026-11-02，没提交）
+## v0.3 工作区运行环境 3.6（2026-11-02）
+
+- **工具链随应用**：`core/bin` 放 rg、fd（打包时从 Pi 的 bin 拷）和 uv / uvx / uvw；`core/python/cpython-3.13.*` 是便携 Python（python-build-standalone，由 uv 安装并校验）。开发目录里用 `cd core; node --disable-warning=ExperimentalWarning scripts/fetch-toolchain.ts` 取（uv 走 GitHub 的 `releases/latest/download`，GitHub API 在这台电脑会 403；下载经 curl，走代理；只在开发机上跑）。`core/python/` 不进 git。uv 31 MB、Python 60 MB（未压缩）。uv 装 Python 时会建一个版本别名的 junction（`cpython-3.13-windows-...`），打包用 `robocopy /XJ` 跳过，不然 Python 拷两份。
+- **Agent 的命令**（`agent/shell.ts` 两处 spawn）用 `toolchainEnv()`（`agent/toolchain.ts`）：工具和 Python 排在 PATH 最前，`UV_PYTHON` 指向自带的 Python、`UV_PYTHON_DOWNLOADS=never`、`PYTHONUTF8=1`；没有自带工具时环境不变。
+- **每个工作区的 `.dreamflutter\`**：工作台标准模式每次运行前 `prepareWorkspace(cwd)` 确保它存在（第一次建时写 `.gitignore` 内容 `*`，git 完全看不到它），系统提示词加「# Workspace environment」一节（`workspaceGuidance`）：有哪些工具、自己的文件放 `.dreamflutter\`（`venv\` 用 uv 建、`tmp\` 放临时文件和辅助脚本）、`.dreamflutter\workspace.md` 是给以后会话的工作区笔记（学到长期有用的事就更新）。笔记内容（超过 6000 字截断）每次运行都重新读进提示词。极简模式、蝶君（沙箱）不加这一节。
+- 测试 `core/test/toolchain.test.ts`（环境变量、文件夹和 git、提示词、会话里每次读到最新笔记、极简模式不加）。真实检查：按 Agent 的方式起 PowerShell，`uv` 和 `python` 都是自带的，在 `.dreamflutter\venv` 建虚拟环境并 `uv pip install six` 成功。
+- 安装包：`package-windows.ps1` 拷 uv 和 Python，`THIRD-PARTY.txt` 写 uv（MIT / Apache-2.0）和 Python（PSF，许可文本在 `core\python\*\LICENSE.txt`）。
+
+## v0.3 沙箱镜像：Debian 13，随应用附带（2026-11-02）
 
 用户试用后提出「安装包把东西都打包进去，不要在线下载」，选了**换 Debian 并打包**（Ubuntu 的商标政策限制再分发改过的镜像，Debian 没有这个问题）。
 
@@ -90,7 +98,7 @@
 - 五个待定项：支持 v0.3.0 及以后（用户改的）；默认不含密钥，勾选含 API Key 时设迁移密码；工作区文件只记位置、蝶君资料默认随包（超 200 MB 提醒）；**第一版只做整套替换 + 替换前自动备份**（报告要求的「恢复成独立数据集」放以后，和报告不同，要用户拍板）；升级前、导入前自动备份各留 3 份，放 `%APPDATA%\DreamFlutter\backups`。
 - 每个模块声明自己的备份数据，加一个测试检查数据库每张表都有人认领。
 
-## v0.3 蝶君骨架 3.5（2026-11-02，没提交）
+## v0.3 蝶君骨架 3.5（2026-11-02）
 
 按 roadmap 3.5 做的骨架。名字是工作名（0.4 品牌讨论时定）。
 

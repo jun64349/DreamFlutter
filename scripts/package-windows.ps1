@@ -3,7 +3,8 @@
 #   dist\DreamFlutter-<version>\
 #     app\        the window (Flutter release build + VC++ runtime DLLs)
 #     core\       the background service (src, assets, production node_modules)
-#     core\bin\   rg.exe, fd.exe for the search tools (core/src/agent/search-tools.ts)
+#     core\bin\   rg.exe, fd.exe for the search tools (core/src/agent/search-tools.ts); uv for the workbench
+#     core\python\  portable Python for the workbench (core/scripts/fetch-toolchain.ts, core/src/agent/toolchain.ts)
 #     core\sandbox-image\  蝶君's sandbox image, Debian (core/scripts/build-sandbox-image.ts)
 #     runtime\    node.exe (the window finds it: PiRuntimeLocator.findNode)
 #     licenses\   Node.js, ripgrep, fd, the Debian packages in the sandbox image
@@ -67,6 +68,17 @@ foreach ($tool in "rg.exe", "fd.exe") {
     Copy-Item "$piBin\$tool" "$target\core\bin"
 }
 
+# 3a. The workbench toolchain (roadmap 3.6): uv and a portable Python, from core/scripts/fetch-toolchain.ts.
+foreach ($tool in "uv.exe", "uvx.exe", "uvw.exe") {
+    if (-not (Test-Path "$root\core\bin\$tool")) { throw "core\bin\$tool is missing: run (cd core) node --disable-warning=ExperimentalWarning scripts\fetch-toolchain.ts" }
+    Copy-Item "$root\core\bin\$tool" "$target\core\bin"
+}
+$python = Get-ChildItem "$root\core\python" -Directory -Filter "cpython-*" | Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | Select-Object -First 1
+if (-not $python) { throw "core\python has no Python: run scripts\fetch-toolchain.ts" }
+# /XJ: uv's version-alias junction would copy Python twice.
+robocopy $python.FullName "$target\core\python\$($python.Name)" /E /XJ /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "copying Python failed" }
+
 # 3b. 蝶君's sandbox image (Debian with the tools), so setting the sandbox up needs no download.
 $image = "$root\core\sandbox-image\dreamflutter-sandbox.tar.gz"
 if (-not $NoSandboxImage) {
@@ -88,6 +100,9 @@ if (Test-Path $nodeLicense) { Copy-Item $nodeLicense "$target\licenses\Node-LICE
 @"
 ripgrep (rg.exe): https://github.com/BurntSushi/ripgrep, dual-licensed under the Unlicense and MIT.
 fd (fd.exe): https://github.com/sharkdp/fd, dual-licensed under MIT and Apache-2.0.
+uv (uv.exe, uvx.exe, uvw.exe): https://github.com/astral-sh/uv, dual-licensed under MIT and Apache-2.0.
+Python (core\python\): CPython from python-build-standalone (https://github.com/astral-sh/python-build-standalone),
+  Python Software Foundation License; its license text, with those of the libraries it bundles, is core\python\*\LICENSE.txt.
 desktop_drop (vendored in packages/desktop_drop): Apache-2.0, MixinNetwork/flutter-plugins.
 "@ | Set-Content -Encoding utf8 "$target\licenses\THIRD-PARTY.txt"
 if (-not $NoSandboxImage) {
@@ -107,7 +122,7 @@ licenses\Debian-packages.txt; their source code is available from Debian at thos
 DreamFlutter $version（Windows x64 免安装版）
 
 启动：双击 app\dreamflutter.exe。
-已包含 Node.js（runtime\）、搜索工具 rg / fd（core\bin\）和蝶君的沙箱镜像（core\sandbox-image\，建沙箱不用联网）。
+已包含 Node.js（runtime\）、搜索工具 rg / fd 和 Python 包管理器 uv（core\bin\）、便携 Python（core\python\，工作台的 Agent 用，电脑上不用另装 Python）和蝶君的沙箱镜像（core\sandbox-image\，建沙箱不用联网）。
 数据和开发版共用：%APPDATA%\DreamFlutter、%USERPROFILE%\.pi\agent。同一时间只运行一个版本；换版本前从托盘「退出并停止后台」。
 "@ | Set-Content -Encoding utf8 "$target\使用说明.txt"
 
