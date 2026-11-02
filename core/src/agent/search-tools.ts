@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { HarnessState } from "./state.ts";
 
@@ -17,9 +18,20 @@ const SEARCH_TIMEOUT_MS = 30_000;
 const RAW_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
 const VCS_EXCLUDES = [".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
 
-export function ripgrepPath(agentDir: string): string {
-	const local = join(agentDir, "bin", process.platform === "win32" ? "rg.exe" : "rg");
-	return existsSync(local) ? local : "rg";
+/** `core/bin`: where the packaged app ships its tools (scripts/package-windows.ps1). */
+export const BUNDLED_TOOLS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "bin");
+
+/**
+ * ripgrep shipped with the app, else the one Pi keeps in its bin directory,
+ * else `rg` on PATH. A packaged install has its own Pi directory without
+ * Pi's binaries, which left search with `rg ENOENT` (extra test 4).
+ */
+export function ripgrepPath(agentDir: string, bundledDir = BUNDLED_TOOLS_DIR): string {
+	const exe = process.platform === "win32" ? "rg.exe" : "rg";
+	for (const dir of [bundledDir, join(agentDir, "bin")]) {
+		if (existsSync(join(dir, exe))) return join(dir, exe);
+	}
+	return "rg";
 }
 
 interface RgRun {

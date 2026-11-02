@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pi_rpc/pi_rpc.dart' show SessionStats;
 
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -111,9 +112,11 @@ class _ContextDialogState extends State<_ContextDialog> {
                   _Stat('你的消息', '${stats.userMessages}'),
                   _Stat('回复', '${stats.assistantMessages}'),
                   _Stat('工具调用', '${stats.toolCalls}'),
-                  _Stat('累计输入', formatTokens(stats.inputTokens)),
+                  _Stat('累计输入', formatTokens(stats.inputTokens), hint: '没有命中缓存、按全价计费的输入。命中缓存的部分算在「缓存命中」里'),
                   _Stat('累计输出', formatTokens(stats.outputTokens)),
-                  _Stat('缓存命中', formatTokens(stats.cacheReadTokens)),
+                  _Stat('缓存命中', formatTokens(stats.cacheReadTokens), hint: '从缓存里读出的输入，价格低得多'),
+                  if (cacheHitRate(stats) case final rate?)
+                    _Stat('缓存命中率', '${(rate * 100).toStringAsFixed(rate < 0.1 ? 1 : 0)}%', hint: '命中缓存的输入占全部输入的比例：越高越省钱，首字也越快'),
                   if (stats.cost > 0) _Stat('费用', '\$${stats.cost.toStringAsFixed(4)}'),
                 ],
               ),
@@ -166,21 +169,32 @@ class _ContextDialogState extends State<_ContextDialog> {
   }
 }
 
+/// Share of all input that came from the cache (extra test 10), or null
+/// before anything was sent. Pi reports input without the cached part.
+double? cacheHitRate(SessionStats stats) {
+  final all = stats.inputTokens + stats.cacheReadTokens + stats.cacheWriteTokens;
+  return all == 0 ? null : stats.cacheReadTokens / all;
+}
+
 class _Stat extends StatelessWidget {
-  const _Stat(this.label, this.value);
+  const _Stat(this.label, this.value, {this.hint});
 
   final String label;
   final String value;
+  final String? hint;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 96,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: context.text.labelSmall?.copyWith(color: context.colors.muted)),
-        Text(value, style: context.text.titleMedium),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final stat = SizedBox(
+      width: 96,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: context.text.labelSmall?.copyWith(color: context.colors.muted)),
+          Text(value, style: context.text.titleMedium),
+        ],
+      ),
+    );
+    return hint == null ? stat : Tooltip(message: hint!, child: stat);
+  }
 }

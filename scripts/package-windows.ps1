@@ -1,0 +1,87 @@
+﻿# Builds a portable DreamFlutter folder for Windows x64:
+#
+#   dist\DreamFlutter-<version>\
+#     app\        the window (Flutter release build + VC++ runtime DLLs)
+#     core\       the background service (src, assets, production node_modules)
+#     core\bin\   rg.exe, fd.exe for the search tools (core/src/agent/search-tools.ts)
+#     runtime\    node.exe (the window finds it: PiRuntimeLocator.findNode)
+#     licenses\   Node.js, ripgrep, fd
+#
+# Run from the repository root in PowerShell:
+#   powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1
+#
+# Start the result with app\dreamflutter.exe. It uses the same data folders as a
+# development build (%APPDATA%\DreamFlutter, ~\.pi\agent): quit one from the
+# tray ("退出并停止后台") before starting the other.
+
+param(
+    [string]$OutDir = "dist",
+    [switch]$SkipBuild
+)
+
+$ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot
+$version = ((Select-String -Path "$root\app\pubspec.yaml" -Pattern '^version:\s*([^+\s]+)').Matches[0].Groups[1].Value)
+$target = Join-Path $root "$OutDir\DreamFlutter-$version"
+Write-Host "Packaging DreamFlutter $version -> $target"
+
+if (Test-Path $target) { throw "$target already exists; remove it first." }
+
+# 1. The window.
+if (-not $SkipBuild) {
+    Push-Location "$root\app"
+    flutter build windows --release
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "flutter build failed" }
+    Pop-Location
+}
+$release = "$root\app\build\windows\x64\runner\Release"
+New-Item -ItemType Directory -Force "$target\app" | Out-Null
+Copy-Item "$release\*" "$target\app" -Recurse
+# Machines without the VC++ redistributable still start the window.
+foreach ($dll in "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll",
+                 "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll", "concrt140.dll", "vccorlib140.dll") {
+    $source = Join-Path $env:WINDIR "System32\$dll"
+    if (Test-Path $source) { Copy-Item $source "$target\app" }
+}
+
+# 2. The background service, with production dependencies only.
+New-Item -ItemType Directory -Force "$target\core" | Out-Null
+foreach ($item in "src", "assets", "package.json", "package-lock.json") {
+    Copy-Item "$root\core\$item" "$target\core" -Recurse
+}
+robocopy "$root\core\node_modules" "$target\core\node_modules" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "copying node_modules failed" }
+Push-Location "$target\core"
+npm prune --omit=dev --no-audit --no-fund
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "npm prune failed" }
+Pop-Location
+
+# 3. Search tools: the copies Pi downloaded on this machine.
+$piBin = Join-Path $env:USERPROFILE ".pi\agent\bin"
+New-Item -ItemType Directory -Force "$target\core\bin" | Out-Null
+foreach ($tool in "rg.exe", "fd.exe") {
+    if (-not (Test-Path "$piBin\$tool")) { throw "$piBin\$tool is missing: run Pi once (it downloads rg and fd) or place the binary there." }
+    Copy-Item "$piBin\$tool" "$target\core\bin"
+}
+
+# 4. Node.js.
+$node = (Get-Command node -ErrorAction Stop).Source
+New-Item -ItemType Directory -Force "$target\runtime", "$target\licenses" | Out-Null
+Copy-Item $node "$target\runtime\node.exe"
+$nodeLicense = Join-Path (Split-Path $node) "LICENSE"
+if (Test-Path $nodeLicense) { Copy-Item $nodeLicense "$target\licenses\Node-LICENSE.txt" }
+@"
+ripgrep (rg.exe): https://github.com/BurntSushi/ripgrep, dual-licensed under the Unlicense and MIT.
+fd (fd.exe): https://github.com/sharkdp/fd, dual-licensed under MIT and Apache-2.0.
+desktop_drop (vendored in packages/desktop_drop): Apache-2.0, MixinNetwork/flutter-plugins.
+"@ | Set-Content -Encoding utf8 "$target\licenses\THIRD-PARTY.txt"
+
+@"
+DreamFlutter $version（Windows x64 免安装版）
+
+启动：双击 app\dreamflutter.exe。
+已包含 Node.js（runtime\）和搜索工具 rg / fd（core\bin\）。
+数据和开发版共用：%APPDATA%\DreamFlutter、%USERPROFILE%\.pi\agent。同一时间只运行一个版本；换版本前从托盘「退出并停止后台」。
+"@ | Set-Content -Encoding utf8 "$target\使用说明.txt"
+
+Write-Host "Done: $target"

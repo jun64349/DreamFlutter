@@ -7,9 +7,9 @@
 **现状**：v0.2.0 已发布：`main` 上的 annotated tag `v0.2.0` → 提交 `001d03c`。仓库只在本地，没有远端，什么都不推送。2026-11-02 和用户讨论后**重排了 v0.3–v1.0 计划**（[roadmap.md](roadmap.md)，用户已确认）：书桌升级为在 WSL2 沙箱里独立工作的「蝶君」，对话改名「工作台」；0.3 = 修复批 + 执行环境 + Agent 运行时与子 Agent + WSL 沙箱 + 蝶君骨架 + 记忆开发设计。
 
 **下一步（v0.3）**：
-1. **先做 3.0 修复批**（用户：修 bug 最先做）：思考档位、聊天软件拖图、发消息时窗口抖动、安装包缺 rg、产物在资源管理器定位、缓存命中率、提问 60 秒限时。
-2. 同时用 Agent Bridge 派三份 Antigravity 调研（3.1：Agent 安全、子 Agent 架构、WSL 沙箱核实）。
-3. 3.3 开工前给用户装 WSL 的完整步骤（用户本人以管理员身份运行，可能重启）。**这台电脑现在没有 WSL**（`wsl --status` 报 `REGDB_E_CLASSNOTREG`），也没有 Docker。
+1. ~~3.0 修复批~~、~~3.1 三份调研~~：2026-11-02 完成，见下面「v0.3 修复批 3.0」一节。修复批里的拖图片要用户手动试。
+2. 用户装 WSL（步骤已给用户：管理员 PowerShell 里 `wsl --install --no-distribution`，可能重启；`wsl --version` 能出版本号就好）。**这台电脑之前没有 WSL**（`wsl --status` 报 `REGDB_E_CLASSNOTREG`），也没有 Docker。
+3. 接着做 3.2 执行环境抽象和 3.4 Agent 运行时 + 子 Agent（不依赖 WSL，可以先做），WSL 装好后做 3.3 沙箱。沙箱按 `docs/research/wsl-sandbox.md` 的修正：Debian 底包、`[user] default=agent` + `-u agent`、启动时 root 卸载 `/mnt/wsl` 和 `/mnt/wslg`、vhdx 复制重置、`ip link` 离线。
 
 **先读这些**：
 
@@ -34,6 +34,23 @@
 - **提交、打 tag 都等用户说**；不推送。
 - **改了后台代码**之后，用户要从托盘「退出并停止后台」一次，新代码才生效（应用不会自动替换旧后台；直接结束后台进程会被权限检查拦下）。跑 E2E 或视觉检查前，用户的应用要先退出：调试版 `dreamflutter.exe` 会被占用。
 - 外部标准（如 Showcard）按官方规范、原样参考代码和官方一致性测试来做，列出偏差。
+
+## v0.3 修复批 3.0（2026-11-02）
+
+额外测试里确认的 bug 都修了，每条有回归测试：
+
+1. **思考档位**（额外 1、2）：根因在窗口：档位只在会话启动时取一次，新装的应用里先启动会话、后配渠道和模型，就一直只有「关闭」。现在每次刷新状态都重新取（`session_runtime.dart` 的 `_refreshState`，换渠道后的 `refreshModels` 也会刷新）；后台的模型列表给每个模型带上 `thinkingLevels`（`slot.ts`，Pi 的 `getSupportedThinkingLevels`），设置页的「新会话默认思考级别」按**默认模型**列档位；默认档位交给 Pi 就近换算（deepseek-v4.1-flash 关不掉思考，「关闭」会变成「低」）。
+2. **从浏览器、聊天软件拖图片**（额外 3）：`desktop_drop` 复制到 `packages/desktop_drop`（Apache-2.0，`app/pubspec.yaml` 的 `dependency_overrides`），Windows 端拖放除了文件路径，还接收虚拟文件（FileGroupDescriptorW + FileContents）、PNG、CF_DIBV5 / CF_DIB 位图（WIC 转成 PNG），存到 `%TEMP%\DreamFlutter\drops\` 再交给输入框；什么都读不到时提示用 Ctrl+V。**真实拖放没有自动测试，要用户手动试**（QQ / 微信 / 浏览器各拖一张图）。
+3. **发消息时窗口抖动**（额外 7）：消息列表「跟到底部」原来是画完一帧后再跳，输入框变高变矮、新消息、排队消息变成正式消息时都会画出一帧错位（测试测到 110、82、103 像素）。现在 `chat_view.dart` 的 `_BottomAnchoredController` 在布局时就钉在底部（`applyContentDimensions` 里 `correctPixels`），往上翻看时不动。`test/chat_scroll_test.dart` 逐帧检查。
+4. **安装包缺 ripgrep**（额外 4）：Codex 打的包给 Pi 单独设了数据目录，里面没有 Pi 平常下载的 `bin\rg.exe`。后台现在按「应用自带 `core/bin` → Pi 的 bin → PATH」找 rg（`search-tools.ts`）；窗口按「`DREAMFLUTTER_NODE` → 自带的 `runtime/node.exe` → PATH」找 Node（`PiRuntimeLocator.findNode`）。打包脚本 `scripts/package-windows.ps1` 生成 `dist\DreamFlutter-<版本>\`（app、core 只留生产依赖、core\bin 的 rg/fd、runtime\node.exe、许可证），已实际跑通。它和开发版共用数据目录，没有 Codex 那个试用包的隔离启动器和卸载器（安装包的完整做法在 0.6 的 6.9）。
+5. **产物在资源管理器里定位**（额外 9）：回复里用代码格式写的文件名或路径（相对会话工作区或绝对路径），文件真实存在时变成链接：左键在资源管理器里选中，右键用默认程序打开，文件夹直接打开（`markdown_view.dart` 的 `FileLinks`）。
+6. **缓存命中率**（额外 10）：上下文面板加「缓存命中率」= 缓存命中 ÷（累计输入 + 缓存命中 + 缓存写入），「累计输入」悬停说明不含缓存部分。
+7. **提问限时**（额外 12）：后台设置 `askTimeoutSeconds`（默认 60，0 = 一直等），设置 › 对话里可选 30 秒 / 1 分钟 / 5 分钟 / 一直等。`ask_user_question` 超时后选推荐项（标了 (Recommended) 的，没有就第一个），开放式问题算跳过，工具结果里告诉模型「用户没在 N 秒内回答」；窗口提问框显示倒计时，后台超时后窗口的框自动关掉（`confirm.changed` → `dropDialog`）。**批准操作不受影响，永远等用户。**
+
+3.1 的三份调研（Antigravity）已存到 `docs/research/`：`wsl-sandbox.md`、`subagents.md`、`agent-security.md`。要点（待核验，出处里有可疑的 issue 编号）：
+- **WSL**：普通用户挂不了 Windows 盘、重开不了互操作（印证不给 root 的决定）；宿主不用 Windows 管理员就能 `wsl -u root` 在沙箱里执行管理命令，一键离线 = `ip link set eth0 down`；`/mnt/wsl`（跨发行版共享）和 WSLg（`/mnt/wslg`）是额外的通道，要在启动时以 root 卸载；`wsl --import` 默认以 root 登录，`wsl.conf` 要写 `[user] default=agent` 且命令行带 `-u agent`；重置用「复制干净的 vhdx + `wsl --import-in-place`」约 1 秒；底包推荐 Debian（约 50MB，可以自由分发）；`\\wsl.localhost` 大文件快、海量小文件慢。
+- **子 Agent**：四种双环境模式：沙箱探路（本机主 Agent 把改动交给沙箱子 Agent 试到通过，再一次性请用户批准）、高风险工具降级到沙箱（不可信内容的解析、抓取都在沙箱里做，防提示注入）、沙箱并行竞速（几个方案同时试，挑最好的）、本机设计 + 沙箱验证。
+- **安全**：P0 敏感路径硬拦截（`.ssh`、浏览器数据、`.env*`…）、命令判断换成语法解析；P1 运行时脱敏、MCP 子进程清洗环境变量；P2 Windows 受限令牌、出站白名单；P3 结构化审计日志。扩充放 0.6（6.7），P0 两条可以考虑提前。
 
 v0.1.1 和 v0.2 各阶段的细节按时间倒序记在下面，查历史时再看。用户 2026-10-31 决定不再做 computer-use 人工测试。
 

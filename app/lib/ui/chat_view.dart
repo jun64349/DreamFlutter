@@ -1,6 +1,7 @@
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import 'package:pi_rpc/pi_rpc.dart' show Transcript;
 
 import '../state/agent_controller.dart';
 import '../theme.dart';
@@ -9,6 +10,7 @@ import 'composer.dart';
 import 'common.dart';
 import 'context_dialog.dart';
 import 'library_page.dart' show showTemplateEditor;
+import 'markdown_view.dart' show FileLinks;
 import 'message_widgets.dart';
 import 'motion.dart';
 import 'providers_page.dart' show ProvidersPage;
@@ -326,19 +328,8 @@ class _MessageList extends StatefulWidget {
 }
 
 class _MessageListState extends State<_MessageList> {
-  final _scroll = ScrollController();
-  var _stickToBottom = true;
-  int _lastRevision = -1;
-
-  @override
-  void initState() {
-    super.initState();
-    _scroll.addListener(() {
-      if (!_scroll.hasClients) return;
-      final position = _scroll.position;
-      _stickToBottom = position.maxScrollExtent - position.pixels < 80;
-    });
-  }
+  final _scroll = _BottomAnchoredController();
+  Transcript? _shown;
 
   @override
   void dispose() {
@@ -346,23 +337,18 @@ class _MessageListState extends State<_MessageList> {
     super.dispose();
   }
 
-  void _followIfNeeded(int revision) {
-    if (revision == _lastRevision) return;
-    _lastRevision = revision;
-    if (!_stickToBottom) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final transcript = agent.transcript;
-    _followIfNeeded(transcript.revision);
+    // Another conversation opens at its end, wherever the last one was scrolled to.
+    if (!identical(transcript, _shown)) {
+      _shown = transcript;
+      _scroll.stick = true;
+    }
     final rows = ChatRow.fromItems(transcript.items);
     final queued = transcript.queuedSteering;
-    return SelectionArea(
+    final list = SelectionArea(
       child: ListView.builder(
         controller: _scroll,
         padding: const EdgeInsets.symmetric(vertical: 24),
@@ -384,6 +370,52 @@ class _MessageListState extends State<_MessageList> {
         },
       ),
     );
+    final cwd = agent.active?.workspace;
+    if (cwd == null) return list;
+    return FileLinks(baseDir: cwd, reveal: agent.revealFile, open: agent.openFile, child: list);
+  }
+}
+
+/// Keeps the conversation pinned to its end while the reader is there.
+///
+/// The pin is applied during layout, in the same frame the content or the
+/// viewport changes. Following the end with a jump after the frame (as before)
+/// painted one frame out of place each time a message arrived, a queued
+/// message turned into a real one or the input box changed height, which read
+/// as the window shaking (extra test 7).
+class _BottomAnchoredController extends ScrollController {
+  _BottomAnchoredController() {
+    // Listeners hear every scroll (drag, wheel, scrollbar, jumpTo) but not the
+    // layout-time pin, which uses correctPixels.
+    addListener(() {
+      if (hasClients) stick = position.maxScrollExtent - position.pixels < _slack;
+    });
+  }
+
+  /// Whether the reader is at the end. Scrolling up releases it; coming back
+  /// within [_slack] of the end takes it again.
+  bool stick = true;
+
+  static const _slack = 80.0;
+
+  @override
+  ScrollPosition createScrollPosition(ScrollPhysics physics, ScrollContext context, ScrollPosition? oldPosition) =>
+      _BottomAnchoredPosition(this, physics: physics, context: context, oldPosition: oldPosition);
+}
+
+class _BottomAnchoredPosition extends ScrollPositionWithSingleContext {
+  _BottomAnchoredPosition(this._owner, {required super.physics, required super.context, super.oldPosition});
+
+  final _BottomAnchoredController _owner;
+
+  @override
+  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    final settled = super.applyContentDimensions(minScrollExtent, maxScrollExtent);
+    if (_owner.stick && hasPixels && pixels != maxScrollExtent && activity is! DragScrollActivity && activity is! BallisticScrollActivity) {
+      correctPixels(maxScrollExtent);
+      return false; // lay out again at the new offset, before painting
+    }
+    return settled;
   }
 }
 

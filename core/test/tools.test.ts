@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai";
+import { ripgrepPath } from "../src/agent/search-tools.ts";
 import { fetchPage, htmlToText } from "../src/modules/web.ts";
 import { dialogs, settledCount, startTestCore, type TestCore } from "./harness.ts";
 
@@ -149,5 +151,22 @@ describe("MCP servers", () => {
 		assert.equal(status.servers[0]!.name, "broken");
 		assert.equal(status.servers[0]!.state, "failed");
 		assert.ok(status.servers[0]!.error);
+	});
+});
+
+describe("search tools", () => {
+	it("use the ripgrep shipped with the app before Pi's and the system's (extra test 4)", () => {
+		const root = mkdtempSync(join(tmpdir(), "df-rg-"));
+		const exe = process.platform === "win32" ? "rg.exe" : "rg";
+		const bundled = join(root, "core-bin");
+		const agentDir = join(root, "agent");
+		mkdirSync(bundled);
+		mkdirSync(join(agentDir, "bin"), { recursive: true });
+		assert.equal(ripgrepPath(agentDir, bundled), "rg", "nothing shipped: PATH");
+		writeFileSync(join(agentDir, "bin", exe), "");
+		assert.equal(ripgrepPath(agentDir, bundled), join(agentDir, "bin", exe), "Pi's copy");
+		writeFileSync(join(bundled, exe), "");
+		assert.equal(ripgrepPath(agentDir, bundled), join(bundled, exe), "the app's own copy wins");
+		rmSync(root, { recursive: true, force: true });
 	});
 });

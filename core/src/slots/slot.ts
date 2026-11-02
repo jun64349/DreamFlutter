@@ -1,3 +1,4 @@
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { AGENT_MODES, type AgentMode, recordedMode } from "../agent/harness.ts";
 import type { TodoItem } from "../agent/state.ts";
@@ -396,7 +397,10 @@ export class Slot {
 			case "cycle_model":
 				return ok(id, "cycle_model", (await session.cycleModel()) ?? null);
 			case "get_available_models":
-				return ok(id, "get_available_models", { models: session.modelRuntime.getAvailableSnapshot() });
+				// Each model carries its own thinking levels, so the window can list them for a model that is not the session's (settings' default model).
+				return ok(id, "get_available_models", {
+					models: session.modelRuntime.getAvailableSnapshot().map((m) => ({ ...m, thinkingLevels: getSupportedThinkingLevels(m) })),
+				});
 			case "set_thinking_level":
 				session.setThinkingLevel(command.level as never);
 				return ok(id, "set_thinking_level");

@@ -370,4 +370,10 @@ class ExtensionUiRequest extends PiRecord {
   String? get placeholder => asString(raw['placeholder']);
   String? get prefill => asString(raw['prefill']);
   String? get notifyType => asString(raw['notifyType']);
+
+  /// How long the dialog waits before the core settles it on its own, if it does.
+  Duration? get timeout => switch (raw['timeout']) {
+    final num ms when ms > 0 => Duration(milliseconds: ms.toInt()),
+    _ => null,
+  };
 }

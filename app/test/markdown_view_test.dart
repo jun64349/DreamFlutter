@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/markdown_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown/markdown.dart' as md;
+import 'package:path/path.dart' as p;
 
 /// The math elements (display flag, TeX) the reply parser finds in [text].
 List<(bool, String)> mathIn(String text) {
@@ -44,5 +47,31 @@ void main() {
     );
     expect(find.byType(Math), findsNWidgets(3));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('files named in a reply can be found in Explorer (extra test 9)', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('df_links_');
+    File(p.join(dir.path, 'report.docx')).writeAsStringSync('x');
+    final revealed = <String>[];
+    final opened = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: FileLinks(
+            baseDir: dir.path,
+            reveal: revealed.add,
+            open: opened.add,
+            child: ReplyMarkdown(text: '产物：`report.docx`，不存在的 `missing.pdf`，代码 `x = 1`，文件夹 `${dir.path}`。'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('report.docx'));
+    expect(revealed, [p.join(dir.path, 'report.docx')]);
+    await tester.tap(find.text(dir.path));
+    expect(opened, [p.normalize(dir.path)], reason: 'a folder opens');
+    expect(find.byType(GestureDetector).evaluate().where((e) => (e.widget as GestureDetector).child is Text), hasLength(2), reason: 'missing files and code stay plain');
+    dir.deleteSync(recursive: true);
   });
 }

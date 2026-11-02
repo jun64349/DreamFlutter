@@ -11,6 +11,7 @@ class PiModel {
     required this.reasoning,
     required this.contextWindow,
     required this.supportsImages,
+    this.thinkingLevels = const [],
   });
 
   factory PiModel.fromJson(Json json) => PiModel(
@@ -20,6 +21,7 @@ class PiModel {
     reasoning: asBool(json['reasoning']),
     contextWindow: asInt(json['contextWindow']),
     supportsImages: asStringList(json['input']).contains('image'),
+    thinkingLevels: asStringList(json['thinkingLevels']),
   );
 
   final String provider;
@@ -28,6 +30,9 @@ class PiModel {
   final bool reasoning;
   final int contextWindow;
   final bool supportsImages;
+
+  /// The thinking levels this model supports, as the core reports them; empty from an older core.
+  final List<String> thinkingLevels;
 
   /// `provider/id`, unique across providers.
   String get key => '$provider/$id';

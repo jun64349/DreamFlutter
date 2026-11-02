@@ -235,9 +235,12 @@ class SessionRuntime extends ChangeNotifier {
   }
 
   Future<void> _refreshState(PiRpcClient client) async {
-    final results = await Future.wait([client.getState(), client.getSessionStats()]);
+    // The levels follow the model: re-read them with the state, or a session that
+    // started before any channel existed keeps offering only 「关闭」 (extra test 1, 2).
+    final results = await Future.wait([client.getState(), client.getSessionStats(), client.getAvailableThinkingLevels()]);
     state = results[0] as SessionState;
     stats = results[1] as SessionStats;
+    thinkingLevels = results[2] as List<String>;
     try {
       _applyAgentState(await client.send('df_agent_state'));
     } catch (_) {}
@@ -294,6 +297,7 @@ class SessionRuntime extends ChangeNotifier {
     if (client == null) return;
     try {
       models = await client.getAvailableModels();
+      await _refreshState(client); // a new channel can change the session's model and its levels
       _notifyNow();
     } catch (_) {}
   }
@@ -407,6 +411,14 @@ class SessionRuntime extends ChangeNotifier {
     _client?.respondToUi(request.id, value: value, confirmed: confirmed, cancelled: cancelled);
     _touch();
     _notifyNow();
+  }
+
+  /// Forgets a dialog the core closed on its own (a question that timed out);
+  /// its window closes when it leaves [pendingDialogs].
+  void dropDialog(String id) {
+    final before = pendingDialogs.length;
+    pendingDialogs.removeWhere((r) => r.id == id);
+    if (pendingDialogs.length != before) _notifyNow();
   }
 
   void _setEditorText(String text) {

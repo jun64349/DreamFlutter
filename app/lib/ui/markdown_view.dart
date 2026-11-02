@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:highlight/highlight.dart' show highlight, Node;
 import 'package:markdown/markdown.dart' as md;
+import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme.dart';
@@ -28,7 +31,7 @@ class ReplyMarkdown extends StatelessWidget {
       data: text,
       selectable: false,
       inlineSyntaxes: mathSyntaxes,
-      builders: {'code': _CodeBuilder(), 'math': _MathBuilder(body)},
+      builders: {'code': _CodeBuilder(FileLinks.maybeOf(context)), 'math': _MathBuilder(body)},
       styleSheet: MarkdownStyleSheet(
         p: body,
         a: body.copyWith(color: colors.accent, decoration: TextDecoration.underline, decorationColor: colors.accent.withValues(alpha: 0.4)),
@@ -125,15 +128,75 @@ class _MathBuilder extends MarkdownElementBuilder {
   }
 }
 
+/// Files named in replies can be found: inline code that names an existing
+/// file or folder (absolute, or relative to the conversation's workspace)
+/// becomes a link. Click shows it in Explorer; right click opens it
+/// (extra test 9). Without this scope, inline code is plain.
+class FileLinks extends InheritedWidget {
+  const FileLinks({super.key, required this.baseDir, required this.reveal, required this.open, required super.child});
+
+  final String baseDir;
+  final void Function(String path) reveal;
+  final void Function(String path) open;
+
+  static FileLinks? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<FileLinks>();
+
+  static final _pathLike = RegExp(r'[\\/]|\.[A-Za-z0-9]{1,8}$');
+
+  /// The existing file or folder [text] names, or null.
+  String? resolve(String text) {
+    var t = text.trim();
+    if (t.length >= 2 && (t.startsWith('"') && t.endsWith('"') || t.startsWith("'") && t.endsWith("'"))) t = t.substring(1, t.length - 1);
+    if (t.isEmpty || t.length > 400 || t.contains('\n') || !_pathLike.hasMatch(t) || t.contains('://')) return null;
+    final full = p.isAbsolute(t) ? t : p.join(baseDir, t);
+    try {
+      return FileSystemEntity.typeSync(full) == FileSystemEntityType.notFound ? null : p.normalize(full);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  bool updateShouldNotify(FileLinks oldWidget) => baseDir != oldWidget.baseDir;
+}
+
 /// Block code (fenced, or ending in a newline) becomes a [CodeBlock];
-/// inline code keeps the default rendering.
+/// inline code that names a file becomes a [FileLinks] link, other inline
+/// code keeps the default rendering.
 class _CodeBuilder extends MarkdownElementBuilder {
+  _CodeBuilder(this.links);
+
+  final FileLinks? links;
+
   @override
   Widget? visitElementAfterWithContext(BuildContext context, md.Element element, TextStyle? preferredStyle, TextStyle? parentStyle) {
     final text = element.textContent;
     final className = element.attributes['class'] ?? '';
     final isBlock = className.startsWith('language-') || text.contains('\n');
-    if (!isBlock) return null;
+    if (!isBlock) {
+      final path = links?.resolve(text);
+      if (path == null) return null;
+      final colors = context.colors;
+      final folder = FileSystemEntity.isDirectorySync(path);
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Tooltip(
+          message: folder ? '点击打开文件夹' : '点击在资源管理器中显示，右键用默认程序打开',
+          child: GestureDetector(
+            onTap: () => folder ? links!.open(path) : links!.reveal(path),
+            onSecondaryTap: () => links!.open(path),
+            child: Text(
+              text,
+              style: (preferredStyle ?? const TextStyle()).copyWith(
+                color: colors.accent,
+                decoration: TextDecoration.underline,
+                decorationColor: colors.accent.withValues(alpha: 0.4),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     final language = className.startsWith('language-') ? className.substring('language-'.length) : null;
     final source = text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
     if (language != null && richLanguages.contains(language.toLowerCase())) return RichBlock(kind: language.toLowerCase(), source: source);

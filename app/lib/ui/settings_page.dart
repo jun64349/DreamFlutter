@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
@@ -77,6 +79,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final core = agent.coreInfo;
     final defaultKey = agent.defaultModelKey;
     final defaultModel = agent.models.where((m) => m.key == defaultKey).firstOrNull;
+    // The default level belongs to the default model, not to whatever the open session uses.
+    final defaultLevels = defaultModel?.thinkingLevels.isNotEmpty == true ? defaultModel!.thinkingLevels : agent.thinkingLevels;
     final auxKey = agent.coreSettings['auxModel'] as String?;
     final visionKey = agent.coreSettings['visionModel'] as String?;
     String modelName(String key) {
@@ -146,10 +150,10 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: '越高越仔细，但更慢、更贵',
               trailing: PopupMenuButton<String>(
                 tooltip: '选择默认思考级别',
-                enabled: agent.thinkingLevels.isNotEmpty,
+                enabled: defaultLevels.isNotEmpty,
                 onSelected: agent.setDefaultThinkingLevel,
                 itemBuilder: (_) => [
-                  for (final level in agent.thinkingLevels) CheckedPopupMenuItem(value: level, checked: level == agent.defaultThinkingLevel, child: Text(_levelNames[level] ?? level)),
+                  for (final level in defaultLevels) CheckedPopupMenuItem(value: level, checked: level == agent.defaultThinkingLevel, child: Text(_levelNames[level] ?? level)),
                 ],
                 child: _ValueChip(text: _levelNames[agent.defaultThinkingLevel] ?? '跟随 Pi'),
               ),
@@ -248,6 +252,23 @@ class _SettingsPageState extends State<SettingsPage> {
               title: const Text('自动生成会话标题'),
               subtitle: const Text('第一轮对话结束后，用辅助模型起一个简短标题。'),
               dense: true,
+            ),
+          ),
+          _Entry(
+            'Agent 提问 等待 限时 超时 离开',
+            _Row(
+              title: 'Agent 提问时等多久',
+              subtitle: '到时没有回答，自动选 Agent 推荐的选项继续（人暂时离开时不会卡住）。只用于提问，批准操作永远等你。',
+              trailing: SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 30, label: Text('30 秒')),
+                  ButtonSegment(value: 60, label: Text('1 分钟')),
+                  ButtonSegment(value: 300, label: Text('5 分钟')),
+                  ButtonSegment(value: 0, label: Text('一直等')),
+                ],
+                selected: {(agent.coreSettings['askTimeoutSeconds'] as num?)?.toInt() ?? 60},
+                onSelectionChanged: (s) => agent.updateCoreSettings({'askTimeoutSeconds': s.first}),
+              ),
             ),
           ),
         ]),
@@ -364,7 +385,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _Entry('版本 关于', _InfoRow('DreamFlutter', 'v$appVersion')),
           _Entry('后台服务 版本', _InfoRow('后台服务', core.isEmpty ? '未连接' : 'v${core['version']}（进程 ${core['pid']}）')),
           _Entry('Pi 版本', _InfoRow('Pi 版本', core['piVersion'] as String? ?? '未知')),
-          _Entry('Node.js 运行环境', _InfoRow('Node.js', PiRuntimeLocator.findOnPath('node') ?? '未找到（需要 Node.js 22.19 以上）')),
+          _Entry('Node.js 运行环境', _InfoRow('Node.js', PiRuntimeLocator.findNode([p.dirname(Platform.resolvedExecutable)]) ?? '未找到（需要 Node.js 22.19 以上）')),
           _Entry('Bash 运行环境', _InfoRow('Bash', PiRuntimeLocator.findGitBashDir() == null ? '使用 Pi 的默认查找顺序' : p.join(PiRuntimeLocator.findGitBashDir()!, 'bash.exe'))),
           _Entry('关于', _Hint('基于 Pi Agent 原生运行时的个人 AI Agent 桌面客户端。', color: colors.muted)),
         ]),

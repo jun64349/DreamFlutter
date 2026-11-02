@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
@@ -233,6 +235,8 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
   Widget _question(BuildContext context) {
     final colors = context.colors;
     final body = widget.request.title.substring(questionTitle.length).trim();
+    final timeout = widget.request.timeout;
+    final recommended = widget.request.options.firstWhere((o) => RegExp(r'\(recommended\)|（推荐）|\(推荐\)', caseSensitive: false).hasMatch(o), orElse: () => widget.request.options.first);
     return AlertDialog(
       icon: Icon(Icons.help_outline, color: colors.accent),
       title: const Text('Agent 想问你'),
@@ -242,6 +246,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
           shrinkWrap: true,
           children: [
             Text(body, style: context.text.bodyLarge?.copyWith(height: 1.6)),
+            if (timeout != null) _Countdown(total: timeout, recommended: recommended.split(' — ').first),
             const SizedBox(height: AppTokens.gap),
             for (final option in widget.request.options)
               Builder(
@@ -317,4 +322,45 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
       FilledButton(onPressed: () => _answer(context, _Answer(value: _text.text)), child: const Text('确定')),
     ],
   );
+}
+
+/// 「52 秒后自动选择 X」 under a question that times out (extra test 12).
+class _Countdown extends StatefulWidget {
+  const _Countdown({required this.total, required this.recommended});
+
+  final Duration total;
+  final String recommended;
+
+  @override
+  State<_Countdown> createState() => _CountdownState();
+}
+
+class _CountdownState extends State<_Countdown> {
+  final _started = DateTime.now();
+  late final Timer _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _tick.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final left = widget.total - DateTime.now().difference(_started);
+    final seconds = left.isNegative ? 0 : (left.inMilliseconds / 1000).ceil();
+    return Padding(
+      padding: const EdgeInsets.only(top: AppTokens.gap),
+      child: Text(
+        '$seconds 秒后没有回答，会自动选择「${widget.recommended}」',
+        style: context.text.bodySmall?.copyWith(color: context.colors.muted),
+      ),
+    );
+  }
 }

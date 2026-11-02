@@ -37,3 +37,9 @@ flutter:
   uses-material-design: true
   assets:
     - assets/tray_icon.ico
+
+dependency_overrides:
+  # Vendored with a Windows change: images dragged out of browsers and chat apps
+  # (virtual files, bitmaps) arrive as files too. See packages/desktop_drop/pubspec.yaml.
+  desktop_drop:
+    path: ../packages/desktop_drop

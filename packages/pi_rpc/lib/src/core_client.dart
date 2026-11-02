@@ -174,7 +174,7 @@ class CoreLocator {
     if (existing != null) return existing;
 
     final main = findMain(searchRoots);
-    final node = PiRuntimeLocator.findOnPath('node');
+    final node = PiRuntimeLocator.findNode(searchRoots);
     if (main == null || node == null) {
       throw CoreException('missing_runtime', main == null ? '找不到后台程序（core/src/main.ts）。' : '找不到 Node.js，请先安装 Node.js 22.19 或更新版本。');
     }

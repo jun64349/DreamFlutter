@@ -32,6 +32,8 @@ export interface PiHostConfig {
 	newSessionMode: (slot: SlotIdentity) => AgentMode;
 	/** Whether the core's automatic compaction setting is on. */
 	autoCompaction: () => boolean;
+	/** How long the agent's questions wait for an answer, in ms; 0 = no limit. */
+	askTimeoutMs?: () => number;
 	/** A session's todo list or plan mode changed. */
 	agentStateChanged?: (slot: SlotIdentity, state: { todos: TodoItem[] | null; planMode: boolean }) => void;
 	/** Handles of each slot's current harness, by slot id. */
@@ -153,6 +155,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			resources: () => services?.resourceLoader,
 			complete: (model, context, options) => services!.modelRuntime.completeSimple(model as Model<never>, context, options as never),
 			autoCompaction: config.autoCompaction,
+			askTimeoutMs: config.askTimeoutMs,
 			unattended: target.unattended === true,
 			onStateChanged: (state) => config.agentStateChanged?.(slot, state),
 			control: (() => {

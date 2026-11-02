@@ -266,6 +266,31 @@ describe("gateway: in a session", () => {
 		assert.equal((test.model.compat as Record<string, unknown>).maxTokensField, "max_tokens", "the platform's defaults for models Pi does not know");
 	});
 
+	it("offers a channel model's own thinking levels before the first message, and in the model list (extra test 1, 2)", async () => {
+		await start();
+		const { id } = (await t!.core.call("gateway.saveChannel", {
+			name: "OpenCode Go",
+			platform: "opencode-go",
+			api: "openai-completions",
+			baseUrl: "https://opencode.ai/inference/go/openai/v1",
+			models: [{ id: "deepseek-v4.1-flash", reasoning: true, contextWindow: 1_000_000, maxTokens: 384_000 }],
+			keys: [{ secret: "oc_sk_test" }],
+		})) as { id: string };
+		// 「关闭」 as the default: this model cannot turn thinking off, so Pi starts it on the nearest level.
+		t!.core.settings.update({ defaultModel: `${channelProvider(id)}/deepseek-v4.1-flash`, defaultThinking: "off" });
+		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await t!.send("s1", { id: "lv", type: "get_available_thinking_levels" });
+		await t!.send("s1", { id: "st", type: "get_state" });
+		await t!.send("s1", { id: "models", type: "get_available_models" });
+		const lv = await t!.waitFor(() => t!.records("s1").find((r) => r.id === "lv"));
+		const st = await t!.waitFor(() => t!.records("s1").find((r) => r.id === "st"));
+		const models = await t!.waitFor(() => t!.records("s1").find((r) => r.id === "models"));
+		assert.deepEqual((lv.data as { levels: string[] }).levels, ["low", "high", "max"]);
+		assert.equal((st.data as { thinkingLevel: string }).thinkingLevel, "low");
+		const listed = (models.data as { models: { id: string; thinkingLevels: string[] }[] }).models.find((m) => m.id === "deepseek-v4.1-flash")!;
+		assert.deepEqual(listed.thinkingLevels, ["low", "high", "max"]);
+	});
+
 	it("suggests OpenCode Go models with what Pi's catalog knows about them", async () => {
 		await start();
 		const platforms = (await t!.core.call("gateway.platforms", {})) as { id: string; modelDetails: { id: string; contextWindow?: number; efforts?: string[] }[] }[];

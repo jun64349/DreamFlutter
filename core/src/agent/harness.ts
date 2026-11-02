@@ -116,6 +116,8 @@ export interface HarnessOptions {
 	complete: (model: Model<never>, context: Context, options: { maxTokens: number; signal?: AbortSignal }) => Promise<AssistantMessage>;
 	/** Whether the core's automatic compaction setting is on. */
 	autoCompaction: () => boolean;
+	/** How long ask_user_question waits before taking the recommended answer, in ms; 0 or absent = no limit. */
+	askTimeoutMs?: () => number;
 	/** Extra tools the mode keeps (DreamFlutter's own, standard only). */
 	extraToolNames?: () => string[];
 	/** The session's todo list or plan mode changed (for the window). */
@@ -222,7 +224,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			mode === "minimal"
 				? [persistentPwshTool(shell), readImageTool(state, imageRoute), workingDirectoryTool(state, persistCwd)]
 				: [
-						askUserTool(),
+						askUserTool(() => options.askTimeoutMs?.() ?? 0),
 						editTool(state),
 						exitPlanModeTool(state, (on) => {
 							pi.appendEntry(PLAN_ENTRY, { on });

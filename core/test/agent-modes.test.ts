@@ -182,6 +182,20 @@ describe("agent modes (DeepSeek Harness on Pi)", () => {
 		assert.equal(states.at(-1)!.planMode, false);
 	});
 
+	it("an unanswered question takes the recommended option when its time is up (extra test 12)", async () => {
+		t.core.settings.update({ approvalMode: "off", askTimeoutSeconds: 1 });
+		await open("s1");
+		const question = { id: "q1", question: "用哪种格式？", options: [{ label: "Word" }, { label: "PDF (Recommended)" }] };
+		t.respond(capture([fauxToolCall("ask_user_question", { questions: [question] })], { stopReason: "toolUse" }), capture("好的，用 PDF"));
+		await t.send("s1", { id: "p", type: "prompt", message: "做个报告" });
+		const dialog = await t.waitFor(() => dialogs(t.records("s1"))[0]);
+		assert.equal(dialog.timeout, 1000, "the window can show a countdown");
+		await t.waitFor(() => settledCount(t.records("s1")) === 1, 5000);
+		const result = textOf(seen[1]!.messages.at(-1)!.content);
+		assert.deepEqual(JSON.parse(result.split("\n")[0]!).answers, [{ id: "q1", selected: ["PDF (Recommended)"], timedOut: true }]);
+		assert.match(result, /did not answer within 1 seconds/);
+	});
+
 	it("todo_write reports the list to the window", async () => {
 		t.core.settings.update({ approvalMode: "changes" });
 		await open("s1");

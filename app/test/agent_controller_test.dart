@@ -62,6 +62,19 @@ void main() {
       agent.dispose();
     });
 
+    test('thinking levels follow the model after a switch, not only the ones from startup (extra test 1, 2)', () async {
+      final agent = await startController();
+      final pi = pis.single;
+      // The session started before any channel existed: only 「关闭」.
+      pi.extraResponses['get_available_thinking_levels'] = {'levels': ['off']};
+      await agent.selectModel(agent.models.first);
+      expect(agent.thinkingLevels, ['off']);
+      pi.extraResponses['get_available_thinking_levels'] = {'levels': ['low', 'high', 'max']};
+      await agent.selectModel(agent.models.first);
+      expect(agent.thinkingLevels, ['low', 'high', 'max']);
+      agent.dispose();
+    });
+
     test('send prompts Pi and the replayed stream folds into the transcript', () async {
       final agent = await startController();
       final pi = pis.single;

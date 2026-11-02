@@ -29,6 +29,26 @@ class PiRuntimeLocator {
     return null;
   }
 
+  /// Node.js: `DREAMFLUTTER_NODE`, else a `runtime/node.exe` shipped with the
+  /// app (found walking up from [searchRoots], as in the packaged layout
+  /// `<root>/app/dreamflutter.exe` + `<root>/runtime/node.exe`), else PATH.
+  static String? findNode([List<String> searchRoots = const []]) {
+    final override = Platform.environment['DREAMFLUTTER_NODE'];
+    if (override != null && File(override).existsSync()) return override;
+    final name = Platform.isWindows ? 'node.exe' : 'node';
+    for (final root in searchRoots) {
+      var dir = p.normalize(p.absolute(root));
+      for (var depth = 0; depth < 4; depth++) {
+        final candidate = p.join(dir, 'runtime', name);
+        if (File(candidate).existsSync()) return candidate;
+        final parent = p.dirname(dir);
+        if (parent == dir) break;
+        dir = parent;
+      }
+    }
+    return findOnPath('node');
+  }
+
   /// Full path of an executable on PATH, or null.
   static String? findOnPath(String name) {
     final exts = Platform.isWindows ? ['.exe', '.cmd', '.bat', ''] : [''];
@@ -79,7 +99,7 @@ class PiRuntimeLocator {
     List<String> extraArgs = const [],
   }) {
     final cli = findCli(searchRoots);
-    final node = findOnPath('node');
+    final node = findNode(searchRoots);
     if (cli == null || node == null) return null;
     return PiLaunchConfig(
       cliPath: cli,

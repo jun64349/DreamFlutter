@@ -37,6 +37,8 @@ export interface CoreSettings {
 	notifications: boolean;
 	/** Minutes an idle session stays loaded with no UI attached. */
 	idleSessionMinutes: number;
+	/** Seconds the agent's questions wait before the recommended answer is taken; 0 = wait for the user. */
+	askTimeoutSeconds: number;
 }
 
 export const DEFAULT_SETTINGS: CoreSettings = {
@@ -58,6 +60,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	maxTurnsUnattended: 40,
 	notifications: true,
 	idleSessionMinutes: 10,
+	askTimeoutSeconds: 60,
 };
 
 type Listener = (settings: CoreSettings, changed: (keyof CoreSettings)[]) => void;
@@ -133,6 +136,7 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 		case "idleSessionMinutes":
 			return Number.isInteger(value) && (value as number) > 0;
 		case "maxTurnsPerRun":
+		case "askTimeoutSeconds":
 			return Number.isInteger(value) && (value as number) >= 0;
 		case "dailyBudgetUsd":
 		case "monthlyBudgetUsd":

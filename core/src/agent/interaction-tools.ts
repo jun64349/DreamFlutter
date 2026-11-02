@@ -81,25 +81,48 @@ interface Answer {
 	id: string;
 	selected: string[];
 	custom?: string;
+	/** Nobody answered in time: the recommended option (or a skip) was taken. */
+	timedOut?: true;
 }
 
-/** Asks one question with the window's choice dialog; undefined when dismissed. */
-async function ask(ctx: ExtensionContext, question: Question): Promise<Answer | undefined> {
+/** The option the model recommended (first marked one), else the first. */
+export function recommendedOption(options: { label: string }[]): { label: string } | undefined {
+	return options.find((o) => /\((recommended)\)|（推荐）|\(推荐\)/i.test(o.label)) ?? options[0];
+}
+
+/**
+ * Asks one question with the window's choice dialog; undefined when dismissed.
+ * With [timeoutMs], an unanswered question takes the recommended option
+ * (a free-text one is skipped) so a run does not stall while the user is
+ * away (extra test 12). Approvals never time out into a yes; only questions do.
+ */
+async function ask(ctx: ExtensionContext, question: Question, timeoutMs: number, now: () => number): Promise<Answer | undefined> {
 	const options = question.options ?? [];
 	const labels = options.map((o) => (o.description ? `${o.label} — ${o.description}` : o.label));
 	const title = `${QUESTION_TITLE}${question.header ? `${question.header}\n\n` : "\n\n"}${question.question}`;
-	const choice = labels.length > 0 ? await ctx.ui.select(title, [...labels, OWN_ANSWER, SKIP], { signal: ctx.signal }) : OWN_ANSWER;
+	const timeout = timeoutMs > 0 ? timeoutMs : undefined;
+	const started = now();
+	// The bridge settles a timed-out dialog like a dismissed one; the clock tells them apart.
+	const timedOut = () => timeout !== undefined && now() - started >= timeout - 50 && !ctx.signal?.aborted;
+	if (labels.length === 0) {
+		const typed = await ctx.ui.input(`${title}\n\n（请直接输入回答）`, "", { signal: ctx.signal, timeout });
+		if (typed === undefined) return timedOut() ? { id: question.id, selected: [], timedOut: true } : undefined;
+		return typed.trim() === "" ? { id: question.id, selected: [] } : { id: question.id, selected: [], custom: typed };
+	}
+	const choice = await ctx.ui.select(title, [...labels, OWN_ANSWER, SKIP], { signal: ctx.signal, timeout });
+	if (choice === undefined && timedOut()) return { id: question.id, selected: [recommendedOption(options)!.label], timedOut: true };
 	if (choice === undefined) return undefined;
 	if (choice === SKIP) return { id: question.id, selected: [] };
 	if (choice === OWN_ANSWER) {
-		const typed = await ctx.ui.input(labels.length > 0 ? title : `${title}\n\n（请直接输入回答）`, "", { signal: ctx.signal });
+		// Typing an answer is the user at work: no timer.
+		const typed = await ctx.ui.input(title, "", { signal: ctx.signal });
 		if (typed === undefined) return undefined;
 		return typed.trim() === "" ? { id: question.id, selected: [] } : { id: question.id, selected: [], custom: typed };
 	}
 	return { id: question.id, selected: [options[labels.indexOf(choice)]!.label] };
 }
 
-export function askUserTool(): ToolDefinition {
+export function askUserTool(timeoutMs: () => number = () => 0, now: () => number = Date.now): ToolDefinition {
 	return {
 		name: "ask_user_question",
 		label: "提问",
@@ -144,12 +167,18 @@ export function askUserTool(): ToolDefinition {
 		async execute(_id, params: { questions: Question[] }, _signal, _update, ctx) {
 			if (!ctx.hasUI) throw new Error("no user-questions channel is available");
 			const answers: Answer[] = [];
+			const limit = timeoutMs();
 			for (const question of params.questions) {
-				const answer = await ask(ctx, question);
+				const answer = await ask(ctx, question, limit, now);
 				if (!answer) throw new Error("the user dismissed the question");
 				answers.push(answer);
 			}
-			return { content: [{ type: "text", text: JSON.stringify({ answers }) }], details: { answers } };
+			const auto = answers.filter((a) => a.timedOut);
+			const note =
+				auto.length === 0
+					? ""
+					: `\nThe user did not answer within ${Math.round(limit / 1000)} seconds (they may be away), so ${auto.length === answers.length ? "every answer was" : "the answers marked timedOut were"} taken automatically: the recommended option, or a skip for open questions. Say so briefly in your reply and keep going; they can correct you later.`;
+			return { content: [{ type: "text", text: JSON.stringify({ answers }) + note }], details: { answers } };
 		},
 	};
 }

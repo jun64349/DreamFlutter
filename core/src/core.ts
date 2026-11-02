@@ -154,6 +154,7 @@ export class Core {
 			],
 			newSessionMode: (slot) => this.slotOrOpening(slot.slotId)?.newSessionMode ?? this.settings.get().agentMode,
 			autoCompaction: () => this.settings.get().autoCompaction,
+			askTimeoutMs: () => this.settings.get().askTimeoutSeconds * 1000,
 			agentStateChanged: (slot, state) => this.slotOrOpening(slot.slotId)?.setAgentState(state),
 			harnessControls: new Map(),
 			manualCompactions: new Set(),
@@ -314,9 +315,8 @@ export class Core {
 			if (model) await session.setModel(model);
 			else this.log.warn(`default model ${defaultModel} is not available`);
 		}
-		if (defaultThinking && session.getAvailableThinkingLevels().includes(defaultThinking as never)) {
-			session.setThinkingLevel(defaultThinking as never);
-		}
+		// Pi clamps a level the model lacks to the nearest one it has (deepseek-v4.1-flash cannot turn thinking off).
+		if (defaultThinking) session.setThinkingLevel(defaultThinking as never);
 	}
 
 	private slotOrOpening(slotId: string): Slot | undefined {

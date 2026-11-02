@@ -421,6 +421,13 @@ class AgentController extends ChangeNotifier {
         unawaited(refreshPendingCounts());
       case 'tasks.changed' || 'desk.changed' || 'confirm.changed' || 'run.finished' || 'schedules.changed':
         workRevision.value++;
+        final confirmation = message['confirmation'];
+        if (confirmation is Map && confirmation['status'] != 'pending' && confirmation['id'] is String) {
+          // Closed by the core (a question that timed out): close its window too.
+          for (final runtime in _runtimes) {
+            runtime.dropDialog(confirmation['id'] as String);
+          }
+        }
         if (message['event'] == 'confirm.changed' || message['event'] == 'run.finished' || message['event'] == 'schedules.changed') unawaited(refreshPendingCounts());
       case 'schedules.delivered':
         workRevision.value++;
@@ -1025,7 +1032,14 @@ class AgentController extends ChangeNotifier {
   Stream<Mention> get mentionRequests => _mentions.stream;
 
   /// Asks the input box to attach files dropped anywhere on the conversation.
-  void dropFiles(List<String> paths) => _drops.add(paths);
+  void dropFiles(List<String> paths) {
+    if (paths.isEmpty) {
+      // The drop plugin turns paths, virtual files and bitmaps into files; anything else arrives empty.
+      _toast('这个程序拖出的内容读不到。可以在那边复制图片，再在输入框里按 Ctrl+V 粘贴；或先把它保存成文件再拖进来。');
+      return;
+    }
+    _drops.add(paths);
+  }
 
   Stream<List<String>> get fileDrops => _drops.stream;
 
