@@ -62,7 +62,7 @@
 2. ~~跑通 `sandbox-live.test.ts`~~：2026-11-02 已通过（Agent 在真沙箱里 bash / 写 / 读 / 搜都对，没有审批框；测试发行版已自动删除）。
 3. 然后做 3.5 蝶君骨架（导航改名、蝶君的交流 / 工作、气闸舱 inbox/outbox、产物预览和保存到本机）。蝶君默认不开 MCP、不给卡片本机授权（还没做）。
 
-**版本管理（用户 2026-11-02 提出，从 0.3.0 开始做）**：现在仓库只在本地、没有远端，也没装 gh。要做的：用户在 github.com 建一个**私有**仓库（或装 gh 后 `gh repo create`，需要用户本人登录），`git remote add origin …`，推 `main` 和所有 tag（v0.1.0、v0.1.1、v0.2.0，以后 v0.3.0）。推送前确认 `.gitignore` 覆盖了 `dist/`、`core/bin/`、`node_modules/`、build 目录，且仓库里没有 Key（Key 都在 `%APPDATA%` 加密存储，仓库里没有）。**推送要等用户点头**。
+**版本管理（用户 2026-11-02 提出，从 0.3.0 开始做；用户定了：GitHub **公开**仓库，下个窗口做）**：用户已知道提交作者邮箱 superzyhj@gmail.com 和文档里的本机路径会公开；已扫描过，仓库里只有测试用的假 Key。步骤：用户在 github.com/new 建空的公开仓库 DreamFlutter（不勾 README），把地址给 Claude → `git remote add origin <地址>` → `git push -u origin main --tags`（第一次推送弹 GitHub 登录，用户点授权）。原计划：现在仓库只在本地、没有远端，也没装 gh。要做的：用户在 github.com 建一个**私有**仓库（或装 gh 后 `gh repo create`，需要用户本人登录），`git remote add origin …`，推 `main` 和所有 tag（v0.1.0、v0.1.1、v0.2.0，以后 v0.3.0）。推送前确认 `.gitignore` 覆盖了 `dist/`、`core/bin/`、`node_modules/`、build 目录，且仓库里没有 Key（Key 都在 `%APPDATA%` 加密存储，仓库里没有）。**推送要等用户点头**。
 
 ## v0.3 子 Agent 3.4（2026-11-02）
 
