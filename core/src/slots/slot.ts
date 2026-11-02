@@ -173,6 +173,11 @@ export class Slot {
 		return this.recorder.current;
 	}
 
+	/** Counts a subagent's usage and files toward the run in progress. */
+	absorbSubagent(usage: Parameters<RunRecorder["absorb"]>[0], files: Iterable<string>): void {
+		this.recorder.absorb(usage, files);
+	}
+
 	info(): SlotInfo {
 		const session = this.sessionOrUndefined;
 		const model = session?.model;

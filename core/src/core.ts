@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentSessionEvent, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent, AgentSessionRuntime, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { ConfirmationStore } from "./confirmations.ts";
 import { Db, now } from "./db.ts";
 import { AGENT_MODES, type AgentMode } from "./agent/harness.ts";
@@ -11,7 +11,7 @@ import type { Logger } from "./log.ts";
 import type { Notifier } from "./notify.ts";
 import type { CorePaths } from "./paths.ts";
 import { dialogKind } from "./pi/dialogs.ts";
-import { isProjectTrusted, type PiHostConfig } from "./pi/host.ts";
+import { createSessionRuntime, isProjectTrusted, type PiHostConfig } from "./pi/host.ts";
 import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
 import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
@@ -71,6 +71,8 @@ export interface CoreModule {
 	extensions?(slot: { slotId: string }): ExtensionFactory[];
 	/** Its extensions change what the model sees (tools, context): left out of minimal-mode sessions. */
 	readonly modelFacing?: boolean;
+	/** Its extensions also load into subagents (model routing, document reading); others belong to one conversation. */
+	readonly forSubagents?: boolean;
 	onSlotEvent?(slot: Slot, event: AgentSessionEvent): void;
 	onRunStarted?(slot: Slot, run: Run): void;
 	onRunFinished?(slot: Slot, run: Run): void;
@@ -166,6 +168,26 @@ export class Core {
 	/** Whether [cwd]'s project resources (.pi/ skills, packages…) may be loaded. */
 	isProjectTrusted(cwd: string): boolean {
 		return isProjectTrusted(cwd, this.agentDir, this.hostConfig.trustDecisions);
+	}
+
+	/**
+	 * A Pi runtime for a subagent working for [parentSlotId]: in memory,
+	 * standard mode, the parent's approval rules (including a schedule's
+	 * restrictions), and only the modules marked forSubagents. Its dialogs go
+	 * through [ui] (the parent's, so they appear in the parent conversation).
+	 */
+	openSubagentRuntime(parentSlotId: string, childId: string, cwd: string, ui: Slot["ui"]): Promise<AgentSessionRuntime> {
+		const config: PiHostConfig = {
+			...this.hostConfig,
+			extensions: () => [
+				this.approval(parentSlotId),
+				...this.modules.filter((m) => m.forSubagents).flatMap((m) => m.extensions?.({ slotId: parentSlotId }) ?? []),
+			],
+			newSessionMode: () => "standard",
+			agentStateChanged: undefined,
+			harnessControls: undefined,
+		};
+		return createSessionRuntime(config, { slotId: childId }, ui, { cwd, inMemory: true });
 	}
 
 	exemptFromApproval(...tools: string[]): void {

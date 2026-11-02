@@ -709,6 +709,7 @@ class _WorkBlockState extends State<WorkBlock> {
     'todo_write' => '更新待办',
     'ask_user_question' => '等你回答',
     'exit_plan_mode' => '等你审阅计划',
+    'agent' => '让子 Agent 干活',
     _ => '调用 $tool',
   };
 }
@@ -725,10 +726,11 @@ String workSummary(List<Object> steps) {
   final thoughtMs = thinking.fold<int>(0, (sum, t) => sum + (t.durationMs ?? 0));
   int count(bool Function(ToolRun) test) => tools.where(test).length;
   int files(String name) => tools.where((t) => t.name == name).map((t) => t.args['path'] ?? t.args['file_path'] ?? t.id).toSet().length;
-  const known = {'read', 'read_image', 'grep', 'find', 'glob', 'ls', 'bash', 'powershell', 'pwsh', 'edit', 'write', 'web_fetch', 'job_kill', ..._bookkeepingTools};
+  const known = {'read', 'read_image', 'grep', 'find', 'glob', 'ls', 'bash', 'powershell', 'pwsh', 'edit', 'write', 'web_fetch', 'job_kill', 'agent', ..._bookkeepingTools};
   final searches = count((t) => t.name == 'grep' || t.name == 'find' || t.name == 'glob' || t.name == 'ls');
   final commands = count((t) => t.name == 'bash' || t.name == 'powershell' || t.name == 'pwsh');
   final pages = count((t) => t.name == 'web_fetch');
+  final subagents = count((t) => t.name == 'agent');
   final images = files('read_image');
   final others = count((t) => !known.contains(t.name));
   return [
@@ -740,6 +742,7 @@ String workSummary(List<Object> steps) {
     if (files('edit') > 0) '修改 ${files('edit')} 个文件',
     if (files('write') > 0) '写入 ${files('write')} 个文件',
     if (pages > 0) '读取 $pages 个网页',
+    if (subagents > 0) '派出 $subagents 个子 Agent',
     if (others > 0) '调用 $others 次工具',
   ].join(' · ');
 }
@@ -757,6 +760,8 @@ String toolSubject(ToolRun run) {
     case 'exit_plan_mode':
       final plan = args['plan'];
       if (plan is String) return plan.trimLeft().split('\n').first.replaceFirst(RegExp(r'^#+\s*'), '');
+    case 'agent':
+      if (args['description'] is String) return args['description'] as String;
     case 'working_directory':
       return args['cd'] is String ? args['cd'] as String : '查看当前目录';
   }
@@ -878,6 +883,8 @@ class _ToolStepState extends State<ToolStep> {
         return _TerminalStep(run: run, trailing: trailing);
       case 'todo_write':
         return _TodoStep(run: run, trailing: trailing);
+      case 'agent':
+        return _SubagentStep(run: run, trailing: trailing);
       case 'exit_plan_mode':
         return _PlanStep(run: run, trailing: trailing);
       case 'edit' || 'write' when run.name == 'edit' || run.details['patch'] is String:
@@ -956,6 +963,60 @@ class _ToolStepState extends State<ToolStep> {
           startOpen: run.status == ToolStatus.error,
         );
     }
+  }
+}
+
+/// A subagent sent off by the `agent` tool: its role and task on one line,
+/// what it is doing while it runs, and its reply and numbers when opened.
+class _SubagentStep extends StatelessWidget {
+  const _SubagentStep({required this.run, required this.trailing});
+
+  final ToolRun run;
+  final Widget trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final d = run.details;
+    final role = d['roleName'] as String? ?? '子 Agent';
+    final title = (d['description'] as String?) ?? (run.args['description'] as String?) ?? '';
+    final activity = run.isActive ? (d['status'] == 'waiting' ? '排队中' : d['activity'] as String?) : null;
+    final turns = (d['turns'] as num?)?.toInt() ?? 0;
+    final calls = (d['toolCalls'] as num?)?.toInt() ?? 0;
+    final cost = (d['cost'] as num?)?.toDouble() ?? 0;
+    final stats = [
+      if (d['model'] is String) (d['model'] as String).split('/').last,
+      if (turns > 0) '$turns 轮',
+      if (calls > 0) '$calls 次工具',
+      if ((d['inputTokens'] as num? ?? 0) > 0) '输入 ${formatTokens((d['inputTokens'] as num).toInt())} / 输出 ${formatTokens((d['outputTokens'] as num? ?? 0).toInt())}',
+      if (cost > 0) formatCost(cost),
+      if (d['stoppedBy'] == 'maxTurns') '到了轮数上限',
+      if (d['stoppedBy'] == 'aborted') '已停止',
+    ].join(' · ');
+    return _Expandable(
+      line: (open, toggle) => _StepLine(
+        icon: Icons.hub_outlined,
+        verb: '子 Agent · $role',
+        subject: activity == null || activity.isEmpty ? title : '$title · $activity',
+        trailing: trailing,
+        onTap: run.isActive ? null : toggle,
+        open: run.isActive ? null : open,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.only(left: 22, top: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (run.status == ToolStatus.error)
+              _OutputBox(text: run.outputText, error: true)
+            else
+              ReplyMarkdown(text: run.outputText.isEmpty ? '（没有回复）' : run.outputText),
+            if (stats.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(stats, style: context.text.bodySmall?.copyWith(color: colors.muted))),
+          ],
+        ),
+      ),
+      startOpen: run.status == ToolStatus.error,
+    );
   }
 }
 

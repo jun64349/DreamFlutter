@@ -177,6 +177,17 @@ export class RunRecorder {
 		}
 	}
 
+	/** Work done for this run elsewhere (a subagent): its usage and the files it touched count here. */
+	absorb(usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }, files: Iterable<string>): void {
+		if (!this.run) return;
+		this.run.inputTokens += usage.input;
+		this.run.outputTokens += usage.output;
+		this.run.cacheRead += usage.cacheRead;
+		this.run.cacheWrite += usage.cacheWrite;
+		this.run.cost += usage.cost;
+		for (const file of files) this.files.add(file);
+	}
+
 	private onToolStart(toolCallId: string, toolName: string, args: unknown): void {
 		if (!this.run) return;
 		this.run.toolCalls++;

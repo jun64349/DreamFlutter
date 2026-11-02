@@ -232,10 +232,11 @@ class Transcript {
           ..args = args
           ..status = ToolStatus.running;
         return true;
-      case ToolExecutionUpdateEvent(:final toolCallId, :final partialContent):
+      case ToolExecutionUpdateEvent(:final toolCallId, :final partialContent, :final partialDetails):
         final run = _tools[toolCallId];
         if (run == null) return false;
         run.output = partialContent;
+        if (partialDetails.isNotEmpty) run.details = partialDetails;
         return true;
       case ToolExecutionEndEvent(:final toolCallId, :final toolName, :final content, :final isError, :final durationMs, :final details):
         _toolRun(toolCallId, toolName)

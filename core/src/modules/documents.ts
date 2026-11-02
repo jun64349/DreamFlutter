@@ -255,6 +255,7 @@ const KIND_LABEL: Record<DocumentKind, string> = { pdf: "PDF", docx: "Word", xls
  */
 export class DocumentsModule implements CoreModule {
 	readonly modelFacing = true;
+	readonly forSubagents = true;
 	private readonly cache = new Map<string, { mtime: number; doc: ConvertedDocument }>();
 
 	constructor(core: Core) {

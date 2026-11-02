@@ -86,6 +86,7 @@ sealed class PiEvent extends PiRecord {
         json,
         toolCallId: asString(json['toolCallId']) ?? '',
         partialContent: ContentBlock.listFrom(obj('partialResult')['content']),
+        partialDetails: asJson(obj('partialResult')['details']),
       ),
       'tool_execution_end' => ToolExecutionEndEvent(
         json,
@@ -182,8 +183,11 @@ class ToolExecutionStartEvent extends PiEvent {
 }
 
 class ToolExecutionUpdateEvent extends PiEvent {
-  const ToolExecutionUpdateEvent(super.raw, {required this.toolCallId, required this.partialContent});
+  const ToolExecutionUpdateEvent(super.raw, {required this.toolCallId, required this.partialContent, this.partialDetails = const {}});
   final String toolCallId;
+
+  /// Tool-specific progress data (a subagent's role, activity and counts).
+  final Json partialDetails;
 
   /// Latest partial result reported by the tool (replaces earlier updates for
   /// built-in tools such as bash).

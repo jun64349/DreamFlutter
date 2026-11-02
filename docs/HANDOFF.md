@@ -35,6 +35,16 @@
 - **改了后台代码**之后，用户要从托盘「退出并停止后台」一次，新代码才生效（应用不会自动替换旧后台；直接结束后台进程会被权限检查拦下）。跑 E2E 或视觉检查前，用户的应用要先退出：调试版 `dreamflutter.exe` 会被占用。
 - 外部标准（如 Showcard）按官方规范、原样参考代码和官方一致性测试来做，列出偏差。
 
+## v0.3 子 Agent 3.4（2026-11-02）
+
+设计见 [v0.3-design.md](v0.3-design.md)。顺序调整：子 Agent 先做（不依赖沙箱），3.2 执行环境抽象和 3.3 WSL 沙箱一起做。
+
+- **角色卡** `core/src/agent/roles.ts`：`general`（通用，全部标准工具）和 `explore`（调研员，只读：read、glob、grep、web_fetch、read_document、read_image、working_directory、skill）。子 Agent 永远没有 `agent`（不嵌套）、`ask_user_question`、`exit_plan_mode`、`todo_write`。
+- **`agent` 工具** `core/src/modules/subagents.ts`（标准模式，`STANDARD_EXTRA_TOOLS` 里加了 `agent`，免审批）：参数 `role`、`description`、`prompt`；`executionMode: "parallel"`，同一轮调用几次就同时跑几个，整个后台最多 4 个同时跑。子 Agent 是内存里的 Pi 会话：`Core.openSubagentRuntime` 用父会话的审批规则（含定时任务的限制）+ 标了 `forSubagents` 的模块（网关、读文档），不加载记忆、定时、技能提议、卡片、看图转述。模型和思考级别跟主 Agent（角色卡可以指定模型）。审批框经父会话的 UiBridge 出现在主对话里，末尾注明「来自子 Agent「通用 · 写笔记」」。主对话点停止，子 Agent 一起停；到轮数上限（通用 40、调研员 30）也停，交回已有结果。用量和改动的文件经 `Slot.absorbSubagent` → `RunRecorder.absorb` 算进父会话这次运行（花费上限照样管住它）。
+- **进度**：工具的 `onUpdate` 带 `details`（角色、状态、正在做什么、轮数、工具次数、token、花费）；协议层 `ToolExecutionUpdateEvent.partialDetails` 新增，`Transcript` 把它放进 `ToolRun.details`。窗口 `message_widgets.dart` 的 `_SubagentStep`：一行「子 Agent · 调研员 · 查甲 · grep: 甲」，结束后点开看它的回复（Markdown）和统计；过程块总结「派出 2 个子 Agent」。
+- 测试：`core/test/subagents.test.ts`（两个同时跑、各自只看到任务、工具受限、审批转到主对话并注明、文件算进运行、未知角色报错）；`app/test/subagent_step_test.dart`。
+- **还没用真实模型试过**：DeepSeek 会不会主动用 `agent`、任务说明写得够不够，要用户在应用里试（例如「分头查一下 A 和 B」）。
+
 ## v0.3 修复批 3.0（2026-11-02）
 
 额外测试里确认的 bug 都修了，每条有回归测试：

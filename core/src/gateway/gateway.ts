@@ -165,6 +165,8 @@ interface Registered {
  * groups are Pi virtual models routed by [pickEntry].
  */
 export class Gateway implements CoreModule {
+	/** Subagents pick channel models and model groups like any session. */
+	readonly forSubagents = true;
 	private readonly core: Core;
 	private readonly providers: Providers;
 	private readonly transport: Transport;
