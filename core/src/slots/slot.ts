@@ -4,7 +4,7 @@ import { AGENT_MODES, type AgentMode, recordedMode } from "../agent/harness.ts";
 import type { TodoItem } from "../agent/state.ts";
 import type { Db } from "../db.ts";
 import { now } from "../db.ts";
-import { createSessionRuntime, type OpenTarget, type PiHostConfig } from "../pi/host.ts";
+import { createSessionRuntime, type OpenTarget, type PiHostConfig, recordedSandbox } from "../pi/host.ts";
 import { toJsonEvent } from "../pi/json-event.ts";
 import { UiBridge, type DialogOutcome, type UiRequest, type UiResponse } from "../pi/ui-bridge.ts";
 import { RunRecorder, type Run } from "../runs.ts";
@@ -26,6 +26,8 @@ export interface SlotInfo {
 	unattended: boolean;
 	/** Temporary chat: in memory only, no memory read or write. */
 	incognito: boolean;
+	/** Runs in 蝶君's sandbox. */
+	sandbox: boolean;
 	model: string | null;
 	/** Agent mode of the open session (null while starting). */
 	agentMode: AgentMode | null;
@@ -74,6 +76,7 @@ export class Slot {
 	readonly ui: UiBridge;
 	readonly unattended: boolean;
 	readonly incognito: boolean;
+	private readonly sandboxRequested: boolean;
 	taskId: string | null;
 	lastActivity = now();
 	/** Text of the last prompt sent (the goal of a chat task). */
@@ -97,6 +100,7 @@ export class Slot {
 		this.taskId = options.taskId ?? null;
 		this.unattended = options.unattended ?? false;
 		this.incognito = options.target.inMemory === true;
+		this.sandboxRequested = options.target.sandbox === true;
 		this.hooks = hooks;
 		this.fallbackCwd = options.target.cwd;
 		this.newSessionMode = options.agentMode;
@@ -165,6 +169,12 @@ export class Slot {
 		return (this.runtime as AgentSessionRuntime | undefined)?.session;
 	}
 
+	/** A 蝶君 session: its tools run in the sandbox, without approval. */
+	get sandboxed(): boolean {
+		const session = this.sessionOrUndefined;
+		return session ? recordedSandbox(session.sessionManager) : this.sandboxRequested;
+	}
+
 	get cwd(): string {
 		return this.sessionOrUndefined?.sessionManager.getCwd() ?? this.fallbackCwd;
 	}
@@ -195,6 +205,7 @@ export class Slot {
 			taskId: this.taskId,
 			unattended: this.unattended,
 			incognito: this.incognito,
+			sandbox: this.sandboxed,
 			model: model ? `${model.provider}/${model.id}` : null,
 			agentMode: session ? (recordedMode(session.sessionManager) ?? "standard") : null,
 			planMode: this.agentState.planMode,

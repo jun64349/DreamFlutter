@@ -13,6 +13,7 @@ import 'composer.dart' show agentModeHints, agentModeNames;
 import 'dashboard_page.dart';
 import 'gateway_pages.dart';
 import 'mcp_page.dart';
+import 'sandbox_panel.dart';
 import 'providers_page.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 import 'zoom.dart';
@@ -352,6 +353,9 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ]),
+      ]),
+      _Category('蝶君沙箱', Icons.view_in_ar_outlined, [
+        _Group([const _Entry('蝶君 沙箱 WSL 隔离 联网 断网 重置 自检 逃逸', SandboxPanel())]),
       ]),
       _Category('工具与 MCP', Icons.extension_outlined, [
         _Group([

@@ -37,6 +37,8 @@ export interface CoreSettings {
 	notifications: boolean;
 	/** Minutes an idle session stays loaded with no UI attached. */
 	idleSessionMinutes: number;
+	/** 蝶君's sandbox may reach the internet (never the local network); false = offline. */
+	sandboxOnline: boolean;
 	/** Seconds the agent's questions wait before the recommended answer is taken; 0 = wait for the user. */
 	askTimeoutSeconds: number;
 }
@@ -61,6 +63,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	notifications: true,
 	idleSessionMinutes: 10,
 	askTimeoutSeconds: 60,
+	sandboxOnline: true,
 };
 
 type Listener = (settings: CoreSettings, changed: (keyof CoreSettings)[]) => void;

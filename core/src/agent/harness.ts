@@ -31,12 +31,13 @@ import {
 	TOOL_GUIDANCE,
 	workingDirectoryContext,
 } from "./dsh-text.ts";
-import { RICH_OUTPUT_GUIDANCE } from "./host-text.ts";
+import { RICH_OUTPUT_GUIDANCE, SANDBOX_ENVIRONMENT } from "./host-text.ts";
 import { editTool, readImageTool, readTool, workingDirectoryTool, writeTool } from "./fs-tools.ts";
 import { askUserTool, exitPlanModeTool, skillTool, todoTool } from "./interaction-tools.ts";
+import { SandboxShell, sandboxBashTool } from "./sandbox-shell.ts";
 import { globTool, grepTool, ripgrepPath } from "./search-tools.ts";
 import { JobRegistry, jobTools, PersistentShell, persistentPwshTool, pwshTool } from "./shell.ts";
-import { HarnessState, type TodoItem } from "./state.ts";
+import { HarnessState, sandboxEnv, type TodoItem } from "./state.ts";
 
 /**
  * The two agent modes, reproducing DeepSeek Harness's presets on Pi:
@@ -72,6 +73,12 @@ export const CONTEXT_MESSAGE = {
 
 /** Tools each mode declares, in dsh's tool order (code-unit order of names). */
 export const MINIMAL_TOOLS = ["pwsh", "read_image", "working_directory"];
+/** Where a sandbox session starts (the agent's home in 蝶君's sandbox). */
+export const SANDBOX_HOME = "/workspace";
+
+/** A sandbox session's tools: bash instead of PowerShell and its background jobs. */
+export const SANDBOX_TOOLS = () => [...STANDARD_TOOLS.filter((t) => t !== "pwsh" && !t.startsWith("job_")), "bash"];
+
 export const STANDARD_TOOLS = [
 	"ask_user_question",
 	"edit",
@@ -124,6 +131,8 @@ export interface HarnessOptions {
 	onStateChanged?: (state: { todos: TodoItem[] | null; planMode: boolean }) => void;
 	/** A session the core runs on its own (scheduled): a finished background job never starts a new turn there. */
 	unattended?: boolean;
+	/** Run the tools in 蝶君's sandbox (standard mode): [ready] boots it before the first command. */
+	sandbox?: { distro: string; ready: () => Promise<void> };
 	/** Filled in with the harness's handles for the host. */
 	control?: HarnessControl;
 	/** Test hook: the clock. */
@@ -196,9 +205,11 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 	return (pi: ExtensionAPI) => {
 		const mode = options.mode;
 		const now = options.now ?? Date.now;
-		const state = new HarnessState(process.cwd());
+		const sandbox = mode === "standard" ? options.sandbox : undefined;
+		const state = sandbox ? new HarnessState(SANDBOX_HOME, sandboxEnv(sandbox.distro)) : new HarnessState(process.cwd());
 		const jobs = new JobRegistry();
 		const shell = new PersistentShell(() => state.cwd);
+		const sandboxShell = sandbox ? new SandboxShell(sandbox.distro, sandbox.ready) : undefined;
 		let currentModel: Model<never> | undefined;
 		let running = false;
 		/** A user turn counter for the time-context wording. */
@@ -230,10 +241,10 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 							pi.appendEntry(PLAN_ENTRY, { on });
 							notifyState();
 						}),
-						globTool(state, ripgrepPath(options.agentDir)),
-						grepTool(state, ripgrepPath(options.agentDir)),
-						...jobTools(jobs).sort((a, b) => (a.name < b.name ? -1 : 1)),
-						pwshTool(state, jobs),
+						globTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
+						grepTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
+						// The sandbox has one persistent bash; this machine has PowerShell with background jobs.
+						...(sandboxShell ? [sandboxBashTool(sandboxShell)] : [...jobTools(jobs).sort((a, b) => (a.name < b.name ? -1 : 1)), pwshTool(state, jobs)]),
 						readTool(state),
 						readImageTool(state, imageRoute),
 						skillTool(() => options.resources()?.getSkills().skills ?? []),
@@ -257,7 +268,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 
 		pi.on("session_start", (_event, ctx) => {
 			const branch = ctx.sessionManager.getBranch() as Entry[];
-			state.cwd = lastCustom<{ cwd: string }>(branch, CWD_ENTRY)?.cwd ?? ctx.cwd;
+			state.cwd = lastCustom<{ cwd: string }>(branch, CWD_ENTRY)?.cwd ?? (sandbox ? SANDBOX_HOME : ctx.cwd);
 			state.planMode = lastCustom<{ on: boolean }>(branch, PLAN_ENTRY)?.on === true;
 			state.todos = lastCustom<{ todos: TodoItem[] }>(branch, TODO_ENTRY)?.todos ?? null;
 			turn = branch.filter((e) => e.type === "message" && e.message?.role === "user").length;
@@ -275,6 +286,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 		});
 		pi.on("session_shutdown", () => {
 			shell.reset();
+			sandboxShell?.reset();
 			jobs.killAll();
 		});
 
@@ -289,6 +301,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				state.planMode ? PLAN_POLICY : "",
 				...TOOL_GUIDANCE.filter((g) => active.has(g.tool)).map((g) => g.text),
 				active.has("show_card") ? RICH_OUTPUT_GUIDANCE : "",
+				sandbox ? SANDBOX_ENVIRONMENT : "",
 			];
 			return sections.filter((s) => s.length > 0).join("\n\n");
 		};

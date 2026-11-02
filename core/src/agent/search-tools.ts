@@ -1,9 +1,8 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { HarnessState } from "./state.ts";
+import type { ExecEnv, HarnessState } from "./state.ts";
 
 /**
  * dsh's glob and grep (packages/fs/tool-fs-search): ripgrep with dsh's fixed
@@ -40,21 +39,21 @@ interface RgRun {
 	code: number | null;
 }
 
-function runRg(rg: string, args: string[], cwd: string, signal: AbortSignal | undefined): Promise<RgRun> {
+function runRg(env: ExecEnv, rg: string, args: string[], cwd: string, signal: AbortSignal | undefined): Promise<RgRun> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(rg, args, { cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+		const child = env.spawn(rg, args, cwd);
 		const out: Buffer[] = [];
 		const err: Buffer[] = [];
 		let size = 0;
 		const timer = setTimeout(() => child.kill(), SEARCH_TIMEOUT_MS);
 		const abort = () => child.kill();
 		signal?.addEventListener("abort", abort, { once: true });
-		child.stdout.on("data", (chunk: Buffer) => {
+		child.stdout!.on("data", (chunk: Buffer) => {
 			size += chunk.length;
 			if (size > RAW_OUTPUT_MAX_BYTES) child.kill();
 			else out.push(chunk);
 		});
-		child.stderr.on("data", (chunk: Buffer) => err.push(chunk));
+		child.stderr!.on("data", (chunk: Buffer) => err.push(chunk));
 		child.on("error", (error) => {
 			clearTimeout(timer);
 			reject(new Error(`search failed to start ripgrep: ${error.message}`));
@@ -119,7 +118,7 @@ export function globTool(state: HarnessState, rg: string): ToolDefinition {
 		} as never,
 		async execute(_id, params: { pattern: string; path?: string }, signal) {
 			if (params.pattern.trim().length === 0) throw new Error("pattern must be a non-empty string");
-			const run = await runRg(rg, globArgs(params.pattern, params.path), state.cwd, signal);
+			const run = await runRg(state.env, rg, globArgs(params.pattern, params.path), state.cwd, signal);
 			const failure = rgFailure(run);
 			if (failure) throw failure;
 			const paths = run.stdout
@@ -214,7 +213,7 @@ export function grepTool(state: HarnessState, rg: string): ToolDefinition {
 			const args = ["--json", `--regexp=${params.pattern}`];
 			if (params.include !== undefined) args.push(`--glob=${params.include}`);
 			if (params.path !== undefined) args.push("--", params.path);
-			const run = await runRg(rg, args, state.cwd, signal);
+			const run = await runRg(state.env, rg, args, state.cwd, signal);
 			const failure = rgFailure(run);
 			if (failure) throw failure;
 			const matches = parseGrep(run.stdout, (p) => state.resolve(p));

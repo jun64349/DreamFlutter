@@ -1,5 +1,6 @@
+import { type ChildProcess, spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, posix, resolve } from "node:path";
 
 /** A file version as dsh's observation policy compares it. */
 export type FileVersion = string;
@@ -16,21 +17,65 @@ export interface TodoItem {
  * directory, what the agent has read (dsh fs-observation-policy), the todo
  * list and plan mode. Lives as long as the Pi runtime that owns it.
  */
+/**
+ * Where a session's tools act (docs/v0.3-design.md 三): this machine, or
+ * 蝶君's WSL sandbox. Paths the model writes follow the environment's rules
+ * (Windows or POSIX); the core opens them through [local].
+ */
+export interface ExecEnv {
+	readonly kind: "host" | "sandbox";
+	/** A model-supplied path, made absolute against [cwd]. */
+	resolve(cwd: string, path: string): string;
+	/** The path Node opens for a resolved model path. */
+	local(path: string): string;
+	/** Starts [command] inside the environment, in [cwd]. */
+	spawn(command: string, args: string[], cwd: string): ChildProcess;
+}
+
+export const HOST_ENV: ExecEnv = {
+	kind: "host",
+	resolve: (cwd, path) => (isAbsolute(path) ? resolve(path) : resolve(cwd, path)),
+	local: (path) => path,
+	spawn: (command, args, cwd) => spawn(command, args, { cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }),
+};
+
+/** 蝶君's sandbox: Linux paths, opened through \\wsl.localhost; programs run as the agent user. */
+export function sandboxEnv(distro: string): ExecEnv {
+	return {
+		kind: "sandbox",
+		resolve: (cwd, path) => (posix.isAbsolute(path) ? posix.resolve(path) : posix.resolve(cwd, path)),
+		local: (path) => `\\\\wsl.localhost\\${distro}${posix.resolve("/", path).replaceAll("/", "\\")}`,
+		spawn: (command, args, cwd) =>
+			spawn("wsl.exe", ["-d", distro, "-u", "agent", "--cd", cwd, "--", command, ...args], {
+				windowsHide: true,
+				stdio: ["ignore", "pipe", "pipe"],
+				env: { ...process.env, WSL_UTF8: "1" },
+			}),
+	};
+}
+
 export class HarnessState {
 	cwd: string;
+	readonly env: ExecEnv;
 	readonly observations = new Map<string, Observation>();
 	todos: TodoItem[] | null = null;
 	planMode = false;
 	/** Plan mode the model was last told about (narration on change). */
 	planModeTold: boolean | undefined;
 
-	constructor(cwd: string) {
+	constructor(cwd: string, env: ExecEnv = HOST_ENV) {
 		this.cwd = cwd;
+		this.env = env;
 	}
 
 	/** A model-supplied path, absolute (relative paths resolve against the session cwd). */
 	resolve(path: string): string {
-		return isAbsolute(path) ? resolve(path) : resolve(this.cwd, path);
+		return this.env.resolve(this.cwd, path);
+	}
+
+	/** Where the core opens a resolved path. */
+	local(path: string): string {
+		return this.env.local(path);
 	}
 
 	observe(path: string, observation: Observation): void {

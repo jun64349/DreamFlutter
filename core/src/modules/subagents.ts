@@ -154,7 +154,7 @@ export class SubagentsModule implements CoreModule {
 		try {
 			details.status = "running";
 			update();
-			runtime = await this.core.openSubagentRuntime(parentSlotId, `${parentSlotId}/agent-${++this.counter}`, cwd, parent.ui);
+			runtime = await this.core.openSubagentRuntime(parentSlotId, `${parentSlotId}/agent-${++this.counter}`, cwd, parent.ui, parent.sandboxed);
 			const session = runtime.session;
 			await session.bindExtensions({
 				uiContext: labelApprovals(parent.ui.context(), `${role.name} · ${description}`),

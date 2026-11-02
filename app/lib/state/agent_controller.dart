@@ -198,6 +198,9 @@ class AgentController extends ChangeNotifier {
   /// Bumped when channels, groups or their state change in the core.
   final gatewayRevision = ValueNotifier<int>(0);
 
+  /// 蝶君's sandbox as the core last reported it (sandbox.changed), while it is being set up or changed.
+  final sandboxStatus = ValueNotifier<Json?>(null);
+
   /// Short user-facing messages (errors, extension notifications).
   Stream<String> get toasts => _toasts.stream;
 
@@ -444,6 +447,8 @@ class AgentController extends ChangeNotifier {
           _toast('已从「$from」换到「$to」：${message['reason']}');
         }
         unawaited(refreshGateway());
+      case 'sandbox.changed':
+        if (message['status'] is Map) sandboxStatus.value = asJsonMap(message['status']);
       case 'gateway.alert':
         _toast('${message['title']}：${message['body']}');
       case 'card.changed':

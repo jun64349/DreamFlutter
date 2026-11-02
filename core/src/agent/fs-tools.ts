@@ -85,10 +85,10 @@ export function readTool(state: HarnessState): Tool {
 			const limit = params.limit === undefined ? READ_LIMIT : positiveInteger(params.limit, "limit");
 			if (limit > READ_LIMIT) throw new Error(`limit must be less than or equal to ${READ_LIMIT}`);
 			const path = state.resolve(params.file_path);
-			const info = await versionOf(path);
+			const info = await versionOf(state.local(path));
 			if (!info) throw new FsError(`cannot read "${path}": not found`, "FS_NOT_FOUND");
 			if (!info.isFile) throw new FsError(`cannot read "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
-			const content = stripBom(await readFile(path, "utf8"));
+			const content = stripBom(await readFile(state.local(path), "utf8"));
 			const window = readWindow(content, offset, limit, path);
 			state.observe(path, { kind: "present", version: info.version });
 			const result = text(formatRead(path, offset, window.lines, window.totalLines, window.truncatedByBytes));
@@ -123,7 +123,7 @@ export function writeTool(state: HarnessState): Tool {
 			const path = state.resolve(params.file_path);
 			return state.withLock(path, async () => {
 			try {
-				const existing = await versionOf(path);
+				const existing = await versionOf(state.local(path));
 				if (existing && !existing.isFile) throw new FsError(`cannot write "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
 				const seen = state.observed(path);
 				if (seen?.kind === "present") {
@@ -132,10 +132,10 @@ export function writeTool(state: HarnessState): Tool {
 				} else if (existing) {
 					throw new FsError(`cannot overwrite existing "${path}" without reading it first`, "FS_NOT_OBSERVED");
 				}
-				const before = existing ? normalize(stripBom(await readFile(path, "utf8"))) : "";
-				await mkdir(dirname(path), { recursive: true });
-				await writeFile(path, params.content, "utf8");
-				const after = await versionOf(path);
+				const before = existing ? normalize(stripBom(await readFile(state.local(path), "utf8"))) : "";
+				await mkdir(dirname(state.local(path)), { recursive: true });
+				await writeFile(state.local(path), params.content, "utf8");
+				const after = await versionOf(state.local(path));
 				if (after) state.observe(path, { kind: "present", version: after.version });
 				const verb = existing ? "Updated" : "Created";
 				const result = text(`<path>${path}</path>\n<type>file</type>\n<content>\n${verb} file\n</content>`);
@@ -199,11 +199,11 @@ export function editTool(state: HarnessState): Tool {
 				const seen = state.observed(path);
 				if (seen === undefined) throw new FsError(`edit requires reading "${path}" first`, "FS_NOT_OBSERVED");
 				if (seen.kind === "absent") throw new FsError(`cannot edit "${path}": not found`, "FS_NOT_FOUND");
-				const existing = await versionOf(path);
+				const existing = await versionOf(state.local(path));
 				if (!existing) throw new FsError(`cannot edit "${path}": file changed since it was read`, "FS_STALE_VERSION");
 				if (!existing.isFile) throw new FsError(`cannot edit "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
 				if (existing.version !== seen.version) throw new FsError(`cannot edit "${path}": file changed since it was read`, "FS_STALE_VERSION");
-				const raw = await readFile(path, "utf8");
+				const raw = await readFile(state.local(path), "utf8");
 				const bom = raw.charCodeAt(0) === 0xfeff ? "﻿" : "";
 				const crlf = detectCrlf(raw);
 				const content = normalize(stripBom(raw));
@@ -215,8 +215,8 @@ export function editTool(state: HarnessState): Tool {
 					throw new FsError(`old_string matched ${matches} times in "${path}"; provide a more specific old_string or set replace_all to true`, "FS_AMBIGUOUS_EDIT");
 				}
 				const edited = content.split(oldNorm).join(newNorm);
-				await writeFile(path, bom + (crlf ? edited.split("\n").join("\r\n") : edited), "utf8");
-				const after = await versionOf(path);
+				await writeFile(state.local(path), bom + (crlf ? edited.split("\n").join("\r\n") : edited), "utf8");
+				const after = await versionOf(state.local(path));
 				if (after) state.observe(path, { kind: "present", version: after.version });
 				const result = text(
 					replaceAll ? `The file ${path} has been updated. All occurrences were successfully replaced.` : `The file ${path} has been updated successfully.`,
@@ -300,10 +300,10 @@ export function readImageTool(state: HarnessState, modelAcceptsImages: () => { o
 				);
 			}
 			const path = state.resolve(params.file_path);
-			const info = await versionOf(path);
+			const info = await versionOf(state.local(path));
 			if (!info) throw new FsError(`cannot read "${path}": not found`, "FS_NOT_FOUND");
 			if (!info.isFile) throw new FsError(`cannot read "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
-			const bytes = await readFile(path);
+			const bytes = await readFile(state.local(path));
 			const mediaType = sniffImage(bytes);
 			if (!mediaType) throw new Error(`cannot read "${path}": the file content is not a supported image format; read_image accepts PNG/JPEG/WebP/GIF`);
 			const size = imageSize(bytes, mediaType);
@@ -335,7 +335,7 @@ export function workingDirectoryTool(state: HarnessState, changed: (cwd: string)
 			if (params.cd !== undefined) {
 				if (params.cd.length === 0) throw new Error("working-directory: cd must not be empty");
 				const target = state.resolve(params.cd);
-				const info = await versionOf(target);
+				const info = await versionOf(state.local(target));
 				if (!info || info.isFile) throw new Error(`working-directory: directory does not exist: ${JSON.stringify(params.cd)}`);
 				if (target !== state.cwd) {
 					state.cwd = target;

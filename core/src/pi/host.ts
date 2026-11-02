@@ -15,7 +15,7 @@ import {
 	type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import { type AgentMode, dshCompactionSettings, type HarnessControl, harnessExtension, MINIMAL_TOOLS, MODE_ENTRY, recordedMode, STANDARD_TOOLS } from "../agent/harness.ts";
+import { type AgentMode, dshCompactionSettings, type HarnessControl, harnessExtension, MINIMAL_TOOLS, MODE_ENTRY, recordedMode, SANDBOX_TOOLS, STANDARD_TOOLS } from "../agent/harness.ts";
 import { RETRY } from "../agent/dsh-text.ts";
 import type { TodoItem } from "../agent/state.ts";
 import { DISTRUST_ONCE, DISTRUST_REMEMBER, TRUST_ONCE, TRUST_REMEMBER, TRUST_TITLE } from "./dialogs.ts";
@@ -34,6 +34,8 @@ export interface PiHostConfig {
 	autoCompaction: () => boolean;
 	/** How long the agent's questions wait for an answer, in ms; 0 = no limit. */
 	askTimeoutMs?: () => number;
+	/** 蝶君's sandbox for sandboxed sessions; undefined while it is not set up. */
+	sandbox?: () => { distro: string; ready: () => Promise<void> } | undefined;
 	/** A session's todo list or plan mode changed. */
 	agentStateChanged?: (slot: SlotIdentity, state: { todos: TodoItem[] | null; planMode: boolean }) => void;
 	/** Handles of each slot's current harness, by slot id. */
@@ -108,6 +110,8 @@ export interface OpenTarget {
 	inMemory?: boolean;
 	/** Opened by the scheduler: nobody can answer the trust prompt, so untrusted project resources stay off. */
 	unattended?: boolean;
+	/** A 蝶君 session: its tools run in the WSL sandbox (remembered in the session file). */
+	sandbox?: boolean;
 }
 
 /**
@@ -128,8 +132,13 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		const cached = config.trustDecisions.get(cwd.toLowerCase());
 		const mustAsk = needsTrust && cached === undefined && stored === null && !target.unattended;
 		const projectTrusted = !needsTrust || (cached ?? stored === true);
-		const mode = modeFor(sessionManager, config.newSessionMode(slot));
+		// 蝶君's sessions run in the sandbox, in standard mode; the session file remembers it.
+		const sandboxed = target.sandbox === true || recordedSandbox(sessionManager);
+		const mode = sandboxed ? "standard" : modeFor(sessionManager, config.newSessionMode(slot));
 		if (!recordedMode(sessionManager)) sessionManager.appendCustomEntry(MODE_ENTRY, { mode });
+		if (sandboxed && !recordedSandbox(sessionManager)) sessionManager.appendCustomEntry(SANDBOX_ENTRY, { sandbox: true });
+		const sandbox = sandboxed ? config.sandbox?.() : undefined;
+		if (sandboxed && !sandbox) throw new Error("蝶君的沙箱还没有准备好");
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: mustAsk ? false : projectTrusted });
 		// Pi's "Block images" setting (made for terminals) swaps every image for
 		// "Image reading is disabled." before it reaches the model. The window only
@@ -157,6 +166,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			autoCompaction: config.autoCompaction,
 			askTimeoutMs: config.askTimeoutMs,
 			unattended: target.unattended === true,
+			sandbox,
 			onStateChanged: (state) => config.agentStateChanged?.(slot, state),
 			control: (() => {
 				const control: HarnessControl = {};
@@ -190,7 +200,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			sessionManager,
 			sessionStartEvent,
 			noTools: "builtin",
-			tools: mode === "minimal" ? MINIMAL_TOOLS : [...STANDARD_TOOLS, ...STANDARD_EXTRA_TOOLS],
+			tools: mode === "minimal" ? MINIMAL_TOOLS : [...(sandbox ? SANDBOX_TOOLS() : STANDARD_TOOLS), ...STANDARD_EXTRA_TOOLS],
 		});
 		return { ...created, services, diagnostics: [...services.diagnostics] };
 	};
@@ -200,4 +210,11 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		agentDir: config.agentDir,
 		sessionManager,
 	});
+}
+
+/** Custom entry marking a session that runs in 蝶君's sandbox. */
+export const SANDBOX_ENTRY = "df.sandbox";
+
+export function recordedSandbox(sessionManager: Pick<SessionManager, "getEntries">): boolean {
+	return (sessionManager.getEntries() as { type: string; customType?: string }[]).some((e) => e.type === "custom" && e.customType === SANDBOX_ENTRY);
 }

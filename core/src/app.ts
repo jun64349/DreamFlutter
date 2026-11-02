@@ -12,6 +12,7 @@ import { SkillsModule } from "./modules/skills.ts";
 import { SchedulerModule } from "./modules/scheduler.ts";
 import { TasksModule } from "./modules/tasks.ts";
 import { SubagentsModule } from "./modules/subagents.ts";
+import { Sandbox } from "./sandbox/sandbox.ts";
 import { VisionModule } from "./modules/vision.ts";
 import { registerRenderer } from "./render/renderer.ts";
 
@@ -34,6 +35,7 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new DocumentsModule(core));
 	core.use(new CardsModule(core));
 	core.use(new SubagentsModule(core));
+	if (process.platform === "win32") core.use(new Sandbox(core, options.sandbox));
 	registerRenderer(core);
 	new McpModule(core);
 	return core;

@@ -28,6 +28,8 @@ export interface CoreOptions {
 	modelRuntime?: () => ModelRuntime;
 	/** Test hook: the stream gateway channels call instead of the real API. */
 	gatewayTransport?: import("./gateway/gateway.ts").Transport;
+	/** Test hook: the sandbox's distro name, folder and wsl.exe runner. */
+	sandbox?: import("./sandbox/sandbox.ts").SandboxOptions;
 }
 
 /** A connected window (or other client). */
@@ -64,6 +66,8 @@ export interface OpenSlotOptions {
 	client?: Client;
 	/** Agent mode for a new session; default: the settings' agentMode. */
 	agentMode?: AgentMode;
+	/** A 蝶君 session: tools run in the WSL sandbox, without approval. */
+	sandbox?: boolean;
 }
 
 /** Feature modules plug in through these. */
@@ -157,6 +161,7 @@ export class Core {
 			newSessionMode: (slot) => this.slotOrOpening(slot.slotId)?.newSessionMode ?? this.settings.get().agentMode,
 			autoCompaction: () => this.settings.get().autoCompaction,
 			askTimeoutMs: () => this.settings.get().askTimeoutSeconds * 1000,
+			sandbox: () => this.sandboxProvider?.(),
 			agentStateChanged: (slot, state) => this.slotOrOpening(slot.slotId)?.setAgentState(state),
 			harnessControls: new Map(),
 			manualCompactions: new Set(),
@@ -176,7 +181,7 @@ export class Core {
 	 * restrictions), and only the modules marked forSubagents. Its dialogs go
 	 * through [ui] (the parent's, so they appear in the parent conversation).
 	 */
-	openSubagentRuntime(parentSlotId: string, childId: string, cwd: string, ui: Slot["ui"]): Promise<AgentSessionRuntime> {
+	openSubagentRuntime(parentSlotId: string, childId: string, cwd: string, ui: Slot["ui"], sandbox = false): Promise<AgentSessionRuntime> {
 		const config: PiHostConfig = {
 			...this.hostConfig,
 			extensions: () => [
@@ -187,8 +192,11 @@ export class Core {
 			agentStateChanged: undefined,
 			harnessControls: undefined,
 		};
-		return createSessionRuntime(config, { slotId: childId }, ui, { cwd, inMemory: true });
+		return createSessionRuntime(config, { slotId: childId }, ui, { cwd, inMemory: true, sandbox });
 	}
+
+	/** Set by the sandbox module once 蝶君's sandbox is set up. */
+	sandboxProvider: (() => { distro: string; ready: () => Promise<void> } | undefined) | undefined;
 
 	exemptFromApproval(...tools: string[]): void {
 		for (const tool of tools) this.exemptTools.add(tool);
@@ -297,7 +305,13 @@ export class Core {
 		const slotId = options.slotId ?? randomUUID();
 		if (this.slots.has(slotId) || this.opening.has(slotId)) throw new RpcError("conflict", `Slot ${slotId} already exists`);
 		options.client?.attached.add(slotId);
-		const target = { cwd: options.cwd, sessionFile: options.incognito ? undefined : options.sessionFile, inMemory: options.incognito === true, unattended: options.unattended === true };
+		const target = {
+			cwd: options.cwd,
+			sessionFile: options.incognito ? undefined : options.sessionFile,
+			inMemory: options.incognito === true,
+			unattended: options.unattended === true,
+			sandbox: options.sandbox === true,
+		};
 		const slot = Slot.prepare(
 			this.db,
 			{ slotId, target, taskId: options.taskId, unattended: options.unattended, agentMode: options.agentMode ?? this.settings.get().agentMode },
@@ -441,6 +455,8 @@ export class Core {
 			override: (tool, input) => {
 				const slot = this.slots.get(slotId) ?? this.opening.get(slotId);
 				if (!slot) return undefined;
+				// 蝶君 works in its sandbox with full rights there: nothing to approve.
+				if (slot.sandboxed) return "allow";
 				for (const module of this.modules) {
 					const decision = module.toolPolicy?.(slot, tool, input);
 					if (decision) return decision;
@@ -491,6 +507,7 @@ export class Core {
 				sessionFile: str(params.sessionFile),
 				incognito: params.incognito === true,
 				agentMode: AGENT_MODES.includes(params.agentMode as AgentMode) ? (params.agentMode as AgentMode) : undefined,
+				sandbox: params.sandbox === true,
 				client,
 			});
 			return slot.info();

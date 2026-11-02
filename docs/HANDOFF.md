@@ -6,10 +6,12 @@
 
 **现状**：v0.2.0 已发布：`main` 上的 annotated tag `v0.2.0` → 提交 `001d03c`。仓库只在本地，没有远端，什么都不推送。2026-11-02 和用户讨论后**重排了 v0.3–v1.0 计划**（[roadmap.md](roadmap.md)，用户已确认）：书桌升级为在 WSL2 沙箱里独立工作的「蝶君」，对话改名「工作台」；0.3 = 修复批 + 执行环境 + Agent 运行时与子 Agent + WSL 沙箱 + 蝶君骨架 + 记忆开发设计。
 
-**下一步（v0.3）**：
-1. ~~3.0 修复批~~、~~3.1 三份调研~~：2026-11-02 完成，见下面「v0.3 修复批 3.0」一节。修复批里的拖图片要用户手动试。
-2. 用户装 WSL（步骤已给用户：管理员 PowerShell 里 `wsl --install --no-distribution`，可能重启；`wsl --version` 能出版本号就好）。**这台电脑之前没有 WSL**（`wsl --status` 报 `REGDB_E_CLASSNOTREG`），也没有 Docker。
-3. 接着做 3.2 执行环境抽象和 3.4 Agent 运行时 + 子 Agent（不依赖 WSL，可以先做），WSL 装好后做 3.3 沙箱。沙箱按 `docs/research/wsl-sandbox.md` 的修正：Debian 底包、`[user] default=agent` + `-u agent`、启动时 root 卸载 `/mnt/wsl` 和 `/mnt/wslg`、vhdx 复制重置、`ip link` 离线。
+**v0.3 进度（2026-11-02 额度用完时）**：
+- 完成并提交：3.0 修复批、3.1 三份调研、3.4 子 Agent。WSL 已装好（3.0.3）。
+- 完成、提交在最后一个提交里但**没完全验证**：3.2 执行环境抽象 + 3.3 WSL 沙箱。见下面「v0.3 沙箱」一节的「没解决」：先修**在线时沙箱上不了网**，再跑通 `sandbox-live.test.ts`。
+- 然后：3.5 蝶君骨架 → 3.6 工作区运行环境 → 3.7 记忆开发设计。
+- **版本管理**：用户要从 0.3.0 开始用 GitHub，见「v0.3 沙箱」一节末尾。
+- 修复批里的拖图片、子 Agent 都要用户在真实应用里试一下（改了后台，要先从托盘「退出并停止后台」）。
 
 **先读这些**：
 
@@ -34,6 +36,33 @@
 - **提交、打 tag 都等用户说**；不推送。
 - **改了后台代码**之后，用户要从托盘「退出并停止后台」一次，新代码才生效（应用不会自动替换旧后台；直接结束后台进程会被权限检查拦下）。跑 E2E 或视觉检查前，用户的应用要先退出：调试版 `dreamflutter.exe` 会被占用。
 - 外部标准（如 Showcard）按官方规范、原样参考代码和官方一致性测试来做，列出偏差。
+
+## v0.3 沙箱 3.2 / 3.3（2026-11-02，进行中）
+
+**WSL**：用户的电脑上 `wsl --install` 失败（`REGDB_E_CLASSNOTREG`，系统自带的引导调不动安装组件），改为从 github.com/microsoft/WSL/releases 下载官方 `wsl.3.0.3.0.x64.msi`（核对过微软签名）用 msiexec 装好，WSL 3.0.3、内核 6.18，不用重启。用户另有本机代理 `127.0.0.1:12450`（环境变量），WSL 每次都提示「localhost 代理未镜像」，无害。
+
+**手动验证过的事实**（比调研报告可靠，写进了 `core/src/sandbox/sandbox.ts` 文件头）：
+- 底包用 **Ubuntu Base 24.04**（约 30 MB，首次使用时下载，不涉及再分发）；校验值和 cdimage.ubuntu.com 官方 SHA256SUMS 一致。下载**直连不走代理**（用户要求；`sandbox/download.ts` 用 node:https，不用 Pi 的带代理 fetch）。这台电脑直连：阿里云通，清华、中科大连不上，所以阿里云排第一。
+- `wsl.conf` 关自动挂载 + 关互操作后：看不到磁盘；agent（无 sudo）挂不了 drvfs、改不了 wsl.conf、注册不了 binfmt；**沙箱里运行 Windows 程序会被宿主拒绝**（`UtilAcceptVsock accept4 failed`）。
+- **所有 WSL 发行版共用一个虚拟机和网卡**：`ip link set eth0 down` 会让用户所有 WSL 断网，重启发行版也不恢复（`wsl --shutdown` 才恢复）。所以离线 = nftables 只拦 agent 的 uid（**23456**，故意选罕见的，别的发行版不会撞）。
+- `/etc/resolv.conf` 是指向 `/mnt/wsl/resolv.conf` 的链接，卸载 `/mnt/wsl` 前要先复制成真文件（boot 脚本已做）。
+- 停掉的发行版的 vhdx 仍被虚拟机占着，覆盖会 `EBUSY`：重置 = `--unregister` → 复制 clean.vhdx → `--import-in-place`（3 秒）。
+- 装工具约 3–5 分钟，磁盘约 1.3 GB，快照复制 1 秒，冷启动 0.4 秒。
+
+**已完成**：
+- `core/src/sandbox/sandbox.ts`（模块 `Sandbox`，只在 Windows 加载）：`sandbox.status / provision / reset / selfTest / setOnline / remove`，事件 `sandbox.changed`（带步骤和下载进度）。设置 `sandboxOnline`（默认 true）。数据在 `%APPDATA%\DreamFlutter\sandbox\`（disk\ext4.vhdx、clean.vhdx），发行版名 `DreamFlutterSandbox`。
+- 逃逸自检 10 项（以 agent 身份）：uid、看不到磁盘、不能挂载、没有 sudo、切不到 root、改不了 wsl.conf、注册不了互操作、共享目录已断开、改不了防火墙、运行不了 Windows 程序。**真实环境全部通过**。
+- 执行环境抽象（3.2）：`agent/state.ts` 的 `ExecEnv`（`HOST_ENV` / `sandboxEnv(distro)`）：路径按环境解析（沙箱是 POSIX），文件工具经 `state.local()` 用 `\\wsl.localhost\<发行版>\...` 读写，rg 经 `env.spawn` 在沙箱里跑。`agent/sandbox-shell.ts`：沙箱里的常驻 bash（`bash` 工具，结束标记、超时、截断）；先起 shell 占住发行版再跑 boot。`harness.ts` 的 `sandbox` 选项：工作目录 `/workspace`、bash 代替 pwsh 和后台任务、提示词加 `SANDBOX_ENVIRONMENT`（`host-text.ts`）。
+- 沙箱会话：`slot.open` 带 `sandbox: true`；会话文件记 `df.sandbox`，再打开自动恢复；总是标准模式；**沙箱会话里不审批**（`core.ts` approval override）；子 Agent 跟随父会话进沙箱。`SlotInfo.sandbox`。
+- 窗口：设置 › 蝶君沙箱（`ui/sandbox_panel.dart`）：没 WSL 时给安装说明、建立（进度条）、自检结果、联网开关、重置、删除。
+- 测试：`core/test/sandbox.test.ts`（纯函数）；`core/test/sandbox-live.test.ts`（真 WSL，`$env:DF_WSL_LIVE="1"` 才跑，会建沙箱约 5 分钟，**还没跑通过一次**）；`app/test/sandbox_panel_test.dart`；真实检查 `cd core; node --disable-warning=ExperimentalWarning scripts/live-sandbox.ts [--keep]`。
+
+**没解决（下个窗口先做）**：
+1. **在线状态下沙箱上不了网**（live-sandbox 的 `online: 000`；离线、自检、重置都对）。排查：`scripts/live-sandbox.ts --keep` 留下沙箱，然后看 boot 后的 `cat /etc/resolv.conf`、`nft list ruleset`、agent 的 `getent hosts mirrors.aliyun.com` 和 `curl -v`。怀疑：resolv.conf 复制时机（WSL 每次启动重建链接？）、`$NS` 落在 10.0.0.0/8 而 DNS 放行规则没生效、或 WSL 的 DNS 隧道走别的地址。改完让 live-sandbox 全部 OK。
+2. 跑通 `sandbox-live.test.ts`（Agent 在沙箱里 bash / 写 / 读 / 搜）。
+3. 然后做 3.5 蝶君骨架（导航改名、蝶君的交流 / 工作、气闸舱 inbox/outbox、产物预览和保存到本机）。蝶君默认不开 MCP、不给卡片本机授权（还没做）。
+
+**版本管理（用户 2026-11-02 提出，从 0.3.0 开始做）**：现在仓库只在本地、没有远端，也没装 gh。要做的：用户在 github.com 建一个**私有**仓库（或装 gh 后 `gh repo create`，需要用户本人登录），`git remote add origin …`，推 `main` 和所有 tag（v0.1.0、v0.1.1、v0.2.0，以后 v0.3.0）。推送前确认 `.gitignore` 覆盖了 `dist/`、`core/bin/`、`node_modules/`、build 目录，且仓库里没有 Key（Key 都在 `%APPDATA%` 加密存储，仓库里没有）。**推送要等用户点头**。
 
 ## v0.3 子 Agent 3.4（2026-11-02）
 
