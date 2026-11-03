@@ -377,6 +377,12 @@ export class Sandbox implements CoreModule {
 			throw new Error("沙箱里挂载了 Windows 磁盘，已停止。请在设置里重置沙箱。");
 		}
 		this.booted = true;
+		try {
+			await this.restorePending();
+		} catch (error) {
+			// The archive stays for the next start; the sandbox itself works.
+			this.core.log.warn("sandbox: could not restore files from a backup", error);
+		}
 	}
 
 	private booting: Promise<void> | null = null;
@@ -415,6 +421,52 @@ export class Sandbox implements CoreModule {
 		this.state = null;
 		this.booted = false;
 		this.changed();
+	}
+
+	/** Where this machine opens a path inside the sandbox; tests point it at a folder. */
+	local = (path: string): string => `\\\\wsl.localhost\\${this.distro}${path.replaceAll("/", "\\")}`;
+
+	/**
+	 * For a backup: 蝶君's files (/workspace and /home/agent, owners kept) as
+	 * a tar.gz at [dest]. False when there is no sandbox. The disk itself is
+	 * not backed up: a restore rebuilds the sandbox from the shipped image.
+	 */
+	async archiveWorkspace(dest: string): Promise<boolean> {
+		if (!existsSync(this.cleanPath) || !(await this.registered())) return false;
+		const wasRunning = this.booted;
+		const tmp = "/tmp/df-backup.tar.gz";
+		try {
+			const result = await this.wsl(["-d", this.distro, "-u", "root", "--", "tar", "-czf", tmp, "--numeric-owner", "-C", "/", "workspace", "home/agent"], { timeoutMs: 3_600_000 });
+			// 1 = a file changed while it was read: still a usable archive.
+			if (result.code !== 0 && result.code !== 1) throw new Error(`打包沙箱里的文件失败：${(result.stderr || result.stdout).trim()}`);
+			await copyFile(this.local(tmp), dest);
+		} finally {
+			await this.wsl(["-d", this.distro, "-u", "root", "--", "rm", "-f", tmp], { timeoutMs: 60_000 });
+			if (!wasRunning && !this.booted) await this.wsl(["--terminate", this.distro], { timeoutMs: 60_000 });
+		}
+		return true;
+	}
+
+	/** A restore left 蝶君's files to put back (backup/switch.ts). */
+	private get pendingRestore(): string {
+		return join(this.dir, "pending-restore.tar.gz");
+	}
+
+	/** Puts restored files back into a booted sandbox, replacing /workspace and /home/agent. */
+	async restorePending(): Promise<boolean> {
+		if (!existsSync(this.pendingRestore)) return false;
+		const tmp = "/tmp/df-restore.tar.gz";
+		await copyFile(this.pendingRestore, this.local(tmp));
+		const script = `set -e
+find /workspace /home/agent -mindepth 1 -delete
+tar -xzpf ${tmp} --numeric-owner -C /
+rm -f ${tmp}
+echo RESTORE_OK`;
+		const result = await this.wsl(["-d", this.distro, "-u", "root", "--", "sh", "-s"], { input: script, timeoutMs: 3_600_000 });
+		if (!result.stdout.includes("RESTORE_OK")) throw new Error(`放回沙箱里的文件失败：${(result.stderr || result.stdout).trim()}`);
+		await rm(this.pendingRestore, { force: true });
+		this.core.log.info("sandbox: restored files from a backup");
+		return true;
 	}
 
 	/** Runs the escape checks as the agent (after a boot), with a Windows program to try. */

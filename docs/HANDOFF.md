@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-02（v0.3 的 3.0–3.7 全部完成并提交，下一步发布 v0.3.0）
+更新时间：2026-11-03（v0.3.0 版本号已提交；v0.3.1 备份迁移恢复做完并提交，等用户真实测试；tag 和推送都还没做）
 
 ## 新窗口从这里开始
 
@@ -9,11 +9,13 @@
 **v0.3 进度**：
 - 完成并提交：3.0 修复批、3.1 三份调研、3.4 子 Agent、3.2 执行环境 + 3.3 WSL 沙箱。WSL 已装好（3.0.3）。
 - 2026-11-02 第二个窗口（都已提交：`a7f982e`、`2546ef1` 和最后一个提交）：修好在线时沙箱上不了网；3.5 蝶君骨架（按用户试用意见改过）；沙箱改用 Debian 13 并随应用附带镜像（建沙箱 8 秒）；3.6 工作区运行环境（自带 uv 和便携 Python、每个工作区的 `.dreamflutter\`）；3.7 记忆开发设计 [memory-design.md](memory-design.md)（0.4 期间和用户逐项定稿，第十二节是 12 个待定项的建议值）。**用户说做完就可以提交**；**推送：用户 2026-11-02 定了等 v0.3.1 全部做好再一起推**（v0.3.0 的 tag 也到那时一起推）。
-- **下一个窗口按顺序做**（用户 2026-11-02 定的顺序，额度紧时测试从简）：
-  1. **发布 v0.3.0**：版本号改 0.3.0（`app/pubspec.yaml`、`core/package.json`、`core/src/` 里的 `CORE_VERSION`、测试里写死的版本、`FakeBackend` 的 0.2.0）；写 `docs/v0.3-release-notes.md`；先 `cd core; node --disable-warning=ExperimentalWarning scripts/build-sandbox-image.ts`（镜像已在 `core/sandbox-image/`，有就不用重做）和 `scripts/fetch-toolchain.ts`（已在），再 `powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1` 打包（**还没实际打过带镜像、uv、Python 的包**）；集成测试（look / cards / e2e）这次改过还没跑。**打 tag、推送前问用户。**
-  2. **做 v0.3.1 备份迁移**：按 [v0.3.1-backup-design.md](v0.3.1-backup-design.md)。
-  3. 用户做真实测试并反馈；然后看用户的另外 4 份报告，再开 0.4。
-- 要用户在真实应用里试的：拖图片、子 Agent、蝶君整条流程、工作台的 uv / Python。用户试用要**自己双击** `app\build\windows\x64\runner\Debug\dreamflutter.exe`（不要从 Claude 的终端启动，见约定）；改了后台要先从托盘「退出并停止后台」。
+- **2026-11-03 窗口**：
+  1. **v0.3.0**：版本号、[v0.3-release-notes.md](v0.3-release-notes.md) 单独一个提交 `afd6ef2`（tag 打在它上面）。测试：后台 188、窗口 83、look、cards 全过；e2e 36 步全部走通，但测试被判失败，原因是一开始就冒出的 Flutter 自己的语义树错误（见「踩过的坑」最后一条），没修。
+  2. **v0.3.1 备份、迁移与恢复**：做完并提交，版本号已改 0.3.1，见下面「v0.3.1 备份、迁移与恢复」一节和 [v0.3.1-release-notes.md](v0.3.1-release-notes.md)。安装包按 v0.3.1 打（`dist\DreamFlutter-0.3.1\`，第一次带上沙箱镜像、uv、Python）。
+- **下一步**：
+  1. **问用户**：给 `afd6ef2` 打 `v0.3.0`、给 v0.3.1 的提交打 `v0.3.1`，然后推送 `main` 和两个 tag（用户定了 v0.3.1 做完一起推）。
+  2. 用户做真实测试并反馈（下面列了要试的）；然后看用户的另外 4 份报告，再开 0.4。
+- 要用户在真实应用里试的：拖图片、子 Agent、蝶君整条流程、工作台的 uv / Python；**备份**：设置 › 数据与迁移 › 备份与恢复，导出一份（试试带 Key）、再导入它（会先自动备份、后台重启）、看「上次恢复」、撤销；有条件的话在另一台电脑或另一个 Windows 用户下导入。用户试用要**自己双击** `app\build\windows\x64\runner\Debug\dreamflutter.exe`（不要从 Claude 的终端启动，见约定）；改了后台要先从托盘「退出并停止后台」。
 
 **先读这些**：
 
@@ -38,6 +40,20 @@
 - **提交、打 tag、推送都等用户说**（GitHub 公开仓库 jun64349/DreamFlutter）。
 - **改了后台代码**之后，用户要从托盘「退出并停止后台」一次，新代码才生效（应用不会自动替换旧后台；直接结束后台进程会被权限检查拦下）。跑 E2E 或视觉检查前，用户的应用要先退出：调试版 `dreamflutter.exe` 会被占用。
 - 外部标准（如 Showcard）按官方规范、原样参考代码和官方一致性测试来做，列出偏差。
+
+## v0.3.1 备份、迁移与恢复（2026-11-03）
+
+按 [v0.3.1-backup-design.md](v0.3.1-backup-design.md) 做的，文档末尾「实现记录」写了所有具体做法和与设计不同的地方。要点：
+
+- 后台 `core/src/backup/`，模块 `BackupModule`。RPC：`backup.overview / export / cancel / job / inspect / stage / apply / discardStaged / restoreResult / ackResult / undo / history / delete`；导出、准备、替换是后台任务，进度走 `backup.job` 事件，替换前广播 `backup.restarting`。
+- 每个模块在构造时 `core.declareBackup(...)` 声明自己的表和路径列；**以后加表要加声明**，否则 `backup.test.ts` 的「每张表都有人认领」会失败。新功能有路径列也要写进 `paths`。
+- 替换：`backup.apply` 先自动备份当前数据（`backups\auto-import-*.dfbackup`）、写 `restore-switch.json`、后台退出；窗口重连时新后台在 `main.ts` 里、打开数据库之前执行切换（`applyPendingRestore`），结果在 `restore-result.json`。切换失败（退出码 4）会在下次启动重试回滚。升级数据库前的自动备份也在 `main.ts`（`backupBeforeUpgrade`）。
+- 窗口：`ui/backup_panel.dart`，设置里「数据与存储」改名「数据与迁移」，加「备份与恢复」一组。`AgentController` 连上后台后读 `backup.restoreResult`，把备份里的窗口偏好写回一次（`Preferences.exportAll / importAll`）并提示。
+- 依赖：yazl 3.3.1、yauzl 3.4.0（及其类型包）。
+- 沙箱文件的打包和放回在真 WSL 上试过（2026-11-03，用随附镜像导入临时发行版 DFBackupCheck，试完已删）：打包、改动、放回后文件和属主（23456）都对，后加的文件被清掉。
+- 安装包 `distDreamFlutter-0.3.1` 已打好（带镜像、uv、Python、zip 库）。小问题：`npm prune` 删不掉开发依赖 jsdom 的文件夹（路径太长），留在包里，无害，下次打包脚本里处理。
+- 测试：`core/test/backup.test.ts`（8 个：表认领、路径对照、迁移密码、换「电脑」整套往返 + 撤销、不带 Key 时列出要重填的渠道、恶意 / 更新 / 损坏的包、任务在跑时拒绝和取消不留半成品、切换中途被杀和失败）；`app/test/backup_panel_test.dart`（3 个）。
+- **没做 / 没验证**：真实两台电脑之间的迁移；「磁盘满」没有测试；DPAPI 的另一个 Windows 用户下解密靠的是「导入时用当前用户重新加密」，没在真实的第二个用户下试。
 
 ## v0.3 沙箱 3.2 / 3.3（2026-11-02）
 
@@ -334,9 +350,9 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：161 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
+# 后台测试：196 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：72 个
+# 窗口单元/组件测试：86 个
 cd app && flutter test test
 # 视觉检查：假后台、不联网、约 40 秒（对话页 + 各页面 + 每个主题），截图在 app/build/look_shots/
 cd app && flutter test integration_test/look_test.dart -d windows
@@ -378,6 +394,8 @@ cd app && flutter test integration_test/cards_test.dart -d windows
 - agent-bridge 的项目根是别的目录（毕设文件夹），审查/改代码直接用 `codex exec -s read-only -C E:\claude\DreamFlutter`。
 - 本机唯一的 node 是 Hermes 自带的 v22.23.2。
 - 不允许 `rm -rf` 通配目录，清理交给用户。
+- **e2e 的 Flutter 语义树错误**（2026-11-03）：`e2e_test` 36 步全部走通，但开头就有一个 `_RenderObjectSemantics._updateSemanticsNodeGeometry` 的 `Null check operator`（Flutter 框架内部），测试因此判失败。v0.2 时没有。没有任何测试打开语义树，猜是 Windows 上有辅助功能 / 自动化程序时引擎自己打开的；离线的 look 页面强制打开语义树复现不了，所以和真实后台那一段流程有关。用读屏软件的用户可能碰到，0.4 做外壳时查（先在 e2e 里逐步加 `tester.ensureSemantics()` 二分出是哪一步）。
+- 在 Bash 里拼含 `${...}` 的 Dart 代码会被 shell 吃掉，改代码用脚本文件（放 scratchpad）或 Edit。还有：跑测试的同时别临时换掉源文件（拆提交时这样做过，导致一批测试读到旧文件失败）。
 
 ## 未做 / 可选
 

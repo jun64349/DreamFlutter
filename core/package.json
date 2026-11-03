@@ -1,7 +1,7 @@
 {
   "name": "dreamflutter-core",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "DreamFlutter background service: hosts Pi sessions in-process and serves the desktop UI over a local WebSocket.",
   "type": "module",
   "engines": {
@@ -17,12 +17,16 @@
     "@earendil-works/pi-coding-agent": "1.4.0",
     "croner": "9.1.0",
     "pdfjs-dist": "4.10.38",
-    "ws": "8.18.3"
+    "ws": "8.18.3",
+    "yauzl": "3.4.0",
+    "yazl": "3.3.1"
   },
   "devDependencies": {
     "@types/jsdom": "30.0.0",
     "@types/node": "22.18.0",
     "@types/ws": "8.18.1",
+    "@types/yauzl": "3.4.0",
+    "@types/yazl": "3.3.1",
     "jsdom": "29.0.2",
     "typescript": "5.9.3"
   }

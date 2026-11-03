@@ -194,6 +194,12 @@ export class Gateway implements CoreModule {
 	constructor(core: Core, providers: Providers, options: { transport?: Transport; clock?: () => number; fetch?: typeof fetch } = {}) {
 		this.core = core;
 		this.providers = providers;
+		core.declareBackup({
+			id: "gateway",
+			title: "模型渠道、模型组、请求记录",
+			tables: ["gateway_channels", "gateway_keys", "gateway_groups", "gateway_requests", "gateway_quota"],
+			paths: { gateway_keys: { secret: "secretRef" } },
+		});
 		this.transport = options.transport ?? (streamSimple as Transport);
 		this.clock = options.clock ?? Date.now;
 		this.fetch = options.fetch ?? fetch;

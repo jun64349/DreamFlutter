@@ -13,6 +13,7 @@ import 'composer.dart' show agentModeHints, agentModeNames;
 import 'dashboard_page.dart';
 import 'gateway_pages.dart';
 import 'mcp_page.dart';
+import 'backup_panel.dart';
 import 'sandbox_panel.dart';
 import 'providers_page.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
@@ -370,7 +371,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const _Entry('网页读取 web_fetch', _Row(title: '网页读取', subtitle: 'Agent 可以用 web_fetch 读取网页内容。只读，不需要审批。')),
         ]),
       ]),
-      _Category('数据与存储', Icons.folder_outlined, [
+      _Category('数据与迁移', Icons.folder_outlined, [
         _Group([
           _Entry('当前工作区 文件夹', _Row(title: '当前工作区', subtitle: agent.workspace, trailing: const SizedBox(width: 260, child: WorkspaceSwitcher()))),
           _Entry(
@@ -382,7 +383,8 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           _Entry('后台数据 数据库', _InfoRow('后台数据', core['dataDir'] as String? ?? '未知')),
-        ]),
+        ], title: '存放位置'),
+        _Group([const _Entry('备份 迁移 恢复 导出 导入 撤销 换电脑 升级', BackupPanel())], title: '备份与恢复'),
       ]),
       _Category('关于', Icons.info_outline, [
         _Group([

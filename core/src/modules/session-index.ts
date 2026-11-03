@@ -60,6 +60,16 @@ export class SessionIndex implements CoreModule {
 	constructor(core: Core) {
 		this.core = core;
 		this.db = core.db;
+		core.declareBackup({
+			id: "sessions",
+			title: "会话索引、用量",
+			tables: ["session_meta", "session_fts", "usage_records"],
+			paths: {
+				session_meta: { path: "path", cwd: "path", parent_session: "path" },
+				session_fts: { path: "path" },
+				usage_records: { path: "path", cwd: "path" },
+			},
+		});
 		this.register();
 	}
 

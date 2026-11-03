@@ -215,6 +215,12 @@ class AgentController extends ChangeNotifier {
   /// 蝶君's sandbox as the core last reported it (sandbox.changed), while it is being set up or changed.
   final sandboxStatus = ValueNotifier<Json?>(null);
 
+  /// The backup or restore job the core is running or ran last (backup.job), for Settings › 数据与迁移.
+  final backupJob = ValueNotifier<Json?>(null);
+
+  /// What the last restore did (backup.restoreResult), once the core that applied it is connected.
+  final restoreResult = ValueNotifier<Json?>(null);
+
   /// Short user-facing messages (errors, extension notifications).
   Stream<String> get toasts => _toasts.stream;
 
@@ -479,6 +485,7 @@ class AgentController extends ChangeNotifier {
       backendProblem = null;
       _applyHello(hello);
       await _migratePreferences();
+      await _takeRestoreResult();
       unawaited(backend.disconnected.then((_) => _onBackendLost()));
       _notify();
       return hello;
@@ -496,6 +503,26 @@ class AgentController extends ChangeNotifier {
       for (final run in (hello['interruptedRuns'] as List? ?? const []))
         if (run is Map) InterruptedRun.fromJson(run.cast<String, dynamic>()),
     ];
+  }
+
+  /// After a restore: the backup's window preferences are applied once, and the result is announced.
+  Future<void> _takeRestoreResult() async {
+    if (parentController != null) return;
+    try {
+      final result = await backend.call('backup.restoreResult');
+      if (result is! Map || result['ok'] is! bool || result['at'] is! num) return;
+      final json = asJsonMap(result);
+      restoreResult.value = json;
+      if (json['seen'] == true) return;
+      final prefs = json['prefs'];
+      if (json['ok'] == true && prefs is Map) await preferences.importAll(prefs.cast<String, Object?>());
+      await backend.call('backup.ackResult');
+      _toast(switch (json) {
+        {'ok': false} => '恢复没有完成，原来的数据都还在：${json['error']}',
+        {'undo': true} => '已撤销上次恢复，回到了恢复前的数据。',
+        _ => prefs is Map ? '已恢复备份的数据。界面偏好（主题、工作区等）在重新打开窗口后完全生效。详情见「设置 › 数据与迁移」。' : '已恢复备份的数据。详情见「设置 › 数据与迁移」。',
+      });
+    } catch (_) {}
   }
 
   /// Settings that used to live in the window move to the core once.
@@ -554,7 +581,8 @@ class AgentController extends ChangeNotifier {
   /// Events only the main controller acts on (toasts, badges, the sandbox panel), so 蝶君's does not repeat them.
   static const _mainOnlyEvents = {
     'memory.changed', 'proposals.changed', 'skills.changed', 'templates.changed', 'schedules.delivered', //
-    'gateway.switched', 'gateway.alert', 'vision.missing', 'notices.changed', 'sandbox.changed', 'butterfly.outbox',
+    'gateway.switched', 'gateway.alert', 'vision.missing', 'notices.changed', 'sandbox.changed', 'butterfly.outbox', //
+    'backup.job', 'backup.restarting',
   };
 
   void _onBackendEvent(Json message) {
@@ -597,6 +625,10 @@ class AgentController extends ChangeNotifier {
         unawaited(refreshGateway());
       case 'sandbox.changed':
         if (message['status'] is Map) sandboxStatus.value = asJsonMap(message['status']);
+      case 'backup.job':
+        if (message['job'] is Map) backupJob.value = asJsonMap(message['job']);
+      case 'backup.restarting':
+        _toast('正在切换到备份的数据，后台会重启，稍等片刻…');
       case 'gateway.alert':
         _toast('${message['title']}：${message['body']}');
       case 'card.changed':
@@ -872,6 +904,8 @@ class AgentController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    backupJob.dispose();
+    restoreResult.dispose();
     _butterfly?.dispose();
     _reaper?.cancel();
     _backendEvents?.cancel();

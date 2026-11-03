@@ -127,6 +127,12 @@ export class MemoryModule implements CoreModule {
 		this.core = core;
 		this.db = core.db;
 		this.llm = llm;
+		core.declareBackup({
+			id: "memory",
+			title: "记忆",
+			tables: ["memories", "memory_blocks", "memory_snapshots", "memory_extraction"],
+			paths: { memories: { cwd: "path", source_session: "path" } },
+		});
 		core.exemptFromApproval(...MEMORY_TOOLS);
 		this.register();
 	}

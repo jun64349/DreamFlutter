@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentSessionEvent, AgentSessionRuntime, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { BackupPart } from "./backup/parts.ts";
 import { ConfirmationStore } from "./confirmations.ts";
 import { Db, now } from "./db.ts";
 import { AGENT_MODES, type AgentMode } from "./agent/harness.ts";
@@ -16,7 +17,7 @@ import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
 import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
 
-export const CORE_VERSION = "0.3.0";
+export const CORE_VERSION = "0.3.1";
 
 export interface CoreOptions {
 	paths: CorePaths;
@@ -131,6 +132,10 @@ export class Core {
 	private readonly cancelledOpens = new Set<string>();
 	private reaper: NodeJS.Timeout | undefined;
 	private stopped = false;
+	/** Each module's share of the database, for backups (backup/parts.ts). */
+	readonly backupParts: BackupPart[] = [];
+	/** Set while a backup copies the data: no new runs start (schedules wait, prompts are refused). */
+	maintenance: string | undefined;
 	private readonly shutdownListeners: (() => void)[] = [];
 
 	constructor(options: CoreOptions) {
@@ -167,6 +172,16 @@ export class Core {
 			manualCompactions: new Set(),
 		};
 		this.settings.onChange((settings, changed) => this.broadcast({ event: "settings.changed", settings, changed }));
+		this.declareBackup({
+			id: "core",
+			title: "设置、运行记录、确认记录",
+			tables: ["settings", "confirmations", "runs", "run_steps", "workspace_tool_rules", "app_flags"],
+			paths: {
+				confirmations: { session_file: "path", cwd: "path" },
+				runs: { session_file: "path", cwd: "path", files: "json" },
+				workspace_tool_rules: { cwd: "key" },
+			},
+		});
 		this.registerBaseMethods();
 	}
 
@@ -197,6 +212,15 @@ export class Core {
 
 	/** Set by the sandbox module once 蝶君's sandbox is set up. */
 	sandboxProvider: (() => { distro: string; ready: () => Promise<void> } | undefined) | undefined;
+
+	declareBackup(part: BackupPart): void {
+		this.backupParts.push(part);
+	}
+
+	/** Sessions with a run in progress (a backup waits for them). */
+	busySlots(): Slot[] {
+		return this.allSlots().filter((slot) => slot.running);
+	}
 
 	exemptFromApproval(...tools: string[]): void {
 		for (const tool of tools) this.exemptTools.add(tool);
@@ -527,6 +551,7 @@ export class Core {
 			const slot = this.slot(params.slotId, { includeOpening: true });
 			const record = params.record as { type?: unknown } | undefined;
 			if (!record || typeof record.type !== "string") throw new RpcError("bad_request", "record.type is required");
+			if (this.maintenance && record.type === "prompt") throw new RpcError("busy", `${this.maintenance}，请稍后再发`);
 			void slot.handle(record as { type: string });
 			return { ok: true };
 		});

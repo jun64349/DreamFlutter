@@ -282,6 +282,14 @@ export class SchedulerModule implements CoreModule {
 			})),
 		);
 		tasks.onNoticeResolved((notice, action, slot) => this.limitAnswered(notice.taskId, action, slot));
+		core.declareBackup({
+			id: "schedules",
+			title: "定时任务",
+			tables: ["schedules", "schedule_runs", "deliveries"],
+			paths: { schedules: { cwd: "path", session_file: "path" }, schedule_runs: { session_file: "path" } },
+			// Restored schedules wait until the user has looked them over.
+			onStage: (db) => db.run("UPDATE schedules SET status = 'paused' WHERE status = 'active'"),
+		});
 		this.recover();
 		this.register();
 	}
@@ -499,6 +507,8 @@ export class SchedulerModule implements CoreModule {
 
 	/** Checks due schedules and retries; resolves once due runs have started. */
 	tick(at = this.clock()): Promise<void> {
+		// A backup is copying the data: due runs start on the next tick after it.
+		if (this.core.maintenance) return Promise.resolve();
 		if (this.ticking) return this.ticking;
 		this.ticking = this.doTick(at).finally(() => {
 			this.ticking = undefined;

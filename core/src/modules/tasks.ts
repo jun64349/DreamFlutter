@@ -182,6 +182,18 @@ export class TasksModule implements CoreModule {
 	constructor(core: Core) {
 		this.core = core;
 		this.db = core.db;
+		core.declareBackup({
+			id: "tasks",
+			title: "任务、写笺、资料、产物",
+			tables: ["tasks", "notes", "materials", "artifacts", "notices"],
+			paths: {
+				tasks: { cwd: "path", cwd_key: "key", session_file: "path" },
+				notes: { cwd: "path", cwd_key: "key" },
+				materials: { cwd: "path", cwd_key: "key", path: "path" },
+				artifacts: { cwd: "path", cwd_key: "key", path: "path" },
+				notices: { session_file: "path", cwd: "path" },
+			},
+		});
 		this.register();
 		this.recoverInterrupted();
 	}

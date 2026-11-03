@@ -137,6 +137,7 @@ export class SkillsModule implements CoreModule {
 		this.core = core;
 		this.db = core.db;
 		this.llm = llm;
+		core.declareBackup({ id: "proposals", title: "待确认的技能和记忆建议", tables: ["proposals"], paths: { proposals: { source_session: "path", cwd: "path" } } });
 		core.exemptFromApproval(...SKILL_TOOLS);
 		this.register();
 	}

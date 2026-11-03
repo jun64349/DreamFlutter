@@ -195,6 +195,12 @@ export class CardsModule implements CoreModule {
 		this.core = core;
 		this.dir = join(core.paths.dataDir, "cards");
 		mkdirSync(this.dir, { recursive: true });
+		core.declareBackup({
+			id: "cards",
+			title: "卡片",
+			tables: ["cards", "card_grants", "card_events"],
+			paths: { cards: { cwd: "path", session_file: "path" }, card_grants: { subject: "path" } },
+		});
 		core.exemptFromApproval(SHOW_CARD_TOOL, READ_CARD_TOOL);
 		core.registerHttp("/cards/", (req, res, path) => this.serveCard(req, res, path));
 		core.registerHttp("/shell/", (req, res, path) => this.serveShell(res, path));

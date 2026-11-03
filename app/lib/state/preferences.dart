@@ -41,6 +41,38 @@ class Preferences {
     return p.join(home, 'DreamFlutter');
   }
 
+  // --- Backup --------------------------------------------------------------
+
+  /// Everything remembered here, for a backup package (the core stores it as prefs.json).
+  /// Doubles are tagged: through JSON in Node, 1.0 would come back as the int 1.
+  Map<String, Object?> exportAll() => {
+    for (final key in _prefs.getKeys())
+      key: switch (_prefs.get(key)) {
+        final double v => {'double': v},
+        final v => v,
+      },
+  };
+
+  /// Puts a restored backup's preferences back (paths already moved to this machine by the core).
+  Future<void> importAll(Map<String, Object?> values) async {
+    for (final MapEntry(:key, :value) in values.entries) {
+      switch (value) {
+        case final bool v:
+          await _prefs.setBool(key, v);
+        case final int v:
+          await _prefs.setInt(key, v);
+        case {'double': final num v}:
+          await _prefs.setDouble(key, v.toDouble());
+        case final String v:
+          await _prefs.setString(key, v);
+        case final List<Object?> v when v.every((e) => e is String):
+          await _prefs.setStringList(key, v.cast<String>());
+        default:
+          break;
+      }
+    }
+  }
+
   // --- Workspace -----------------------------------------------------------
 
   String? get workspace => _prefs.getString('workspace');

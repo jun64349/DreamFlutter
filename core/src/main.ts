@@ -1,4 +1,7 @@
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { backupBeforeUpgrade } from "./backup/backup.ts";
+import { applyPendingRestore } from "./backup/switch.ts";
 import { parseArgs } from "node:util";
 import { buildCore } from "./app.ts";
 import { acquireLock, newToken, readInfo, releaseLock, removeInfo, writeInfo } from "./instance.ts";
@@ -35,6 +38,17 @@ process.on("uncaughtException", (error) => log.error("uncaught exception", error
 process.on("unhandledRejection", (error) => log.error("unhandled rejection", error));
 process.env.PI_CODING_AGENT = "true";
 const agentDir = args["agent-dir"] ?? defaultAgentDir();
+
+// Before the database opens: finish a restore the last core prepared, then back up data about to be upgraded.
+try {
+	const restored = applyPendingRestore(paths, { log: (m) => log.info(m) });
+	if (restored) log.info(`restore: ${restored.ok ? "switched to the backup's data" : `failed, old data kept: ${restored.error}`}`);
+} catch (error) {
+	log.error("restore: switch could not finish; it is retried on the next start", error);
+	process.exit(4);
+}
+await backupBeforeUpgrade(paths, agentDir, args["session-dir"] ?? join(agentDir, "sessions"), log);
+
 await configurePiNetworking(agentDir, log);
 
 const core = buildCore({

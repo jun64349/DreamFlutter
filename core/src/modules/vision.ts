@@ -37,6 +37,7 @@ export class VisionModule implements CoreModule {
 	constructor(core: Core, llm: Llm) {
 		this.core = core;
 		this.llm = llm;
+		core.declareBackup({ id: "vision", title: "图片转述缓存", tables: ["image_descriptions"] });
 		core.register("vision.lookup", (params) => {
 			const hashes = Array.isArray(params.hashes) ? params.hashes.filter((h): h is string => typeof h === "string").slice(0, 200) : [];
 			const out: Record<string, ImageDescription> = {};
