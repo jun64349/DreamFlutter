@@ -35,7 +35,7 @@ void main() {
 
   test('hello reports the core version and no slots', () async {
     final hello = asJsonForTest(await core.call('core.hello'));
-    expect(hello['version'], '0.2.0');
+    expect(hello['version'], '0.3.0');
     expect(hello['slots'], isEmpty);
   });
 
