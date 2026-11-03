@@ -51,7 +51,7 @@
 - 窗口：`ui/backup_panel.dart`，设置里「数据与存储」改名「数据与迁移」，加「备份与恢复」一组。`AgentController` 连上后台后读 `backup.restoreResult`，把备份里的窗口偏好写回一次（`Preferences.exportAll / importAll`）并提示。
 - 依赖：yazl 3.3.1、yauzl 3.4.0（及其类型包）。
 - 沙箱文件的打包和放回在真 WSL 上试过（2026-11-03，用随附镜像导入临时发行版 DFBackupCheck，试完已删）：打包、改动、放回后文件和属主（23456）都对，后加的文件被清掉。
-- 安装包 `distDreamFlutter-0.3.1` 已打好（带镜像、uv、Python、zip 库）。小问题：`npm prune` 删不掉开发依赖 jsdom 的文件夹（路径太长），留在包里，无害，下次打包脚本里处理。
+- 安装包 `dist\DreamFlutter-0.3.1\` 已打好（带镜像、uv、Python、zip 库）。小问题：`npm prune` 删不掉开发依赖 jsdom 的文件夹（路径太长），留在包里，无害，下次打包脚本里处理。
 - 测试：`core/test/backup.test.ts`（8 个：表认领、路径对照、迁移密码、换「电脑」整套往返 + 撤销、不带 Key 时列出要重填的渠道、恶意 / 更新 / 损坏的包、任务在跑时拒绝和取消不留半成品、切换中途被杀和失败）；`app/test/backup_panel_test.dart`（3 个）。
 - **没做 / 没验证**：真实两台电脑之间的迁移；「磁盘满」没有测试；DPAPI 的另一个 Windows 用户下解密靠的是「导入时用当前用户重新加密」，没在真实的第二个用户下试。
 
