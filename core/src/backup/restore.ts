@@ -20,6 +20,8 @@ import { PathMap, piSessionFolder, type PathRule } from "./path-map.ts";
  * Windows user's DPAPI. The switch itself happens at the next start (switch.ts).
  */
 
+const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
 export interface RestoreTarget {
 	paths: CorePaths;
 	agentDir: string;
@@ -294,7 +296,10 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 			const materialsRoot = join(raw, "data", "materials");
 			for (const row of db.all<{ id: string; path: string }>("SELECT id, path FROM materials WHERE path IS NOT NULL AND path != ''")) {
 				if (existsSync(row.path)) continue;
-				const copy = join(materialsRoot, row.id, basename(row.path));
+				// Both come from the package: never let them name a place outside its materials folder.
+				const name = basename(row.path);
+				if (!SAFE_ID.test(row.id) || !name || name === "." || name === "..") continue;
+				const copy = join(materialsRoot, row.id, name);
 				if (!existsSync(copy)) continue;
 				const home = join(appdata, "butterfly", "materials", row.id);
 				await mkdir(home, { recursive: true });
@@ -370,6 +375,9 @@ function fixPiJson(data: unknown, name: string, map: PathMap, secretsDir: string
 				onRef(value);
 				return relocateSecretRef(value, secretsDir);
 			}
+			// Pi's include/exclude entries (settings.json skills, prompts): "-C:\…\SKILL.md", "+C:\…".
+			const marked = /^([+-])(.+)$/s.exec(value);
+			if (marked) return marked[1] + map.map(marked[2]!);
 			return map.map(value);
 		}
 		if (Array.isArray(value)) return value.map((v) => walk(v, false));

@@ -38,7 +38,8 @@ class _ExtensionDialogHostState extends State<ExtensionDialogHost> {
     final answer = await showDialog<_Answer>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _ExtensionDialog(request: request),
+      // The route sits above this page's scope (蝶君 has its own controller): hand it the one that asked.
+      builder: (_) => AgentScope(controller: agent, child: _ExtensionDialog(request: request)),
     );
     // The run may have ended (and the request vanished) while it was open.
     if (answer != null) {

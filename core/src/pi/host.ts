@@ -36,7 +36,7 @@ export interface PiHostConfig {
 	/** How long the agent's questions wait for an answer, in ms; 0 = no limit. */
 	askTimeoutMs?: () => number;
 	/** 蝶君's sandbox for sandboxed sessions; undefined while it is not set up. */
-	sandbox?: () => { distro: string; ready: () => Promise<void> } | undefined;
+	sandbox?: () => { distro: string; ready: () => Promise<void>; online: () => boolean } | undefined;
 	/** A session's todo list or plan mode changed. */
 	agentStateChanged?: (slot: SlotIdentity, state: { todos: TodoItem[] | null; planMode: boolean }) => void;
 	/** Handles of each slot's current harness, by slot id. */
@@ -203,7 +203,8 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			sessionManager,
 			sessionStartEvent,
 			noTools: "builtin",
-			tools: mode === "minimal" ? MINIMAL_TOOLS : [...(sandbox ? SANDBOX_TOOLS() : STANDARD_TOOLS), ...STANDARD_EXTRA_TOOLS],
+			// read_document reads on this machine: not for 蝶君, whose files are in the sandbox.
+			tools: mode === "minimal" ? MINIMAL_TOOLS : sandbox ? [...SANDBOX_TOOLS(), ...STANDARD_EXTRA_TOOLS.filter((t) => t !== "read_document")] : [...STANDARD_TOOLS, ...STANDARD_EXTRA_TOOLS],
 		});
 		return { ...created, services, diagnostics: [...services.diagnostics] };
 	};

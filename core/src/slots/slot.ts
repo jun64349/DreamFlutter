@@ -49,6 +49,8 @@ export interface SlotHooks {
 	sessionReplaced?(slot: Slot): void;
 	/** A blank session was started in place (`new_session`); apply defaults. */
 	sessionCreated?(slot: Slot): Promise<void>;
+	/** Another slot has [file] open, or is opening it (one runtime per session file). */
+	fileTaken?(slot: Slot, file: string): boolean;
 	/** The task a run belongs to when the slot has none yet (chat sessions are tasks too). */
 	resolveTaskId?(slot: Slot): string | null;
 }
@@ -473,6 +475,7 @@ export class Slot {
 			case "export_html":
 				return ok(id, "export_html", { path: await session.exportToHtml(str("outputPath")) });
 			case "switch_session": {
+				if (this.hooks.fileTaken?.(this, String(command.sessionPath ?? ""))) return failure(id, "switch_session", "这个会话已经在别处打开了");
 				const result = await this.replaceAndRebind(() => this.runtime.switchSession(String(command.sessionPath ?? "")));
 				return ok(id, "switch_session", result);
 			}

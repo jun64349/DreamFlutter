@@ -655,7 +655,11 @@ class _NoteEditorState extends State<NoteEditor> {
     } catch (_) {}
   }
 
+  /// Bumped on every edit: a save only counts for the edits it carried.
+  var _revision = 0;
+
   void _changed() {
+    _revision++;
     setState(() => _saved = false);
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 800), _save);
@@ -663,13 +667,15 @@ class _NoteEditorState extends State<NoteEditor> {
 
   Future<void> _save() async {
     _debounce?.cancel();
+    final revision = _revision;
     try {
       final saved = asJsonMap(await _agent.backend.call('notes.save', {'id': widget.note.id, 'cwd': widget.note.cwd, 'title': _title.text, 'content': _content.text}));
       _savedTitle = saved['title'] as String? ?? _savedTitle;
       widget.onSaved?.call(NoteInfo.fromJson(saved));
       if (mounted) {
         setState(() {
-          _saved = true;
+          // Edits made while this was saving are still unsaved (closing saves them).
+          _saved = revision == _revision;
           _savedAt = DateTime.now();
         });
       }

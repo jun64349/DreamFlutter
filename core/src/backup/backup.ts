@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { CORE_VERSION, RpcError, str, type Core, type CoreModule } from "../core.ts";
+import { pidAlive, readInfo } from "../instance.ts";
 import { corePaths, type CorePaths } from "../paths.ts";
 import { MIGRATIONS } from "../schema.ts";
 import { Sandbox } from "../sandbox/sandbox.ts";
@@ -102,14 +103,44 @@ export class BackupModule implements CoreModule {
 		return join(this.core.paths.dataDir, MIGRATION_FILE);
 	}
 
+	private migrationState(): string | undefined {
+		try {
+			return (JSON.parse(readFileSync(this.migrationFile, "utf8")) as { state?: string }).state;
+		} catch {
+			return undefined;
+		}
+	}
+
 	/** Only once, only into a data folder nothing has happened in yet, only from data not moved before. */
 	private shouldMigrate(legacy: LegacyData): boolean {
-		if (existsSync(this.migrationFile) || !existsSync(join(legacy.dataDir, "core.db")) || existsSync(join(legacy.dataDir, MOVED_MARKER))) return false;
+		if (!existsSync(join(legacy.dataDir, "core.db")) || existsSync(join(legacy.dataDir, MOVED_MARKER))) return false;
+		// One that stopped before the switch (closed, cancelled, failed copying) starts over.
+		if (existsSync(this.migrationFile) && this.migrationState() !== "started") return false;
 		const used = this.core.db.get<{ n: number }>("SELECT (SELECT COUNT(*) FROM runs) + (SELECT COUNT(*) FROM memories) + (SELECT COUNT(*) FROM gateway_channels) AS n");
 		return (used?.n ?? 0) === 0;
 	}
 
 	private async migrate(legacy: LegacyData, signal: AbortSignal, step: (s: string) => void): Promise<unknown> {
+		const old = readInfo(corePaths(legacy.dataDir));
+		if (old && old.pid !== process.pid && pidAlive(old.pid)) {
+			// Its data would keep changing under the copy: the next start tries again.
+			throw new RpcError("busy", "原来版本的 DreamFlutter 后台还在运行。从托盘退出它，再重新打开 DreamFlutter，就会搬数据。");
+		}
+		// Nothing starts here while the data moves in (apply holds this until the restart).
+		this.core.maintenance = "正在搬原来的数据";
+		try {
+			if (this.core.busySlots().length || !this.shouldMigrate(legacy)) {
+				this.core.maintenance = undefined;
+				return { skipped: true };
+			}
+			return await this.migrateNow(legacy, signal, step);
+		} catch (error) {
+			this.core.maintenance = undefined;
+			throw error;
+		}
+	}
+
+	private async migrateNow(legacy: LegacyData, signal: AbortSignal, step: (s: string) => void): Promise<unknown> {
 		writeFileSync(this.migrationFile, JSON.stringify({ state: "started", from: legacy, at: Date.now() }, null, 2), "utf8");
 		this.core.broadcast({ event: "backup.migrating", from: legacy.dataDir, to: this.core.paths.dataDir });
 		step("整理原来的数据");
@@ -246,10 +277,10 @@ export class BackupModule implements CoreModule {
 				return stagedSummary(staged);
 			});
 		});
-		core.register("backup.apply", () => {
+		core.register("backup.apply", (p) => {
 			const staged = this.staged;
 			if (!staged || !existsSync(staged.dir)) throw new RpcError("not_staged", "请先检查备份包");
-			return this.startJob("apply", (signal, step) => this.apply(staged, signal, step));
+			return this.startJob("apply", (signal, step) => this.apply(staged, signal, step, { prefs: prefsParam(p.prefs) }));
 		});
 		core.register("backup.discardStaged", async () => {
 			this.staged = null;
@@ -272,7 +303,7 @@ export class BackupModule implements CoreModule {
 			} catch {}
 			return { ok: true };
 		});
-		core.register("backup.undo", () => {
+		core.register("backup.undo", (p) => {
 			let result: { undoBackup?: string } | null = null;
 			try {
 				result = JSON.parse(readFileSync(resultFile(core.paths), "utf8"));
@@ -281,7 +312,7 @@ export class BackupModule implements CoreModule {
 			if (!path || !existsSync(path)) throw new RpcError("not_found", "找不到导入前的自动备份，无法撤销");
 			return this.startJob("apply", async (signal, step) => {
 				const staged = await stageBackup(path, this.target, { parts: core.backupParts, signal, onProgress: step });
-				return this.apply(staged, signal, step, { undo: true });
+				return this.apply(staged, signal, step, { undo: true, prefs: prefsParam(p.prefs) });
 			});
 		});
 		core.register("backup.history", () => this.history());
@@ -337,13 +368,18 @@ export class BackupModule implements CoreModule {
 		includeMaterials: boolean;
 		includeSandbox: boolean;
 		prefs?: Record<string, unknown>;
+		/** The caller holds maintenance (a restore, until the restart): leave it set. */
+		held?: boolean;
 		signal: AbortSignal;
 		step: (s: string) => void;
 	}): Promise<ExportResult> {
 		const busy = this.core.busySlots();
 		if (busy.length) throw new RpcError("busy", `有 ${busy.length} 个任务正在运行，请等它结束或先停止，再备份。`);
 		const sandbox = this.core.module(Sandbox);
-		this.core.maintenance = "正在备份数据";
+		const release = () => {
+			if (!options.held) this.core.maintenance = undefined;
+		};
+		if (!options.held) this.core.maintenance = "正在备份数据";
 		try {
 			const result = await createBackup(
 				{ paths: this.core.paths, agentDir: this.core.agentDir, sessionsDir: this.sessionsDir, db: this.core.db.raw, appVersion: CORE_VERSION },
@@ -357,24 +393,40 @@ export class BackupModule implements CoreModule {
 					sandbox: options.includeSandbox && sandbox ? (dest) => sandbox.archiveWorkspace(dest) : undefined,
 					signal: options.signal,
 					onProgress: options.step,
-					copied: () => {
-						this.core.maintenance = undefined;
-					},
+					copied: release,
 				},
 			);
 			if (options.kind === "manual") this.writeManual([{ path: result.path, kind: "manual" as const, createdAt: result.manifest.createdAt, size: result.size }, ...this.readManual().filter((e) => e.path !== result.path)].slice(0, 50));
 			else pruneAuto(this.core.paths, options.kind);
 			return result;
 		} finally {
-			this.core.maintenance = undefined;
+			release();
 		}
 	}
 
+	/** Nothing new starts from here to the restart: what the switch replaces is what the undo backup holds. */
 	private async apply(
 		staged: Staged,
 		signal: AbortSignal,
 		step: (s: string) => void,
-		options: { undo?: boolean; migratedFrom?: LegacyData; skipAutoBackup?: boolean } = {},
+		options: { undo?: boolean; migratedFrom?: LegacyData; skipAutoBackup?: boolean; prefs?: Record<string, unknown> } = {},
+	): Promise<unknown> {
+		const busy = this.core.busySlots();
+		if (busy.length) throw new RpcError("busy", `有 ${busy.length} 个任务正在运行，请等它结束或先停止，再恢复。`);
+		this.core.maintenance = "正在切换到备份的数据";
+		try {
+			return await this.switchTo(staged, signal, step, options);
+		} catch (error) {
+			this.core.maintenance = undefined;
+			throw error;
+		}
+	}
+
+	private async switchTo(
+		staged: Staged,
+		signal: AbortSignal,
+		step: (s: string) => void,
+		options: { undo?: boolean; migratedFrom?: LegacyData; skipAutoBackup?: boolean; prefs?: Record<string, unknown> },
 	): Promise<unknown> {
 		let auto: ExportResult | undefined;
 		if (!options.skipAutoBackup) {
@@ -385,6 +437,9 @@ export class BackupModule implements CoreModule {
 				credentials: "local",
 				includeMaterials: true,
 				includeSandbox: true,
+				// The window's preferences as they are now, for the undo.
+				prefs: options.prefs,
+				held: true,
 				signal,
 				step,
 			});
@@ -412,8 +467,6 @@ export class BackupModule implements CoreModule {
 		};
 		writeSwitchRecord(this.core.paths, this.core.agentDir, staged, result);
 		this.staged = null;
-		// Nothing new starts between here and the restart.
-		this.core.maintenance = "正在切换到备份的数据";
 		// The window reconnects and so starts a new core, which switches before opening the database.
 		this.core.broadcast({ event: "backup.restarting" });
 		setTimeout(() => void this.core.shutdown(), 300);
@@ -476,6 +529,10 @@ export class BackupModule implements CoreModule {
 		mkdirSync(backupsDir(this.core.paths), { recursive: true });
 		writeFileSync(this.manualFile, JSON.stringify(list, null, 2), "utf8");
 	}
+}
+
+function prefsParam(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function stagedSummary(staged: Staged): Record<string, unknown> {

@@ -729,7 +729,8 @@ class SessionRuntime extends ChangeNotifier {
       _touch();
       return true;
     } catch (e) {
-      onToast('打开会话失败：${describeError(e)}');
+      // Open in another slot (another window): the caller opens it there instead of here.
+      if (!describeError(e).contains('已经在别处打开')) onToast('打开会话失败：${describeError(e)}');
       return false;
     } finally {
       status = ConnectionStatus.ready;

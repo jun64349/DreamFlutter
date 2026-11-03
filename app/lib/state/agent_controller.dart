@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'backend.dart';
 import 'cards.dart';
@@ -515,8 +516,9 @@ class AgentController extends ChangeNotifier {
       restoreResult.value = json;
       if (json['seen'] == true) return;
       final prefs = json['prefs'];
-      if (json['ok'] == true && prefs is Map) await preferences.importAll(prefs.cast<String, Object?>());
-      await backend.call('backup.ackResult');
+      // Acknowledged only once they are saved: otherwise the next start applies them again.
+      final saved = json['ok'] == true && prefs is Map ? await preferences.importAll(prefs.cast<String, Object?>()) : true;
+      if (saved) await backend.call('backup.ackResult');
       _toast(switch (json) {
         {'ok': false} => '恢复没有完成，原来的数据都还在：${json['error']}',
         {'undo': true} => '已撤销上次恢复，回到了恢复前的数据。',
@@ -556,12 +558,20 @@ class AgentController extends ChangeNotifier {
     }
   }
 
+  /// The new core went away too while the windows were reattaching to it.
+  bool _lostAgain = false;
+
   Future<void> _onBackendLost() async {
-    if (_disposed || _reconnecting) return;
+    if (_disposed) return;
+    if (_reconnecting) {
+      _lostAgain = true;
+      return;
+    }
     _reconnecting = true;
     backendProblem = '与后台的连接断开了，正在重新连接…';
     _notify();
     for (var attempt = 1; !_disposed; attempt++) {
+      _lostAgain = false;
       final hello = await _connect();
       if (hello != null) {
         // A new core has none of the old sessions: reopen them from disk.
@@ -570,7 +580,7 @@ class AgentController extends ChangeNotifier {
         }
         await _attachLiveSlots(hello);
         await _butterfly?._reattach(hello);
-        break;
+        if (!_lostAgain) break;
       }
       await Future<void>.delayed(Duration(seconds: attempt.clamp(1, 10)));
     }
@@ -819,7 +829,8 @@ class AgentController extends ChangeNotifier {
   /// Opens a file with its default program.
   Future<void> openFile(String path) async {
     try {
-      await Process.start('cmd', ['/c', 'start', '', path], runInShell: false);
+      // ShellExecute (no command shell: a name like a&calc&.txt stays a file name).
+      if (!await launchUrl(Uri.file(path, windows: true))) _toast('无法打开文件：$path');
     } catch (e) {
       _toast('无法打开文件：$e');
     }
@@ -1052,10 +1063,14 @@ class AgentController extends ChangeNotifier {
 
     final summary = _diskSessions.where((s) => SessionStore.samePath(s.path, path)).firstOrNull;
     final cwd = summary?.cwd ?? workspace;
-    if (current != null && current.isReady && !current.isRunning && SessionStore.samePath(current.workspace, cwd)) {
-      if (await current.switchInPlace(path)) _unseen.remove(_key(path));
-      _notify();
-      return;
+    // A temporary chat stays temporary: saved history opens in a normal runtime.
+    if (current != null && current.isReady && !current.isRunning && !current.incognito && SessionStore.samePath(current.workspace, cwd)) {
+      if (await current.switchInPlace(path)) {
+        _unseen.remove(_key(path));
+        _notify();
+        return;
+      }
+      // Not switched here (another window has it open): open it in its own runtime, which attaches to that one.
     }
     final runtime = await _spawn(sessionPath: path, cwd: cwd);
     await _activate(runtime);

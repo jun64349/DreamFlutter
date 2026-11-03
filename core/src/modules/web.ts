@@ -1,5 +1,98 @@
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
+
+/** fetch() that connects only to public addresses (see publicOnlyAgent). */
+export function fetchPublic(url: URL, init: RequestInit): Promise<Response> {
+	return undiciFetch(url, { ...(init as object), dispatcher: publicOnlyAgent() }) as unknown as Promise<Response>;
+}
+
+/** At most [limit] bytes of a response body; the rest is never downloaded. */
+export async function readLimited(response: Response, limit: number): Promise<{ bytes: Buffer; truncated: boolean }> {
+	const reader = response.body?.getReader();
+	if (!reader) return { bytes: Buffer.alloc(0), truncated: false };
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	while (size <= limit) {
+		const { done, value } = await reader.read();
+		if (done) return { bytes: Buffer.concat(chunks), truncated: false };
+		chunks.push(value);
+		size += value.length;
+	}
+	await reader.cancel().catch(() => {});
+	return { bytes: Buffer.concat(chunks).subarray(0, limit), truncated: true };
+}
 import type { CoreModule } from "../core.ts";
+
+/** Loopback, private, link-local, carrier-grade NAT, multicast and unspecified addresses. */
+export function isPrivateAddress(address: string): boolean {
+	const v6 = address.toLowerCase().replace(/^\[|\]$/g, "");
+	if (isIP(v6) === 4) {
+		const [a, b] = v6.split(".").map(Number) as [number, number];
+		return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+	}
+	if (isIP(v6) !== 6) return true;
+	const words = ipv6Words(v6);
+	if (!words) return true;
+	// IPv4-mapped (::ffff:a.b.c.d, also written ::ffff:7f00:1) and IPv4-compatible (::a.b.c.d): judge the IPv4 address.
+	if (words.slice(0, 5).every((w) => w === 0) && (words[5] === 0xffff || words[5] === 0)) {
+		if (words[5] === 0 && words[6] === 0 && words[7]! <= 1) return true; // :: and ::1
+		return isPrivateAddress(`${words[6]! >> 8}.${words[6]! & 255}.${words[7]! >> 8}.${words[7]! & 255}`);
+	}
+	const first = words[0]!;
+	// fc00::/7 unique local, fe80::/10 link-local, fec0::/10 site-local, ff00::/8 multicast, 64:ff9b::/96 NAT64.
+	return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xffc0) === 0xfec0 || (first & 0xff00) === 0xff00 || (first === 0x64 && words[1] === 0xff9b);
+}
+
+/** The eight 16-bit words of an IPv6 address (with "::" and a dotted IPv4 tail expanded). */
+function ipv6Words(address: string): number[] | undefined {
+	let text = address.split("%")[0]!;
+	const tail = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+	if (tail) {
+		const [a, b, c, d] = tail.slice(1).map(Number) as [number, number, number, number];
+		text = `${text.slice(0, tail.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+	}
+	const [head, rest] = text.split("::") as [string, string | undefined];
+	const left = head ? head.split(":") : [];
+	const right = rest ? rest.split(":") : [];
+	const fill = rest === undefined ? 0 : 8 - left.length - right.length;
+	const words = [...left, ...Array<string>(Math.max(0, fill)).fill("0"), ...right].map((w) => Number.parseInt(w, 16));
+	return words.length === 8 && words.every((w) => w >= 0 && w <= 0xffff) ? words : undefined;
+}
+
+/** Throws unless [url]'s host resolves only to public addresses (蝶君's fetches: never this machine or the LAN). */
+export async function requirePublicHost(url: URL): Promise<void> {
+	const host = url.hostname.replace(/^\[|\]$/g, "");
+	const addresses = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((a) => a.address);
+	if (!addresses.length) throw new Error(`找不到主机 ${host}`);
+	if (addresses.some(isPrivateAddress)) throw new Error(`${host} 指向本机或内网地址，不允许访问`);
+}
+
+/**
+ * A connection pool that checks every address it actually connects to (the
+ * check above resolves the name once; a name can answer differently when
+ * the connection resolves it again). IP literals never resolve: checked above.
+ */
+let publicAgent: Agent | undefined;
+export function publicOnlyAgent(): Agent {
+	publicAgent ??= new Agent({
+		connect: {
+			lookup: (hostname, options, callback) => {
+				dnsLookup(hostname, { ...options, all: true }, (error, addresses) => {
+					if (error) return callback(error, "", 4);
+					const list = addresses as unknown as LookupAddress[];
+					const bad = list.find((a) => isPrivateAddress(a.address));
+					if (bad || !list.length) return callback(new Error(`${hostname} 指向本机或内网地址，不允许访问`), "", 4);
+					if ((options as { all?: boolean }).all) return (callback as unknown as (e: null, a: LookupAddress[]) => void)(null, list);
+					callback(null, list[0]!.address, list[0]!.family);
+				});
+			},
+		},
+	});
+	return publicAgent;
+}
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_CHARS = 20_000;
@@ -88,6 +181,8 @@ export async function fetchPage(
 		allowHttpErrors?: boolean;
 		/** Follows redirects one at a time, letting this refuse (throw) each next address. */
 		checkRedirect?: (next: URL) => Promise<void>;
+		/** Connect only to public addresses (checked at connection time, every redirect included). */
+		publicOnly?: boolean;
 	} = {},
 ): Promise<{ url: string; title: string; text: string; contentType: string; status: number }> {
 	let parsed: URL;
@@ -103,14 +198,18 @@ export async function fetchPage(
 		Accept: "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5",
 		"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 	};
-	let response = await fetch(parsed, { signal, headers, redirect: options.checkRedirect ? "manual" : "follow" });
+	const get = (target: URL, redirect: RequestRedirect): Promise<Response> =>
+		options.publicOnly
+			? fetchPublic(target, { signal, headers, redirect })
+			: fetch(target, { signal, headers, redirect });
+	let response = await get(parsed, options.checkRedirect ? "manual" : "follow");
 	for (let hops = 0; options.checkRedirect && response.status >= 300 && response.status < 400 && response.headers.has("location"); hops++) {
 		if (hops >= 5) throw new Error("网页跳转次数太多");
 		await response.body?.cancel();
 		parsed = new URL(response.headers.get("location")!, parsed);
 		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("只支持 http 和 https 网址");
 		await options.checkRedirect(parsed);
-		response = await fetch(parsed, { signal, headers, redirect: "manual" });
+		response = await get(parsed, "manual");
 	}
 	if (!response.ok && !options.allowHttpErrors) throw new Error(`网站返回 ${response.status} ${response.statusText}`);
 	const status = response.status;

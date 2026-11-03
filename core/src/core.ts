@@ -213,7 +213,7 @@ export class Core {
 	}
 
 	/** Set by the sandbox module once 蝶君's sandbox is set up. */
-	sandboxProvider: (() => { distro: string; ready: () => Promise<void> } | undefined) | undefined;
+	sandboxProvider: (() => { distro: string; ready: () => Promise<void>; online: () => boolean } | undefined) | undefined;
 
 	declareBackup(part: BackupPart): void {
 		this.backupParts.push(part);
@@ -452,6 +452,10 @@ export class Core {
 				for (const module of this.modules) module.onSlotEvent?.(slot, event);
 			},
 			sessionCreated: (slot) => this.applyDefaultModel(slot),
+			fileTaken: (slot, file) => {
+				const owner = this.findSlotByFile(file);
+				return (owner !== undefined && owner !== slot) || this.openingFiles.has(normalizeCwd(file));
+			},
 			resolveTaskId: (slot) => {
 				for (const module of this.modules) {
 					const id = module.resolveTaskId?.(slot);

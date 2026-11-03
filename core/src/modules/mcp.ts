@@ -142,12 +142,15 @@ export class McpModule {
 		if (previous.toolExposure) entry.toolExposure = previous.toolExposure;
 		if (form.timeout && form.timeout > 0) entry.timeout = form.timeout;
 		if (form.enabled === false) entry.enabled = false;
+		// Encrypting the keys took a while: write into the file as it is now, not as it was read above.
+		const current = this.read();
+		const latest = { ...this.servers(current) };
 		if (previousName && previousName !== name) {
-			this.removeSecrets(previousName, servers[previousName]);
-			delete servers[previousName];
+			this.removeSecrets(previousName, latest[previousName]);
+			delete latest[previousName];
 		}
-		servers[name] = entry;
-		this.write({ ...config, mcpServers: servers });
+		latest[name] = entry;
+		this.write({ ...current, mcpServers: latest });
 	}
 
 	/** Env values / headers: secret ones are encrypted; an empty secret keeps the stored one. */

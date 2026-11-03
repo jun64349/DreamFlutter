@@ -275,7 +275,14 @@ export class MemoryModule implements CoreModule {
 		}
 		this.db.run("UPDATE memories SET status = 'active', content = ?, action = NULL, updated_at = ? WHERE id = ?", (content ?? candidate.content).trim(), at, id);
 		if (candidate.action === "update" && candidate.targetId) {
-			this.db.run("UPDATE memories SET status = 'superseded', replaced_by = ?, updated_at = ? WHERE id = ? AND status = 'active'", id, at, candidate.targetId);
+			// Another update of the same memory was accepted first: this one replaces that one (never two versions active).
+			let target = candidate.targetId;
+			for (let hops = 0; hops < 20; hops++) {
+				const row = this.db.get<{ status: string; replaced_by: string | null }>("SELECT status, replaced_by FROM memories WHERE id = ?", target);
+				if (row?.status !== "superseded" || !row.replaced_by || row.replaced_by === id) break;
+				target = row.replaced_by;
+			}
+			this.db.run("UPDATE memories SET status = 'superseded', replaced_by = ?, updated_at = ? WHERE id = ? AND status = 'active'", id, at, target);
 		}
 		this.changed();
 		return this.get(id);
@@ -634,12 +641,12 @@ export class MemoryModule implements CoreModule {
 			return { ok: true };
 		});
 		core.register("memory.extractNow", async (p) => this.extract(core.slot(p.slotId)));
-		core.register("memory.export", () => ({ blocks: this.blocks(), memories: this.list({ status: ["active"] }), exportedAt: now() }));
+		core.register("memory.export", () => ({ blocks: this.blocks(), memories: this.list({ status: ["active"], limit: Number.POSITIVE_INFINITY }), exportedAt: now() }));
 		core.register("memory.clear", (p) => {
 			const at = now();
 			if (p.scope === "workspace") {
 				const cwd = normalizeCwd(requireStr(p.cwd, "cwd"));
-				for (const m of this.list({ status: ["active", "candidate"] })) if (m.scope === "workspace" && m.cwd && normalizeCwd(m.cwd) === cwd) this.db.run("UPDATE memories SET status = 'deleted', updated_at = ? WHERE id = ?", at, m.id);
+				for (const m of this.list({ status: ["active", "candidate"], limit: Number.POSITIVE_INFINITY })) if (m.scope === "workspace" && m.cwd && normalizeCwd(m.cwd) === cwd) this.db.run("UPDATE memories SET status = 'deleted', updated_at = ? WHERE id = ?", at, m.id);
 			} else {
 				this.db.run("UPDATE memories SET status = 'deleted', updated_at = ? WHERE status IN ('active', 'candidate')", at);
 				this.db.run("UPDATE memory_blocks SET content = '', updated_at = ?", at);

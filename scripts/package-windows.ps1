@@ -27,7 +27,11 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $version = ((Select-String -Path "$root\app\pubspec.yaml" -Pattern '^version:\s*([^+\s]+)').Matches[0].Groups[1].Value)
-$target = Join-Path $root "$OutDir\DreamFlutter"
+$target = [System.IO.Path]::GetFullPath((Join-Path $root "$OutDir\DreamFlutter"))
+# The cleanup below empties $target: never let it be the repository or a folder holding it.
+if (($root.TrimEnd('\') + '\').StartsWith($target.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "The package folder $target would contain the repository; choose another -OutDir"
+}
 Write-Host "Packaging DreamFlutter $version -> $target"
 
 # A new version replaces the program; the data\ folder (the user's data) is never touched.

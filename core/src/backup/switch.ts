@@ -173,7 +173,12 @@ function move(from: string, to: string): void {
 		renameSync(from, to);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
-		cpSync(from, to, { recursive: true });
+		// Another drive: copy beside the target first, so [to] only ever exists complete
+		// (rollBack takes an existing target for a finished move).
+		const partial = `${to}.df-partial`;
+		rmSync(partial, { recursive: true, force: true });
+		cpSync(from, partial, { recursive: true });
+		renameSync(partial, to);
 		rmSync(from, { recursive: true, force: true });
 	}
 }

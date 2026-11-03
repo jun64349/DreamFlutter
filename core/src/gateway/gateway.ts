@@ -790,7 +790,9 @@ export class Gateway implements CoreModule {
 		const stickyKey = sessionId ? this.sessionKeys.get(`${sessionId}|${channel.id}`) : undefined;
 		let chosen = healthy.find((k) => k.id === stickyKey);
 		if (!chosen) {
-			const pool = healthy.length ? healthy : enabled;
+			// None healthy: a resting key is still tried (one key per channel is common), a rejected one never.
+			const pool = healthy.length ? healthy : enabled.filter((k) => k.unavailable?.kind !== "auth");
+			if (!pool.length) throw new Error(`渠道「${channel.name}」的 Key 都被拒绝了（${describe(enabled[0]!.unavailable!)}），请在设置里检查 Key`);
 			const turn = this.keyTurns.get(channel.id) ?? 0;
 			this.keyTurns.set(channel.id, turn + 1);
 			chosen = pool[turn % pool.length]!;

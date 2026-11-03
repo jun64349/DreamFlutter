@@ -17,15 +17,16 @@ export class PathMap {
 	private readonly exact = new Map<string, string>();
 
 	constructor(rules: PathRule[] = [], exact: PathRule[] = []) {
+		// A rule that keeps a folder where it is stays: it shields that folder from a shorter rule above it.
 		this.prefixes = rules
-			.filter((r) => r.from && r.to && !samePath(r.from, r.to))
+			.filter((r) => r.from && r.to)
 			.map((r) => ({ from: trimSep(r.from), to: trimSep(r.to) }))
 			.sort((a, b) => b.from.length - a.from.length);
 		for (const rule of exact) if (!samePath(rule.from, rule.to)) this.exact.set(key(rule.from), rule.to);
 	}
 
 	get empty(): boolean {
-		return this.prefixes.length === 0 && this.exact.size === 0;
+		return this.prefixes.every((r) => samePath(r.from, r.to)) && this.exact.size === 0;
 	}
 
 	/** [path] on this machine; unchanged when no rule covers it. */

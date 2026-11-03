@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
 import { buildImage, bundledImage, IMAGE_FILE, verifyImage } from "./image.ts";
@@ -23,7 +24,9 @@ import { buildImage, bundledImage, IMAGE_FILE, verifyImage } from "./image.ts";
  *   private tmpfs with only resolv.conf takes /mnt/wsl's place.
  */
 
+/** The name v0.3.1 and earlier gave every installation's sandbox; one set up then keeps it. */
 export const SANDBOX_DISTRO = "DreamFlutterSandbox";
+const DISTRO_FILE = "distro.txt";
 /** An unusual uid, so firewall rules by uid touch nobody in the user's other distros (they share the network). */
 export const AGENT_UID = 23456;
 export const SANDBOX_WORKSPACE = "/workspace";
@@ -126,15 +129,17 @@ export function bootScript(online: boolean): string {
 umount -l /mnt/wslg 2>/dev/null || true
 if ! grep -q '^dfresolv /mnt/wsl ' /proc/mounts; then
   umount -l /mnt/wsl 2>/dev/null || true
-  mkdir -p /mnt/wsl && mount -t tmpfs -o size=64k,mode=755 dfresolv /mnt/wsl
+  mkdir -p /mnt/wsl && mount -t tmpfs -o size=64k,mode=755 dfresolv /mnt/wsl || { echo BOOT_FAILED mount; exit 1; }
 fi
 if [ -s /tmp/df-resolv ]; then cat /tmp/df-resolv > /mnt/wsl/resolv.conf; rm -f /tmp/df-resolv; fi
 ln -sfn /mnt/wsl/resolv.conf /etc/resolv.conf
 rm -rf /tmp/.X11-unix 2>/dev/null || true
 NS=$(awk '/^nameserver/ {print $2; exit}' /mnt/wsl/resolv.conf 2>/dev/null)
 NS=\${NS:-127.0.0.53}
-nft delete table inet dreamflutter 2>/dev/null || true
-nft -f - <<EOF
+# One transaction: the old rules are replaced, never absent in between; a failure keeps them.
+nft -f - <<EOF || { echo BOOT_FAILED firewall; exit 1; }
+table inet dreamflutter
+delete table inet dreamflutter
 table inet dreamflutter {
   chain out {
     type filter hook output priority 0; policy accept;
@@ -142,6 +147,8 @@ table inet dreamflutter {
   }
 }
 EOF
+grep -q '^dfresolv /mnt/wsl ' /proc/mounts || { echo BOOT_FAILED mount; exit 1; }
+nft list chain inet dreamflutter out >/dev/null 2>&1 || { echo BOOT_FAILED firewall; exit 1; }
 if grep -q 'aname=drvfs' /proc/mounts; then echo DRVFS_MOUNTED; fi
 echo BOOT_OK
 `;
@@ -204,8 +211,23 @@ export interface SandboxOptions {
 	image?: string | null;
 }
 
+/**
+ * The WSL name of the sandbox kept in [dir]. WSL names are machine-wide while
+ * every installation has its own data folder, so a new sandbox is named after
+ * its folder (two installations never unregister each other's); one set up
+ * before that, or moved in from v0.3.1 (adopt), keeps the old shared name.
+ */
+function distroFor(dir: string): string {
+	try {
+		const saved = readFileSync(join(dir, DISTRO_FILE), "utf8").trim();
+		if (/^[A-Za-z0-9._-]+$/.test(saved)) return saved;
+	} catch {}
+	if (existsSync(join(dir, "clean.vhdx"))) return SANDBOX_DISTRO;
+	return `${SANDBOX_DISTRO}-${createHash("sha256").update(dir.toLowerCase()).digest("hex").slice(0, 8)}`;
+}
+
 export class Sandbox implements CoreModule {
-	readonly distro: string;
+	distro: string;
 	readonly dir: string;
 	private readonly core: Core;
 	private readonly wsl: WslRunner;
@@ -221,12 +243,12 @@ export class Sandbox implements CoreModule {
 
 	constructor(core: Core, options: SandboxOptions = {}) {
 		this.core = core;
-		this.distro = options.distro ?? SANDBOX_DISTRO;
 		this.dir = options.dir ?? join(core.paths.dataDir, "sandbox");
+		this.distro = options.distro ?? distroFor(this.dir);
 		this.wsl = options.wsl ?? runWsl;
 		this.mirrors = options.mirrors ?? MIRRORS;
 		this.image = options.image === undefined ? bundledImage() : (options.image ?? undefined);
-		core.sandboxProvider = () => (existsSync(this.cleanPath) ? { distro: this.distro, ready: () => this.prepare() } : undefined);
+		core.sandboxProvider = () => (existsSync(this.cleanPath) ? { distro: this.distro, ready: () => this.prepare(), online: () => this.core.settings.get().sandboxOnline } : undefined);
 		core.register("sandbox.status", () => this.status());
 		core.register("sandbox.provision", () => {
 			void this.provision().catch(() => {});
@@ -328,6 +350,7 @@ export class Sandbox implements CoreModule {
 				await this.wsl(["--unregister", this.distro], { timeoutMs: 60_000 });
 			}
 			await mkdir(this.dir, { recursive: true });
+			writeFileSync(join(this.dir, DISTRO_FILE), this.distro, "utf8");
 
 			// The image shipped with the app; without one (a development checkout), build it here.
 			let image = this.image;
@@ -371,7 +394,11 @@ export class Sandbox implements CoreModule {
 	/** Prepares a started sandbox: shared mounts gone, the agent's network rules in place, no drive mounted. */
 	async boot(): Promise<void> {
 		const result = await this.wsl(["-d", this.distro, "-u", "root", "--", "sh", "-s"], { input: bootScript(this.core.settings.get().sandboxOnline), timeoutMs: 60_000 });
-		if (!result.stdout.includes("BOOT_OK")) throw new Error(`沙箱启动失败：${(result.stderr || result.stdout).trim()}`);
+		if (!result.stdout.includes("BOOT_OK")) {
+			// Without its mounts and firewall the agent must not run in it.
+			await this.wsl(["--terminate", this.distro]);
+			throw new Error(`沙箱启动失败：${(result.stderr || result.stdout).trim()}`);
+		}
 		if (result.stdout.includes("DRVFS_MOUNTED")) {
 			await this.wsl(["--terminate", this.distro]);
 			throw new Error("沙箱里挂载了 Windows 磁盘，已停止。请在设置里重置沙箱。");
@@ -432,7 +459,14 @@ export class Sandbox implements CoreModule {
 	async adopt(oldDir: string): Promise<boolean> {
 		const oldClean = join(oldDir, "clean.vhdx");
 		const oldDisk = join(oldDir, "disk", "ext4.vhdx");
-		if (existsSync(this.cleanPath) || !existsSync(oldClean) || !existsSync(oldDisk) || !(await this.registered())) return false;
+		if (existsSync(this.cleanPath) || !existsSync(oldClean) || !existsSync(oldDisk)) return false;
+		// v0.3.1 registered it under the shared name; it keeps that name here.
+		const named = this.distro;
+		this.distro = SANDBOX_DISTRO;
+		if (!(await this.registered())) {
+			this.distro = named;
+			return false;
+		}
 		this.booted = false;
 		await this.wsl(["--terminate", this.distro], { timeoutMs: 60_000 });
 		await mkdir(join(this.dir, "disk"), { recursive: true });
@@ -446,6 +480,7 @@ export class Sandbox implements CoreModule {
 			throw new Error(`搬沙箱失败：${(unregistered.stderr || unregistered.stdout).trim()}`);
 		}
 		const result = await this.wsl(["--import-in-place", this.distro, this.diskPath], { timeoutMs: 120_000 });
+		writeFileSync(join(this.dir, DISTRO_FILE), this.distro, "utf8");
 		if (result.code !== 0) throw new Error(`搬沙箱后重新登记失败（可以在设置里重新建立）：${(result.stderr || result.stdout).trim()}`);
 		await rm(oldDir, { recursive: true, force: true }).catch(() => {});
 		this.core.log.info(`sandbox: moved from ${oldDir} to ${this.dir}`);
@@ -487,13 +522,34 @@ export class Sandbox implements CoreModule {
 		if (!existsSync(this.pendingRestore)) return false;
 		const tmp = "/tmp/df-restore.tar.gz";
 		await copyFile(this.pendingRestore, this.local(tmp));
-		const script = `set -e
-find /workspace /home/agent -mindepth 1 -delete
-tar -xzpf ${tmp} --numeric-owner -C /
+		// The archive comes from a package: it is unpacked as the agent (who cannot touch the
+		// system), only its two folders, into /df-restore/new; the current files are moved
+		// aside, not deleted, until the new ones are in place.
+		const prepare = `set -e
+mkdir -p /df-restore
+rm -rf /df-restore/new
+mkdir /df-restore/new
+chown agent:agent /df-restore/new
+chmod 644 ${tmp}
+echo PREPARE_OK`;
+		const unpack = `set -e
+cd /df-restore/new
+tar -xzf ${tmp} --no-same-owner workspace home/agent
+echo UNPACK_OK`;
+		const swap = `set -e
+old=/df-restore/old-$(date +%s)
+for p in workspace home/agent; do
+  mkdir -p "$old/$p" "/$p"
+  find "/$p" -mindepth 1 -maxdepth 1 -exec mv -t "$old/$p" {} +
+  find "/df-restore/new/$p" -mindepth 1 -maxdepth 1 -exec mv -t "/$p" {} +
+done
+rm -rf /df-restore
 rm -f ${tmp}
 echo RESTORE_OK`;
-		const result = await this.wsl(["-d", this.distro, "-u", "root", "--", "sh", "-s"], { input: script, timeoutMs: 3_600_000 });
-		if (!result.stdout.includes("RESTORE_OK")) throw new Error(`放回沙箱里的文件失败：${(result.stderr || result.stdout).trim()}`);
+		for (const [user, script, ok] of [["root", prepare, "PREPARE_OK"], ["agent", unpack, "UNPACK_OK"], ["root", swap, "RESTORE_OK"]] as const) {
+			const result = await this.wsl(["-d", this.distro, "-u", user, "--", "sh", "-s"], { input: script, timeoutMs: 3_600_000 });
+			if (!result.stdout.includes(ok)) throw new Error(`放回沙箱里的文件失败：${(result.stderr || result.stdout).trim()}`);
+		}
 		await rm(this.pendingRestore, { force: true });
 		this.core.log.info("sandbox: restored files from a backup");
 		return true;

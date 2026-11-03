@@ -281,7 +281,8 @@ class _ComposerState extends State<Composer> {
     final files = await openFiles(acceptedTypeGroups: const [_imageTypes], confirmButtonText: '添加');
     final rejected = <String>[];
     for (final file in files) {
-      if (!_addImage(file.name, await file.readAsBytes(), _mimeOf(file.name))) rejected.add(file.name);
+      // The size first: a huge file is never read into memory.
+      if (await file.length() > _maxImageBytes || !_addImage(file.name, await file.readAsBytes(), _mimeOf(file.name))) rejected.add(file.name);
     }
     if (!mounted) return;
     setState(() {});
@@ -312,7 +313,8 @@ class _ComposerState extends State<Composer> {
       final ext = p.extension(path).toLowerCase().replaceFirst('.', '');
       if (_imageExtensions.contains(ext)) {
         try {
-          if (!_addImage(p.basename(path), await File(path).readAsBytes(), _mimeOf(path))) rejected.add(p.basename(path));
+          final file = File(path);
+          if (await file.length() > _maxImageBytes || !_addImage(p.basename(path), await file.readAsBytes(), _mimeOf(path))) rejected.add(p.basename(path));
           continue;
         } catch (_) {
           // Unreadable: send the path instead.

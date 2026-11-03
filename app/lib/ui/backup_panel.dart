@@ -187,12 +187,13 @@ class _BackupPanelState extends State<BackupPanel> {
       '替换前会先自动备份现在的数据（可以在「上次恢复」里撤销）。后台会重启，正在打开的对话会重新连接。',
       '替换并重启后台',
     );
-    if (ok) await _call('backup.apply');
+    // The current preferences go into the automatic backup, so an undo brings them back too.
+    if (ok) await _call('backup.apply', {'prefs': _agent!.preferences.exportAll()});
   }
 
   Future<void> _undo() async {
     final ok = await _confirm('撤销上次恢复？', '会回到恢复之前的数据（用恢复前自动做的备份）。后台会重启。', '撤销');
-    if (ok) await _call('backup.undo');
+    if (ok) await _call('backup.undo', {'prefs': _agent!.preferences.exportAll()});
   }
 
   Future<bool> _confirm(String title, String body, String action) async =>

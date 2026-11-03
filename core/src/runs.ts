@@ -101,6 +101,8 @@ export class RunRecorder {
 				break;
 			case "compaction_end":
 				this.step("compaction", event.reason, event.errorMessage ?? null, event.errorMessage ? "error" : "done");
+				// The summary is a model call of its own: it counts toward the run (and so the budgets).
+				this.addUsage(event.result?.usage as Record<string, unknown> | undefined);
 				break;
 			case "agent_settled":
 				this.finish(event.aborted ? "aborted" : this.run?.error ? "failed" : "done");
@@ -159,12 +161,7 @@ export class RunRecorder {
 			this.run.prompt = textOf(message.content).slice(0, 500);
 		}
 		if (message.role !== "assistant") return;
-		const usage = (message.usage ?? {}) as Record<string, unknown>;
-		this.run.inputTokens += num(usage.input);
-		this.run.outputTokens += num(usage.output);
-		this.run.cacheRead += num(usage.cacheRead);
-		this.run.cacheWrite += num(usage.cacheWrite);
-		this.run.cost += num((usage.cost as Record<string, unknown> | undefined)?.total);
+		this.addUsage(message.usage as Record<string, unknown> | undefined);
 		if (typeof message.provider === "string" && typeof message.model === "string") {
 			this.run.model = `${message.provider}/${message.model}`;
 		}
@@ -175,6 +172,15 @@ export class RunRecorder {
 			// A later successful turn (e.g. after a retry) clears an earlier error.
 			this.run.error = null;
 		}
+	}
+
+	private addUsage(usage: Record<string, unknown> | undefined): void {
+		if (!this.run || !usage) return;
+		this.run.inputTokens += num(usage.input);
+		this.run.outputTokens += num(usage.output);
+		this.run.cacheRead += num(usage.cacheRead);
+		this.run.cacheWrite += num(usage.cacheWrite);
+		this.run.cost += num((usage.cost as Record<string, unknown> | undefined)?.total);
 	}
 
 	/** Work done for this run elsewhere (a subagent): its usage and the files it touched count here. */

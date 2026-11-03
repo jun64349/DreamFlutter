@@ -490,6 +490,7 @@ export class TasksModule implements CoreModule {
 		const row = this.db.get<NoticeRow>("SELECT * FROM notices WHERE id = ?", id);
 		if (!row || row.status !== "pending") throw new RpcError("gone", "这张卡片已经处理过了");
 		const notice = toNotice(row);
+		if (action === "continue" && this.core.maintenance) throw new RpcError("busy", `${this.core.maintenance}，请稍后再继续`);
 		this.db.run("UPDATE notices SET status = ?, resolved_at = ? WHERE id = ?", action === "continue" ? "continued" : "stopped", now(), id);
 		this.core.broadcast({ event: "notices.changed" });
 		if (action === "stop") {
@@ -497,6 +498,17 @@ export class TasksModule implements CoreModule {
 			for (const listener of this.noticeListeners) listener(notice, "stop");
 			return { slotId: null };
 		}
+		try {
+			return await this.continueAfter(notice);
+		} catch (error) {
+			// Not continued after all: the card stays to try again.
+			this.db.run("UPDATE notices SET status = 'pending', resolved_at = NULL WHERE id = ?", id);
+			this.core.broadcast({ event: "notices.changed" });
+			throw error;
+		}
+	}
+
+	private async continueAfter(notice: Notice): Promise<{ slotId: string | null }> {
 		let slot = notice.slotId ? this.core.slots.get(notice.slotId) : undefined;
 		if (!slot && notice.sessionFile && existsSync(notice.sessionFile)) {
 			slot = await this.core.openSlot({ cwd: notice.cwd ?? process.cwd(), sessionFile: notice.sessionFile });

@@ -36,14 +36,16 @@ class FilePreferencesStore extends InMemorySharedPreferencesStore {
   }
 
   /// Writes one after another (two quick changes would race on the temporary file).
-  Future<void> _writing = Future.value();
+  Future<bool> _writing = Future.value(true);
 
-  Future<void> _save() => _writing = _writing.then((_) => _write()).catchError((Object _) {});
+  /// False when the file could not be written (the caller then knows the change is not saved).
+  Future<bool> _save() => _writing = _writing.then((_) => _write()).then((_) => true, onError: (Object _) => false);
 
   Future<void> _write() async {
     final all = await getAllWithParameters(GetAllParameters(filter: PreferencesFilter(prefix: '')));
     await file.parent.create(recursive: true);
-    final temp = File(p.join(file.parent.path, '${p.basename(file.path)}.tmp'));
+    // Per process: a second window writing at the same moment never shares the temporary file.
+    final temp = File(p.join(file.parent.path, '${p.basename(file.path)}.$pid.tmp'));
     await temp.writeAsString(const JsonEncoder.withIndent('  ').convert(all));
     await temp.rename(file.path);
   }
@@ -51,21 +53,18 @@ class FilePreferencesStore extends InMemorySharedPreferencesStore {
   @override
   Future<bool> setValue(String valueType, String key, Object value) async {
     await super.setValue(valueType, key, value);
-    await _save();
-    return true;
+    return _save();
   }
 
   @override
   Future<bool> remove(String key) async {
     await super.remove(key);
-    await _save();
-    return true;
+    return _save();
   }
 
   @override
   Future<bool> clearWithParameters(ClearParameters parameters) async {
     await super.clearWithParameters(parameters);
-    await _save();
-    return true;
+    return _save();
   }
 }

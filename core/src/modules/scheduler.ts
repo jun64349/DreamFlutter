@@ -321,6 +321,16 @@ export class SchedulerModule implements CoreModule {
 	/** Runs left running by a previous core are interrupted (the slot is gone). */
 	private recover(): void {
 		this.db.run("UPDATE schedule_runs SET status = 'interrupted', ended_at = ?, note = COALESCE(note, '后台重启时中断') WHERE status IN ('running', 'needs_input')", now());
+		// Claimed but not started when the core stopped: the next tick picks them up.
+		this.db.run("UPDATE schedule_runs SET retry_at = ? WHERE status = 'waiting' AND retry_at IS NULL", now());
+	}
+
+	/** The schedule still wants this run: not deleted, edited or paused since it was claimed (a manual run ignores the pause). */
+	private stillWanted(run: ScheduleRun): Schedule | undefined {
+		const schedule = this.get(run.scheduleId);
+		if (!schedule || schedule.version !== run.version) return undefined;
+		if (!run.manual && (schedule.status === "paused" || schedule.status === "pending_approval")) return undefined;
+		return schedule;
 	}
 
 	// ---- schedules ---------------------------------------------------------------------
@@ -553,6 +563,7 @@ export class SchedulerModule implements CoreModule {
 		if (!schedule) throw new RpcError("not_found", "这个定时任务不存在");
 		if (schedule.status === "pending_approval") throw new RpcError("bad_request", "这个定时任务还没有被批准");
 		if (this.busy(id)) throw new RpcError("conflict", "上一次运行还没结束");
+		if (this.core.maintenance) throw new RpcError("busy", `${this.core.maintenance}，请稍后再运行`);
 		const run = this.claim(schedule, this.clock(), { manual: true, note: "手动运行" })!;
 		await this.execute(run);
 		return this.getRun(run.id)!;
@@ -579,9 +590,9 @@ export class SchedulerModule implements CoreModule {
 	}
 
 	private async execute(run: ScheduleRun): Promise<void> {
-		const schedule = this.get(run.scheduleId);
-		if (!schedule || schedule.version !== run.version) {
-			this.updateRun(run.id, { status: "skipped", ended_at: this.clock(), note: "计划已修改或删除，这次触发作废" });
+		const schedule = this.stillWanted(run);
+		if (!schedule) {
+			this.updateRun(run.id, { status: "skipped", ended_at: this.clock(), note: "计划已修改、暂停或删除，这次触发作废" });
 			return;
 		}
 		if (this.busy(schedule.id, run.id)) {
@@ -617,6 +628,16 @@ export class SchedulerModule implements CoreModule {
 		if (slot.running || this.active.has(slot.slotId)) {
 			// The bound session is busy (the user is using it): try again shortly.
 			this.updateRun(run.id, { retry_at: this.clock() + 60_000, task_id: taskId, note: "绑定的会话正忙，稍后重试" });
+			return;
+		}
+		if (!this.stillWanted(run)) {
+			// Paused, edited or deleted while the session opened.
+			this.finishRun(run.id, "skipped", { note: "计划已修改、暂停或删除，这次触发作废" });
+			return;
+		}
+		if (this.core.maintenance) {
+			// A backup or restore began while the session opened.
+			this.updateRun(run.id, { retry_at: this.clock() + 60_000, task_id: taskId, note: `${this.core.maintenance}，稍后重试` });
 			return;
 		}
 		slot.taskId = taskId;

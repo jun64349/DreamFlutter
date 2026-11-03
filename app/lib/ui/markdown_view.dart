@@ -32,6 +32,10 @@ class ReplyMarkdown extends StatelessWidget {
       selectable: false,
       inlineSyntaxes: mathSyntaxes,
       builders: {'code': _CodeBuilder(FileLinks.maybeOf(context)), 'math': _MathBuilder(body)},
+      // Images in a reply load from the web only: never local files or network shares.
+      imageBuilder: (uri, title, alt) => uri.scheme == 'http' || uri.scheme == 'https'
+          ? Image.network(uri.toString(), errorBuilder: (_, _, _) => Text(alt ?? uri.toString(), style: body.copyWith(color: colors.muted)))
+          : Text(alt ?? uri.toString(), style: body.copyWith(color: colors.muted)),
       styleSheet: MarkdownStyleSheet(
         p: body,
         a: body.copyWith(color: colors.accent, decoration: TextDecoration.underline, decorationColor: colors.accent.withValues(alpha: 0.4)),
@@ -148,7 +152,11 @@ class FileLinks extends InheritedWidget {
     var t = text.trim();
     if (t.length >= 2 && (t.startsWith('"') && t.endsWith('"') || t.startsWith("'") && t.endsWith("'"))) t = t.substring(1, t.length - 1);
     if (t.isEmpty || t.length > 400 || t.contains('\n') || !_pathLike.hasMatch(t) || t.contains('://')) return null;
+    // Network shares and device paths (\\server\share, \\?\, //host) are never touched while
+    // rendering: a reply naming one would make Windows connect (and sign in) to that server.
+    if (RegExp(r'^[\\/]{2}').hasMatch(t)) return null;
     final full = p.isAbsolute(t) ? t : p.join(baseDir, t);
+    if (RegExp(r'^[\\/]{2}').hasMatch(full)) return null;
     try {
       return FileSystemEntity.typeSync(full) == FileSystemEntityType.notFound ? null : p.normalize(full);
     } catch (_) {

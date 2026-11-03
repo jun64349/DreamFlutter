@@ -327,7 +327,8 @@ export function friendlyError(error: unknown): string {
 	return message;
 }
 
-const SECRET_FIELD = /^(api_?key|key|token|access_?token|refresh_?token|secret|password)$/i;
+// Also header names (Authorization, x-api-key) and environment variables (OPENAI_API_KEY, GITHUB_TOKEN) in mcp.json.
+const SECRET_FIELD = /(^|[_.-])(api_?key|apikey|key|token|access_?token|refresh_?token|secret|client_?secret|password|passwd|authorization|cookie)$/i;
 
 /** Replaces plain-text credentials in a JSON backup (references like "!cmd" or "$VAR" stay). */
 export function redactBackup(path: string): void {

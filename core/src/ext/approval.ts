@@ -42,7 +42,7 @@ const LISTING_GIT: Record<string, Set<string>> = {
 	tag: new Set(["-l", "--list"]),
 };
 /** git options that start other programs, even on reading subcommands (git accepts unique prefixes of long options). */
-const GIT_RUNNERS = ["--open-files-in-pager", "--ext-diff"];
+const GIT_RUNNERS = ["--open-files-in-pager", "--ext-diff", "--textconv"];
 
 function gitArgRuns(arg: string): boolean {
 	if (arg.startsWith("--")) {

@@ -54,23 +54,25 @@ class Preferences {
   };
 
   /// Puts a restored backup's preferences back (paths already moved to this machine by the core).
-  Future<void> importAll(Map<String, Object?> values) async {
+  Future<bool> importAll(Map<String, Object?> values) async {
+    var saved = true;
     for (final MapEntry(:key, :value) in values.entries) {
       switch (value) {
         case final bool v:
-          await _prefs.setBool(key, v);
+          saved &= await _prefs.setBool(key, v);
         case final int v:
-          await _prefs.setInt(key, v);
+          saved &= await _prefs.setInt(key, v);
         case {'double': final num v}:
-          await _prefs.setDouble(key, v.toDouble());
+          saved &= await _prefs.setDouble(key, v.toDouble());
         case final String v:
-          await _prefs.setString(key, v);
+          saved &= await _prefs.setString(key, v);
         case final List<Object?> v when v.every((e) => e is String):
-          await _prefs.setStringList(key, v.cast<String>());
+          saved &= await _prefs.setStringList(key, v.cast<String>());
         default:
           break;
       }
     }
+    return saved;
   }
 
   // --- Workspace -----------------------------------------------------------

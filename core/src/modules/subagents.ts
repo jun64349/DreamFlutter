@@ -220,8 +220,12 @@ export class SubagentsModule implements CoreModule {
 			};
 			signal?.addEventListener("abort", stop, { once: true });
 			try {
-				await session.prompt(`${role.instructions}\n\n## Task\n\n${prompt}`, { source: "rpc" });
-				await session.waitForIdle();
+				// Stopped while the child was being set up: it never starts.
+				if (signal?.aborted) stop();
+				else {
+					await session.prompt(`${role.instructions}\n\n## Task\n\n${prompt}`, { source: "rpc" });
+					await session.waitForIdle();
+				}
 			} finally {
 				signal?.removeEventListener("abort", stop);
 				unsubscribe();

@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fetchPage } from "../modules/web.ts";
+import { fetchPage, fetchPublic, isPrivateAddress, readLimited } from "../modules/web.ts";
 import { CODES, isPlainObject, type CardBinding } from "./document.ts";
 
 /**
@@ -68,15 +68,6 @@ function declaredHosts(binding: CardBinding): string[] {
 
 function hostAllowed(hosts: string[], host: string): boolean {
 	return hosts.some((h) => h === host || (h.startsWith("*.") && host.endsWith(h.slice(1))));
-}
-
-function isPrivateAddress(address: string): boolean {
-	if (isIP(address) === 4) {
-		const [a, b] = address.split(".").map(Number) as [number, number];
-		return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
-	}
-	const v6 = address.toLowerCase();
-	return v6 === "::1" || v6 === "::" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80") || v6.startsWith("::ffff:127.") || v6.startsWith("::ffff:10.") || v6.startsWith("::ffff:192.168.");
 }
 
 /**
@@ -177,10 +168,11 @@ const TOOLS: Record<string, ToolSpec> = {
 				unit: { kind: "net", subject: url.hostname.toLowerCase() },
 				summary: `${method} ${url.href}${body ? `\n请求体：${body.slice(0, 500)}` : ""}`,
 				async run() {
-					const response = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(30_000), redirect: "manual" });
-					const buffer = Buffer.from(await response.arrayBuffer());
-					const text = buffer.subarray(0, BODY_LIMIT).toString("utf8");
-					const result: Record<string, unknown> = { status: response.status, ok: response.ok, contentType: response.headers.get("content-type"), body: text, truncated: buffer.length > BODY_LIMIT };
+					const init: RequestInit = { method, headers, body, signal: AbortSignal.timeout(30_000), redirect: "manual" };
+					const response = ctx.allowLocalNetwork ? await fetch(url, init) : await fetchPublic(url, init);
+					const { bytes, truncated } = await readLimited(response, BODY_LIMIT);
+					const text = bytes.toString("utf8");
+					const result: Record<string, unknown> = { status: response.status, ok: response.ok, contentType: response.headers.get("content-type"), body: text, truncated };
 					if (/json/i.test(response.headers.get("content-type") ?? "")) {
 						try {
 							result.json = JSON.parse(text);
@@ -201,7 +193,7 @@ const TOOLS: Record<string, ToolSpec> = {
 				summary: `读取网页 ${url.href}`,
 				async run() {
 					// Each redirect passes the same checks as the first address (declared host, https, no internal address).
-					const page = await fetchPage(url.href, { checkRedirect: async (next) => void (await checkTarget(binding, next.href, ctx)) });
+					const page = await fetchPage(url.href, { checkRedirect: async (next) => void (await checkTarget(binding, next.href, ctx)), publicOnly: !ctx.allowLocalNetwork });
 					return { url: page.url, title: page.title, text: page.text.slice(0, 100_000) };
 				},
 			};
