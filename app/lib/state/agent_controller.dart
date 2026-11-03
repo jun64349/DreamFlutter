@@ -580,7 +580,13 @@ class AgentController extends ChangeNotifier {
         }
         await _attachLiveSlots(hello);
         await _butterfly?._reattach(hello);
-        if (!_lostAgain) break;
+        if (_lostAgain) continue;
+        // The new core may hold other data (after a restore or the first-start move): read the lists again.
+        unawaited(refreshSessions());
+        unawaited(refreshPendingCounts());
+        unawaited(refreshGateway(models: true));
+        workRevision.value++;
+        break;
       }
       await Future<void>.delayed(Duration(seconds: attempt.clamp(1, 10)));
     }

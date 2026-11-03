@@ -150,6 +150,19 @@ void main() {
       agent.dispose();
     });
 
+    test('after reconnecting, channels are read from the new core (first-start move, restore)', () async {
+      final agent = await startController();
+      await pumpEventQueue();
+      expect(agent.gatewayChannels, isEmpty);
+      backend.handlers['gateway.channels'] = (_) => [
+            {'id': 'c1', 'name': 'OpenCode Go', 'provider': 'df-c1', 'kind': 'plan', 'enabled': true, 'models': const [], 'keys': const []},
+          ];
+      backend.dropConnection();
+      await pumpEventQueue(times: 50);
+      expect(agent.gatewayChannels.map((c) => c.name), ['OpenCode Go']);
+      agent.dispose();
+    });
+
     test('sessions still running in the core are attached on startup', () async {
       backend = FakeBackend(liveSlots: [
         {'slotId': 'bg-1', 'cwd': Directory.systemTemp.path, 'running': true},
