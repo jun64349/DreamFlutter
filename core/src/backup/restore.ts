@@ -25,6 +25,8 @@ export interface RestoreTarget {
 	agentDir: string;
 	sessionsDir: string;
 	appVersion: string;
+	/** Oldest database accepted (default MIN_DB_VERSION; moving this machine's own older data takes any). */
+	minDbVersion?: number;
 }
 
 export interface PathSuggestion {
@@ -83,7 +85,7 @@ async function readManifest(archive: Archive, target: RestoreTarget): Promise<Ma
 	if (manifest.formatVersion > FORMAT_VERSION || manifest.dbVersion > MIGRATIONS.length || compareVersions(manifest.appVersion, target.appVersion) > 0) {
 		throw new RestoreError(`这个备份来自更新的版本（v${manifest.appVersion}），当前是 v${target.appVersion}。请先升级应用再导入。`);
 	}
-	if (manifest.dbVersion < MIN_DB_VERSION) throw new RestoreError(`只支持 v0.3.0 及以后的备份（这个备份来自 v${manifest.appVersion}）`);
+	if (manifest.dbVersion < (target.minDbVersion ?? MIN_DB_VERSION)) throw new RestoreError(`只支持 v0.3.0 及以后的备份（这个备份来自 v${manifest.appVersion}）`);
 	// Every file the manifest lists is there with its size, and nothing else is.
 	const listed = new Set<string>();
 	for (const f of manifest.files) {

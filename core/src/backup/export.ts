@@ -29,7 +29,7 @@ export const MIN_DB_VERSION = 8;
 export function excludedFromData(name: string): boolean {
 	const n = name.toLowerCase();
 	return (
-		["webview2", "core.json", "core.lock", "core.db", "core.db-wal", "core.db-shm", "sandbox", "backups", "trash", "secrets"].includes(n) ||
+		["webview2", "core.json", "core.lock", "core.db", "core.db-wal", "core.db-shm", "sandbox", "backups", "trash", "secrets", "pi", "window", "cache", "migration.json"].includes(n) ||
 		n.startsWith("core.log") ||
 		n.startsWith("restore-")
 	);
@@ -49,7 +49,7 @@ export const EXCLUDED_NOTE = [
 ];
 
 export type Credentials = "none" | "password" | "local";
-export type BackupKind = "manual" | "upgrade" | "import";
+export type BackupKind = "manual" | "upgrade" | "import" | "migrate";
 
 export interface ManifestFile {
 	path: string;
@@ -103,6 +103,8 @@ export interface ExportOptions {
 	sandbox?: (dest: string) => Promise<boolean>;
 	signal?: AbortSignal;
 	onProgress?: (step: string) => void;
+	/** Which indexed session files to take (default: all). */
+	sessionFilter?: (path: string) => boolean;
 	/** The consistent copy is complete (runs and schedules may go on). */
 	copied?: () => void;
 }
@@ -158,7 +160,7 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 		step("复制会话");
 		let sessions = 0;
 		for (const file of sessionFiles) {
-			if (!isInside(source.sessionsDir, file)) continue;
+			if (!isInside(source.sessionsDir, file) || (options.sessionFilter && !options.sessionFilter(file))) continue;
 			let size: number;
 			try {
 				size = statSync(file).size;

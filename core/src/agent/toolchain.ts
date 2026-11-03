@@ -43,7 +43,13 @@ export function bundledPython(pythonDir = PYTHON_DIR): string | undefined {
  * the plain environment plus UTF-8.
  */
 export function toolchainEnv(base: NodeJS.ProcessEnv = process.env, toolsDir = TOOLS_DIR, pythonDir = PYTHON_DIR): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...base, PYTHONUTF8: "1" };
+	const env: NodeJS.ProcessEnv = { ...base, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+	// Downloads and caches stay in the app's data folder instead of the user's profile on C:.
+	const cache = base.DREAMFLUTTER_CACHE;
+	if (cache) {
+		env.UV_CACHE_DIR ??= join(cache, "uv");
+		env.PIP_CACHE_DIR ??= join(cache, "pip");
+	}
 	const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
 	const first: string[] = [];
 	if (existsSync(toolsDir)) first.push(toolsDir);

@@ -1252,6 +1252,29 @@ class AgentController extends ChangeNotifier {
 
   Stream<Mention> get mentionRequests => _mentions.stream;
 
+  /// Images dragged out of browsers and chat apps land in %TEMP%\DreamFlutter\drops (the
+  /// drop plugin); they move to the data folder's cache, where everything else is.
+  String _keepDrop(String path) {
+    final dataDir = coreInfo['dataDir'] as String?;
+    final temp = Platform.environment['TEMP'];
+    if (dataDir == null || temp == null || !p.isWithin(p.join(temp, 'DreamFlutter', 'drops'), path)) return path;
+    try {
+      final target = p.join(dataDir, 'cache', 'drops', p.basename(p.dirname(path)), p.basename(path));
+      Directory(p.dirname(target)).createSync(recursive: true);
+      return File(path).renameSync(target).path;
+    } catch (_) {
+      // Another drive: a copy, then the temporary file goes.
+      try {
+        final target = p.join(dataDir, 'cache', 'drops', p.basename(p.dirname(path)), p.basename(path));
+        File(path).copySync(target);
+        File(path).deleteSync();
+        return target;
+      } catch (_) {
+        return path;
+      }
+    }
+  }
+
   /// Asks the input box to attach files dropped anywhere on the conversation.
   void dropFiles(List<String> paths) {
     if (paths.isEmpty) {
@@ -1259,7 +1282,7 @@ class AgentController extends ChangeNotifier {
       _toast('这个程序拖出的内容读不到。可以在那边复制图片，再在输入框里按 Ctrl+V 粘贴；或先把它保存成文件再拖进来。');
       return;
     }
-    _drops.add(paths);
+    _drops.add([for (final path in paths) _keepDrop(path)]);
   }
 
   Stream<List<String>> get fileDrops => _drops.stream;

@@ -480,9 +480,12 @@ class _SessionTileState extends State<_SessionTile> {
     final agent = AgentScope.read(context);
     final entry = widget.entry;
     final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+    // [position] is on the screen; the menu is laid out in the overlay, which is scaled
+    // with the interface zoom (AppZoom): convert, or it opens away from the button.
+    final local = overlay.globalToLocal(position);
     final choice = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromRect(position & const Size(1, 1), Offset.zero & overlay.size),
+      position: RelativeRect.fromRect(local & const Size(1, 1), Offset.zero & overlay.size),
       items: [
         if (!entry.incognito) ...[
           PopupMenuItem(

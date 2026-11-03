@@ -12,9 +12,10 @@
 # Run from the repository root in PowerShell:
 #   powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1
 #
-# Start the result with app\dreamflutter.exe. It uses the same data folders as a
-# development build (%APPDATA%\DreamFlutter, ~\.pi\agent): quit one from the
-# tray ("退出并停止后台") before starting the other.
+# Start the result with app\dreamflutter.exe. Since v0.3.2 all data lives in its own
+# data\ folder (next to app\ and core\), so the package and a development build
+# keep separate data. The folder is not versioned: packaging again replaces
+# everything in it except data\.
 
 param(
     [string]$OutDir = "dist",
@@ -26,10 +27,11 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $version = ((Select-String -Path "$root\app\pubspec.yaml" -Pattern '^version:\s*([^+\s]+)').Matches[0].Groups[1].Value)
-$target = Join-Path $root "$OutDir\DreamFlutter-$version"
+$target = Join-Path $root "$OutDir\DreamFlutter"
 Write-Host "Packaging DreamFlutter $version -> $target"
 
-if (Test-Path $target) { throw "$target already exists; remove it first." }
+# A new version replaces the program; the data\ folder (the user's data) is never touched.
+if (Test-Path $target) { Get-ChildItem $target | Where-Object { $_.Name -ne "data" } | Remove-Item -Recurse -Force }
 
 # 1. The window.
 if (-not $SkipBuild) {
@@ -123,7 +125,9 @@ DreamFlutter $version（Windows x64 免安装版）
 
 启动：双击 app\dreamflutter.exe。
 已包含 Node.js（runtime\）、搜索工具 rg / fd 和 Python 包管理器 uv（core\bin\）、便携 Python（core\python\，工作台的 Agent 用，电脑上不用另装 Python）和蝶君的沙箱镜像（core\sandbox-image\，建沙箱不用联网）。
-数据和开发版共用：%APPDATA%\DreamFlutter、%USERPROFILE%\.pi\agent。同一时间只运行一个版本；换版本前从托盘「退出并停止后台」。
+所有数据都在这个文件夹下的 data\ 里（会话、记忆、模型配置、技能、设置、蝶君的沙箱），整个文件夹拷走就带走了数据。
+第一次启动时会自动把 v0.3.1 及以前放在 %APPDATA%\DreamFlutter 和 %USERPROFILE%\.pi\agent 里的数据复制过来（原处不删）。
+升级：先从托盘「退出并停止后台」，再用新版本的文件覆盖这里（data\ 不要删）。
 "@ | Set-Content -Encoding utf8 "$target\使用说明.txt"
 
 Write-Host "Done: $target"

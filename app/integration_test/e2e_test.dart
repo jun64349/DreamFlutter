@@ -47,15 +47,20 @@ Future<String?> copyGoChannel(String toDataDir) async {
   final node = PiRuntimeLocator.findOnPath('node');
   if (main == null || node == null) return null;
   final coreDir = p.dirname(p.dirname(main));
-  final result = await Process.run(node, [
-    '--disable-warning=ExperimentalWarning',
-    p.join(coreDir, 'scripts', 'copy-channels.ts'),
-    CoreLocator.defaultDataDir(),
-    toDataDir,
-  ], workingDirectory: coreDir);
-  if (result.exitCode != 0) return null;
-  for (final channel in jsonDecode((result.stdout as String).trim()) as List) {
-    if ((channel['models'] as List).contains(goModel)) return channel['channel'] as String;
+  // The app's data: this checkout's, the package's (where the user usually works), or v0.3.1's.
+  final sources = [CoreLocator.defaultDataDir(), p.join(p.dirname(coreDir), 'dist', 'DreamFlutter', 'data'), CoreLocator.legacyDataDir()];
+  for (final source in sources) {
+    if (!File(p.join(source, 'core.db')).existsSync()) continue;
+    final result = await Process.run(node, [
+      '--disable-warning=ExperimentalWarning',
+      p.join(coreDir, 'scripts', 'copy-channels.ts'),
+      source,
+      toDataDir,
+    ], workingDirectory: coreDir);
+    if (result.exitCode != 0) continue;
+    for (final channel in jsonDecode((result.stdout as String).trim()) as List) {
+      if ((channel['models'] as List).contains(goModel)) return channel['channel'] as String;
+    }
   }
   return null;
 }

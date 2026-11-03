@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-03（v0.3.0、v0.3.1 已发布：打了 tag 并推送到 GitHub；等用户真实测试）
+更新时间：2026-11-03 晚（v0.3.0、v0.3.1 已打 tag 并推送；用户实测了 v0.3.1，按反馈做了 v0.3.2：数据集中到软件目录的 data\、和 Pi 命令行隔离，已提交，没打 tag、没推送）
 
 ## 新窗口从这里开始
 
@@ -12,10 +12,16 @@
 - **2026-11-03 窗口**：
   1. **v0.3.0**：版本号、[v0.3-release-notes.md](v0.3-release-notes.md) 单独一个提交 `afd6ef2`（tag 打在它上面）。测试：后台 188、窗口 83、look、cards 全过；e2e 36 步全部走通，但测试被判失败，原因是一开始就冒出的 Flutter 自己的语义树错误（见「踩过的坑」最后一条），没修。
   2. **v0.3.1 备份、迁移与恢复**：做完并提交，版本号已改 0.3.1，见下面「v0.3.1 备份、迁移与恢复」一节和 [v0.3.1-release-notes.md](v0.3.1-release-notes.md)。安装包按 v0.3.1 打（`dist\DreamFlutter-0.3.1\`，第一次带上沙箱镜像、uv、Python）。
+  3. （用户 2026-11-03 同意）annotated tag `v0.3.0` → `afd6ef2`、`v0.3.1` → `1b4e950`，`main` 和两个 tag 已推送。推送要绕开 git 的凭据选择窗口，命令见「踩过的坑」。
+  4. **v0.3.1 实测反馈**（用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\2026\2026-11\2026-11-03\User\dfv0.3.1测试记录.md`，10 条 + 截图）的去向：
+     - 第 4 条（数据集中、不放 C 盘、和别的 Agent 平台隔离）：用户定了**提前到 v0.3.2**、默认放**软件目录旁边的 data 文件夹** → 已做，见下面「v0.3.2 数据集中」一节。
+     - 第 1 条提示条（配色反了、太宽、没居中、想放上面、字小点）→ v0.3.2 已改。第 9 条「⋯」菜单错位（界面缩放时坐标没换算）→ v0.3.2 已修。
+     - **还没做、下个窗口先做**（v0.3.2 的剩余或 0.4.0 修复批）：第 3 条选中文字时行内代码段不显示高亮（`markdown_view.dart` 的行内代码用 `backgroundColor`，疑似盖住了选中色；复制正常）；第 8 条备份页太复杂（改成一行说明 + 导出 / 导入两个主按钮，选项折叠）；第 10 条仪表盘表格没有表头（先补表头，重做在 0.6 的 6.5）；第 7 条截图里 Python 报错是乱码（`toolchainEnv` 已设 `PYTHONUTF8` 和 `PYTHONIOENCODING`，但用户用自己 venv 的 python 时仍乱码，要用真实 pwsh 工具复现：中文路径 + 中文 assert 信息）。
+     - 已在计划里：第 7 条过程默认折叠（0.4 的 4.4）、第 5 条首页只留蝴蝶 + 随机问候语（艺术字，0.4 设计稿）、第 6 条自动刷新记忆快照（0.5；已回答用户：快照放在对话前部，换掉它后面的缓存都失效，所以只在本来就要重算的时机刷新——新任务、压缩后）。第 2、11 条没有具体问题。
 - **下一步**：
-  1. （已做，用户 2026-11-03 同意）annotated tag `v0.3.0` → `afd6ef2`、`v0.3.1` → `1b4e950`，`main` 和两个 tag 已推送。
-  2. 用户做真实测试并反馈（下面列了要试的）；然后看用户的另外 4 份报告，再开 0.4。
-- 要用户在真实应用里试的：拖图片、子 Agent、蝶君整条流程、工作台的 uv / Python；**备份**：设置 › 数据与迁移 › 备份与恢复，导出一份（试试带 Key）、再导入它（会先自动备份、后台重启）、看「上次恢复」、撤销；有条件的话在另一台电脑或另一个 Windows 用户下导入。用户试用要**自己双击** `app\build\windows\x64\runner\Debug\dreamflutter.exe`（不要从 Claude 的终端启动，见约定）；改了后台要先从托盘「退出并停止后台」。
+  1. 用户试 v0.3.2 安装包（`dist\DreamFlutter\app\dreamflutter.exe`，第一次启动会自动搬数据，后台重启一次）；没问题再问用户打 `v0.3.2` tag 并推送。
+  2. 做上面「还没做」的四条；然后看用户的另外 4 份报告，再开 0.4。
+- 要用户在真实应用里试的：拖图片、子 Agent、蝶君整条流程、工作台的 uv / Python；**备份**：设置 › 数据与迁移 › 备份与恢复，导出一份（试试带 Key）、再导入它（会先自动备份、后台重启）、看「上次恢复」、撤销；有条件的话在另一台电脑或另一个 Windows 用户下导入。用户试用要**自己双击**（不要从 Claude 的终端启动，见约定）：从 v0.3.2 起用户主要用安装包 `dist\DreamFlutter\app\dreamflutter.exe`（数据在 `dist\DreamFlutter\data\`）；开发版 `app\build\windows\x64\runner\Debug\dreamflutter.exe` 的数据在仓库根目录 `data\`，两者不共用。改了后台要先从托盘「退出并停止后台」。
 
 **先读这些**：
 
@@ -40,6 +46,16 @@
 - **提交、打 tag、推送都等用户说**（GitHub 公开仓库 jun64349/DreamFlutter）。
 - **改了后台代码**之后，用户要从托盘「退出并停止后台」一次，新代码才生效（应用不会自动替换旧后台；直接结束后台进程会被权限检查拦下）。跑 E2E 或视觉检查前，用户的应用要先退出：调试版 `dreamflutter.exe` 会被占用。
 - 外部标准（如 Showcard）按官方规范、原样参考代码和官方一致性测试来做，列出偏差。
+
+## v0.3.2 数据集中（2026-11-03）
+
+见 [v0.3.2-release-notes.md](v0.3.2-release-notes.md)。要点：
+
+- **数据目录** = `<软件目录>\data`，软件目录 = 放着 `core\` 的那个文件夹。后台 `core/src/paths.ts` 的 `APP_ROOT`（从 paths.ts 自己的位置推）和窗口 `CoreLocator.defaultDataDir()`（找到 `core\src\main.ts` 再往上三级）必须算出同一个地方；`DREAMFLUTTER_DATA` 覆盖两边。里面：后台的东西照旧平铺（core.db、secrets、cards、butterfly、sandbox、backups…），`pi\` 是 DreamFlutter 专属的 Pi 目录（`defaultAgentDir(dataDir)`），`window\prefs.json` 是窗口偏好（`FilePreferencesStore` 顶替 shared_preferences 的 Windows 存储，第一次用时接过 `%APPDATA%\com.dreamflutter\dreamflutter\shared_preferences.json`），`webview2\`，`cache\`（shell 长输出、uv / pip 缓存、拖进来的图片）。
+- **隔离**：`main.ts` 把 `PI_CODING_AGENT_DIR` 设成 `data\pi`（Pi 内部的 bin、themes 等跟着走，Agent 开的 shell 也继承）；`dropSharedAgentSkills` 作为 Pi 资源加载的 `skillsOverride`，去掉 `~/.agents/skills`（host.ts 和 skills.ts 两处）。**不改 `HOME`**（会影响 git 等找配置）。
+- **自动搬家**（`backup.ts` 的 `migrate`）：只在默认数据目录（`main.ts` 给 `legacyData`）、新库还没用过（没有运行、记忆、渠道）、没有 `migration.json`、旧目录没有「已搬到新位置.txt」时做一次。做法 = v0.3.1 的备份恢复：旧库 `createBackup`（Key 用 local 方式、只带 DreamFlutter 的会话：数据库里引用过的 + 文件头部有 `"customType":"df.` 的）→ 复制 Pi 下载的 rg / fd → `Sandbox.adopt` 搬沙箱（拷磁盘、unregister、import-in-place）→ `stageBackup`（`minDbVersion: 1`，v0.2 的库也能搬）→ `apply`（不再先自动备份空数据）→ 后台重启时切换；下次启动 `afterMigration` 在旧目录写标记。窗口收到 `backup.migrating` 时没有专门提示（只有恢复结果的提示），下次可以加。
+- 打包：`dist\DreamFlutter\`（不带版本号），重新打包时删除里面除 `data\` 以外的东西。`.gitignore` 加了 `/data/`。
+- 测试：`backup.test.ts` 新增搬家测试（只搬 DreamFlutter 的会话、Key 能用、rg 跟过来、旧目录有标记、不会搬第二次）。**真实环境没跑过搬家**：用户第一次打开 v0.3.2 安装包就是第一次真实运行，`%APPDATA%\DreamFlutter` 和 `~\.pi\agent` 原样保留，出问题可以删掉 `dist\DreamFlutter\data` 和旧目录里的「已搬到新位置.txt」重来。
 
 ## v0.3.1 备份、迁移与恢复（2026-11-03）
 

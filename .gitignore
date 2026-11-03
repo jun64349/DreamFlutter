@@ -14,3 +14,6 @@ core/sandbox-image/
 
 # Workbench toolchain (core/scripts/fetch-toolchain.ts): portable Python, shipped in the installer
 core/python/
+
+# All of the platform's data (v0.3.2: next to the software)
+/data/

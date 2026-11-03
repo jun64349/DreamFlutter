@@ -50,7 +50,7 @@ class _CommandsDialogState extends State<_CommandsDialog> {
                 ],
               ),
               Text(
-                '这些能力来自 Pi：~/.pi/agent 下的 skills、prompts、extensions，以及工作区里的同名目录。在输入框里输入 / 也能直接调出。',
+                '这些能力来自 Pi：DreamFlutter 数据文件夹里 pi 下的 skills、prompts、extensions，以及工作区里的同名目录。在输入框里输入 / 也能直接调出。',
                 style: context.text.bodySmall?.copyWith(color: colors.muted),
               ),
               const SizedBox(height: AppTokens.pad),
@@ -64,7 +64,7 @@ class _CommandsDialogState extends State<_CommandsDialog> {
                 child: commands.isEmpty
                     ? Center(
                         child: Text(
-                          agent.commands.isEmpty ? '当前还没有可用的技能或命令。\n把技能放进 ~/.pi/agent/skills 后，在设置里点「重新加载」。' : '没有匹配的结果',
+                          agent.commands.isEmpty ? '当前还没有可用的技能或命令。\n把技能放进 DreamFlutter 数据文件夹里的 pi\\skills 后，在设置里点「重新加载」。' : '没有匹配的结果',
                           textAlign: TextAlign.center,
                           style: context.text.bodyMedium?.copyWith(color: colors.muted),
                         ),

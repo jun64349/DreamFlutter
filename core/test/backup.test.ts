@@ -290,4 +290,44 @@ describe("backup", () => {
 		cores.push(c);
 		assert.deepEqual(memories(c), ["C 自己的"]);
 	});
+
+	it("v0.3.2: moves v0.3.1's data into the software's data folder once, without the Pi command line's sessions", { timeout: 300_000 }, async () => {
+		const old = await start();
+		await populate(old);
+		// A session the Pi command line made: no DreamFlutter entries, nothing refers to it.
+		const cliFolder = piSessionFolder(old.sessionDir, old.workspace);
+		writeFileSync(join(cliFolder, "cli.jsonl"), `${JSON.stringify({ type: "session", version: 3, id: "cli", timestamp: "2026-11-01T00:00:00.000Z", cwd: old.workspace })}\n`);
+		// populate()'s session is DreamFlutter's (as if a run had used it).
+		const ours = join(cliFolder, "2026-11-03T00-00-00-000Z_test.jsonl");
+		old.core.db.run("INSERT INTO runs(id, session_file, cwd, status, started_at) VALUES('r1', ?, ?, 'completed', 0)", ours, old.workspace);
+		mkdirSync(join(old.agentDir, "bin"), { recursive: true });
+		writeFileSync(join(old.agentDir, "bin", "rg.exe"), "rg");
+		await old.core.shutdown();
+		const legacyData = { dataDir: old.core.paths.dataDir, agentDir: old.agentDir, sessionsDir: old.sessionDir };
+
+		let fresh = await startTestCore(undefined, { legacyData });
+		cores.push(fresh);
+		const moved = await fresh.waitFor(() => fresh.messages.some((m) => m.event === "backup.migrating") && fresh.messages.map((m) => m.job as Job | undefined).find((j) => j?.status === "done"), 120_000);
+		assert.equal(moved.kind, "apply");
+		await new Promise((r) => setTimeout(r, 1500));
+		assert.equal(applyPendingRestore(fresh.core.paths)?.ok, true);
+		fresh = await startTestCore(fresh.dir, { legacyData });
+		cores.push(fresh);
+
+		const db = fresh.core.db;
+		assert.equal(db.all("SELECT * FROM memories").length, 1);
+		assert.equal(db.get<{ status: string }>("SELECT status FROM schedules")!.status, "paused");
+		const sessions = readdirSync(piSessionFolder(fresh.sessionDir, old.workspace));
+		assert.deepEqual(sessions, ["2026-11-03T00-00-00-000Z_test.jsonl"], "only DreamFlutter's session came along");
+		assert.ok(existsSync(join(fresh.agentDir, "bin", "rg.exe")), "the search tools came along");
+		assert.equal(await new SecretStore(fresh.core.paths.dataDir).get("gateway-k1"), "sk-test-1234");
+		const result = (await fresh.core.call("backup.restoreResult", {})) as { ok: boolean; migratedFrom: { dataDir: string } };
+		assert.equal(result.ok, true);
+		assert.equal(result.migratedFrom.dataDir, legacyData.dataDir);
+		// The old folder is marked, and nothing moves a second time.
+		assert.ok(existsSync(join(legacyData.dataDir, "已搬到新位置.txt")));
+		assert.equal(JSON.parse(readFileSync(join(fresh.core.paths.dataDir, "migration.json"), "utf8")).state, "done");
+		await new Promise((r) => setTimeout(r, 2000));
+		assert.ok(!fresh.messages.some((m) => m.event === "backup.migrating"), "no second move");
+	});
 });

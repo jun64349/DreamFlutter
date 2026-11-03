@@ -9,6 +9,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'core_client.dart' show CoreLocator;
+
 import 'json.dart';
 import 'messages.dart';
 
@@ -41,21 +43,10 @@ class SessionStore {
 
   final String sessionsDir;
 
-  /// `PI_CODING_AGENT_DIR`, else `~/.pi/agent`.
-  static String defaultAgentDir() {
-    final env = Platform.environment;
-    final override = env['PI_CODING_AGENT_DIR'];
-    if (override != null && override.isNotEmpty) return override;
-    final home = env['USERPROFILE'] ?? env['HOME'] ?? '.';
-    return p.join(home, '.pi', 'agent');
-  }
+  /// DreamFlutter's own Pi folder in its data folder (v0.3.2), not the Pi command line's ~/.pi/agent.
+  static String defaultAgentDir() => p.join(CoreLocator.defaultDataDir(), 'pi');
 
-  /// `PI_CODING_AGENT_SESSION_DIR`, else `<agent dir>/sessions`.
-  static String defaultSessionsDir() {
-    final override = Platform.environment['PI_CODING_AGENT_SESSION_DIR'];
-    if (override != null && override.isNotEmpty) return override;
-    return p.join(defaultAgentDir(), 'sessions');
-  }
+  static String defaultSessionsDir() => p.join(defaultAgentDir(), 'sessions');
 
   /// Sessions newest first, optionally only those whose workspace is [cwd].
   Future<List<SessionSummary>> list({String? cwd}) async {

@@ -92,7 +92,7 @@ export class OutputStream {
 
 	private startSpill(): void {
 		try {
-			const dir = join(tmpdir(), "dreamflutter-shell");
+			const dir = join(process.env.DREAMFLUTTER_CACHE || tmpdir(), "shell-output");
 			mkdirSync(dir, { recursive: true });
 			this.spillPath = join(dir, `${Date.now()}-${randomUUID().slice(0, 8)}.${this.name}.txt`);
 			writeFileSync(this.spillPath, Buffer.concat(this.chunks));

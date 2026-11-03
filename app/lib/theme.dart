@@ -626,11 +626,13 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
       decoration: BoxDecoration(color: c.ink.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(t.radiusSm)),
       textStyle: TextStyle(color: c.background, fontSize: 12),
     ),
+    // Notices follow the theme (a light bar on light themes), quiet and small (v0.3.1 test 1).
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: c.ink,
-      contentTextStyle: TextStyle(color: c.background),
-      actionTextColor: c.wingUpper,
-      shape: shape,
+      backgroundColor: c.card,
+      contentTextStyle: TextStyle(color: c.ink, fontSize: 13),
+      actionTextColor: c.accent,
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: radius, side: BorderSide(color: c.border)),
     ),
     tabBarTheme: TabBarThemeData(
       labelColor: c.ink,

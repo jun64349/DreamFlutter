@@ -36,8 +36,17 @@ class _HomePageState extends State<HomePage> {
     final agent = AgentScope.read(context);
     _toasts ??= agent.toasts.listen((message) {
       if (!mounted) return;
+      // At the top, centred and only as wide as the message needs (v0.3.1 test 1).
+      final size = MediaQuery.sizeOf(context);
+      final width = (message.length * 13.0 + 48).clamp(200.0, 560.0);
+      final side = ((size.width - width) / 2).clamp(16.0, double.infinity);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating, width: 520),
+        SnackBar(
+          content: Text(message, textAlign: TextAlign.center),
+          behavior: SnackBarBehavior.floating,
+          dismissDirection: DismissDirection.up,
+          margin: EdgeInsets.fromLTRB(side, 12, side, (size.height - 120).clamp(12.0, double.infinity)),
+        ),
       );
     });
   }

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { CORE_VERSION, RpcError, str, type Core, type CoreModule } from "../core.ts";
-import type { CorePaths } from "../paths.ts";
+import { corePaths, type CorePaths } from "../paths.ts";
 import { MIGRATIONS } from "../schema.ts";
 import { Sandbox } from "../sandbox/sandbox.ts";
 import { createBackup, estimateSize, formatBytes, freeSpace, MIN_DB_VERSION, type BackupKind, type ExportResult } from "./export.ts";
@@ -21,6 +21,18 @@ import { resultFile, writeSwitchRecord } from "./switch.ts";
  */
 
 export const AUTO_KEEP = 3;
+/** In the data folder: the move from the v0.3.1 locations was tried (state started / switching / done / failed). */
+export const MIGRATION_FILE = "migration.json";
+/** Left in the old data folder once its data has moved. */
+export const MOVED_MARKER = "已搬到新位置.txt";
+
+/** The folders versions up to v0.3.1 used: %APPDATA%\DreamFlutter and the shared ~/.pi/agent. */
+export interface LegacyData {
+	dataDir: string;
+	agentDir: string;
+	/** Default: <agentDir>/sessions. */
+	sessionsDir?: string;
+}
 const EXT = ".dfbackup";
 
 export type JobKind = "export" | "stage" | "apply";
@@ -55,8 +67,12 @@ export class BackupModule implements CoreModule {
 	private abort: AbortController | null = null;
 	private staged: Staged | null = null;
 
-	constructor(core: Core) {
+	/** Where versions up to v0.3.1 kept the data, when this core runs in the default data folder (main.ts). */
+	private readonly legacy: LegacyData | undefined;
+
+	constructor(core: Core, legacy?: LegacyData) {
 		this.core = core;
+		this.legacy = legacy;
 		this.register();
 	}
 
@@ -67,6 +83,101 @@ export class BackupModule implements CoreModule {
 		for (const name of existsSync(dir) ? readdirSync(dir) : []) {
 			if (name.startsWith(".work-") || name.endsWith(".partial")) await rm(join(dir, name), { recursive: true, force: true });
 		}
+		this.afterMigration();
+		if (this.legacy && this.shouldMigrate(this.legacy)) {
+			// In the background: the window connects meanwhile and hears that the data is moving.
+			setTimeout(() => {
+				try {
+					this.startJob("apply", (signal, step) => this.migrate(this.legacy!, signal, step));
+				} catch (error) {
+					this.core.log.warn("migration could not start", error);
+				}
+			}, 1500).unref();
+		}
+	}
+
+	// ---- moving v0.3.1 data into the software's data folder (v0.3.2) ----------------------
+
+	private get migrationFile(): string {
+		return join(this.core.paths.dataDir, MIGRATION_FILE);
+	}
+
+	/** Only once, only into a data folder nothing has happened in yet, only from data not moved before. */
+	private shouldMigrate(legacy: LegacyData): boolean {
+		if (existsSync(this.migrationFile) || !existsSync(join(legacy.dataDir, "core.db")) || existsSync(join(legacy.dataDir, MOVED_MARKER))) return false;
+		const used = this.core.db.get<{ n: number }>("SELECT (SELECT COUNT(*) FROM runs) + (SELECT COUNT(*) FROM memories) + (SELECT COUNT(*) FROM gateway_channels) AS n");
+		return (used?.n ?? 0) === 0;
+	}
+
+	private async migrate(legacy: LegacyData, signal: AbortSignal, step: (s: string) => void): Promise<unknown> {
+		writeFileSync(this.migrationFile, JSON.stringify({ state: "started", from: legacy, at: Date.now() }, null, 2), "utf8");
+		this.core.broadcast({ event: "backup.migrating", from: legacy.dataDir, to: this.core.paths.dataDir });
+		step("整理原来的数据");
+		const legacySessions = legacy.sessionsDir ?? join(legacy.agentDir, "sessions");
+		const db = new DatabaseSync(join(legacy.dataDir, "core.db"));
+		let file: string;
+		try {
+			const ours = dreamFlutterSessions(db);
+			const result = await createBackup(
+				{ paths: corePaths(legacy.dataDir), agentDir: legacy.agentDir, sessionsDir: legacySessions, db, appVersion: CORE_VERSION },
+				{
+					out: autoPath(this.core.paths, "migrate"),
+					kind: "migrate",
+					credentials: "local",
+					includeMaterials: false,
+					// The Pi command line's own sessions stay where they are.
+					sessionFilter: (path) => ours.has(path.toLowerCase()) || hasDreamFlutterEntries(path),
+					signal,
+					onProgress: step,
+				},
+			);
+			file = result.path;
+		} finally {
+			db.close();
+		}
+		// The search tools Pi downloaded (a development checkout has none of its own).
+		for (const tool of ["rg.exe", "fd.exe", "rg", "fd"]) {
+			const from = join(legacy.agentDir, "bin", tool);
+			if (existsSync(from)) {
+				mkdirSync(join(this.core.agentDir, "bin"), { recursive: true });
+				copyFileSync(from, join(this.core.agentDir, "bin", tool));
+			}
+		}
+		const sandbox = this.core.module(Sandbox);
+		if (sandbox) {
+			step("搬蝶君的沙箱");
+			await sandbox.adopt(join(legacy.dataDir, "sandbox"));
+		}
+		const staged = await stageBackup(file, { ...this.target, minDbVersion: 1 }, { parts: this.core.backupParts, signal, onProgress: step });
+		writeFileSync(this.migrationFile, JSON.stringify({ state: "switching", from: legacy, at: Date.now() }, null, 2), "utf8");
+		return this.apply(staged, signal, step, { migratedFrom: legacy, skipAutoBackup: true });
+	}
+
+	/** After a migration's switch: the old folder is marked so no later start moves it again. */
+	private afterMigration(): void {
+		let state: { state?: string; from?: LegacyData };
+		try {
+			state = JSON.parse(readFileSync(this.migrationFile, "utf8"));
+		} catch {
+			return;
+		}
+		if (state.state !== "switching" || !state.from) return;
+		let result: { ok?: boolean; error?: string } = {};
+		try {
+			result = JSON.parse(readFileSync(resultFile(this.core.paths), "utf8"));
+		} catch {}
+		if (result.ok) {
+			try {
+				writeFileSync(
+					join(state.from.dataDir, MOVED_MARKER),
+					`DreamFlutter 从 v0.3.2 起把数据放在软件目录下的 data 文件夹：\n${this.core.paths.dataDir}\n这里的数据已经复制过去，确认新版本一切正常后可以删除这个文件夹（以及 ${state.from.agentDir} 里 DreamFlutter 的会话）。\n`,
+					"utf8",
+				);
+			} catch (error) {
+				this.core.log.warn("could not mark the old data folder", error);
+			}
+		}
+		writeFileSync(this.migrationFile, JSON.stringify({ ...state, state: result.ok ? "done" : "failed", error: result.error, at: Date.now() }, null, 2), "utf8");
 	}
 
 	private get sessionsDir(): string {
@@ -259,22 +370,31 @@ export class BackupModule implements CoreModule {
 		}
 	}
 
-	private async apply(staged: Staged, signal: AbortSignal, step: (s: string) => void, options: { undo?: boolean } = {}): Promise<unknown> {
-		step("备份当前的数据");
-		const auto = await this.export({
-			out: autoPath(this.core.paths, "import"),
-			kind: "import",
-			credentials: "local",
-			includeMaterials: true,
-			includeSandbox: true,
-			signal,
-			step,
-		});
+	private async apply(
+		staged: Staged,
+		signal: AbortSignal,
+		step: (s: string) => void,
+		options: { undo?: boolean; migratedFrom?: LegacyData; skipAutoBackup?: boolean } = {},
+	): Promise<unknown> {
+		let auto: ExportResult | undefined;
+		if (!options.skipAutoBackup) {
+			step("备份当前的数据");
+			auto = await this.export({
+				out: autoPath(this.core.paths, "import"),
+				kind: "import",
+				credentials: "local",
+				includeMaterials: true,
+				includeSandbox: true,
+				signal,
+				step,
+			});
+		}
 		signal.throwIfAborted();
 		step("准备切换");
 		const result = {
 			undo: options.undo === true,
-			undoBackup: auto.path,
+			undoBackup: auto?.path,
+			migratedFrom: options.migratedFrom,
 			from: { appVersion: staged.manifest.appVersion, createdAt: staged.manifest.createdAt, host: staged.manifest.source.host, user: staged.manifest.source.user, kind: staged.manifest.kind },
 			counts: staged.counts,
 			sessions: staged.sessions,
@@ -284,8 +404,9 @@ export class BackupModule implements CoreModule {
 			prefs: staged.prefs,
 			notRestored: [
 				...(staged.manifest.credentials === "none" ? ["API Key（备份里没有）"] : []),
+				...(options.migratedFrom ? ["Pi 命令行自己的会话（留在原来的文件夹）"] : []),
 				...(staged.preview.paths.filter((p) => p.kind === "workspace" && !p.exists).map((p) => `工作区 ${p.from}（这台电脑上没有）`)),
-				"工作区里的文件（备份只记位置）",
+				...(options.migratedFrom ? [] : ["工作区里的文件（备份只记位置）"]),
 			],
 			schedulesPaused: true,
 		};
@@ -328,7 +449,7 @@ export class BackupModule implements CoreModule {
 		const dir = backupsDir(this.core.paths);
 		const auto: HistoryEntry[] = [];
 		for (const name of existsSync(dir) ? readdirSync(dir) : []) {
-			const kind = /^auto-(upgrade|import)-/.exec(name)?.[1] as BackupKind | undefined;
+			const kind = /^auto-(upgrade|import|migrate)-/.exec(name)?.[1] as BackupKind | undefined;
 			if (!kind || !name.endsWith(EXT)) continue;
 			const path = join(dir, name);
 			const info = statSync(path);
@@ -369,7 +490,7 @@ function stagedSummary(staged: Staged): Record<string, unknown> {
 	};
 }
 
-export function autoPath(paths: CorePaths, kind: "upgrade" | "import"): string {
+export function autoPath(paths: CorePaths, kind: "upgrade" | "import" | "migrate"): string {
 	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 	return join(backupsDir(paths), `auto-${kind}-${stamp}${EXT}`);
 }
@@ -411,3 +532,32 @@ export async function backupBeforeUpgrade(paths: CorePaths, agentDir: string, se
 }
 
 export { RestoreError, type Preview };
+
+/** Session files the old data refers to (runs, tasks, cards, schedules…): DreamFlutter's, not the Pi command line's. */
+export function dreamFlutterSessions(db: DatabaseSync): Set<string> {
+	const out = new Set<string>();
+	for (const [table, column] of [["runs", "session_file"], ["tasks", "session_file"], ["cards", "session_file"], ["schedules", "session_file"], ["schedule_runs", "session_file"], ["notices", "session_file"], ["memories", "source_session"]]) {
+		try {
+			for (const row of db.prepare(`SELECT DISTINCT "${column}" AS p FROM "${table}" WHERE "${column}" IS NOT NULL`).all() as { p: string }[]) out.add(row.p.toLowerCase());
+		} catch {
+			// Older database without this table.
+		}
+	}
+	return out;
+}
+
+/** DreamFlutter writes its own entries (agent mode, cards…) early in every session it starts. */
+export function hasDreamFlutterEntries(path: string): boolean {
+	try {
+		const fd = openSync(path, "r");
+		try {
+			const buffer = Buffer.alloc(16 * 1024);
+			const n = readSync(fd, buffer, 0, buffer.length, 0);
+			return buffer.subarray(0, n).toString("utf8").includes('"customType":"df.');
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		return false;
+	}
+}

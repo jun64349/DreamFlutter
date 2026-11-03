@@ -6,6 +6,7 @@ import type { Core, CoreModule } from "../core.ts";
 import { RpcError, requireStr, samePath, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, now, parseJson } from "../db.ts";
+import { dropSharedAgentSkills } from "../paths.ts";
 import { textOf } from "../runs.ts";
 import { parseJsonAnswer, type Llm } from "./llm.ts";
 
@@ -14,7 +15,7 @@ export interface SkillInfo {
 	description: string;
 	filePath: string;
 	baseDir: string;
-	/** user = ~/.pi/agent/skills or ~/.agents/skills; project = the workspace's own. */
+	/** user = the app's own Pi skills folder; project = the workspace's own (~/.agents/skills, shared by other agent tools, is not read). */
 	scope: string;
 	enabled: boolean;
 	modelInvocable: boolean;
@@ -180,7 +181,7 @@ export class SkillsModule implements CoreModule {
 		const disabled = this.disabledPaths();
 		// Untrusted projects stay unloaded here too (resolving project packages can run their code).
 		const settingsManager = SettingsManager.create(cwd, this.core.agentDir, { projectTrusted: this.core.isProjectTrusted(cwd) });
-		const loader = new DefaultResourceLoader({ cwd, agentDir: this.core.agentDir, settingsManager, noExtensions: true, noPromptTemplates: true, noThemes: true } as never);
+		const loader = new DefaultResourceLoader({ cwd, agentDir: this.core.agentDir, settingsManager, noExtensions: true, noPromptTemplates: true, noThemes: true, skillsOverride: dropSharedAgentSkills } as never);
 		await loader.reload();
 		const loaded = loader.getSkills().skills;
 		const found = new Map<string, SkillInfo>();

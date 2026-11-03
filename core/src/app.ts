@@ -39,7 +39,7 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new CardsModule(core));
 	core.use(new SubagentsModule(core));
 	if (process.platform === "win32") core.use(new Sandbox(core, options.sandbox));
-	core.use(new BackupModule(core));
+	core.use(new BackupModule(core, options.legacyData));
 	registerRenderer(core);
 	new McpModule(core);
 	return core;

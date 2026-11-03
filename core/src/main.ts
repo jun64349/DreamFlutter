@@ -7,7 +7,8 @@ import { buildCore } from "./app.ts";
 import { acquireLock, newToken, readInfo, releaseLock, removeInfo, writeInfo } from "./instance.ts";
 import { Logger } from "./log.ts";
 import { WindowsNotifier } from "./notify.ts";
-import { corePaths, defaultAgentDir } from "./paths.ts";
+import { corePaths, defaultAgentDir, defaultDataDir, legacyAgentDir, legacyDataDir } from "./paths.ts";
+import { resolve } from "node:path";
 import { configurePiNetworking } from "./pi/http.ts";
 import { startServer } from "./server.ts";
 import { CORE_VERSION } from "./core.ts";
@@ -37,7 +38,12 @@ if (!lock.ok) {
 process.on("uncaughtException", (error) => log.error("uncaught exception", error));
 process.on("unhandledRejection", (error) => log.error("unhandled rejection", error));
 process.env.PI_CODING_AGENT = "true";
-const agentDir = args["agent-dir"] ?? defaultAgentDir();
+const agentDir = args["agent-dir"] ?? defaultAgentDir(paths.dataDir);
+mkdirSync(agentDir, { recursive: true });
+// Pi's own lookups (bin, themes, tools) follow the app's Pi folder, never ~/.pi/agent; children
+// (the agent's shells) inherit it, so a `pi` they run stays inside DreamFlutter's data as well.
+process.env.PI_CODING_AGENT_DIR = agentDir;
+process.env.DREAMFLUTTER_CACHE = paths.cacheDir;
 
 // Before the database opens: finish a restore the last core prepared, then back up data about to be upgraded.
 try {
@@ -55,6 +61,8 @@ const core = buildCore({
 	paths,
 	agentDir,
 	sessionDir: args["session-dir"],
+	// v0.3.1 kept everything under %APPDATA% and ~/.pi/agent: the default data folder takes it over once.
+	legacyData: resolve(paths.dataDir).toLowerCase() === resolve(defaultDataDir()).toLowerCase() && !args["agent-dir"] ? { dataDir: legacyDataDir(), agentDir: legacyAgentDir() } : undefined,
 	log,
 	notifier: new WindowsNotifier(log),
 });

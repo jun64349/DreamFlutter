@@ -17,7 +17,7 @@ import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
 import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
 
-export const CORE_VERSION = "0.3.1";
+export const CORE_VERSION = "0.3.2";
 
 export interface CoreOptions {
 	paths: CorePaths;
@@ -31,6 +31,8 @@ export interface CoreOptions {
 	gatewayTransport?: import("./gateway/gateway.ts").Transport;
 	/** Test hook: the sandbox's distro name, folder and wsl.exe runner. */
 	sandbox?: import("./sandbox/sandbox.ts").SandboxOptions;
+	/** v0.3.1's data folders, to move into this one on its first start (main.ts gives them only for the default data folder). */
+	legacyData?: import("./backup/backup.ts").LegacyData;
 }
 
 /** A connected window (or other client). */

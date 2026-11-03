@@ -423,6 +423,36 @@ export class Sandbox implements CoreModule {
 		this.changed();
 	}
 
+	/**
+	 * Moves a sandbox set up by v0.3.1 (under %APPDATA%) into this data folder
+	 * (v0.3.2). WSL remembers where a distro's disk is, so: copy the disk and
+	 * the clean copy over, unregister (which deletes the old disk) and register
+	 * the copy in place. Nothing to do without an old sandbox or with one here.
+	 */
+	async adopt(oldDir: string): Promise<boolean> {
+		const oldClean = join(oldDir, "clean.vhdx");
+		const oldDisk = join(oldDir, "disk", "ext4.vhdx");
+		if (existsSync(this.cleanPath) || !existsSync(oldClean) || !existsSync(oldDisk) || !(await this.registered())) return false;
+		this.booted = false;
+		await this.wsl(["--terminate", this.distro], { timeoutMs: 60_000 });
+		await mkdir(join(this.dir, "disk"), { recursive: true });
+		await copyFile(oldDisk, this.diskPath);
+		await copyFile(oldClean, this.cleanPath);
+		const unregistered = await this.wsl(["--unregister", this.distro], { timeoutMs: 60_000 });
+		if (unregistered.code !== 0) {
+			// Still registered at the old place: leave everything as it was.
+			await rm(this.cleanPath, { force: true });
+			await rm(this.diskPath, { force: true });
+			throw new Error(`搬沙箱失败：${(unregistered.stderr || unregistered.stdout).trim()}`);
+		}
+		const result = await this.wsl(["--import-in-place", this.distro, this.diskPath], { timeoutMs: 120_000 });
+		if (result.code !== 0) throw new Error(`搬沙箱后重新登记失败（可以在设置里重新建立）：${(result.stderr || result.stdout).trim()}`);
+		await rm(oldDir, { recursive: true, force: true }).catch(() => {});
+		this.core.log.info(`sandbox: moved from ${oldDir} to ${this.dir}`);
+		this.changed();
+		return true;
+	}
+
 	/** Where this machine opens a path inside the sandbox; tests point it at a folder. */
 	local = (path: string): string => `\\\\wsl.localhost\\${this.distro}${path.replaceAll("/", "\\")}`;
 

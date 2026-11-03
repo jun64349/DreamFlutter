@@ -1,19 +1,34 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:pi_rpc/pi_rpc.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'desktop_shell.dart';
 import 'state/agent_controller.dart';
+import 'state/file_preferences_store.dart';
 import 'state/preferences.dart';
 import 'theme.dart';
 import 'ui/agent_scope.dart';
 import 'ui/home_page.dart';
 import 'ui/title_strip.dart';
+import 'ui/web_surface.dart';
 import 'ui/zoom.dart';
 
 /// Shown in the settings page.
-const appVersion = '0.3.1';
+const appVersion = '0.3.2';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Everything the window keeps goes to the app's data folder too (v0.3.2), next to the core's.
+  final dataDir = CoreLocator.defaultDataDir();
+  final appData = Platform.environment['APPDATA'];
+  SharedPreferencesStorePlatform.instance = await FilePreferencesStore.open(
+    p.join(dataDir, 'window', 'prefs.json'),
+    legacy: appData == null ? null : p.join(appData, 'com.dreamflutter', 'dreamflutter', 'shared_preferences.json'),
+  );
+  WebSurfaces.userDataFolder = p.join(dataDir, 'webview2');
   final controller = AgentController(preferences: await Preferences.load());
   await DesktopShell(controller).init();
   runApp(DreamFlutterApp(controller: controller, ownTitleBar: true));

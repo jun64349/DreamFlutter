@@ -20,6 +20,7 @@ import { RETRY } from "../agent/dsh-text.ts";
 import type { TodoItem } from "../agent/state.ts";
 import { DISTRUST_ONCE, DISTRUST_REMEMBER, TRUST_ONCE, TRUST_REMEMBER, TRUST_TITLE } from "./dialogs.ts";
 import type { UiBridge } from "./ui-bridge.ts";
+import { dropSharedAgentSkills } from "../paths.ts";
 
 /** Fixed inputs shared by every session the core hosts. */
 export interface PiHostConfig {
@@ -194,6 +195,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 				: undefined,
 			resourceLoaderOptions: {
 				extensionFactories: [...builtIns, harness, ...config.extensions(slot, mode)],
+				skillsOverride: dropSharedAgentSkills,
 			},
 		});
 		const created = await createAgentSessionFromServices({

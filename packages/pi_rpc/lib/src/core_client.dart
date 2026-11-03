@@ -128,7 +128,19 @@ class CoreLocator {
   /// Relative location of the core entry point in the repository.
   static const mainRelativePath = 'core/src/main.ts';
 
-  static String defaultDataDir() {
+  /// Everything lives in `data` next to the software (the folder holding
+  /// `core\`), as the core decides too (core/src/paths.ts); DREAMFLUTTER_DATA
+  /// overrides it. Without a core to be found, the v0.3.1 location.
+  static String defaultDataDir([List<String>? searchRoots]) {
+    final override = Platform.environment['DREAMFLUTTER_DATA'];
+    if (override != null && override.isNotEmpty) return override;
+    final main = findMain(searchRoots ?? [p.dirname(Platform.resolvedExecutable), Directory.current.path]);
+    if (main != null) return p.join(p.dirname(p.dirname(p.dirname(main))), 'data');
+    return legacyDataDir();
+  }
+
+  /// Where versions up to v0.3.1 kept the core's data.
+  static String legacyDataDir() {
     final appData = Platform.environment['APPDATA'] ?? p.join(Platform.environment['USERPROFILE'] ?? '.', 'AppData', 'Roaming');
     return p.join(appData, 'DreamFlutter');
   }
@@ -169,7 +181,7 @@ class CoreLocator {
     Map<String, String> environment = const {},
     Duration startTimeout = const Duration(seconds: 20),
   }) async {
-    final dir = dataDir ?? defaultDataDir();
+    final dir = dataDir ?? defaultDataDir(searchRoots);
     final existing = await _tryConnect(dir);
     if (existing != null) return existing;
 
