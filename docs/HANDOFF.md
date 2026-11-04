@@ -1,8 +1,21 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-03 晚（v0.3.0、v0.3.1 已打 tag 并推送；用户实测了 v0.3.1，按反馈做了 v0.3.2：数据集中到软件目录的 data\、和 Pi 命令行隔离，已提交，没打 tag、没推送）
+更新时间：2026-11-04（v0.3.2 已打 tag 并推送；用户实测了 v0.3.2，按反馈做了 v0.3.3）
 
 ## 新窗口从这里开始
+
+**开发前先读 [dev-guide.md](dev-guide.md)（开发规范与踩坑），发布前按 [testing/scenarios.md](testing/scenarios.md)（全场景测试清单）走一遍。** 这是用户 2026-11-04 的要求：「做全量的全功能常用场景的 e2e 全量测试，不放过任何一个角落细节，排除一切影响使用的 bug，然后把踩过的坑总结好放进开发指南规范类的文件里」。用户对 v0.3.2 的评价是「不太收敛」「冒出很多以前没有的 bug」。
+
+**v0.3.3（2026-11-04）**：按用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.3.2测试记录.md`（截图在同目录）做的，详见 [v0.3.3-release-notes.md](v0.3.3-release-notes.md)。
+- 修了：生成时滚轮被拉回底部（`chat_view.dart` 的 `_BottomAnchoredController`，阈值 80 → 2，加「回到底部」按钮）；缩放下拖选错位（Flutter 滚动列表选区的 bug，对话列表绕开，见 dev-guide 一.2）；拖放串到隐藏页面（`showsOnScreen`）；生成时图片闪（`memoryImageOf`）；Ctrl 卡住（`ui/keys.dart` 的 `HeldKeys`）；气泡里 Pi 的图片说明；记忆去重和「用户叫蝶君」（`memory.ts` 的 `nearDuplicate` / `saysMore`、提取提示词，只是止血）；v0.3.1 剩下的行内代码高亮、备份页、仪表盘表头；场景巡检发现的 150% 缩放导航栏溢出。
+- Python 乱码（v0.3.1 第 7 条）用用户的 venv 实测复现不了，写进发布说明请用户再遇到时把命令发来。
+- 新增：`integration_test/scenarios_test.dart`（场景巡检）、`app/test/chat_reading_test.dart`、`docs/testing/scenarios.md`、`docs/dev-guide.md`，`memory-design.md` 第十五节（用户对记忆的意见，0.5 要逐条解决）。
+- **状态**：代码和文档都改好了，**没提交、没打 tag**（等用户说）。版本号已改 0.3.3。测试结果见下面「v0.3.3 测试」。
+- **下一步**：用户点头后提交 → 打安装包（`scripts/package-windows.ps1`）→ 按 scenarios.md 第三节手动清单在安装包上走一遍 → 用户实测。然后看用户的另外 4 份报告（三级记忆、DSH 与蝶君、Goal、后台压缩，在 `…\2026-11-02 13-01 Codex-五项平台能力调研与设计\`），再开 0.4。
+
+**v0.3.3 测试**（2026-11-04，全部通过）：后台 199 + `tsc`；窗口 95 + `flutter analyze`；协议层 39；场景巡检 5（真窗口）；视觉检查（顺手修了脚本：窗口低时先 `ensureVisible` 再点「过程」行）；卡片；**真实模型端到端 3 分 27 秒全过**（这次语义树错误没再让它失败）。每个修复都确认过「去掉修复测试就失败」。**没做**：打安装包、在安装包上走 scenarios.md 第三节的手动清单（截图工具卡 Ctrl、真实拖放、行内代码高亮要手动看）。
+
+以下是 v0.3.2 及以前的记录。
 
 **现状**：v0.2.0 已发布（annotated tag `v0.2.0` → `001d03c`）。**仓库已在 GitHub 公开：https://github.com/jun64349/DreamFlutter**（2026-11-02 推了 `main` 和 v0.1.0、v0.1.1、v0.2.0 三个 tag，`main` 跟踪 `origin/main`；本机已存 GitHub 凭据，推送没弹登录）。2026-11-02 和用户讨论后**重排了 v0.3–v1.0 计划**（[roadmap.md](roadmap.md)，用户已确认）：书桌升级为在 WSL2 沙箱里独立工作的「蝶君」，对话改名「工作台」；0.3 = 修复批 + 执行环境 + Agent 运行时与子 Agent + WSL 沙箱 + 蝶君骨架 + 记忆开发设计。
 
@@ -16,11 +29,11 @@
   4. **v0.3.1 实测反馈**（用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\2026\2026-11\2026-11-03\User\dfv0.3.1测试记录.md`，10 条 + 截图）的去向：
      - 第 4 条（数据集中、不放 C 盘、和别的 Agent 平台隔离）：用户定了**提前到 v0.3.2**、默认放**软件目录旁边的 data 文件夹** → 已做，见下面「v0.3.2 数据集中」一节。
      - 第 1 条提示条（配色反了、太宽、没居中、想放上面、字小点）→ v0.3.2 已改。第 9 条「⋯」菜单错位（界面缩放时坐标没换算）→ v0.3.2 已修。
-     - **还没做、下个窗口先做**（v0.3.2 的剩余或 0.4.0 修复批）：第 3 条选中文字时行内代码段不显示高亮（`markdown_view.dart` 的行内代码用 `backgroundColor`，疑似盖住了选中色；复制正常）；第 8 条备份页太复杂（改成一行说明 + 导出 / 导入两个主按钮，选项折叠）；第 10 条仪表盘表格没有表头（先补表头，重做在 0.6 的 6.5）；第 7 条截图里 Python 报错是乱码（`toolchainEnv` 已设 `PYTHONUTF8` 和 `PYTHONIOENCODING`，但用户用自己 venv 的 python 时仍乱码，要用真实 pwsh 工具复现：中文路径 + 中文 assert 信息）。
+     - **v0.3.3 已做（Python 乱码复现不了）**：第 3 条选中文字时行内代码段不显示高亮（`markdown_view.dart` 的行内代码用 `backgroundColor`，疑似盖住了选中色；复制正常）；第 8 条备份页太复杂（改成一行说明 + 导出 / 导入两个主按钮，选项折叠）；第 10 条仪表盘表格没有表头（先补表头，重做在 0.6 的 6.5）；第 7 条截图里 Python 报错是乱码（`toolchainEnv` 已设 `PYTHONUTF8` 和 `PYTHONIOENCODING`，但用户用自己 venv 的 python 时仍乱码，要用真实 pwsh 工具复现：中文路径 + 中文 assert 信息）。
      - 已在计划里：第 7 条过程默认折叠（0.4 的 4.4）、第 5 条首页只留蝴蝶 + 随机问候语（艺术字，0.4 设计稿）、第 6 条自动刷新记忆快照（0.5；已回答用户：快照放在对话前部，换掉它后面的缓存都失效，所以只在本来就要重算的时机刷新——新任务、压缩后）。第 2、11 条没有具体问题。
 - **下一步**：
   1. **v0.3.2 已打 tag 并推送**（用户 2026-11-03 说直接推、后面再试；annotated tag `v0.3.2` → `d2f5a36`，含全仓库审查的修复）。安装包按审查后的代码重新打过；建议用户复制到 `E:\DreamFlutterApp`（`E:\DreamFlutter` 是用户别的资料）并建桌面快捷方式，用户还没试：第一次启动会自动搬数据，后台重启一次；**搬家的真实运行结果要等用户反馈**。
-  2. 做上面「还没做」的四条；然后看用户的另外 4 份报告，再开 0.4。
+  2. ~~做上面「还没做」的四条~~（v0.3.3 已做）；然后看用户的另外 4 份报告，再开 0.4。
 - 要用户在真实应用里试的：拖图片、子 Agent、蝶君整条流程、工作台的 uv / Python；**备份**：设置 › 数据与迁移 › 备份与恢复，导出一份（试试带 Key）、再导入它（会先自动备份、后台重启）、看「上次恢复」、撤销；有条件的话在另一台电脑或另一个 Windows 用户下导入。用户试用要**自己双击**（不要从 Claude 的终端启动，见约定）：从 v0.3.2 起用户主要用安装包 `dist\DreamFlutter\app\dreamflutter.exe`（数据在 `dist\DreamFlutter\data\`）；开发版 `app\build\windows\x64\runner\Debug\dreamflutter.exe` 的数据在仓库根目录 `data\`，两者不共用。改了后台要先从托盘「退出并停止后台」。
 
 **先读这些**：
@@ -377,10 +390,12 @@ flutter run -d windows
 ## 怎么跑测试
 
 ```bash
-# 后台测试：196 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
+# 后台测试：199 个（含官方 Showcard 一致性探针），用 Pi 自带的假模型，不联网（要在 PowerShell 里跑：Bash 沙箱启动不了 PowerShell）
 cd core && npm test && npx tsc --noEmit
-# 窗口单元/组件测试：86 个
+# 窗口单元/组件测试：95 个
 cd app && flutter test test
+# 场景巡检（v0.3.3）：真窗口、假后台、约 1 分钟：阅读、选字（四档缩放）、拖放、全部页面和主题；清单见 docs/testing/scenarios.md
+cd app && flutter test integration_test/scenarios_test.dart -d windows
 # 视觉检查：假后台、不联网、约 40 秒（对话页 + 各页面 + 每个主题），截图在 app/build/look_shots/
 cd app && flutter test integration_test/look_test.dart -d windows
 # Dart 协议层，含启动真实后台的测试
@@ -403,6 +418,8 @@ cd app && flutter test integration_test/cards_test.dart -d windows
 - 停止运行会关闭审批弹窗；首轮就中断的任务能恢复；每日花费上限计入正在运行的花费；畸形请求不再抛异常；卡住的通知进程会被结束。
 
 ## 踩过的坑（重要）
+
+v0.3.3 起，踩坑和开发规范统一整理在 [dev-guide.md](dev-guide.md)，新坑写在那里。下面是原来的记录，保留备查。
 
 - 在 Bash 工具里用 node -e / sed 写含反斜杠的代码，转义会被吃掉（`\n` 变成真换行）；这类改动用 Edit / Write。
 - 第一次构建带 webview_windows 的应用会下载 nuget.exe 和 WebView2 SDK，日志里的「Nuget is not installed」是正常提示。

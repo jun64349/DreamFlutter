@@ -59,7 +59,7 @@
 2. **调研**（需要的话）：广泛调研交给 Antigravity（经 Agent Bridge，后台任务），报告放 `docs/research/`，AI 给的内容一律当待核验素材。
 3. **设计确认**：需要用户定的事在开工前一次问清；界面设计先出设计稿让用户挑。
 4. **实现**：Claude 写代码（前后端都写）；每个改动配单元测试 / 组件测试；后台 `core/test/`，窗口 `app/test/`。
-5. **测试**：后台、窗口、协议层全量；视觉检查截图（`integration_test/look_test.dart`）；真实模型 E2E **走用户在应用里配好的 OpenCode Go 渠道**（`deepseek-v4.1-flash`，E2E 用 `core/scripts/copy-channels.ts` 复制渠道，**不要在测试里新建渠道**）。
+5. **测试**：按 [testing/scenarios.md](testing/scenarios.md) 走全场景清单（v0.3.3 起），开发时守 [dev-guide.md](dev-guide.md)；后台、窗口、协议层全量；场景巡检（`integration_test/scenarios_test.dart`）；视觉检查截图（`integration_test/look_test.dart`）；真实模型 E2E **走用户在应用里配好的 OpenCode Go 渠道**（`deepseek-v4.1-flash`，E2E 用 `core/scripts/copy-channels.ts` 复制渠道，**不要在测试里新建渠道**）。
 6. **安装包实测**：用户主要用安装包长程使用（额外测试就是这样发现 rg 缺失的），每个版本发布前打一次安装包，在没有开发环境的条件下跑一遍关键流程。
 7. **审查**：Codex 只做必要的只读审查（额度少），只审这个版本的高风险部分。
 8. **发布**：用户验收 → 本地打 tag（不推送）→ 更新 `docs/HANDOFF.md`、发布说明、这份计划的状态。
@@ -181,6 +181,10 @@
 ### v0.3.2　数据集中（2026-11-03，按 v0.3.1 实测第 4 条提前）
 
 6.8「数据与存储」的主体提前：所有数据放在软件目录下的 `data`，DreamFlutter 用自己的 Pi 目录，不再和 Pi 命令行、`~/.agents/skills` 混用；第一次启动自动搬 v0.3.1 的数据。设置里改位置、按类列出大小仍在 6.8。另修提示条和「⋯」菜单错位。见 [v0.3.2-release-notes.md](v0.3.2-release-notes.md)。v0.3.1 实测其余各条的去向见 HANDOFF.md。
+
+### v0.3.3　实测修复 + 全场景测试（2026-11-04，按 v0.3.2 实测）
+
+修 v0.3.2 实测的阅读、选字、拖放串页、Ctrl 卡住、图片闪、记忆重复和身份混淆（止血），v0.3.1 实测剩下的行内代码高亮、备份页、仪表盘表头；新增真窗口场景巡检和全场景测试清单 [testing/scenarios.md](testing/scenarios.md)，踩坑整理成 [dev-guide.md](dev-guide.md)。**从这个版本起，每个版本发布前按场景清单走一遍**（第三节第 5 步）。见 [v0.3.3-release-notes.md](v0.3.3-release-notes.md)。
 
 ### v0.4　外壳与呈现
 
