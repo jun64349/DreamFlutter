@@ -1,10 +1,17 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-04（v0.3.3 已打 tag 并推送；用户试过说没问题，接着做深度测试）
+更新时间：2026-11-04（v0.3.4 补丁做完、测完，等用户试用后提交、打 tag）
 
 ## 新窗口从这里开始
 
 **开发前先读 [dev-guide.md](dev-guide.md)（开发规范与踩坑），发布前按 [testing/scenarios.md](testing/scenarios.md)（全场景测试清单）走一遍。** 这是用户 2026-11-04 的要求：「做全量的全功能常用场景的 e2e 全量测试，不放过任何一个角落细节，排除一切影响使用的 bug，然后把踩过的坑总结好放进开发指南规范类的文件里」。用户对 v0.3.2 的评价是「不太收敛」「冒出很多以前没有的 bug」。
+
+**v0.3.4（2026-11-04）**：按用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.3.3测试记录.md`（截图在同目录 `Pasted image 2026110415*.png`），详见 [v0.3.4-release-notes.md](v0.3.4-release-notes.md)。
+- 修了：行内代码 / 文件名选中不显示高亮（**v0.3.3 的修复没生效**：flutter_markdown_plus 把自带的默认样式合并进来，默认 `code` 有底色，要明写 `Colors.transparent`）；文件名链接断行（改成 `Text.rich(WidgetSpan(FileLink))`，去掉 Tooltip，悬停铺底色）；「往上弹」「不明的刷新」：在测试里贴底时一直正确，问题出在用户往上看时——`chat_view.dart` 的 `_AnchoredRow`（阅读锚定：视口上方的行变高变矮，偏移跟着补）、`CardStage.info / height`（卡片重新搭建时不再先显示「正在打开…」）、`_seen`（只有新行播入场动画）、`SessionRuntime.sends`（发消息回到底部）。排队消息插入那一刻在真实应用里到底是哪个原因，没能在测试里复现，要用户再试。
+- 测试：窗口 102、后台 199 + tsc、协议层 43、场景巡检 5、视觉检查（示例回复加了文件名）、卡片。新测试都确认过去掉修复会失败（`chat_scroll_test` 的排队插入那条修之前就能过，是防护）。**e2e**：步骤全部走通，但三次都被「踩过的坑」最后一条的语义树错误判失败；把 `app/lib` 换回 v0.3.3 对照跑也一样，所以不是本版引起的（v0.3.3 那次没出现，时有时无）。
+- 安装包已打：`dist\DreamFlutter`（0.3.4）。
+- **状态**：没提交。等用户在安装包上试过再提交、打 tag `v0.3.4`、推送。`packages/pi_rpc/build/` 是跑测试留下的，不要提交。
+- **下一步（用户在报告里定的）**：v0.3.4 发布后，读用户的 4 份调研（三级记忆、DSH 与蝶君、Goal、后台压缩，在 `…\DreamFlutter\2026-11-02 13-01 Codex-五项平台能力调研与设计\`），完善升级 0.4–0.9 总计划（[roadmap.md](roadmap.md)），和用户定好后开始 0.4。用户的蝶君沙箱体检报告（81 分；缺 gcc、Node、ffmpeg、OCR，Chromium 缺 14 个系统库、蝶君从 Ubuntu 归档手动解 deb）一起放进计划讨论（沙箱镜像加软件）。
 
 **v0.3.3（2026-11-04）**：按用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.3.2测试记录.md`（截图在同目录）做的，详见 [v0.3.3-release-notes.md](v0.3.3-release-notes.md)。
 - 修了：生成时滚轮被拉回底部（`chat_view.dart` 的 `_BottomAnchoredController`，阈值 80 → 2，加「回到底部」按钮）；缩放下拖选错位（Flutter 滚动列表选区的 bug，对话列表绕开，见 dev-guide 一.2）；拖放串到隐藏页面（`showsOnScreen`）；生成时图片闪（`memoryImageOf`）；Ctrl 卡住（`ui/keys.dart` 的 `HeldKeys`）；气泡里 Pi 的图片说明；记忆去重和「用户叫蝶君」（`memory.ts` 的 `nearDuplicate` / `saysMore`、提取提示词，只是止血）；v0.3.1 剩下的行内代码高亮、备份页、仪表盘表头；场景巡检发现的 150% 缩放导航栏溢出。
