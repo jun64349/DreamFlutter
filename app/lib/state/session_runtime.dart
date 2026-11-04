@@ -445,12 +445,17 @@ class SessionRuntime extends ChangeNotifier {
 
   // --- Actions -------------------------------------------------------------
 
+  /// Counts the user's sends; the conversation goes back to its end on each.
+  int sends = 0;
+
   /// Sends a prompt; while a run is active it steers the current run.
   Future<void> send(String text, {List<ImageBlock> images = const []}) async {
     final client = _client;
     final message = text.trim();
     if (client == null || (message.isEmpty && images.isEmpty) || !isReady) return;
     _touch();
+    sends++;
+    _scheduleNotify();
     try {
       final disposition = await client.prompt(message, images: images, streamingBehavior: isRunning ? 'steer' : null);
       // Extension commands may change the session name, commands, etc.

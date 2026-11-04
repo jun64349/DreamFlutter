@@ -188,8 +188,31 @@ class CardStage extends ChangeNotifier {
     if (_snapshots.length > 60) _snapshots.remove(_snapshots.keys.first);
   }
 
+  // A card scrolled out of the conversation is built again when it comes
+  // back. Without what it was, it opened as a short placeholder and then
+  // grew to its full height, which pushed the text being read (v0.3.3 test).
+  final Map<String, CardInfo> _infos = {};
+  final Map<String, double> _heights = {};
+
+  CardInfo? info(String id) => _infos[id];
+
+  void putInfo(CardInfo card) {
+    _infos[card.id] = card;
+    if (_infos.length > 200) _infos.remove(_infos.keys.first);
+  }
+
+  /// The height the card last had on screen.
+  double? height(String id) => _heights[id];
+
+  void putHeight(String id, double height) {
+    _heights[id] = height;
+    if (_heights.length > 200) _heights.remove(_heights.keys.first);
+  }
+
   void forget(String id) {
     _snapshots.remove(id);
+    _infos.remove(id);
+    _heights.remove(id);
     if (_activated == id) _activated = null;
   }
 }

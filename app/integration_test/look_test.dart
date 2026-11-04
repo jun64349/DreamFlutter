@@ -25,7 +25,7 @@ import '../test/fake_backend.dart';
 const _reply = '''
 ### 华东区本周概况
 
-华东区本周销售 **412.6 万元**，环比增长 8.3%，是唯一超额完成目标的区域。增长主要来自上海和杭州的两家新门店。
+华东区本周销售 **412.6 万元**，环比增长 8.3%，是唯一超额完成目标的区域。增长主要来自上海和杭州的两家新门店，明细写在 `周报.md` 里，可以对照着看。
 
 | 区域 | 本周（万元） | 环比 | 目标完成率 |
 |---|---|---|---|
@@ -73,6 +73,8 @@ void main() {
     }
 
     final sessions = Directory.systemTemp.createTempSync('df_look_');
+    // The reply names this file: it shows as a link inside its sentence.
+    File(p.join(sessions.path, '周报.md')).writeAsStringSync('# 周报');
     SharedPreferences.setMockInitialValues({'workspace': sessions.path});
     final backend = FakeBackend()..butterflyHome = p.join(Directory.systemTemp.path, 'df_look_butterfly');
     final agent = AgentController(

@@ -52,9 +52,12 @@ class _CardBlockState extends State<CardBlock> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final stage = AgentScope.read(context).cardStage;
     _events ??= AgentScope.read(context).backend.events.listen((event) {
       if (event['event'] == 'card.changed' && event['card'] is Map && (event['card'] as Map)['id'] == _cardId) {
-        if (mounted) setState(() => _card = CardInfo.fromJson((event['card'] as Map).cast()));
+        final card = CardInfo.fromJson((event['card'] as Map).cast());
+        stage.putInfo(card);
+        if (mounted) setState(() => _card = card);
       } else if (event['event'] == 'card.removed' && event['cardId'] == _cardId) {
         if (mounted) setState(() => _error = '这张卡片已经随对话删除了。');
       }
@@ -78,11 +81,15 @@ class _CardBlockState extends State<CardBlock> {
     final id = _cardId;
     if (id == null || id == _loadedFor) return;
     _loadedFor = id;
+    final stage = AgentScope.read(context).cardStage;
+    // Built again after scrolling away: show it as it was at once, then refresh.
+    _card = stage.info(id) ?? _card;
     try {
       final card = CardInfo.fromJson(asJsonMap(await AgentScope.read(context).backend.call('cards.get', {'id': id})));
+      stage.putInfo(card);
       if (mounted) setState(() => _card = card);
     } catch (e) {
-      if (mounted) setState(() => _error = '卡片打不开：${SessionRuntime.describeError(e)}');
+      if (mounted && _card == null) setState(() => _error = '卡片打不开：${SessionRuntime.describeError(e)}');
     }
   }
 
@@ -388,7 +395,7 @@ class _CardViewState extends State<CardView> {
   bool _starting = false;
   bool _unavailable = false;
   bool _loaded = false;
-  late double _height = (widget.card.height ?? 220).clamp(_minHeight, _maxHeight);
+  late double _height = (_stage?.height(widget.card.id) ?? widget.card.height ?? 220).clamp(_minHeight, _maxHeight);
   final _repaintKey = GlobalKey();
   StreamSubscription<Map<String, dynamic>>? _messages;
   Timer? _captureTimer;
@@ -522,6 +529,7 @@ class _CardViewState extends State<CardView> {
         if (h == null || widget.sizing == 'viewport') return;
         final next = h.clamp(_minHeight, _maxHeight);
         if ((next - _height).abs() >= 1 && mounted) {
+          _stage?.putHeight(widget.card.id, next);
           setState(() => _height = next);
           _heightTimer?.cancel();
           _heightTimer = Timer(const Duration(seconds: 1), () => agent.backend.call('cards.setHeight', {'id': widget.card.id, 'height': next}).ignore());

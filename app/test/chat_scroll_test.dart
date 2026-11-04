@@ -114,6 +114,81 @@ void main() {
     expect(gaps.where((g) => g.abs() > 0.5), isEmpty, reason: 'gaps per frame: $gaps');
   });
 
+  /// An assistant message that calls [count] tools, all finished.
+  void toolTurn(String prefix, int count) {
+    final message = {
+      'role': 'assistant',
+      'content': [
+        for (var i = 0; i < count; i++)
+          {
+            'type': 'toolCall',
+            'id': '$prefix$i',
+            'name': 'read',
+            'arguments': {'path': 'file$i.txt'},
+          },
+      ],
+      'stopReason': 'toolUse',
+      'timestamp': ts++,
+    };
+    pi.emit({'type': 'message_start', 'message': message});
+    pi.emit({'type': 'message_end', 'message': message});
+    for (var i = 0; i < count; i++) {
+      pi.emit({
+        'type': 'tool_execution_start',
+        'toolCallId': '$prefix$i',
+        'toolName': 'read',
+        'args': {'path': 'file$i.txt'},
+      });
+      pi.emit({
+        'type': 'tool_execution_end',
+        'toolCallId': '$prefix$i',
+        'toolName': 'read',
+        'result': {
+          'content': [
+            {'type': 'text', 'text': 'ok'},
+          ],
+        },
+        'isError': false,
+        'durationMs': 5,
+      });
+    }
+  }
+
+  Future<void> frames(WidgetTester tester, int count) async {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+    for (var f = 0; f < count; f++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+  }
+
+  // v0.3.3 test: after a queued message went out the conversation jumped up.
+  testWidgets('a queued message going out and the work folding never paint away from the end', (tester) async {
+    await startApp(tester);
+    await longConversation(tester);
+    pi.startRun('do some work');
+    toolTurn('t', 10);
+    await frames(tester, 40);
+    final position = listPosition();
+    expect(position.maxScrollExtent - position.pixels, lessThan(0.5));
+    final gaps = recordGaps(position);
+
+    pi.emit({'type': 'queue_update', 'steering': ['插入的话'], 'followUp': <String>[]});
+    await frames(tester, 10);
+    final steer = {'role': 'user', 'content': '插入的话', 'timestamp': ts++};
+    pi.emit({'type': 'message_start', 'message': steer});
+    pi.emit({'type': 'message_end', 'message': steer});
+    pi.emit({'type': 'queue_update', 'steering': <String>[], 'followUp': <String>[]});
+    await frames(tester, 40);
+    toolTurn('s', 3);
+    await frames(tester, 10);
+    pi.finishRun();
+    await frames(tester, 40);
+    stopRecording();
+
+    expect(gaps, isNotEmpty);
+    expect(gaps.where((g) => g.abs() > 0.5), isEmpty, reason: 'gaps per frame: $gaps');
+  });
+
   testWidgets('a reader who scrolled up stays where they are while the reply grows', (tester) async {
     await startApp(tester);
     await longConversation(tester);

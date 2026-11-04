@@ -1,5 +1,6 @@
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart' show Transcript;
 
@@ -341,6 +342,12 @@ class _MessageList extends StatefulWidget {
 class _MessageListState extends State<_MessageList> {
   final _scroll = _BottomAnchoredController();
   Transcript? _shown;
+  int _sends = 0;
+
+  /// Rows that were there before: only rows new while it runs slide in. A row
+  /// scrolled away is built again when it comes back, and it played its
+  /// entrance again, which looked like the conversation refreshing (v0.3.3 test).
+  final Set<String> _seen = {};
 
   @override
   void dispose() {
@@ -352,12 +359,25 @@ class _MessageListState extends State<_MessageList> {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final transcript = agent.transcript;
+    final rows = ChatRow.fromItems(transcript.items);
     // Another conversation opens at its end, wherever the last one was scrolled to.
     if (!identical(transcript, _shown)) {
       _shown = transcript;
       _scroll.stick = true;
+      _seen
+        ..clear()
+        ..addAll(rows.map((r) => r.key));
     }
-    final rows = ChatRow.fromItems(transcript.items);
+    // Sending (or queueing) a message goes back to the end to show it.
+    final sends = agent.active?.sends ?? 0;
+    if (sends != _sends) {
+      _sends = sends;
+      // The list may not lay out again by itself (nothing in it changed yet).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scroll.toEnd();
+      });
+    }
+    final fresh = {for (final row in rows) if (_seen.add(row.key)) row.key};
     final queued = transcript.queuedSteering;
     // The messages' text registers with the selection area directly, not
     // through the list. The list's own selection handling adds the scroll
@@ -377,16 +397,19 @@ class _MessageListState extends State<_MessageList> {
                 final child = index < rows.length
                     ? FadeSlideIn(
                         key: ValueKey(rows[index].key),
-                        animate: transcript.isRunning,
+                        animate: transcript.isRunning && fresh.contains(rows[index].key),
                         child: ChatRowView(row: rows[index], transcript: transcript),
                       )
                     : QueuedMessages(messages: queued);
-                return SelectionRegistrarScope(
-                  registrar: registrar,
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth + 56),
-                      child: Padding(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 6), child: child),
+                return _AnchoredRow(
+                  controller: _scroll,
+                  child: SelectionRegistrarScope(
+                    registrar: registrar,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth + 56),
+                        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 6), child: child),
+                      ),
                     ),
                   ),
                 );
@@ -479,6 +502,11 @@ class _BottomAnchoredController extends ScrollController {
     if (hasClients) jumpTo(position.maxScrollExtent);
   }
 
+  /// How much rows wholly above the view grew in this layout (see [_AnchoredRow]).
+  double _anchor = 0;
+
+  void _anchorBy(double delta) => _anchor += delta;
+
   @override
   void dispose() {
     following.dispose();
@@ -497,12 +525,67 @@ class _BottomAnchoredPosition extends ScrollPositionWithSingleContext {
 
   @override
   bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    // A reader away from the end keeps the text in front of them: rows above
+    // the view that changed height move the offset by as much.
+    final anchor = _owner._anchor;
+    _owner._anchor = 0;
+    if (anchor != 0 && !_owner.stick && hasPixels) {
+      // correctBy, not correctPixels: a fling in progress carries on from here.
+      correctBy(anchor);
+      super.applyContentDimensions(minScrollExtent, maxScrollExtent);
+      return false;
+    }
     final settled = super.applyContentDimensions(minScrollExtent, maxScrollExtent);
     if (_owner.stick && hasPixels && pixels != maxScrollExtent && activity is! DragScrollActivity && activity is! BallisticScrollActivity) {
       correctPixels(maxScrollExtent);
       return false; // lay out again at the new offset, before painting
     }
     return settled;
+  }
+}
+
+/// One row of the conversation that tells the list when it changes height
+/// while wholly above the view.
+///
+/// Rows scrolled away are built again when they come back: a card opened
+/// short and grew to its full height, an image appeared once decoded, a folded
+/// step lost its state. Everything below moved down, so a reader scrolled up
+/// saw the conversation jump (v0.3.3 test: 「时不时往上弹」). The list now
+/// moves its offset by the same amount, like scroll anchoring in browsers.
+/// A row on screen is left alone: it is what the reader is looking at.
+class _AnchoredRow extends SingleChildRenderObjectWidget {
+  const _AnchoredRow({required this.controller, required super.child});
+
+  final _BottomAnchoredController controller;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderAnchoredRow(controller);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderAnchoredRow renderObject) => renderObject.controller = controller;
+}
+
+class _RenderAnchoredRow extends RenderProxyBox {
+  _RenderAnchoredRow(this.controller);
+
+  _BottomAnchoredController controller;
+  double? _height;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final before = _height;
+    _height = size.height;
+    if (before == null || before == size.height || controller.stick) return;
+    // The list's own child that holds this row, and the list.
+    RenderObject? item = this;
+    while (item != null && item.parentData is! SliverMultiBoxAdaptorParentData) {
+      item = item.parent;
+    }
+    final list = item?.parent;
+    if (item == null || list is! RenderSliver) return;
+    final top = (item.parentData! as SliverMultiBoxAdaptorParentData).layoutOffset;
+    if (top != null && top + before <= list.constraints.scrollOffset + 0.5) controller._anchorBy(size.height - before);
   }
 }
 

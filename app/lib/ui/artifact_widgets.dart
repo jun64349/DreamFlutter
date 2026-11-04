@@ -119,7 +119,15 @@ Future<void> showFilePreview(BuildContext context, String path) async {
     }
     if (!context.mounted) return;
     body = ext == '.md' || ext == '.markdown'
-        ? Markdown(data: text, selectable: true, padding: EdgeInsets.zero)
+        ? Markdown(
+            data: text,
+            selectable: true,
+            padding: EdgeInsets.zero,
+            // The package's default code style has a ground that hides the selection (see ReplyMarkdown).
+            styleSheet: MarkdownStyleSheet(
+              code: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 13, backgroundColor: Colors.transparent),
+            ),
+          )
         : SingleChildScrollView(
             child: SelectableText(text, style: context.text.bodySmall?.copyWith(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, height: 1.5)),
           );

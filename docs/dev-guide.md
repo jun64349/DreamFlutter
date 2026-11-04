@@ -40,9 +40,18 @@
 - 不要用「离底部 80 像素内就重新吸附」这种大阈值：一格滚轮约 50 像素，生成时下一帧就被拉回去，滚轮完全不能用（v0.3.2 实测）。
 - 贴底在布局时做（`correctPixels`），不要在下一帧 `jumpTo`（会抖，额外测试 7）。
 
+- 用户读的位置要稳（v0.3.3 实测「时不时往上弹」）：`ListView.builder` 会回收滚出去的行，回来时重新搭建。重新搭建时高度会变的东西（卡片先显示「正在打开…」再撑开、图片解码后才有高度、折叠状态丢了）会把下面的内容整体推走。
+  - 对话列表每行包 `_AnchoredRow`：整行在视口上方时它变高变矮，列表偏移跟着补上（像浏览器的 scroll anchoring）。别的长列表有同样问题时照做。
+  - 能同步拿到的就同步拿：卡片的信息和高度记在 `CardStage`（`info` / `height`），重新搭建时直接用。
+  - 入场动画只给真正新出现的行（`_seen`），不要按「正在运行」一刀切：滚回来的旧行会重播动画，看起来像整个对话在刷新。
+- 发消息（包括排队插话）时回到底部跟随：内容没变时列表不会重新布局，`stick = true` 不会生效，要在下一帧 `toEnd()`。
+
 ### 6. 文字和选区
 
 - `TextStyle.backgroundColor` 会盖住选区：段落先画选区、后画文字（含背景）。可选文字里不要用文字背景色（v0.3.1 实测 3，行内代码）。
+- **flutter_markdown_plus 会把它自带的默认样式和我们给的 `MarkdownStyleSheet` 合并**，我们没写的字段沿用默认值。默认的 `code` 带卡片色底色，所以「去掉 backgroundColor」等于没改：v0.3.3 以为修好了行内代码的选区，用户实测还是选不中（v0.3.3 实测第 1 条）。要明说 `backgroundColor: Colors.transparent`。测试要查**实际画出来的** span 样式（`markdown_view_test` 的「no ground」），不要只查自己写的样式表。
+- Markdown 里行内元素的自定义组件（`MarkdownElementBuilder` 返回的 widget）如果不是 `Text`，会被当成段落外的单独一块：在它后面断行，也不在段落的选区里（v0.3.3 实测，文件名链接）。要嵌在句子里，就返回 `Text.rich(WidgetSpan(...))`：占位符在合并时原样保留，里面的文字照样登记到选区、复制顺序正确。不要指望 `TextSpan` 的 `onEnter` / `mouseCursor`：flutter_markdown_plus 合并相邻文字时会重建 `TextSpan`，只留下 text、style、recognizer。
+- 可点的东西靠悬停效果（底色、手形光标）表明，不要再加说明气泡（用户 v0.3.3 的意见）。
 - 给模型看的文字不要原样给人看：Pi 在带图消息里加的 `[Image: original …, displayed at …]` 在 `splitMentions` 里去掉了（v0.3.2 实测）。
 
 ### 7. 布局

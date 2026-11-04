@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/card_view.dart';
+import 'package:dreamflutter/ui/motion.dart';
+import 'package:dreamflutter/ui/web_surface.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -202,6 +205,155 @@ void main() {
       });
     }
   }
+
+  /// A reply that shows a card [height] pixels tall; the card's details come
+  /// from the core a moment after the row is built.
+  void cardReply(String id, double height) {
+    backend.handlers['cards.get'] = (params) => {
+      'id': params['id'],
+      'title': '体检报告',
+      'origin': 'agent',
+      'resident': false,
+      'epoch': 1,
+      'version': 1,
+      'updatedAt': 0,
+      'height': height,
+      'bindings': <Object>[],
+    };
+    WebSurfaces.create = () async => null;
+    final message = {
+      'role': 'assistant',
+      'content': [
+        {
+          'type': 'toolCall',
+          'id': 'call-$id',
+          'name': 'show_card',
+          'arguments': {'title': '体检报告'},
+        },
+      ],
+      'stopReason': 'toolUse',
+      'timestamp': ts++,
+    };
+    pi.emit({'type': 'message_start', 'message': message});
+    pi.emit({'type': 'message_end', 'message': message});
+    pi.emit({'type': 'tool_execution_start', 'toolCallId': 'call-$id', 'toolName': 'show_card', 'args': {'title': '体检报告'}});
+    pi.emit({
+      'type': 'tool_execution_end',
+      'toolCallId': 'call-$id',
+      'toolName': 'show_card',
+      'result': {
+        'content': [
+          {'type': 'text', 'text': 'shown'},
+        ],
+        'details': {'cardId': id},
+      },
+      'isError': false,
+      'durationMs': 5,
+    });
+  }
+
+  /// The first question on screen and where it is.
+  (String, double)? questionOnScreen(WidgetTester tester) {
+    final list = tester.getRect(messageList());
+    for (var i = 0; i < 20; i++) {
+      final finder = find.descendant(of: messageList(), matching: find.text('question $i'));
+      if (finder.evaluate().isEmpty) continue;
+      final top = tester.getTopLeft(finder).dy;
+      if (top > list.top + 20 && top < list.bottom - 40) return ('question $i', top);
+    }
+    return null;
+  }
+
+  // v0.3.3 test: 「时不时往上弹」. Scrolling up builds rows again; a card first
+  // shows a short placeholder, then grows to its height, and pushed the text
+  // being read down.
+  testWidgets('a row above growing while the reader scrolls up does not move the text they read', (tester) async {
+    await startApp(tester);
+    pi.startRun('show me the report');
+    cardReply('c_report', 700);
+    reply('The report is above.');
+    pi.finishRun();
+    await settle(tester);
+    await earlierAnswers(tester, 6);
+    final center = tester.getCenter(messageList());
+    final position = listPosition(tester);
+    // As after a restart: nothing remembered about the card, so it opens short.
+    agent.cardStage.forget('c_report');
+    final callsBefore = backend.callsTo('cards.get').length;
+
+    var loaded = false;
+    for (var step = 0; step < 120 && !loaded; step++) {
+      await tester.sendEventToBinding(PointerScrollEvent(position: center, scrollDelta: const Offset(0, -120)));
+      await tester.pump();
+      if (backend.callsTo('cards.get').length == callsBefore) continue;
+      loaded = true;
+      final before = questionOnScreen(tester);
+      expect(before, isNotNull);
+      final pixels = position.pixels;
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('体检报告', skipOffstage: false), findsWidgets, reason: 'the card has its details now');
+      final after = tester.getTopLeft(find.descendant(of: messageList(), matching: find.text(before!.$1))).dy;
+      expect(after, moreOrLessEquals(before.$2, epsilon: 0.5), reason: 'the text being read stays put');
+      expect(position.pixels, greaterThan(pixels + 300), reason: 'the offset took the growth');
+    }
+    expect(loaded, isTrue);
+  });
+
+  testWidgets('a card built again after scrolling away comes back at its height', (tester) async {
+    await startApp(tester);
+    pi.startRun('show me the report');
+    cardReply('c_again', 700);
+    reply('The report is above.');
+    pi.finishRun();
+    await settle(tester);
+    expect(find.text('正在打开…'), findsNothing);
+    final card = find.byType(CardBlock, skipOffstage: false);
+    final height = tester.getSize(card).height;
+    expect(height, greaterThan(700));
+
+    await earlierAnswers(tester, 8);
+    expect(card, findsNothing, reason: 'scrolled away and gone');
+    listPosition(tester).jumpTo(0);
+    await tester.pump();
+    expect(find.text('正在打开…'), findsNothing, reason: 'no placeholder on the way back');
+    expect(tester.getSize(card).height, height);
+  });
+
+  testWidgets('rows built again while a run goes on do not play their entrance again', (tester) async {
+    await startApp(tester);
+    await earlierAnswers(tester, 6);
+    final delta = await streamReply(tester);
+    await delta('Working on it. ');
+    listPosition(tester).jumpTo(0);
+    await tester.pump();
+    await delta('more. ');
+    final animating = tester.widgetList<FadeSlideIn>(find.byType(FadeSlideIn, skipOffstage: false)).where((w) => w.animate);
+    expect(animating, isEmpty, reason: 'the first rows were there before');
+    pi.finishRun();
+    await settle(tester);
+  });
+
+  testWidgets('sending a message while scrolled up goes back to the end', (tester) async {
+    await startApp(tester);
+    await earlierAnswers(tester, 6);
+    final position = listPosition(tester);
+    position.jumpTo(position.maxScrollExtent - 1500);
+    await tester.pump();
+    final input = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送'));
+    await tester.enterText(input, 'a new question');
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await settle(tester);
+    pi.startRun('a new question');
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+    for (var f = 0; f < 5; f++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(position.maxScrollExtent - position.pixels, lessThan(0.5));
+    pi.finishRun();
+    await settle(tester);
+  });
 
   testWidgets('a drag can still select across two messages', (tester) async {
     await startApp(tester);

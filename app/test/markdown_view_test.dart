@@ -2,7 +2,10 @@ import 'dart:io';
 
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/markdown_view.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -71,7 +74,91 @@ void main() {
     expect(revealed, [p.join(dir.path, 'report.docx')]);
     await tester.tap(find.text(dir.path));
     expect(opened, [p.normalize(dir.path)], reason: 'a folder opens');
-    expect(find.byType(GestureDetector).evaluate().where((e) => (e.widget as GestureDetector).child is Text), hasLength(2), reason: 'missing files and code stay plain');
+    expect(find.byType(FileLink), findsNWidgets(2), reason: 'missing files and code stay plain');
+    expect(find.byType(Tooltip), findsNothing, reason: 'the hover says it is a link, no note (v0.3.3 test)');
+    dir.deleteSync(recursive: true);
+  });
+
+  // v0.3.1 test 3, and again in v0.3.3 (「还是没法显示已选中」): a text ground
+  // over inline code hides the selection. Taking it out of our style was not
+  // enough: the Markdown package merges its own default code style, which has one.
+  testWidgets('inline code and file links have no ground over the selection', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('df_links_');
+    File(p.join(dir.path, 'notes.md')).writeAsStringSync('x');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: FileLinks(
+            baseDir: dir.path,
+            reveal: (_) {},
+            open: (_) {},
+            child: const ReplyMarkdown(text: '代码 `x = 1` 和文件 `notes.md` 在这里。'),
+          ),
+        ),
+      ),
+    );
+    final grounds = <String, Color?>{};
+    for (final text in tester.widgetList<RichText>(find.byType(RichText))) {
+      text.text.visitChildren((span) {
+        final words = span is TextSpan ? span.text : null;
+        if (words != null && (words.contains('x = 1') || words.contains('notes.md'))) grounds[words] = span.style?.backgroundColor;
+        return true;
+      });
+    }
+    expect(grounds.keys, containsAll(['x = 1', 'notes.md']));
+    for (final MapEntry(:key, :value) in grounds.entries) {
+      expect(value == null || value.a == 0, isTrue, reason: '「$key」 has a ground: $value');
+    }
+    dir.deleteSync(recursive: true);
+  });
+
+  // v0.3.3 test: the link stood on a line of its own, and a selection over the
+  // sentence left it unmarked.
+  testWidgets('a file link sits inside its sentence and is selected and copied with it', (tester) async {
+    final dir = Directory.systemTemp.createTempSync('df_links_');
+    File(p.join(dir.path, 'workspace.md')).writeAsStringSync('x');
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String?;
+      return null;
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: SelectionArea(
+            child: FileLinks(
+              baseDir: dir.path,
+              reveal: (_) {},
+              open: (_) {},
+              child: const ReplyMarkdown(text: 'Before `workspace.md` after the link.'),
+            ),
+          ),
+        ),
+      ),
+    );
+    // One paragraph: the link is a placeholder in the same text, not a widget beside it.
+    final paragraph = find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().startsWith('Before'));
+    expect(paragraph, findsOneWidget);
+    final link = tester.getRect(find.byType(FileLink));
+    final text = tester.getRect(paragraph);
+    expect(link.top, greaterThanOrEqualTo(text.top));
+    expect(link.bottom, lessThanOrEqualTo(text.top + 40), reason: 'on the first line with the words around it');
+
+    final gesture = await tester.startGesture(text.topLeft + const Offset(1, 8), kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await gesture.moveTo(text.bottomRight - const Offset(1, 4));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+    final linkText = tester.renderObject<RenderParagraph>(find.descendant(of: find.byType(FileLink), matching: find.byType(RichText)));
+    expect(linkText.selections, isNotEmpty, reason: 'the link shows as selected');
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(copied, 'Before workspace.md after the link.');
     dir.deleteSync(recursive: true);
   });
 }

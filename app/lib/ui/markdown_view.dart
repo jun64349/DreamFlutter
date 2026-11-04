@@ -56,7 +56,9 @@ class ReplyMarkdown extends StatelessWidget {
         blockSpacing: 10,
         // No background: a paragraph paints its selection first and its text on
         // top, so a background hid the selection over inline code (v0.3.1 test 3).
-        code: mono.copyWith(color: colors.ochre, fontSize: 13),
+        // Said outright: the package merges its default code style, which has a
+        // card-colored ground, and leaving ours unset kept it (v0.3.3 test).
+        code: mono.copyWith(color: colors.ochre, fontSize: 13, backgroundColor: Colors.transparent),
         // Code blocks draw their own frame (_CodeBlock).
         codeblockPadding: EdgeInsets.zero,
         codeblockDecoration: const BoxDecoration(),
@@ -186,23 +188,19 @@ class _CodeBuilder extends MarkdownElementBuilder {
     if (!isBlock) {
       final path = links?.resolve(text);
       if (path == null) return null;
-      final colors = context.colors;
       final folder = FileSystemEntity.isDirectorySync(path);
-      return MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: Tooltip(
-          message: folder ? '点击打开文件夹' : '点击在资源管理器中显示，右键用默认程序打开',
-          child: GestureDetector(
+      // Inside the sentence, not a widget of its own: a separate widget broke the
+      // line after the link and stood outside the paragraph's selection (v0.3.3 test).
+      // The placeholder is left alone when the paragraph's spans are merged.
+      return Text.rich(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.baseline,
+          baseline: TextBaseline.alphabetic,
+          child: FileLink(
+            text: text,
+            style: preferredStyle ?? const TextStyle(),
             onTap: () => folder ? links!.open(path) : links!.reveal(path),
             onSecondaryTap: () => links!.open(path),
-            child: Text(
-              text,
-              style: (preferredStyle ?? const TextStyle()).copyWith(
-                color: colors.accent,
-                decoration: TextDecoration.underline,
-                decorationColor: colors.accent.withValues(alpha: 0.4),
-              ),
-            ),
           ),
         ),
       );
@@ -211,6 +209,55 @@ class _CodeBuilder extends MarkdownElementBuilder {
     final source = text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
     if (language != null && richLanguages.contains(language.toLowerCase())) return RichBlock(kind: language.toLowerCase(), source: source);
     return CodeBlock(code: source, language: language);
+  }
+}
+
+/// A file named in a reply: accent text with an underline; under the mouse it
+/// gets a light ground, which says it can be clicked without any note (v0.3.3
+/// test). The ground is a box behind the text, not a text background, so a
+/// selection still shows over it.
+class FileLink extends StatefulWidget {
+  const FileLink({super.key, required this.text, required this.style, required this.onTap, required this.onSecondaryTap});
+
+  final String text;
+  final TextStyle style;
+  final VoidCallback onTap;
+  final VoidCallback onSecondaryTap;
+
+  @override
+  State<FileLink> createState() => _FileLinkState();
+}
+
+class _FileLinkState extends State<FileLink> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onSecondaryTap: widget.onSecondaryTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          decoration: BoxDecoration(
+            color: _hover ? colors.accent.withValues(alpha: 0.12) : colors.accent.withValues(alpha: 0),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: Text(
+            widget.text,
+            style: widget.style.copyWith(
+              color: colors.accent,
+              decoration: TextDecoration.underline,
+              decorationColor: colors.accent.withValues(alpha: _hover ? 0.9 : 0.4),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
