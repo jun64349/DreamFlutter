@@ -13,6 +13,17 @@
 - **状态**：用户 2026-11-04 在安装包上试过说「没啥问题了」，让打 tag 发布：提交 `283c0e7`（修复）、`d2cdce6`（版本号和发布说明），annotated tag `v0.3.3` → `d2cdce6`，`main` 和 tag 已推送。安装包在 `dist\DreamFlutter`；用户用的是 `E:\DreamFlutter测试版`（数据在它的 `data\`，桌面快捷方式名字还是 v0.3.2），升级靠用户自己用 robocopy 覆盖 app、core、runtime、licenses 四个文件夹（Claude 替换那个文件夹被权限拦下）。
 - **下一步**：用户在做深度测试，等报告（一般放在 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\`），先修报告里的问题（每个修复带回归测试，发布前走 scenarios.md）；然后看用户的另外 4 份报告（三级记忆、DSH 与蝶君、Goal、后台压缩，在 `…\2026-11-02 13-01 Codex-五项平台能力调研与设计\`），再开 0.4。
 
+**用户的测试版在哪、怎么升级**：用户用 `E:\DreamFlutter测试版`（桌面快捷方式「dreamflutter v0.3.2」指向它，名字没改），数据在它的 `data\`。发新版本 = `scripts\package-windows.ps1` 打到 `dist\DreamFlutter` → 请用户先从托盘「退出并停止后台」→ 给用户下面这段命令自己运行（Claude 直接删改那个文件夹会被权限拦下）：
+
+```powershell
+$src = "E:\claude\DreamFlutter\dist\DreamFlutter"; $dst = "E:\DreamFlutter测试版"
+foreach ($d in "app","core","runtime","licenses") { robocopy "$src\$d" "$dst\$d" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null }
+Copy-Item "$src\使用说明.txt" $dst -Force
+Get-Content "$dst\使用说明.txt" -TotalCount 1
+```
+
+**推送**（用户点头后）：`$env:GCM_INTERACTIVE="never"; git -c credential.helper= -c credential.helper=manager push origin main <tag>`（PowerShell；本机 git 的凭据助手是个图形选择窗口，会卡住。PowerShell 5.1 会把 git 的正常输出显示成红色错误，看有没有 `main -> main` 就行）。
+
 **v0.3.3 测试**（2026-11-04，全部通过）：后台 199 + `tsc`；窗口 95 + `flutter analyze`；协议层 39；场景巡检 5（真窗口）；视觉检查（顺手修了脚本：窗口低时先 `ensureVisible` 再点「过程」行）；卡片；**真实模型端到端 3 分 27 秒全过**（这次语义树错误没再让它失败）。每个修复都确认过「去掉修复测试就失败」。安装包打好后用户自己试过（截图工具卡 Ctrl、真实拖放、行内代码高亮这些手动项由用户验收）。
 
 以下是 v0.3.2 及以前的记录。
@@ -25,7 +36,7 @@
 - **2026-11-03 窗口**：
   1. **v0.3.0**：版本号、[v0.3-release-notes.md](v0.3-release-notes.md) 单独一个提交 `afd6ef2`（tag 打在它上面）。测试：后台 188、窗口 83、look、cards 全过；e2e 36 步全部走通，但测试被判失败，原因是一开始就冒出的 Flutter 自己的语义树错误（见「踩过的坑」最后一条），没修。
   2. **v0.3.1 备份、迁移与恢复**：做完并提交，版本号已改 0.3.1，见下面「v0.3.1 备份、迁移与恢复」一节和 [v0.3.1-release-notes.md](v0.3.1-release-notes.md)。安装包按 v0.3.1 打（`dist\DreamFlutter-0.3.1\`，第一次带上沙箱镜像、uv、Python）。
-  3. （用户 2026-11-03 同意）annotated tag `v0.3.0` → `afd6ef2`、`v0.3.1` → `1b4e950`，`main` 和两个 tag 已推送。推送要绕开 git 的凭据选择窗口，命令见「踩过的坑」。
+  3. （用户 2026-11-03 同意）annotated tag `v0.3.0` → `afd6ef2`、`v0.3.1` → `1b4e950`，`main` 和两个 tag 已推送。推送要绕开 git 的凭据选择窗口，命令见本节开头「推送」。
   4. **v0.3.1 实测反馈**（用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\2026\2026-11\2026-11-03\User\dfv0.3.1测试记录.md`，10 条 + 截图）的去向：
      - 第 4 条（数据集中、不放 C 盘、和别的 Agent 平台隔离）：用户定了**提前到 v0.3.2**、默认放**软件目录旁边的 data 文件夹** → 已做，见下面「v0.3.2 数据集中」一节。
      - 第 1 条提示条（配色反了、太宽、没居中、想放上面、字小点）→ v0.3.2 已改。第 9 条「⋯」菜单错位（界面缩放时坐标没换算）→ v0.3.2 已修。
@@ -34,12 +45,15 @@
 - **下一步**：
   1. **v0.3.2 已打 tag 并推送**（用户 2026-11-03 说直接推、后面再试；annotated tag `v0.3.2` → `d2f5a36`，含全仓库审查的修复）。安装包按审查后的代码重新打过；建议用户复制到 `E:\DreamFlutterApp`（`E:\DreamFlutter` 是用户别的资料）并建桌面快捷方式，用户还没试：第一次启动会自动搬数据，后台重启一次；**搬家的真实运行结果要等用户反馈**。
   2. ~~做上面「还没做」的四条~~（v0.3.3 已做）；然后看用户的另外 4 份报告，再开 0.4。
-- 要用户在真实应用里试的：拖图片、子 Agent、蝶君整条流程、工作台的 uv / Python；**备份**：设置 › 数据与迁移 › 备份与恢复，导出一份（试试带 Key）、再导入它（会先自动备份、后台重启）、看「上次恢复」、撤销；有条件的话在另一台电脑或另一个 Windows 用户下导入。用户试用要**自己双击**（不要从 Claude 的终端启动，见约定）：从 v0.3.2 起用户主要用安装包 `dist\DreamFlutter\app\dreamflutter.exe`（数据在 `dist\DreamFlutter\data\`）；开发版 `app\build\windows\x64\runner\Debug\dreamflutter.exe` 的数据在仓库根目录 `data\`，两者不共用。改了后台要先从托盘「退出并停止后台」。
+- 要用户在真实应用里试的：拖图片、子 Agent、蝶君整条流程、工作台的 uv / Python；**备份**：设置 › 数据与迁移 › 备份与恢复，导出一份（试试带 Key）、再导入它（会先自动备份、后台重启）、看「上次恢复」、撤销；有条件的话在另一台电脑或另一个 Windows 用户下导入。用户试用要**自己双击**（不要从 Claude 的终端启动，见约定）：用户实际用的是复制出去的 `E:\DreamFlutter测试版`（见本节开头）；开发版 `app\build\windows\x64\runner\Debug\dreamflutter.exe` 的数据在仓库根目录 `data\`，两者不共用。改了后台要先从托盘「退出并停止后台」。
 
 **先读这些**：
 
 | 文档 | 内容 |
 |---|---|
+| [dev-guide.md](dev-guide.md) | **开发规范与踩坑**（v0.3.3 起新坑写这里） |
+| [testing/scenarios.md](testing/scenarios.md) | **全场景测试清单**：怎么跑每层测试、每个场景由谁覆盖、发布前的手动清单 |
+| [v0.3.3-release-notes.md](v0.3.3-release-notes.md) | 最新版本做了什么 |
 | [roadmap.md](roadmap.md) | v0.3–v1.0 计划（第二节是已定的事）、v0.2.0 已有能力对照表、35 条 + 额外 12 条反馈的去向、要用户定的事 |
 | [roadmap-review-2026-11-02.md](roadmap-review-2026-11-02.md) | 重排时的讨论稿：对 Gemini 隔离方案的核查（为什么不给 root）、额外测试的核查、Agent 运行时的想法 |
 | 用户的新材料（`C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\2026-11-01\`） | `2026-11-01 df测试记录（额外）.md`、`2026-11-01 DreamFlutter-三级记忆管理系统-调研与讨论纪要-2026-11-01.md`（0.5 的依据）、`2026-11-01 v0.3补充：对话、书桌两板块的设计文档与调研报告.md`（蝶君和沙箱方案） |
@@ -50,7 +64,7 @@
 | 用户的深度测试记录 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\2026-11-01\2026-11-01 df测试记录.md` | 35 条原文和截图（截图在同目录 `Pasted image 20261101*.png`） |
 
 **和用户合作的约定**：
-- 用户不是开发者：说话用平实的中文；需要用户运行的命令给完整、可直接复制的（PowerShell，先 `cd` 到目录）。**不要用 Claude 的终端面板替用户启动应用来做真实试用**：Claude 桌面版是打包应用，从它启动的程序写 `%APPDATA%` 时会部分被重定向到 `%LOCALAPPDATA%PackagesClaude_pzs8sxrjxfjjcocalcacheroamingdreamflutter`（2026-11-02 实测：后台看到的数据库和外面不一致），建沙箱时 wsl 也找不到磁盘文件。让用户自己双击 `appbuildwindowsdunnerdebugdreamflutter.exe`（会自己找到 `core/src/main.ts`），或在自己打开的 powershell 里 `flutter run -d windows`。
+- 用户不是开发者：说话用平实的中文；需要用户运行的命令给完整、可直接复制的（PowerShell，先 `cd` 到目录）。**不要用 Claude 的终端面板替用户启动应用来做真实试用**：Claude 桌面版是打包应用，从它启动的程序写 `%APPDATA%` 时会部分被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\DreamFlutter`（2026-11-02 实测：后台看到的数据库和外面不一致），建沙箱时 wsl 也找不到磁盘文件。让用户自己双击安装包里的 `app\dreamflutter.exe`（用户平时用 `E:\DreamFlutter测试版`，见本节开头）。注意：跑过 `flutter test integration_test/... -d windows` 之后，`app\build\windows\x64\runner\Debug\dreamflutter.exe` 是测试程序，不是应用。
 - 分工：Claude 写全部代码（前后端）；Codex 只做必要的只读审查（额度少，经 Agent Bridge 后台任务，`cwd: E:\claude\DreamFlutter`）；广泛调研交给 Antigravity（Agent Bridge）。
 - **测试模型走 OpenCode Go**（用户 2026-11-01 决定）。
   - 用户在应用里自己填 Key、配渠道（渠道 `c13903cbb`，模型 `deepseek-v4.1-flash`）。**不要在测试里新建渠道，也不要经手 Key。**

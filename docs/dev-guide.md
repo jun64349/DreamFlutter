@@ -71,6 +71,9 @@
 - Bash 工具的沙箱启动不了 PowerShell：后台测试、`scripts/live-*.ts` 用 PowerShell 工具跑。
 - 跑测试时不要改源文件（测试会读到半改的文件）；真窗口测试一个一个跑。
 - Git Bash 调 `wsl.exe … --cd /workspace` 会被改写路径，要 `export MSYS_NO_PATHCONV=1`。
+- `git push` 会卡在凭据选择窗口：用 `$env:GCM_INTERACTIVE="never"; git -c credential.helper= -c credential.helper=manager push …`（PowerShell）。
+- 跑过真窗口测试（`flutter test integration_test/... -d windows`）后，`app\build\windows\x64\runner\Debug\dreamflutter.exe` 是测试程序，不能拿给用户试；给用户试的一律是安装包。
+- 不要直接删改用户的安装文件夹（`E:\DreamFlutter测试版`），会被权限拦下；给用户复制命令（HANDOFF 开头有）。
 - 测试失败第一步先确认是测试的问题还是代码的问题：例如 finder 默认跳过隐藏组件，看起来像代码没生效。改完的修复要确认「去掉修复测试会失败」。
 
 ## 四、和用户协作
