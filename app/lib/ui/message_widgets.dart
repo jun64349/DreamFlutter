@@ -11,6 +11,7 @@ import '../state/session_runtime.dart' show MessageBranch;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'card_view.dart';
+import 'common.dart' show memoryImageOf;
 import 'composer.dart' show MentionChip;
 import 'markdown_view.dart';
 import 'motion.dart';
@@ -157,8 +158,9 @@ class _UserBubbleState extends State<_UserBubble> {
                   for (final image in item.images)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(context.radius),
-                      child: Image.memory(
-                        base64Decode(image.data),
+                      child: Image(
+                        image: memoryImageOf(image.data),
+                        gaplessPlayback: true,
                         height: 140,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined),

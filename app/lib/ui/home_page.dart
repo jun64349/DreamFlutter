@@ -121,7 +121,8 @@ class _NavRail extends StatelessWidget {
       width: AppTokens.railWidth,
       color: context.colors.rail,
       padding: const EdgeInsets.fromLTRB(0, 18, 0, 14),
-      child: Column(
+      child: _FitOrScroll(
+        child: Column(
         children: [
           const Tooltip(message: 'DreamFlutter · 梦蝶', child: ButterflyMark(size: 36, semanticLabel: 'DreamFlutter')),
           const SizedBox(height: 18),
@@ -142,9 +143,23 @@ class _NavRail extends StatelessWidget {
           _NavButton(icon: Icons.text_fields, label: '外观', selected: false, onTap: () => showAppearanceDialog(context)),
           _NavButton(icon: Icons.settings_outlined, label: '设置', selected: false, onTap: () => push(const SettingsPage())),
         ],
+        ),
       ),
     );
   }
+}
+
+/// Fills the height it is given, and scrolls when its child needs more: a low
+/// window at a high zoom has no room for the whole rail (it overflowed at 150%).
+class _FitOrScroll extends StatelessWidget {
+  const _FitOrScroll({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => CustomScrollView(
+    slivers: [SliverFillRemaining(hasScrollBody: false, child: child)],
+  );
 }
 
 class _NavButton extends StatefulWidget {

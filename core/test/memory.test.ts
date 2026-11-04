@@ -107,6 +107,42 @@ describe("memory", () => {
 		assert.equal(list[0]!.content, "旅行偏好慢节奏，不喜欢赶景点");
 	});
 
+	it("extraction does not repeat a memory in other words and sees every memory (v0.3.2 test)", async () => {
+		t.core.settings.update({ memoryAutoExtract: true });
+		const old = (await t.core.call("memory.add", { content: "回复要简练，少说话", kind: "preference" })) as Memory;
+		const seen: string[] = [];
+		t.respond(fauxAssistantMessage("好的。"), (context) => {
+			seen.push(JSON.stringify(context.messages));
+			return fauxAssistantMessage(
+				JSON.stringify([
+					{ action: "add", kind: "preference", content: "回复要简练，少说话。" },
+					{ action: "add", kind: "preference", content: "回复要简练，别长篇大论；正常问答不要用卡片" },
+					{ action: "add", kind: "preference", content: "回复要简练，别长篇大论" },
+				]),
+			);
+		});
+		await prompt("以后回复简练一点，别长篇大论，普通问答也不要做卡片");
+		const candidates = await t.waitFor(() => {
+			const rows = t.core.db.all<{ content: string; action: string; target_id: string | null }>("SELECT content, action, target_id FROM memories WHERE status = 'candidate'");
+			return rows.length ? rows : undefined;
+		});
+		// The first repeats the memory; the second says more, so it is an update of it; the third repeats the second.
+		assert.deepEqual(candidates.map((c) => ({ ...c })), [{ content: "回复要简练，别长篇大论；正常问答不要用卡片", action: "update", target_id: old.id }]);
+		assert.match(seen[0]!, /回复要简练，少说话/, "the extractor is shown the memories even when the words differ");
+		assert.match(seen[0]!, /不是用户的信息/);
+	});
+
+	it("memory_save does not save a near repeat twice", async () => {
+		await t.core.call("memory.add", { content: "用户要求思考和输出一律使用简体中文", kind: "preference" });
+		t.respond(
+			fauxAssistantMessage([fauxToolCall("memory_save", { content: "用户要求思考和输出一律使用简体中文。", kind: "preference", explicit: true })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("ok"),
+		);
+		await prompt("记住：都用简体中文");
+		const active = (await t.core.call("memory.list", {})) as Memory[];
+		assert.equal(active.length, 1);
+	});
+
 	it("locked blocks only accept proposals", async () => {
 		await t.core.call("memory.setBlock", { key: "agreements", content: "周报每周五发", locked: true });
 		t.respond(fauxAssistantMessage([fauxToolCall("memory_block_edit", { key: "agreements", content: "周报每周四发", explicit: true })], { stopReason: "toolUse" }), fauxAssistantMessage("ok"));

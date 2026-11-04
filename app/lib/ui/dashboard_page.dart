@@ -225,6 +225,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 _SplitTable(
+                  header: _split.label,
                   rows: _splitRows(agent).take(20).toList(),
                   label: (r) => switch (_split) {
                     _Split.workspace => p.basename(r.label).isEmpty ? r.label : p.basename(r.label),
@@ -429,8 +430,10 @@ class _DailyBars extends StatelessWidget {
 }
 
 class _SplitTable extends StatelessWidget {
-  const _SplitTable({required this.rows, required this.label});
+  const _SplitTable({required this.header, required this.rows, required this.label});
 
+  /// What the first column lists (工作区, 模型…).
+  final String header;
   final List<UsageRow> rows;
   final String Function(UsageRow row) label;
 
@@ -439,8 +442,24 @@ class _SplitTable extends StatelessWidget {
     final colors = context.colors;
     final peak = rows.fold<double>(0, (m, r) => r.cost > m ? r.cost : m);
     if (rows.isEmpty) return const EmptyNote('没有数据');
+    final head = context.text.bodySmall?.copyWith(color: colors.muted, fontWeight: FontWeight.w600);
     return Column(
       children: [
+        // Column names (v0.3.1 test 10: the numbers had no headings).
+        Container(
+          padding: const EdgeInsets.only(bottom: 4),
+          margin: const EdgeInsets.only(bottom: 2),
+          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: colors.border))),
+          child: Row(
+            children: [
+              SizedBox(width: 280, child: Text(header, style: head)),
+              Expanded(child: Text('花费占比', style: head)),
+              SizedBox(width: 80, child: Text('token', textAlign: TextAlign.right, style: head)),
+              SizedBox(width: 80, child: Text('花费', textAlign: TextAlign.right, style: head)),
+              SizedBox(width: 64, child: Text('回复', textAlign: TextAlign.right, style: head)),
+            ],
+          ),
+        ),
         for (final row in rows)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 3),

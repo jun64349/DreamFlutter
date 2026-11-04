@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/butterfly_page.dart';
+import 'package:dreamflutter/ui/chat_view.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
@@ -140,6 +143,31 @@ void main() {
     expect(backend.pis.where((p) => !p.target.sandbox).every((p) => p.sent('prompt').isEmpty), isTrue);
     expect(agent.sidebar.any((e) => e.path == pi.sessionFile), isFalse);
     expect(agent.butterfly!.currentSessionPath, pi.sessionFile);
+  });
+
+  testWidgets('only the page on screen takes dropped files (v0.3.2 test)', (tester) async {
+    await startApp(tester);
+    bool takes(Finder page) => tester.widgetList<DropTarget>(find.descendant(of: page, matching: find.byType(DropTarget, skipOffstage: false), skipOffstage: false)).any((d) => d.enable);
+    final workbench = find.byType(ChatView, skipOffstage: false).first;
+    expect(takes(workbench), isTrue);
+
+    // 蝶君 opened once: its 「交流」 and 「工作」 stay built behind the workbench.
+    await tester.tap(find.text('蝶君'));
+    await settle(tester);
+    agent.butterflyTab.value = ButterflyTab.talk;
+    await settle(tester);
+    expect(takes(find.byType(ButterflyPage, skipOffstage: false)), isTrue);
+    expect(takes(workbench), isFalse, reason: 'the hidden workbench must not take a drop meant for 蝶君');
+
+    await tester.tap(find.text('工作台'));
+    await settle(tester);
+    expect(takes(workbench), isTrue);
+    expect(takes(find.byType(ButterflyPage, skipOffstage: false)), isFalse, reason: 'images dropped on the workbench turned up in 蝶君\'s input box');
+
+    // A page pushed on top (settings) covers both.
+    await tester.tap(find.text('设置'));
+    await settle(tester);
+    expect(takes(workbench), isFalse);
   });
 
   testWidgets('without a sandbox both halves of 蝶君 wait for it to be set up', (tester) async {

@@ -54,7 +54,9 @@ class ReplyMarkdown extends StatelessWidget {
         listBullet: body,
         listIndent: 22,
         blockSpacing: 10,
-        code: mono.copyWith(backgroundColor: colors.codeBackground, color: colors.ink, fontSize: 13),
+        // No background: a paragraph paints its selection first and its text on
+        // top, so a background hid the selection over inline code (v0.3.1 test 3).
+        code: mono.copyWith(color: colors.ochre, fontSize: 13),
         // Code blocks draw their own frame (_CodeBlock).
         codeblockPadding: EdgeInsets.zero,
         codeblockDecoration: const BoxDecoration(),

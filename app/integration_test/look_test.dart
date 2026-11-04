@@ -142,6 +142,9 @@ void main() {
     await shot('01_chat_light');
 
     // Open the work block to see the terminal and the diff.
+    // In a low window the summary line is above the top of the list: bring it into view first.
+    await tester.ensureVisible(find.textContaining('读取 1 个文件'));
+    await tester.pump();
     await tester.tap(find.textContaining('读取 1 个文件'));
     await shot('02_work_open_light');
 

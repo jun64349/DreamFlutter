@@ -102,6 +102,42 @@ export function relevance(query: Set<string>, memory: string): number {
 	return shared / Math.sqrt(grams.size);
 }
 
+/** How much of the shorter of two memories the longer one repeats (shared trigrams / the shorter's trigrams). */
+export function overlap(a: string, b: string): number {
+	const ga = wordGrams(a);
+	const gb = wordGrams(b);
+	const [small, large] = ga.size <= gb.size ? [ga, gb] : [gb, ga];
+	if (small.size < 4) return bare(a) === bare(b) ? 1 : 0;
+	let shared = 0;
+	for (const g of small) if (large.has(g)) shared++;
+	return shared / small.size;
+}
+
+/** Whether [a] says something [b] does not (a few words more, not just punctuation). */
+export function saysMore(a: string, b: string): boolean {
+	const gb = wordGrams(b);
+	let extra = 0;
+	for (const g of wordGrams(a)) if (!gb.has(g)) extra++;
+	return extra >= 3;
+}
+
+const bare = (text: string) => text.toLowerCase().replace(/[\p{P}\p{S}\s]+/gu, "");
+const wordGrams = (text: string) => trigrams(bare(text));
+
+/**
+ * The memory among [among] that [content] mostly repeats, if any. v0.3.2 test:
+ * 「回复要简练，少说话」 and 「回复要简练，别长篇大论；……」 were both added from one
+ * conversation, because only identical text counted as a repeat.
+ */
+export function nearDuplicate(content: string, among: Memory[]): Memory | undefined {
+	let best: { memory: Memory; score: number } | undefined;
+	for (const memory of among) {
+		const score = overlap(content, memory.content);
+		if (score >= 0.5 && (!best || score > best.score)) best = { memory, score };
+	}
+	return best?.memory;
+}
+
 /** Rough token estimate: CJK characters ~1 token each, other text ~4 characters per token. */
 export function estimateTokens(text: string): number {
 	const cjk = (text.match(/[　-鿿＀-￯]/g) ?? []).length;
@@ -288,6 +324,12 @@ export class MemoryModule implements CoreModule {
 		return this.get(id);
 	}
 
+	/** New text for a candidate still waiting for the user. */
+	reviseCandidate(id: string, content: string): void {
+		this.db.run("UPDATE memories SET content = ?, updated_at = ? WHERE id = ? AND status = 'candidate'", content.trim(), now(), id);
+		this.changed();
+	}
+
 	reject(id: string): void {
 		this.db.run("UPDATE memories SET status = 'rejected', updated_at = ? WHERE id = ? AND status = 'candidate'", now(), id);
 		this.changed();
@@ -410,7 +452,8 @@ export class MemoryModule implements CoreModule {
 				name: "memory_save",
 				label: "记住",
 				description:
-					"Save something to the user's long-term memory. Set explicit=true only when the user explicitly asked you to remember it (saved immediately). Otherwise (your own inference or lesson learned) set explicit=false: it becomes a candidate the user confirms.",
+					"Save something to the user's long-term memory. Set explicit=true only when the user explicitly asked you to remember it (saved immediately). Otherwise (your own inference or lesson learned) set explicit=false: it becomes a candidate the user confirms. " +
+					"Write it about the user, in the third person (「用户……」). Your own name or role is not a fact about the user: when the user names you, save 「用户称 Agent 为……」. If a memory already says much the same, update it with memory_update instead.",
 				parameters: {
 					type: "object",
 					properties: {
@@ -425,6 +468,22 @@ export class MemoryModule implements CoreModule {
 				async execute(_id, params: { content: string; kind?: MemoryKind; scope?: MemoryScope; explicit: boolean; reason?: string }) {
 					if (!module.enabled || incognito()) return text("记忆功能已关闭，没有保存。");
 					const slotNow = current();
+					// Much the same as a memory already there: a fuller version updates it, a shorter one is not saved twice.
+					const twin = nearDuplicate(params.content, [...module.list({ cwd: slotNow?.cwd, limit: Number.POSITIVE_INFINITY }), ...module.list({ status: "candidate", limit: Number.POSITIVE_INFINITY })]);
+					if (twin) {
+						if (!saysMore(params.content, twin.content)) return text(`已经有相同意思的记忆（${twin.status === "candidate" ? "等用户确认的候选" : `#${twin.id}`}：${twin.content}），没有重复保存。`);
+						if (twin.status === "active" && params.explicit) return text(`已有相近的记忆，已把它更新为新的说法（#${module.edit(twin.id, { content: params.content }).id}）。`);
+						if (twin.status === "active") {
+							const c = module.add({ ...twin, content: params.content, source: "agent", status: "candidate", action: "update", targetId: twin.id, reason: params.reason, sourceSession: slotNow?.info().sessionFile ?? null });
+							return text(`已有相近的记忆（#${twin.id}），修改建议已提交给用户确认（#${c.id}）。`);
+						}
+						// A waiting candidate: the fuller text replaces it (an explicit one is saved below instead).
+						if (!params.explicit) {
+							module.reviseCandidate(twin.id, params.content);
+							return text(`已把等用户确认的候选记忆换成新的说法（#${twin.id}）。`);
+						}
+						module.reject(twin.id);
+					}
 					const memory = module.add({
 						content: params.content,
 						kind: params.kind,
@@ -546,16 +605,21 @@ export class MemoryModule implements CoreModule {
 				.map((m) => `${m.role === "user" ? "用户" : "助手"}：${textOf(m.content).slice(0, 1500)}`)
 				.join("\n\n")
 				.slice(-8000);
-			const related = this.list({ query: userText.slice(0, 500), cwd: slot.cwd, limit: 15 });
-			const existing = related.length ? related.map((m) => `#${m.id} [${m.kind}] ${m.content}`).join("\n") : "（无）";
+			// All the memories (not just the ones sharing words with this conversation),
+			// and the candidates still waiting, so the same thing is not proposed again.
+			const active = this.list({ cwd: slot.cwd, limit: 80 });
+			const waiting = this.list({ status: "candidate", limit: 40 });
+			const existing =
+				[...active.map((m) => `#${m.id} [${m.kind}] ${m.content}`), ...waiting.map((m) => `（等用户确认）[${m.kind}] ${m.content}`)].join("\n") || "（无）";
 			const answer = await this.llm.complete(
-				`已有的相关记忆：\n${existing}\n\n最近的对话：\n${transcript}`,
+				`已有的记忆：\n${existing}\n\n最近的对话：\n${transcript}`,
 				{
 					system:
-						"你负责维护用户的长期记忆。从对话中找出值得长期记住的信息：稳定的个人偏好、个人或工作背景、经确认有效的做事经验。" +
-						"不要提取一次性任务细节、闲聊或助手自己的话。和已有记忆对比：新信息用 add；修正已有记忆用 update（给 target_id）；已有记忆被明确推翻用 delete；重复的不要输出。" +
-						'只输出 JSON 数组，例如 [{"action":"add","kind":"preference","scope":"global","content":"喜欢简洁的中文回答","reason":"用户说……"}]。没有就输出 []。' +
-						"kind 取 preference/background/experience；scope 取 global（任何场合都适用）或 workspace（只和当前项目有关）。content 用用户的语言，一条一件事。",
+						"你负责维护用户的长期记忆。从对话中找出值得长期记住的、关于用户本人的信息：稳定的个人偏好、个人或工作背景、经确认有效的做事经验。" +
+						"对话里的「助手」是 DreamFlutter 里的 Agent（用户可能叫它「蝶君」等名字）；助手的名字、身份、能力和它说过的话都不是用户的信息，不要当成用户的。" +
+						"不要提取一次性任务细节、闲聊或助手自己的话。和已有记忆逐条对比：意思相同或相近的不要输出（换个说法也算重复）；比已有记忆更完整或有修正时用 update（给 target_id）；已有记忆被明确推翻用 delete；真正的新信息才用 add。" +
+						'只输出 JSON 数组，例如 [{"action":"add","kind":"preference","scope":"global","content":"用户喜欢简洁的中文回答","reason":"用户说……"}]。没有就输出 []。' +
+						"kind 取 preference/background/experience；scope 取 global（任何场合都适用）或 workspace（只和当前项目有关）。content 用用户的语言、以「用户」为主语写，一条一件事。",
 					maxTokens: 1200,
 					sessionModel: slot.info().model,
 					timeoutMs: 60_000,
@@ -563,13 +627,27 @@ export class MemoryModule implements CoreModule {
 			);
 			const items = parseJsonAnswer<{ action?: string; kind?: string; scope?: string; content?: string; reason?: string; target_id?: string }[]>(answer) ?? [];
 			const created: Memory[] = [];
-			const known = new Set(this.list({ status: ["active", "candidate"] }).map((m) => m.content.trim()));
+			const known = this.list({ status: ["active", "candidate"], limit: Number.POSITIVE_INFINITY });
 			for (const item of items.slice(0, 8)) {
-				const action = (["add", "update", "delete"] as const).find((a) => a === item.action) ?? "add";
-				const target = item.target_id ? this.get(item.target_id.replace(/^#/, "")) : undefined;
+				let action = (["add", "update", "delete"] as const).find((a) => a === item.action) ?? "add";
+				let target = item.target_id ? this.get(item.target_id.replace(/^#/, "")) : undefined;
 				if (action !== "add" && (!target || target.status !== "active")) continue;
 				const content = (action === "delete" ? target!.content : item.content ?? "").trim();
-				if (!content || (action === "add" && known.has(content))) continue;
+				if (!content) continue;
+				if (action === "add") {
+					// The model still repeats itself now and then: a near repeat is dropped, or offered as an update when it says more.
+					const twin = nearDuplicate(content, [...known, ...created]);
+					if (twin && !saysMore(content, twin.content)) continue;
+					if (twin?.status === "candidate") {
+						this.reviseCandidate(twin.id, content);
+						twin.content = content;
+						continue;
+					}
+					if (twin) {
+						action = "update";
+						target = twin;
+					}
+				}
 				created.push(
 					this.add({
 						content,

@@ -14,7 +14,9 @@ import '../state/agent_controller.dart' show asJsonMap, groupProvider, jsonRows,
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'commands_dialog.dart' show commandSourceLabels, showCommandsDialog;
+import 'common.dart' show memoryImageOf;
 import 'context_dialog.dart' show showContextDialog;
+import 'keys.dart';
 import 'motion.dart';
 import 'run_summary.dart' show mentionOf;
 import 'dashboard_page.dart' show formatCost, formatTokens;
@@ -192,7 +194,7 @@ class _ComposerState extends State<Composer> {
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
-    if (event is KeyDownEvent && key == LogicalKeyboardKey.keyV && HardwareKeyboard.instance.isControlPressed) {
+    if (event is KeyDownEvent && key == LogicalKeyboardKey.keyV && HeldKeys.control) {
       // Text pastes as usual; images and files on the clipboard are attached.
       unawaited(_pasteAttachments());
       return KeyEventResult.ignored;
@@ -221,7 +223,7 @@ class _ComposerState extends State<Composer> {
       }
     }
     if (event is! KeyDownEvent || key != LogicalKeyboardKey.enter) return KeyEventResult.ignored;
-    if (HardwareKeyboard.instance.isShiftPressed || _controller.value.composing.isValid) {
+    if (HeldKeys.shift || _controller.value.composing.isValid) {
       return KeyEventResult.ignored;
     }
     _send();
@@ -854,7 +856,7 @@ class _AttachmentChip extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: Image.memory(base64Decode(attachment.block.data), width: 36, height: 36, fit: BoxFit.cover),
+            child: Image(image: memoryImageOf(attachment.block.data), gaplessPlayback: true, width: 36, height: 36, fit: BoxFit.cover),
           ),
           const SizedBox(width: 6),
           ConstrainedBox(

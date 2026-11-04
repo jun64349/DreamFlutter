@@ -217,39 +217,45 @@ class _BackupPanelState extends State<BackupPanel> {
     final muted = context.text.bodySmall?.copyWith(color: context.colors.muted);
     final overview = _overview;
     if (overview == null) return Text(_error ?? '正在读取…', style: muted);
+    final busy = [for (final b in overview['busy'] as List? ?? const []) '$b'];
+    final history = overview['history'] as List? ?? const [];
+    // One line and two buttons; the options and the record fold away (v0.3.1 test 8: the page was too much at once).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (_error != null) ...[Text(_error!, style: context.text.bodyMedium?.copyWith(color: context.colors.danger)), const SizedBox(height: AppTokens.gap)],
         if (_job != null) _JobView(job: _job!, onCancel: () => _call('backup.cancel'), onReveal: (p) => _agent!.revealInExplorer(p)),
-        _heading('导出备份'),
-        _exportSection(overview, muted),
-        const SizedBox(height: AppTokens.gap * 2),
-        _heading('导入备份'),
+        Text('把全部数据存成一个 .dfbackup 文件，换电脑或重装时导入它。导入会先自动备份现在的数据，可以撤销。', style: muted),
+        const SizedBox(height: AppTokens.gap),
+        Row(
+          children: [
+            FilledButton.icon(onPressed: _running || busy.isNotEmpty ? null : _export, icon: const Icon(Icons.upload_file_outlined, size: 18), label: const Text('导出备份…')),
+            const SizedBox(width: AppTokens.gap),
+            OutlinedButton.icon(onPressed: _running ? null : _pick, icon: const Icon(Icons.download_outlined, size: 18), label: const Text('导入备份…')),
+          ],
+        ),
+        if (busy.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text('有任务正在运行（${busy.join('、')}），等它结束或先停止再导出。', style: muted)),
         _importSection(muted),
         if (_agent!.restoreResult.value case final result?) ...[
           const SizedBox(height: AppTokens.gap * 2),
           _heading('上次恢复'),
           _restoreSection(result, muted),
         ],
-        const SizedBox(height: AppTokens.gap * 2),
-        _heading('备份记录'),
-        _historySection(overview, muted),
+        const SizedBox(height: AppTokens.gap),
+        _Fold(title: '导出选项', summary: _includeKeys ? '包含 API Key' : '不含 API Key', child: _exportOptions(overview, muted)),
+        _Fold(title: '备份记录', summary: history.isEmpty ? '还没有' : '${history.length} 份', child: _historySection(overview, muted)),
       ],
     );
   }
 
   Widget _heading(String text) => Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(text, style: context.text.titleSmall));
 
-  Widget _exportSection(Json overview, TextStyle? muted) {
-    final busy = [for (final b in overview['busy'] as List? ?? const []) '$b'];
+  Widget _exportOptions(Json overview, TextStyle? muted) {
     final materials = (overview['estimate'] as Map?)?['materials'] as num? ?? 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('把记忆、会话、任务、定时任务、卡片、模型渠道、Pi 的设置、界面偏好和蝶君的文件打成一个 .dfbackup 文件，可以在新版本或另一台电脑上导入。工作区里的文件只记位置，不打包。', style: muted),
-        const SizedBox(height: 4),
-        Text('预计大小（压缩前）：${overview['estimateText']}', style: muted),
+        Text('包括记忆、会话、任务、定时任务、卡片、模型渠道、Pi 的设置、界面偏好和蝶君的文件；工作区里的文件只记位置，不打包。预计大小（压缩前）：${overview['estimateText']}', style: muted),
         CheckboxListTile(
           value: _includeKeys,
           onChanged: _running ? null : (v) => setState(() => _includeKeys = v ?? false),
@@ -283,26 +289,21 @@ class _BackupPanelState extends State<BackupPanel> {
             dense: true,
             contentPadding: EdgeInsets.zero,
           ),
-        if (busy.isNotEmpty) Text('有任务正在运行（${busy.join('、')}），等它结束或先停止再导出。', style: muted),
-        const SizedBox(height: 6),
-        FilledButton.tonal(onPressed: _running || busy.isNotEmpty ? null : _export, child: const Text('导出…')),
       ],
     );
   }
 
+  /// What a picked backup holds and what importing it replaces (nothing until one is picked).
   Widget _importSection(TextStyle? muted) {
     final preview = _preview;
     final staged = _staged;
-    final children = <Widget>[
-      Text('用备份整套替换现在的数据。替换前会自动备份现在的数据，替换后可以撤销。只支持 v0.3.0 及以后的备份。', style: muted),
-      const SizedBox(height: 6),
-      OutlinedButton(onPressed: _running ? null : _pick, child: const Text('选择备份文件…')),
-    ];
+    final children = <Widget>[];
     if (preview != null) {
       final counts = asJsonMap(preview['counts']);
       final includes = asJsonMap(preview['includes']);
       children.addAll([
-        const SizedBox(height: AppTokens.gap),
+        const SizedBox(height: AppTokens.gap * 2),
+        _heading('导入这份备份'),
         Text('来自 v${preview['appVersion']}，${_date(preview['createdAt'] as num?)}，${preview['host']}（${preview['user']}）${preview['kind'] == 'manual' ? '' : '，自动备份'}', style: context.text.bodyMedium),
         const SizedBox(height: 4),
         Text(
@@ -438,6 +439,30 @@ class _BackupPanelState extends State<BackupPanel> {
       ],
     );
   }
+}
+
+/// A folded group: its title and a short summary; open it for the rest.
+class _Fold extends StatelessWidget {
+  const _Fold({required this.title, required this.summary, required this.child});
+
+  final String title;
+  final String summary;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Theme(
+    // No divider lines around the fold.
+    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+    child: ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(bottom: AppTokens.gap),
+      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+      dense: true,
+      title: Text(title, style: context.text.titleSmall),
+      subtitle: Text(summary, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+      children: [child],
+    ),
+  );
 }
 
 /// The running or last job: its step, a cancel button, how it ended.

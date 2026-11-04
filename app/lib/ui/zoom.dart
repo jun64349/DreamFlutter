@@ -8,6 +8,7 @@ import '../state/agent_controller.dart';
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'keys.dart';
 
 /// Applies the text size, and zooms the whole interface (layout, text,
 /// dialogs and menus) like a browser: Ctrl + wheel or Ctrl + plus / minus / 0
@@ -72,7 +73,7 @@ class _AppZoomState extends State<AppZoom> {
   /// Ctrl + mouse wheel zooms, one step per notch (a touchpad's stream of small
   /// scrolls is spaced out so one swipe does not jump to the end).
   void _onPointerSignal(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent || !HardwareKeyboard.instance.isControlPressed || event.scrollDelta.dy == 0) return;
+    if (event is! PointerScrollEvent || !HeldKeys.control || event.scrollDelta.dy == 0) return;
     final now = DateTime.now();
     if (now.difference(_lastWheelStep) < const Duration(milliseconds: 90)) return;
     _lastWheelStep = now;
@@ -145,7 +146,7 @@ class _StillWhileZooming extends ScrollPhysics {
   _StillWhileZooming applyTo(ScrollPhysics? ancestor) => _StillWhileZooming(parent: buildParent(ancestor));
 
   @override
-  bool shouldAcceptUserOffset(ScrollMetrics position) => !HardwareKeyboard.instance.isControlPressed && super.shouldAcceptUserOffset(position);
+  bool shouldAcceptUserOffset(ScrollMetrics position) => !HeldKeys.control && super.shouldAcceptUserOffset(position);
 }
 
 class _ZoomBadge extends StatelessWidget {

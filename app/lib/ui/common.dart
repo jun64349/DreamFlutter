@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
@@ -437,6 +439,27 @@ class TagChip extends StatelessWidget {
     );
   }
 }
+
+final _decodedImages = <String, MemoryImage>{};
+
+/// The picture for a base64 image, decoded once. Every streamed token rebuilds
+/// the conversation, and a fresh [MemoryImage] each time is a new image to the
+/// image cache: it was decoded again and blank for a frame (v0.3.2 test: the
+/// pictures in the conversation flickered while a reply streamed).
+MemoryImage memoryImageOf(String base64) {
+  final cached = _decodedImages.remove(base64);
+  final image = cached ?? MemoryImage(base64Decode(base64));
+  _decodedImages[base64] = image; // most recently used last
+  if (_decodedImages.length > 64) _decodedImages.remove(_decodedImages.keys.first);
+  return image;
+}
+
+/// Whether a file drop target at [context] is on screen. A drop target hears
+/// every drop on the window, wherever it is, so the pages kept alive behind the
+/// shown one (the IndexedStacks of the navigation and of 蝶君) and the pages
+/// under a pushed route must not take them (v0.3.2 test: images dropped on the
+/// workbench also turned up in 蝶君's input box).
+bool showsOnScreen(BuildContext context) => Visibility.of(context) && (ModalRoute.of(context)?.isCurrent ?? true);
 
 Future<bool> confirmAction(BuildContext context, {required String title, required String message, String confirm = '确定', bool danger = false}) async {
   final ok = await showDialog<bool>(

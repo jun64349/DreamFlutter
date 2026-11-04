@@ -81,20 +81,28 @@ void main() {
     restoreResult = null;
     chooseBackupDestination = (name) async => r'C:\备份\new.dfbackup';
     await openPanel(tester);
-    expect(find.textContaining('预计大小'), findsOneWidget);
+    // One line and two buttons; options and the record are folded (v0.3.1 test 8).
+    expect(find.textContaining('预计大小'), findsNothing);
+    expect(find.textContaining('手动导出'), findsNothing);
+    expect(find.text('1 份'), findsOneWidget);
+    await tester.tap(find.text('备份记录'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('手动导出'), findsOneWidget);
+    await tester.tap(find.text('导出选项'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('预计大小'), findsOneWidget);
 
     await tester.tap(find.text('包含 API Key'));
     await tester.pump();
     await tester.enterText(find.widgetWithText(TextField, '迁移密码（至少 6 位）'), 'abcdef');
     await tester.enterText(find.widgetWithText(TextField, '再输一次'), 'abcdeX');
-    await tester.tap(find.text('导出…'));
+    await tester.tap(find.text('导出备份…'));
     await settle(tester);
     expect(find.text('两次输入的迁移密码不一样'), findsOneWidget);
     expect(backend.callsTo('backup.export'), isEmpty);
 
     await tester.enterText(find.widgetWithText(TextField, '再输一次'), 'abcdef');
-    await tester.tap(find.text('导出…'));
+    await tester.tap(find.text('导出备份…'));
     await settle(tester);
     final params = backend.callsTo('backup.export').single;
     expect(params['path'], r'C:\备份\new.dfbackup');
@@ -111,7 +119,7 @@ void main() {
     restoreResult = null;
     chooseBackupFile = () async => r'C:\备份\old.dfbackup';
     await openPanel(tester);
-    await tester.tap(find.text('选择备份文件…'));
+    await tester.tap(find.text('导入备份…'));
     await settle(tester);
     expect(find.textContaining('OLD-PC'), findsOneWidget);
     expect(find.textContaining('会话 12'), findsOneWidget);

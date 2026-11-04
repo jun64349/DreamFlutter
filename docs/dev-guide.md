@@ -1,0 +1,89 @@
+# 开发规范与踩坑
+
+开发前先读这份。每一条都是真实出过的问题，后面写了是哪次发现的。新踩的坑加在对应的节里。
+测试清单见 [testing/scenarios.md](testing/scenarios.md)，交接和历史见 [HANDOFF.md](HANDOFF.md)。
+
+## 一、窗口（Flutter）
+
+### 1. 被 IndexedStack 留着的页面还活着
+
+导航（工作台 / 蝶君 / 任务 / 记忆 / 技能）和蝶君的「交流 / 工作」都用 IndexedStack：没显示的页面不画、不接收点击，但**仍在树里、仍在布局、仍在收全局事件**。
+
+- 拖放：`DropTarget` 收整个窗口的拖放，不管自己在不在屏幕上 → 工作台拖进的图片也进了蝶君的输入框（v0.3.2 实测）。拖放区一律 `enable: ... && showsOnScreen(context)`（`ui/common.dart`）。
+- 同理要小心：`HardwareKeyboard` 处理器、控制器的广播流（`fileDrops`、`mentionRequests`）、定时器。加之前问一句：这个页面藏在后面时还会响应吗？
+- 两个 `AgentController`（工作台和蝶君）共用一个后台连接，事件要按控制器分开处理。
+- 测试：`find.byType(...)` 默认跳过不在屏幕上的组件，要测隐藏页面时用 `skipOffstage: false`。
+
+### 2. 界面缩放用的是 Transform，Flutter 的部分坐标换算不认
+
+`AppZoom` 按「尺寸 ÷ 缩放」布局、再整体放大绘制。Flutter 自己的**滚动列表选区**（`_ScrollableSelectionContainerDelegate`）把没缩放的滚动偏移加到缩放后的坐标上：缩放 110%、往下滚 2000 像素就错 200 像素，拖第一段选中第三段，偏得多了干脆选不上（v0.3.2 实测）。
+
+- 对话列表的做法：`SelectionContainer.disabled` 包住 `ListView`，每一行用 `SelectionRegistrarScope` 直接登记到外面的 `SelectionArea`（`chat_view.dart`）。**以后在滚动列表里放可选文字都照这样做**。
+- 任何拿 `globalPosition` 和滚动偏移做加减的代码，都要在缩放 ≠ 100% 时测。
+- 测试默认缩放 100%、对话很短，这类问题全都测不出来：选字、点击位置、弹出菜单位置的测试要加「缩放 125% + 长对话」的组合（`chat_reading_test.dart`）。
+
+### 3. 修饰键会卡住
+
+截图工具（QQ / 微信的 Ctrl+Alt+A、Win+Shift+S）在按键按下时抢走键盘，Flutter 收不到「松开」，`HardwareKeyboard` 就一直以为 Ctrl 还按着：滚轮变成缩放、列表不滚（v0.3.2 实测，点一下才恢复）。
+
+- 判断 Ctrl / Shift 一律用 `HeldKeys.control` / `HeldKeys.shift`（`ui/keys.dart`，会问 Windows 实际按键状态）。不要再直接用 `HardwareKeyboard.instance.isControlPressed`。
+- 集成测试里要把 `HeldKeys.askWindows = false`（测试按的键 Windows 不知道）。
+
+### 4. 流式输出时每个字都重建整个对话
+
+- `build` 里不做重活：不解码图片、不解析大文本、不新建 `ImageProvider` / 控制器。
+- 图片用 `memoryImageOf(base64)`（`ui/common.dart`）拿同一个 `MemoryImage`，并加 `gaplessPlayback: true`。每次 `Image.memory(base64Decode(...))` 是新图片，会重新解码、空白一帧 → 生成时图片明暗闪（v0.3.2 实测）。
+
+### 5. 跟随到底部：用户的操作永远优先
+
+- 任何一次用户滚动（滚轮、拖动、滚动条、键盘）离开底部就立刻放开；只有真正回到底部（2 像素内）或点「回到底部」才重新跟随。
+- 不要用「离底部 80 像素内就重新吸附」这种大阈值：一格滚轮约 50 像素，生成时下一帧就被拉回去，滚轮完全不能用（v0.3.2 实测）。
+- 贴底在布局时做（`correctPixels`），不要在下一帧 `jumpTo`（会抖，额外测试 7）。
+
+### 6. 文字和选区
+
+- `TextStyle.backgroundColor` 会盖住选区：段落先画选区、后画文字（含背景）。可选文字里不要用文字背景色（v0.3.1 实测 3，行内代码）。
+- 给模型看的文字不要原样给人看：Pi 在带图消息里加的 `[Image: original …, displayed at …]` 在 `splitMentions` 里去掉了（v0.3.2 实测）。
+
+### 7. 布局
+
+- 每个新页面都要在「小窗口 + 150% 缩放」下不溢出：`scenarios_test.dart` 会打开所有页面、设置分类和主题，有溢出就失败（v0.3.3 由它发现左侧导航在 150% 时溢出）。
+- 侧栏、导航这种「上面一组、`Spacer`、下面一组」的竖排，放不下时要能滚（`_FitOrScroll`）。
+
+## 二、后台（core）
+
+- 加表要在模块里 `core.declareBackup(...)`，有路径的列写进 `paths`，否则 `backup.test.ts` 失败。数据库迁移只能往后追加（`schema.ts`）。
+- 记忆：
+  - 写之前查有没有意思相近的（`nearDuplicate`）：说得更完整的变成「修改」建议，重复的不写（v0.3.2 实测：「回复要简练，少说话」和「回复要简练，别长篇大论……」同时进了记忆库）。
+  - 记忆以「用户」为主语。Agent 的名字、身份不是用户的信息（v0.3.2 实测：蝶君会话里提取出「用户叫蝶君」）。
+  - 提取时把全部记忆和待确认的候选给模型看，不要只给和这次对话字面相近的几条。
+  - 记忆系统的整体重做在 v0.5，见 [memory-design.md](memory-design.md) 末尾「v0.3.2 实测问题」。
+- 测试里要关掉自动标题和自动提取记忆（harness 已关），否则会抢走假模型预设的回复。
+- 假模型错误信息里带 "rate limited" 会触发 Pi 的自动重试。
+- Pi 模板没有裸写的 `${1}`，要写 `${1:-}`。
+
+## 三、开发环境和工具
+
+- **PowerShell 5.1 读写文件默认用系统编码（GBK）**：`Get-Content` / `Set-Content` 会把 UTF-8 的中文弄乱，`-Encoding utf8` 写出的又带 BOM（v0.3.3 开发时把 `common.dart` 弄坏过一次）。改源文件只用 Edit / Write 工具；必须用 PowerShell 时读写都显式 `-Encoding utf8`，写完检查没有 BOM。
+- Bash 里用 heredoc / `node -e` / `sed` 写含反斜杠或 `${...}` 的代码会被吃掉；写脚本用 Write 工具存文件再运行（放 scratchpad）。
+- Bash 里没有 `python`；本机唯一的 node 是 Hermes 自带的 v22。
+- **不要用 `dart format`**（这个项目不是它的格式，会大面积改旧代码）。照着旁边的代码手写。
+- Bash 工具的沙箱启动不了 PowerShell：后台测试、`scripts/live-*.ts` 用 PowerShell 工具跑。
+- 跑测试时不要改源文件（测试会读到半改的文件）；真窗口测试一个一个跑。
+- Git Bash 调 `wsl.exe … --cd /workspace` 会被改写路径，要 `export MSYS_NO_PATHCONV=1`。
+- 测试失败第一步先确认是测试的问题还是代码的问题：例如 finder 默认跳过隐藏组件，看起来像代码没生效。改完的修复要确认「去掉修复测试会失败」。
+
+## 四、和用户协作
+
+- 用户不是开发者：说平实的中文，给完整、可直接复制的 PowerShell 命令（先 `cd`）。
+- 不要从 Claude 的终端替用户启动应用做试用（Claude 桌面版是打包应用，会重定向数据目录）；让用户自己双击。
+- 提交、打 tag、推送都等用户说。
+- 用户的真实测试很贵：发布前按 [testing/scenarios.md](testing/scenarios.md) 自己先走一遍，尤其是「缩放 + 长对话 + 生成中」「两个页面同时存在」这些组合。
+
+## 五、发布前检查
+
+1. 后台、窗口、协议层测试全过，`npx tsc --noEmit`、`flutter analyze` 没问题。
+2. 场景巡检、视觉检查（看截图）、卡片、真实模型端到端都跑过。
+3. 本版改到的地方，在 [testing/scenarios.md](testing/scenarios.md) 里有对应的行；新修的 bug 有回归测试，且确认去掉修复后测试会失败。
+4. 打安装包，按「手动清单」走一遍。
+5. 发布说明写清楚：修了什么、没修什么、要用户试什么。

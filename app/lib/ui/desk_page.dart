@@ -209,6 +209,7 @@ class _DeskPageState extends State<DeskPage> {
   Widget _notesColumn(BuildContext context) {
     final colors = context.colors;
     return DropTarget(
+      enable: showsOnScreen(context),
       onDragEntered: (_) => setState(() => _dragging = true),
       onDragExited: (_) => setState(() => _dragging = false),
       onDragDone: (details) {

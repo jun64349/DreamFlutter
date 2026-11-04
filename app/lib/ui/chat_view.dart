@@ -36,7 +36,7 @@ class _FileDropAreaState extends State<_FileDropArea> {
 
   @override
   Widget build(BuildContext context) => DropTarget(
-    enable: widget.enabled,
+    enable: widget.enabled && showsOnScreen(context),
     onDragEntered: (_) => setState(() => _dragging = true),
     onDragExited: (_) => setState(() => _dragging = false),
     onDragDone: (details) {
@@ -359,31 +359,87 @@ class _MessageListState extends State<_MessageList> {
     }
     final rows = ChatRow.fromItems(transcript.items);
     final queued = transcript.queuedSteering;
+    // The messages' text registers with the selection area directly, not
+    // through the list. The list's own selection handling adds the scroll
+    // offset unscaled to scaled positions, so under interface zoom a drag
+    // selected text further down the more the list was scrolled, or nothing
+    // at all (v0.3.2 test: dragging over the first paragraph selected the third).
     final list = SelectionArea(
-      child: ListView.builder(
-        controller: _scroll,
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        itemCount: rows.length + (queued.isEmpty ? 0 : 1),
-        itemBuilder: (context, index) {
-          final child = index < rows.length
-              ? FadeSlideIn(
-                  key: ValueKey(rows[index].key),
-                  animate: transcript.isRunning,
-                  child: ChatRowView(row: rows[index], transcript: transcript),
-                )
-              : QueuedMessages(messages: queued);
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth + 56),
-              child: Padding(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 6), child: child),
+      child: Builder(
+        builder: (context) {
+          final registrar = SelectionContainer.maybeOf(context)!;
+          return SelectionContainer.disabled(
+            child: ListView.builder(
+              controller: _scroll,
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              itemCount: rows.length + (queued.isEmpty ? 0 : 1),
+              itemBuilder: (context, index) {
+                final child = index < rows.length
+                    ? FadeSlideIn(
+                        key: ValueKey(rows[index].key),
+                        animate: transcript.isRunning,
+                        child: ChatRowView(row: rows[index], transcript: transcript),
+                      )
+                    : QueuedMessages(messages: queued);
+                return SelectionRegistrarScope(
+                  registrar: registrar,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth + 56),
+                      child: Padding(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 6), child: child),
+                    ),
+                  ),
+                );
+              },
             ),
           );
         },
       ),
     );
     final cwd = agent.active?.workspace;
-    if (cwd == null) return list;
-    return FileLinks(baseDir: cwd, reveal: agent.revealFile, open: agent.openFile, child: list);
+    final body = cwd == null ? list : FileLinks(baseDir: cwd, reveal: agent.revealFile, open: agent.openFile, child: list);
+    return Stack(
+      children: [
+        Positioned.fill(child: body),
+        Positioned(
+          right: 24,
+          bottom: 12,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _scroll.following,
+            builder: (context, following, _) => following ? const SizedBox.shrink() : _ToEndButton(onPressed: _scroll.toEnd),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shown while the reader is away from the end of the conversation.
+class _ToEndButton extends StatelessWidget {
+  const _ToEndButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Tooltip(
+      message: '回到底部，并跟着新内容',
+      child: Material(
+        color: colors.card,
+        shape: CircleBorder(side: BorderSide(color: colors.border)),
+        elevation: 2,
+        shadowColor: Colors.black26,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(Icons.arrow_downward_rounded, size: 18, color: colors.ink, semanticLabel: '回到底部'),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -394,6 +450,11 @@ class _MessageListState extends State<_MessageList> {
 /// painted one frame out of place each time a message arrived, a queued
 /// message turned into a real one or the input box changed height, which read
 /// as the window shaking (extra test 7).
+///
+/// Any scroll by the reader (wheel, drag, scrollbar, keys) that leaves the end
+/// lets go at once; only reaching the very end again, or the 「回到底部」 button,
+/// takes it back. (v0.3.2 test: with an 80-pixel slack, one wheel notch while
+/// a reply streamed stayed inside it and was pulled straight back down.)
 class _BottomAnchoredController extends ScrollController {
   _BottomAnchoredController() {
     // Listeners hear every scroll (drag, wheel, scrollbar, jumpTo) but not the
@@ -403,11 +464,26 @@ class _BottomAnchoredController extends ScrollController {
     });
   }
 
-  /// Whether the reader is at the end. Scrolling up releases it; coming back
-  /// within [_slack] of the end takes it again.
-  bool stick = true;
+  /// Whether the reader is at the end (the button shows when they are not).
+  final following = ValueNotifier<bool>(true);
 
-  static const _slack = 80.0;
+  bool get stick => following.value;
+  set stick(bool value) => following.value = value;
+
+  /// Rounding room only: a reader one wheel notch up is reading, not following.
+  static const _slack = 2.0;
+
+  /// The 「回到底部」 button: back to the end, and follow it from there.
+  void toEnd() {
+    stick = true;
+    if (hasClients) jumpTo(position.maxScrollExtent);
+  }
+
+  @override
+  void dispose() {
+    following.dispose();
+    super.dispose();
+  }
 
   @override
   ScrollPosition createScrollPosition(ScrollPhysics physics, ScrollContext context, ScrollPosition? oldPosition) =>

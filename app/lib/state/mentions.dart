@@ -74,7 +74,13 @@ final _documentTag = RegExp(r'<文档 标题="([^"]*)" 路径="([^"]*)">\n?([\s\
 final _pathLine = RegExp(r'^- (文件|文件夹)：(.+)$', multiLine: true);
 
 /// The question as the user wrote it, and what was attached to it.
+/// The note Pi adds to a message after resizing its image for the model
+/// (`[Image: original 1350x817, displayed at …]`): for the model, not the
+/// person who sent it (v0.3.2 test: it showed in the question bubble).
+final _imageNote = RegExp(r'\s*\[Image: original \d+x\d+, displayed at \d+x\d+\. Multiply coordinates by [\d.]+ to map to original image\.\]');
+
 (String, List<Mention>) splitMentions(String text) {
+  text = text.replaceAll(_imageNote, '').trim();
   if (!text.contains('<写笺') && !text.contains('<资料>')) return (text, const []);
   final mentions = <Mention>[];
   for (final m in _noteTag.allMatches(text)) {
