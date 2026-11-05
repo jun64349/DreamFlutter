@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-04（v0.3.4 补丁做完、测完，等用户试用后提交、打 tag）
+更新时间：2026-11-05（v0.3.4 和计划修订已推送；用户确认修订、开始 0.4：先做 4.8、4.9，同时出框架设计稿）
 
 ## 新窗口从这里开始
 
@@ -10,8 +10,8 @@
 - 修了：行内代码 / 文件名选中不显示高亮（**v0.3.3 的修复没生效**：flutter_markdown_plus 把自带的默认样式合并进来，默认 `code` 有底色，要明写 `Colors.transparent`）；文件名链接断行（改成 `Text.rich(WidgetSpan(FileLink))`，去掉 Tooltip，悬停铺底色）；「往上弹」「不明的刷新」：在测试里贴底时一直正确，问题出在用户往上看时——`chat_view.dart` 的 `_AnchoredRow`（阅读锚定：视口上方的行变高变矮，偏移跟着补）、`CardStage.info / height`（卡片重新搭建时不再先显示「正在打开…」）、`_seen`（只有新行播入场动画）、`SessionRuntime.sends`（发消息回到底部）。排队消息插入那一刻在真实应用里到底是哪个原因，没能在测试里复现，要用户再试。
 - 测试：窗口 102、后台 199 + tsc、协议层 43、场景巡检 5、视觉检查（示例回复加了文件名）、卡片。新测试都确认过去掉修复会失败（`chat_scroll_test` 的排队插入那条修之前就能过，是防护）。**e2e**：步骤全部走通，但三次都被「踩过的坑」最后一条的语义树错误判失败；把 `app/lib` 换回 v0.3.3 对照跑也一样，所以不是本版引起的（v0.3.3 那次没出现，时有时无）。
 - 安装包已打：`dist\DreamFlutter`（0.3.4）。
-- **状态**：没提交。等用户在安装包上试过再提交、打 tag `v0.3.4`、推送。`packages/pi_rpc/build/` 是跑测试留下的，不要提交。
-- **下一步（用户在报告里定的）**：v0.3.4 发布后，读用户的 4 份调研（三级记忆、DSH 与蝶君、Goal、后台压缩，在 `…\DreamFlutter\2026-11-02 13-01 Codex-五项平台能力调研与设计\`），完善升级 0.4–0.9 总计划（[roadmap.md](roadmap.md)），和用户定好后开始 0.4。用户的蝶君沙箱体检报告（81 分；缺 gcc、Node、ffmpeg、OCR，Chromium 缺 14 个系统库、蝶君从 Ubuntu 归档手动解 deb）一起放进计划讨论（沙箱镜像加软件）。
+- **状态**：用户说「直接提交」：提交 `ef5e4fe`（修复）、`85eeac5`（版本号和发布说明），annotated tag `v0.3.4` → `85eeac5`，2026-11-05 和计划修订一起推送。`packages/pi_rpc/build/` 是跑测试留下的，不要提交。
+- **计划修订（2026-11-04，待用户确认）**：读了用户的 5 份报告（现在在 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\档案馆\Codex\`；01 备份已在 v0.3.1 做完）和蝶君体检报告，修订了 [roadmap.md](roadmap.md)（第二节「跨版本的共同原则」，0.4 加 4.8 沙箱镜像、4.9 长任务内核开发设计；0.5 改「记忆与上下文」加任务边界和后台压缩；0.8 改「长任务与目标」；新 0.9「蝶君自主与成长」；深度测试顺延 0.10），讨论稿 [roadmap-review-2026-11-04.md](roadmap-review-2026-11-04.md)；报告 02 已合并进 [memory-design.md](memory-design.md) 第十六节。核对过：Pi 1.4 的 `session_before_compact` 能交出现成摘要、`prepareCompaction` 可提前算切点（后台压缩不用改 Pi）；后台 `tasks` 表已有 goal/status/runs/cost（目标服务在它上面扩展）。**用户 2026-11-05 确认，开始 0.4**。
 
 **v0.3.3（2026-11-04）**：按用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.3.2测试记录.md`（截图在同目录）做的，详见 [v0.3.3-release-notes.md](v0.3.3-release-notes.md)。
 - 修了：生成时滚轮被拉回底部（`chat_view.dart` 的 `_BottomAnchoredController`，阈值 80 → 2，加「回到底部」按钮）；缩放下拖选错位（Flutter 滚动列表选区的 bug，对话列表绕开，见 dev-guide 一.2）；拖放串到隐藏页面（`showsOnScreen`）；生成时图片闪（`memoryImageOf`）；Ctrl 卡住（`ui/keys.dart` 的 `HeldKeys`）；气泡里 Pi 的图片说明；记忆去重和「用户叫蝶君」（`memory.ts` 的 `nearDuplicate` / `saysMore`、提取提示词，只是止血）；v0.3.1 剩下的行内代码高亮、备份页、仪表盘表头；场景巡检发现的 150% 缩放导航栏溢出。

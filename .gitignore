@@ -4,6 +4,7 @@ node_modules/
 app/build/
 app/.dart_tool/
 packages/*/.dart_tool/
+packages/*/build/
 
 # Packaging output (scripts/package-windows.ps1)
 dist/
