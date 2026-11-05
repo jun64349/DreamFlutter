@@ -592,5 +592,18 @@ void main() {
       expect(agent.active!.incognito, isFalse, reason: 'new session leaves the temporary chat');
       agent.dispose();
     });
+
+    test('无痕 is minimal mode, and picking a mode from it starts a saved session (0.4)', () async {
+      final agent = await startController();
+      await agent.newTemporarySession();
+      expect(pis.last.target.agentMode, 'minimal');
+      final count = pis.length;
+      await agent.selectAgentMode('minimal');
+      expect(pis.length, count + 1, reason: 'already minimal, but 无痕 is not saved: a new session');
+      expect(pis.last.target.incognito, isFalse);
+      expect(pis.last.target.agentMode, 'minimal');
+      expect(agent.active!.incognito, isFalse);
+      agent.dispose();
+    });
   });
 }

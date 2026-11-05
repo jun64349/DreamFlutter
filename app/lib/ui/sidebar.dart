@@ -83,7 +83,7 @@ class _SidebarState extends State<Sidebar> {
                         trailing: onButterfly
                             ? null
                             : IconButton(
-                                tooltip: '临时对话：不保存记录，也不读写记忆',
+                                tooltip: '无痕对话：极简模式，不保存记录，也不读写记忆',
                                 visualDensity: VisualDensity.compact,
                                 iconSize: 16,
                                 onPressed: usable
@@ -849,7 +849,7 @@ class _SessionTileState extends State<_SessionTile> {
                 child: Row(
                   children: [
                     if (entry.incognito) ...[
-                      Tooltip(message: '临时对话，不会保存', child: Icon(Icons.visibility_off_outlined, size: 14, color: colors.muted)),
+                      Tooltip(message: '无痕对话，不会保存', child: Icon(Icons.visibility_off_outlined, size: 14, color: colors.muted)),
                       const SizedBox(width: 4),
                     ],
                     if (entry.isFork) ...[

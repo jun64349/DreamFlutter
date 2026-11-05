@@ -99,7 +99,7 @@ class ChatView extends StatelessWidget {
                           children: [
                             Icon(Icons.visibility_off_outlined, size: 16, color: context.colors.muted),
                             const SizedBox(width: AppTokens.gap),
-                            Text('临时对话：不会保存记录，也不会读写长期记忆。关掉后内容就没了。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+                            Text('无痕对话：极简模式，不保存记录，也不读写长期记忆。关掉后内容就没了。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
                           ],
                         ),
                       ),

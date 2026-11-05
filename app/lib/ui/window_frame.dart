@@ -169,7 +169,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                   final incognito = talking.active?.incognito ?? false;
                   final open = talking.runPanelOpen && !incognito;
                   return IconButton(
-                    tooltip: incognito ? '临时对话没有详情' : (open ? '收起详情' : '详情：进度、产物、花费和常用操作'),
+                    tooltip: incognito ? '无痕对话没有详情' : (open ? '收起详情' : '详情：进度、产物、花费和常用操作'),
                     isSelected: open,
                     onPressed: incognito ? null : () => talking.setRunPanelOpen(!open),
                     style: IconButton.styleFrom(foregroundColor: open ? colors.accent : colors.muted, backgroundColor: open ? colors.accentSoft : null),

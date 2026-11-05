@@ -664,6 +664,11 @@ const agentModeHints = {
   'minimal': 'DeepSeek 训练时的环境：一句话提示词，只有一个 PowerShell、看图和工作目录',
 };
 
+/// The input box's choices (0.4, roadmap 4.6): the two modes and 无痕, which is the old temporary chat
+/// (minimal tools and prompt, no memory read or written, nothing saved). Settings only pick between the two modes.
+const composerModeNames = {...agentModeNames, 'incognito': '无痕'};
+const composerModeHints = {...agentModeHints, 'incognito': '极简的工具和提示词，不读写记忆、不保存记录，关掉就没了'};
+
 /// The agent mode of the session. A session keeps its mode, so picking the
 /// other one starts a new session in it.
 class _ModeChip extends StatelessWidget {
@@ -672,14 +677,15 @@ class _ModeChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
-    final current = agent.agentMode;
-    final blank = agent.active?.isPristine ?? true;
+    final incognito = agent.active?.incognito ?? false;
+    final current = incognito ? 'incognito' : agent.agentMode;
+    final blank = (agent.active?.isPristine ?? true) && !incognito;
     return _Chip<String>(
-      label: agentModeNames[current] ?? current,
-      tooltip: 'Agent 模式：${agentModeHints[current] ?? ''}${blank ? '' : '\n切换模式会新开一个会话'}',
+      label: composerModeNames[current] ?? current,
+      tooltip: '模式：${composerModeHints[current] ?? ''}${blank ? '' : '\n切换模式会新开一个会话'}',
       enabled: agent.isReady && !agent.isRunning,
       items: [
-        for (final mode in agentModeNames.keys)
+        for (final mode in composerModeNames.keys)
           PopupMenuItem(
             value: mode,
             child: SizedBox(
@@ -692,8 +698,11 @@ class _ModeChip extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('${agentModeNames[mode]}模式${mode != current && !blank ? '（新会话）' : ''}'),
-                        Text(agentModeHints[mode]!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+                        Text(
+                          '${mode == 'incognito' ? '无痕对话' : '${agentModeNames[mode]}模式'}'
+                          '${mode != current && (!blank || mode == 'incognito') ? '（新会话）' : ''}',
+                        ),
+                        Text(composerModeHints[mode]!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
                       ],
                     ),
                   ),
@@ -702,7 +711,7 @@ class _ModeChip extends StatelessWidget {
             ),
           ),
       ],
-      onSelected: agent.selectAgentMode,
+      onSelected: (mode) => mode == 'incognito' ? agent.newTemporarySession() : agent.selectAgentMode(mode),
     );
   }
 }

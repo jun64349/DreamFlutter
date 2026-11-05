@@ -424,9 +424,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // 13. A temporary chat says so and is not saved.
-    await tester.tap(find.byTooltip('临时对话：不保存记录，也不读写记忆'));
+    await tester.tap(find.byTooltip('无痕对话：极简模式，不保存记录，也不读写记忆'));
     await waitFor(tester, 'temporary chat', () => agent.active?.incognito == true && agent.isReady, agent);
-    expect(find.textContaining('临时对话：不会保存记录'), findsOneWidget);
+    expect(find.textContaining('无痕对话：极简模式，不保存记录'), findsOneWidget);
     await shot(tester, '19_temporary_chat');
 
     // 14. "Remember ..." saves a memory right away; the memory page lists it.

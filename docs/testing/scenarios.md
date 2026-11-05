@@ -8,7 +8,7 @@ v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实�
 | 层 | 命令（PowerShell，先 `cd` 到目录） | 用时 | 说明 |
 |---|---|---|---|
 | 后台 | `cd core; npm test; npx tsc --noEmit` | 约 3 分钟 | 199 个，假模型，不联网 |
-| 窗口组件 | `cd app; flutter test test` | 约 20 秒 | 113 个，假后台 |
+| 窗口组件 | `cd app; flutter test test` | 约 20 秒 | 115 个，假后台 |
 | 协议层 | `cd packages/pi_rpc; dart test -x integration` | 约 10 秒 | |
 | 场景巡检（真窗口） | `cd app; flutter test integration_test/scenarios_test.dart -d windows` | 约 1 分钟 | 假后台、真字体真窗口：阅读、选字、拖放、全部页面和主题 |
 | 视觉检查 | `cd app; flutter test integration_test/look_test.dart -d windows` | 约 40 秒 | 截图在 `app/build/look_shots/`，要看一遍 |
@@ -51,7 +51,7 @@ v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实�
 | Shift+Enter 换行、Enter 发送 | 场景 | |
 | 重新生成、版本切换、分叉、编辑 | e2e 5、9 | |
 | 上下文面板、手动压缩 | e2e 6 | |
-| 临时对话不保存 | e2e 13 | |
+| 无痕对话（原临时对话）不保存、用极简模式；输入框的模式里可以选（0.4） | e2e 13，组件 window_frame_test、agent_controller_test | 从无痕选标准或极简会新开一个保存的会话 |
 | 极简模式、计划模式 | e2e 21、22 | |
 | 图片发给模型 | e2e 19 | |
 | 拖文件 / 图片进对话（QQ、微信、浏览器） | 手动 | 系统拖放模拟不了 |
@@ -76,7 +76,7 @@ v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实�
 | 换个说法的重复不再加（v0.3.2 实测） | 后台 memory.test | 更完整的说法变成「修改」建议 |
 | 不把 Agent 的名字当成用户的（「用户叫蝶君」） | 后台 memory.test（提示词） | 真实模型行为要手动看 |
 | 接受修改建议、保留历史 | 后台 memory.test | |
-| 临时对话不读不写 | 后台 memory.test | |
+| 无痕对话不读不写 | 后台 memory.test | |
 
 ### 4. 全局操作
 

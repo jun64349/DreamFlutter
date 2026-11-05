@@ -166,6 +166,21 @@ void main() {
     expect(find.text('读取  报告9.md'), findsNothing);
   });
 
+  testWidgets('无痕 is picked in the input box, next to the two modes (0.4, roadmap 4.6)', (tester) async {
+    await startApp(tester);
+    await tester.tap(find.byTooltip(RegExp('^模式：')));
+    await tester.pumpAndSettle();
+    expect(find.text('标准模式'), findsOneWidget);
+    expect(find.text('极简模式'), findsOneWidget);
+    await tester.tap(find.text('无痕对话（新会话）'));
+    await settle(tester);
+    expect(agent.active!.incognito, isTrue);
+    expect(backend.pis.last.target.agentMode, 'minimal');
+    expect(find.textContaining('无痕对话：极简模式，不保存记录'), findsOneWidget);
+    expect(find.byTooltip('无痕对话没有详情'), findsOneWidget);
+    expect(find.descendant(of: find.byTooltip(RegExp('^模式：')), matching: find.text('无痕')), findsOneWidget);
+  });
+
   testWidgets('the sidebar is as wide as it was dragged, also after a restart', (tester) async {
     await startApp(tester);
     final before = tester.getSize(find.byType(Sidebar)).width;

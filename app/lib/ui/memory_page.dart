@@ -243,7 +243,7 @@ class _MemoryPageState extends State<MemoryPage> {
     return [
       ContentHeader(
         title: '记忆库',
-        description: '每次任务开始时，常驻记忆块和相关的记忆会打成快照交给 Agent。临时对话不读也不写记忆。',
+        description: '每次任务开始时，常驻记忆块和相关的记忆会打成快照交给 Agent。无痕对话不读也不写记忆。',
         actions: [FilledButton.icon(onPressed: () => _edit(null), icon: const Icon(Icons.add, size: 18), label: const Text('添加记忆'))],
       ),
       TextField(

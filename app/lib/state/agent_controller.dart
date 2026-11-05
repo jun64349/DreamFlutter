@@ -1103,7 +1103,7 @@ class AgentController extends ChangeNotifier {
     if (mode != 'standard' && mode != 'minimal') return;
     unawaited(updateCoreSettings({'agentMode': mode}).catchError((_) {}));
     final current = _active;
-    if (current != null && current.agentMode == mode) return;
+    if (current != null && current.agentMode == mode && !current.incognito) return; // from 无痕 a saved session starts
     if (current != null && current.isPristine && current.isReady && !current.incognito) {
       await current.newSessionInPlace(agentMode: mode);
       _notify();
@@ -1188,9 +1188,9 @@ class AgentController extends ChangeNotifier {
     }
   }
 
-  /// Starts a temporary chat: kept in memory only, never saved or remembered.
+  /// Starts a 无痕 (incognito) chat: minimal mode, kept in memory only, never saved or remembered (0.4, 4.6).
   Future<void> newTemporarySession() async {
-    final runtime = await _spawn(incognito: true);
+    final runtime = await _spawn(incognito: true, agentMode: 'minimal');
     await _activate(runtime);
   }
 
