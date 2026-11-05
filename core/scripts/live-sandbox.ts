@@ -61,6 +61,11 @@ try {
 
 	const tools = await agent("python3 -c 'import pandas, matplotlib; print(\"py\")'; rg --version | head -1; fd --version");
 	expect(tools.stdout.includes("py") && tools.stdout.includes("ripgrep") && tools.stdout.includes("fd"), `tools: ${tools.stdout.trim().replaceAll("\n", " | ")}`);
+	// 0.4 (4.8): what the user's check-up found missing: compile and run C, Node with npm, OCR in Simplified Chinese.
+	const more = await agent(
+		"cd /tmp && printf '#include <stdio.h>\\nint main(){puts(\"cc-ok\");}\\n' > t.c && gcc t.c -o t && ./t; node -e 'console.log(\"node-ok\")'; npm --version >/dev/null && echo npm-ok; tesseract --list-langs 2>/dev/null | grep -x chi_sim",
+	);
+	expect(["cc-ok", "node-ok", "npm-ok", "chi_sim"].every((s) => more.stdout.includes(s)), `more tools: ${more.stdout.trim().replaceAll("\n", " | ")}`);
 
 	const debian = await agent(`grep -h '^VERSION_ID' /etc/os-release; python3 -c "from matplotlib import font_manager as f; print(f.findfont('WenQuanYi Micro Hei', fallback_to_default=False))"`);
 	expect(debian.stdout.includes('VERSION_ID="13"'), `Debian 13: ${debian.stdout.split("\n")[0]}`);

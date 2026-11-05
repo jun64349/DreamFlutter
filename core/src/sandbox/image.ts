@@ -58,6 +58,20 @@ export const IMAGE_PACKAGES = [
 	"ca-certificates", "curl", "git", "jq", "ripgrep", "fd-find", "unzip", "zip", "less", "file", "procps", "nftables",
 	"python3", "python3-venv", "python3-pip", "python3-numpy", "python3-pandas", "python3-matplotlib", "python3-openpyxl",
 	"passwd", "fonts-wqy-microhei",
+	// 0.4 (4.8, the user's sandbox check-up of 2026-11-04): compilers, Node, OCR with Simplified Chinese.
+	// The image grew from 282 to 451 MB compressed, 240 → 667 packages (built 2026-11-05).
+	"build-essential", "nodejs", "npm", "tesseract-ocr", "tesseract-ocr-chi-sim",
+];
+
+/**
+ * Left out of the image to keep the installer light (user's call 2026-11-05:
+ * all of these would make it 282 → 788 MB): the app installs them as root
+ * when 蝶君 needs one (not built yet). Installed sizes from the trial builds;
+ * ffmpeg and the browser share about 190 MB (libllvm19, mesa, libz3).
+ */
+export const ON_DEMAND_PACKAGES: { id: string; packages: string[]; installedMb: number; what: string }[] = [
+	{ id: "ffmpeg", packages: ["ffmpeg"], installedMb: 400, what: "音视频转换、剪辑、抽帧" },
+	{ id: "browser", packages: ["chromium-headless-shell"], installedMb: 517, what: "打开要 JS 渲染的网页、网页截图" },
 ];
 
 export interface ImageInfo {

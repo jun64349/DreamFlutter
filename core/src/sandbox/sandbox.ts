@@ -105,7 +105,7 @@ id -u agent | grep -qx ${AGENT_UID}
 grep -q "default = agent" /etc/wsl.conf
 grep -q "enabled = false" /etc/wsl.conf
 test -d ${SANDBOX_WORKSPACE}/outbox
-for tool in python3 rg fd nft curl git; do command -v $tool >/dev/null; done
+for tool in python3 rg fd nft curl git gcc make node npm tesseract; do command -v $tool >/dev/null; done
 if command -v sudo >/dev/null; then echo "sudo is installed" >&2; exit 1; fi
 echo CHECK_OK
 `;
