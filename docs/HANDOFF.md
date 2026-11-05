@@ -1,12 +1,23 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-05（0.4 开工：4.8 试构建量完大小、4.9 设计文档写好、框架设计稿三个方案，都等用户定；见下面「0.4 进度」）
+更新时间：2026-11-05 晚（0.4 只剩品牌 4.1；用户额度不够，暂停推进，本次只做整理和交接）
 
 ## 新窗口从这里开始
 
 **开发前先读 [dev-guide.md](dev-guide.md)（开发规范与踩坑），发布前按 [testing/scenarios.md](testing/scenarios.md)（全场景测试清单）走一遍。** 这是用户 2026-11-04 的要求：「做全量的全功能常用场景的 e2e 全量测试，不放过任何一个角落细节，排除一切影响使用的 bug，然后把踩过的坑总结好放进开发指南规范类的文件里」。用户对 v0.3.2 的评价是「不太收敛」「冒出很多以前没有的 bug」。
 
-**0.4 进度（2026-11-05）**：提交 `299a586`（计划修订 + 忽略 `packages/*/build/`），`main` 和 `v0.3.4` 已推送。
+### 当前状态（2026-11-05 晚，给下一个窗口 / 内容管理 agent）
+
+- **0.4 已做完**：4.2 窗口框架、4.3 详情分块、4.4 过程折叠、4.5 回复下方信息、4.6 输入框模式（含无痕）、4.7 选中文字回复（含侧边对话）、首页蝴蝶 + 问候语、4.8 沙箱镜像、4.9 长任务设计文档。**还剩 4.1 品牌**。
+- **设计资料都在 [design/](design/)**：[design/README.md](design/README.md)（索引）、[design/design-language.md](design/design-language.md)（0.4 界面设计语言）、[design/brand.md](design/brand.md)（品牌：已定的事、用户原话、下一步）；设计稿源文件在 `design/canvases/`，图标原图和截图在 `design/assets/`。
+- **品牌已定（用户 2026-11-05）**：图标 = 用户的橙色蝴蝶；要做 **1:1 完整完美复刻的矢量版**（方便二创和组合，不改造型——我做的近似重画不合格，已标为草稿）；**图标填充色、界面 / UI 颜色都随名画主题变；深色场景轮廓黑线变白线**；「工作台」「蝶君」名字不变。下一步顺序见 [design/brand.md](design/brand.md) 第二节。
+- **提交**（都在 `main`，**都没推送**）：`aba5e45`（4.8、4.9）、`79d853b`（4.2）、`cbe3fb8`（4.3–4.5）、`99903f2`（4.6）、`7583865`（4.7）、`4152935`（首页）。这次整理新增的 `docs/design/` 和文档改动**还没提交**。推送前要用户点头（命令见下面「推送」）。
+- **测试**（最后一次全量，2026-11-05）：窗口 123、协议层 43、后台 200 + tsc、场景巡检 5、视觉检查都过；**e2e（真实模型）0.4 没跑过**（脚本已按新界面改好）；侧边对话没在真实模型上试过。
+- **用户还没在真实应用里试过 0.4 的任何改动**，也没打 0.4 的安装包。版本号仍是 0.3.4（`app/lib/main.dart` 的 `appVersion`、`core/package.json`）。
+- **0.4 发布前还要**：品牌（1:1 矢量图标、随主题换色、深色白线、ico、替换窗口里的 `ButterflyMark`）→ 按 [testing/scenarios.md](testing/scenarios.md) 走一遍（含 e2e）→ 版本号和发布说明 → 打安装包给用户试 → 用户点头再打 tag、推送。
+- 待用户定：[long-task-design.md](long-task-design.md) 第十八节 11 个待定项（0.8 前定就行）。
+
+**0.4 进度明细（2026-11-05）**：提交 `299a586`（计划修订 + 忽略 `packages/*/build/`），`main` 和 `v0.3.4` 已推送。
 - **4.8 沙箱镜像**：**用户定了只装编译器、Node、文字识别**（「平台不能太重，以后需要再补，留好空位」）：`IMAGE_PACKAGES` 加 `build-essential nodejs npm tesseract-ocr tesseract-ocr-chi-sim`；ffmpeg 和 `chromium-headless-shell` 记在 `ON_DEMAND_PACKAGES`（以后做应用代装）；`CHECK_SCRIPT` 和 `live-sandbox.ts` 加了这几样的检查。正式镜像按这个重新构建（结果见下一条之后补的「正式镜像」）。之前的记录：`build-sandbox-image.ts` 加了 `--out <file.tar.gz>`（试构建不覆盖正式镜像）。试构建（2026-11-05，Debian 官方源，1279 秒）：压缩包 **282 MB → 788 MB（+506 MB）**，包 240 → 866；`core/sandbox-image/` 里还是旧镜像，试构建的在会话临时目录（不留）。逐组估算（解压后、`--no-install-recommends`，有共用依赖）：编译器 271 MB、Node + npm 210 MB、ffmpeg 400 MB、OCR + 中文 67 MB、chromium 698 MB / `chromium-headless-shell` 517 MB；全装合计约 1.4 GB；不含 ffmpeg 和 Chromium 约 512 MB。大头是 chromium 和 ffmpeg 共用的 libllvm19 + mesa + libz3（约 190 MB）。定了之后：重新构建正式镜像、`live-sandbox.ts` 加这几样工具的检查、重打安装包。
 - **4.9**：[long-task-design.md](long-task-design.md) 写好（目标表 + 在 tasks / runs 上扩展、状态机、唯一调度者和租约、三层验收、进展指纹、预算账本、等待、四种停止、和 0.5 / 0.9 的接口、给 0.4 右栏的数据、11 个待定项的建议值），待用户定待定项。
 - **4.2–4.3 设计稿**：画布 https://claude.ai/artifact/NYpoVANRPEKZPmMgkhKYuS（三个方案：一「一栏到底」单侧栏 + 分块右栏；二「导航条 + 标签」图标导航条 + 会话栏 + 标签式右栏；三「专注」右栏按需滑出、目标和计划固定在输入框上方。都用现在的蛱蝶配色，有深色开关；源文件在会话临时目录，改的话先从画布读回）。**用户 2026-11-05 选定方案三 + 方案一的顶栏**，删了方案二；已按要求改好：顶栏换成方案一的（标志、名字、「工作台 / 工作区 / 会话标题」、分支、详情开关、窗口按钮），工作区是一个明确的下拉按钮（列出每个工作区的路径、对话数、在运行的；查找、打开文件夹、管理工作区；Ctrl O），侧栏顶部写「毕设论文的对话」并有切换按钮，输入框补回上下文用量圆环。下一步：品牌（4.1）和按这个框架开始改界面。
@@ -24,6 +35,8 @@
   - 测试：窗口 118（`side_chat_test.dart` 3 个）、协议层 43、后台 200、场景巡检 5。**真实模型下没试过侧边对话**。
 - 4.7 已提交 `7583865`（未推送）。
 - **首页已做（未提交）**：`chat_view.dart` 的 `_EmptyState` 只剩蝴蝶（132）和一句问候语（宋体 32、字距 6、墨色 → 主色 → 赭石渐变的 `ShaderMask`）；问候语在 `ui/greetings.dart`（清晨 / 上午 / 午后 / 傍晚 / 深夜各 4 句、通用 10 句、蝶君 6 句，`pickGreeting` 用会话的 identityHashCode ^ 日期当种子，同一会话不变）；说明文字、三张建议卡片、底部工作区按钮都去掉了；「开始之前」引导第三步的文字改成在输入框里说。测试：`greetings_test.dart` 4 个，`window_frame_test` 加 1；窗口 123，视觉检查过。
+- 首页已提交 `4152935`（未推送）。
+- **4.1 品牌（进行中，以 [design/brand.md](design/brand.md) 为准）**：图标用用户的橙色蝴蝶（原图已复制到 `docs/design/assets/butterfly-icon-original.png`）。过程：我先做了近似的矢量重绘 → 用户「请完美复刻好嘛，不要做更改了」→ 我改成画布里全用原图位图 → 用户澄清「矢量版是请 1:1 完整完美复刻，方便二创和后续组合设计，不是说用原图」，并定了「图标填充色、界面和 UI 颜色随名画主题变，深色场景轮廓黑线变白线」。品牌画布 https://claude.ai/artifact/XYxoNwpu9p5mu2zWbVy5xv 的两套方案（「印」「蝶橙」）只作参考，用户的最后决定见 brand.md 第一节。
 - 用户问过测试窗口里的「Claude Opus 4.8」：是假后台回放的录音 `runtime/fixtures/rpc-session-prompt.jsonl`（v0.1.0 录的，Pi 自带模型清单里的默认项），真正回话的是 DeepSeek；测试不调用任何模型。
 
 **v0.3.4（2026-11-04）**：按用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.3.3测试记录.md`（截图在同目录 `Pasted image 2026110415*.png`），详见 [v0.3.4-release-notes.md](v0.3.4-release-notes.md)。
@@ -79,6 +92,8 @@ Get-Content "$dst\使用说明.txt" -TotalCount 1
 | 文档 | 内容 |
 |---|---|
 | [dev-guide.md](dev-guide.md) | **开发规范与踩坑**（v0.3.3 起新坑写这里） |
+| [design/](design/README.md) | **设计资料**：0.4 界面设计语言、品牌（已定的事和下一步）、设计稿源文件、图标原图、截图 |
+| [long-task-design.md](long-task-design.md) | 长任务内核开发设计（0.8 照此实现；第十八节待用户定） |
 | [testing/scenarios.md](testing/scenarios.md) | **全场景测试清单**：怎么跑每层测试、每个场景由谁覆盖、发布前的手动清单 |
 | [v0.3.3-release-notes.md](v0.3.3-release-notes.md) | 最新版本做了什么 |
 | [roadmap.md](roadmap.md) | v0.3–v1.0 计划（第二节是已定的事）、v0.2.0 已有能力对照表、35 条 + 额外 12 条反馈的去向、要用户定的事 |

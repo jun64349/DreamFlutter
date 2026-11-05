@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方案一 一栏到底</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&amp;family=Noto+Serif+SC:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#3F6E5E}a:hover{color:#2C5244}
+.df{--rail:#E9DFCA;--side:#EFE7D5;--bg:#F3ECDD;--card:#FAF6EC;--ink:#2B2620;--ink2:#4A4238;--muted:#655A4C;--line:rgba(74,58,36,.16);--accent:#3F6E5E;--on-accent:#FBF8F1;--soft:rgba(63,110,94,.12);--seal:#A8332A;--ochre:#8E5530;--bubble:#E6DBC4;--term:#2E2A24;--on-term:#E8DFCB;--sel:rgba(63,110,94,.22);--wing:#C8664A;--wing2:#E2A47F;--wing-in:#F6EFE3;--outline:#3A332B;--shadow:0 12px 32px rgba(43,38,32,.16)}
+.df.dark{--rail:#181512;--side:#1C1915;--bg:#211E19;--card:#2A2620;--ink:#ECE3D2;--ink2:#D2C7B3;--muted:#ADA18A;--line:rgba(236,227,210,.14);--accent:#86B8A6;--on-accent:#14211C;--soft:rgba(134,184,166,.15);--seal:#D5675A;--ochre:#D39A6A;--bubble:#353028;--term:#14120F;--on-term:#E8DFCB;--sel:rgba(134,184,166,.28);--wing:#D07A5E;--wing2:#B98A6A;--wing-in:#3A332B;--outline:#ECE3D2;--shadow:0 12px 32px rgba(0,0,0,.45)}
+.df{font-family:'Noto Sans SC','Microsoft YaHei UI',sans-serif;color:var(--ink);background:var(--bg)}
+.serif{font-family:'Noto Serif SC','Songti SC',serif}
+.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.ibtn{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;padding:0}
+.ibtn:hover{background:var(--soft);color:var(--ink)}
+.row{display:flex;align-items:center;gap:8px}
+.lbl{font-size:11px;letter-spacing:1.4px;color:var(--muted);text-transform:uppercase}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;border:1px solid var(--line);background:transparent;color:var(--ink2);font:inherit;font-size:12px;cursor:pointer}
+.chip:hover{background:var(--soft)}
+.sess{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 28px;border-radius:6px;font-size:13px;color:var(--ink2);text-decoration:none}
+.sess:hover{background:var(--soft);color:var(--ink)}
+.proc{display:flex;align-items:center;gap:8px;min-height:30px;padding:0 10px;border-radius:6px;font-size:13px;color:var(--muted);border:0;background:transparent;width:100%;text-align:left;font-family:inherit;cursor:pointer}
+.proc:hover{background:var(--soft);color:var(--ink2)}
+.blk{border-bottom:1px solid var(--line);padding:14px 16px}
+.bh{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--ink2);margin-bottom:10px}
+.check{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:20px;color:var(--ink2);padding:2px 0}
+.act{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink2);font:inherit;font-size:12px;cursor:pointer}
+.act:hover{border-color:var(--accent);color:var(--accent)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+</style>
+</helmet>
+<div class="df {{themeClass}}" style="min-height: 900px; height: 900px; display: flex; flex-direction: column; overflow: hidden;">
+
+  <!-- 顶栏：标题、面包屑、窗口按钮合成一层 -->
+  <header style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 0 0 14px; background: var(--side); border-bottom: 1px solid var(--line);">
+    <svg viewBox="0 0 100 100" style="width: 22px; height: 22px; flex: none;" aria-hidden="true"><g stroke="var(--outline)" stroke-width="5" stroke-linejoin="round"><path d="M48 47C40 30 22 20 12 26C5 32 9 45 19 49C28 52 40 51 48 51Z" fill="var(--wing)"></path><path d="M48 54C38 55 27 60 26 70C26 79 35 83 41 77C47 71 48 62 48 54Z" fill="var(--wing2)"></path><path d="M52 47C60 30 78 20 88 26C95 32 91 45 81 49C72 52 60 51 52 51Z" fill="var(--wing)"></path><path d="M52 54C62 55 73 60 74 70C74 79 65 83 59 77C53 71 52 62 52 54Z" fill="var(--wing2)"></path></g><path d="M48 44C46 36 42 31 37 29M52 44C54 36 58 31 63 29" stroke="var(--outline)" stroke-width="4" fill="none" stroke-linecap="round"></path></svg>
+    <span class="serif" style="font-size: 14px; font-weight: 600; letter-spacing: 1px;">DreamFlutter</span>
+    <span style="width: 1px; height: 16px; background: var(--line);"></span>
+    <nav aria-label="位置" class="row" style="font-size: 13px; color: var(--muted); min-width: 0;">
+      <span>工作台</span><span>/</span><span>毕设论文</span><span>/</span>
+      <span class="serif" style="color: var(--ink); font-size: 14px; font-weight: 600; white-space: nowrap;">整理三份报告的对比文档</span>
+    </nav>
+    <span style="flex: 1;"></span>
+    <button class="ibtn" aria-label="分支树"><svg class="ic" viewBox="0 0 16 16"><circle cx="4" cy="3.5" r="1.5"></circle><circle cx="4" cy="12.5" r="1.5"></circle><circle cx="12" cy="6" r="1.5"></circle><path d="M4 5v6M12 7.5c0 2.5-4 2-7.5 4"></path></svg></button>
+    <button class="ibtn" aria-label="收起右栏" style="color: var(--accent);"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="11" rx="1.5"></rect><path d="M10 2.5v11"></path></svg></button>
+    <div class="row" style="gap: 0; margin-left: 6px;">
+      <button class="ibtn" aria-label="最小化" style="width: 44px; height: 44px; border-radius: 0;"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 8h9"></path></svg></button>
+      <button class="ibtn" aria-label="最大化" style="width: 44px; height: 44px; border-radius: 0;"><svg class="ic" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1"></rect></svg></button>
+      <button class="ibtn" aria-label="关闭" style="width: 44px; height: 44px; border-radius: 0;"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button>
+    </div>
+  </header>
+
+  <div style="flex: 1; display: flex; min-height: 0; flex-wrap: wrap;">
+
+    <!-- 左侧栏：固定入口 + 按工作区分组的会话 + 用户和设置 -->
+    <aside style="width: 264px; flex: 1 1 264px; max-width: 264px; display: flex; flex-direction: column; background: var(--side); border-right: 1px solid var(--line); position: relative;">
+      <div style="padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 6px;">
+        <div role="tablist" aria-label="工作台或蝶君" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 3px; border-radius: 8px; background: var(--rail);">
+          <button role="tab" aria-selected="true" style="height: 30px; border: 0; border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; box-shadow: 0 1px 2px rgba(43,38,32,.12);">工作台</button>
+          <button role="tab" aria-selected="false" style="height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 13px;">蝶君</button>
+        </div>
+        <button class="row" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13px; cursor: pointer;"><svg class="ic" viewBox="0 0 16 16" style="color: var(--accent);"><path d="M8 3v10M3 8h10"></path></svg>新建对话<span style="flex: 1;"></span><span style="font-size: 11px; color: var(--muted);">Ctrl N</span></button>
+        <button class="row" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 0; background: transparent; color: var(--ink2); font: inherit; font-size: 13px; cursor: pointer;"><svg class="ic" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14"></path></svg>搜索<span style="flex: 1;"></span><span style="font-size: 11px; color: var(--muted);">Ctrl K</span></button>
+        <button class="row" style="height: 36px; padding: 0 10px; border-radius: 6px; border: 0; background: transparent; color: var(--ink2); font: inherit; font-size: 13px; cursor: pointer;"><svg class="ic" viewBox="0 0 16 16"><path d="M2.5 9.5h3l1 2h3l1-2h3M3.5 3.5h9l1 6v3h-11v-3z"></path></svg>任务<span style="flex: 1;"></span><span style="font-size: 11px; height: 18px; padding: 0 7px; border-radius: 9px; background: var(--seal); color: #FBF8F1; display: inline-flex; align-items: center;">2 等你决定</span></button>
+      </div>
+
+      <div class="row" style="padding: 10px 12px 6px 22px;">
+        <span class="lbl">工作区</span><span style="flex: 1;"></span>
+        <button class="ibtn" aria-label="筛选会话" style="width: 26px; height: 26px;"><svg class="ic" viewBox="0 0 16 16"><path d="M2.5 4h11M4.5 8h7M6.5 12h3"></path></svg></button>
+        <button class="ibtn" aria-label="添加工作区" style="width: 26px; height: 26px;"><svg class="ic" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"></path></svg></button>
+      </div>
+
+      <div style="flex: 1; overflow: auto; padding: 0 8px;">
+        <div class="row" style="height: 32px; padding: 0 6px; font-size: 13px; font-weight: 600; color: var(--ink);">
+          <svg class="ic" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"></path></svg>
+          <svg class="ic" viewBox="0 0 16 16" style="color: var(--ochre);"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"></path></svg>毕设论文<span style="flex: 1;"></span>
+          <button class="ibtn" aria-label="在毕设论文里新建对话" style="width: 24px; height: 24px;"><svg class="ic" viewBox="0 0 16 16"><path d="M8 4v8M4 8h8"></path></svg></button>
+        </div>
+        <a class="sess" href="#" style="background: var(--card); color: var(--ink); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent);"><span class="dot"></span>整理三份报告的对比文档</a>
+        <a class="sess" href="#">第三章图表重画</a>
+        <a class="sess" href="#">参考文献统一成 GB/T 7714</a>
+        <a class="sess" href="#" style="color: var(--muted); font-size: 12px;">再显示 6 个…</a>
+
+        <div class="row" style="height: 32px; padding: 0 6px; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--ink2);">
+          <svg class="ic" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"></path></svg>
+          <svg class="ic" viewBox="0 0 16 16" style="color: var(--ochre);"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"></path></svg>DreamFlutter<span style="flex: 1;"></span><span style="font-size: 11px; color: var(--muted); font-weight: 400;">12</span>
+        </div>
+        <div class="row" style="height: 32px; padding: 0 6px; font-size: 13px; font-weight: 600; color: var(--ink2);">
+          <svg class="ic" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"></path></svg>
+          <svg class="ic" viewBox="0 0 16 16" style="color: var(--ochre);"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"></path></svg>周报与杂事<span style="flex: 1;"></span><span style="font-size: 11px; color: var(--muted); font-weight: 400;">5</span>
+        </div>
+        <div class="row" style="height: 32px; padding: 0 6px; font-size: 13px; color: var(--muted);">
+          <svg class="ic" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"></path></svg>
+          <svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3l2 1.5"></path></svg>定时任务产生的<span style="flex: 1;"></span><span style="font-size: 11px;">3</span>
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid var(--line); padding: 8px 12px; display: flex; flex-direction: column; gap: 2px;">
+        <div class="row" style="gap: 2px;">
+          <button class="ibtn" aria-label="记忆"><svg class="ic" viewBox="0 0 16 16"><path d="M8 2.5c-3 0-5 2-5 4.5 0 1.5.8 2.6 2 3.3V13h6v-2.7c1.2-.7 2-1.8 2-3.3 0-2.5-2-4.5-5-4.5z"></path></svg></button>
+          <button class="ibtn" aria-label="技能与 MCP"><svg class="ic" viewBox="0 0 16 16"><path d="M6 2.5h4v3h3v4h-3v4H6v-4H3v-4h3z"></path></svg></button>
+          <button class="ibtn" aria-label="资料"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 2.5h6l3 3v8h-9z"></path><path d="M9.5 2.5v3h3"></path></svg></button>
+          <button class="ibtn" aria-label="仪表盘"><svg class="ic" viewBox="0 0 16 16"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"></path></svg></button>
+        </div>
+        <div class="row" style="height: 40px;">
+          <span style="width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600;">Z</span>
+          <span style="font-size: 13px;">superzyhj</span><span style="flex: 1;"></span>
+          <button class="ibtn" aria-label="设置"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"></circle><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3"></path></svg></button>
+        </div>
+      </div>
+      <span aria-hidden="true" style="position: absolute; right: -3px; top: 0; bottom: 0; width: 5px; cursor: col-resize;"></span>
+    </aside>
+
+    <!-- 中间：对话 -->
+    <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; background: var(--bg);">
+      <div style="flex: 1; overflow: auto; padding: 28px 32px 12px;">
+        <div style="max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px;">
+
+          <div style="align-self: flex-end; max-width: 80%; background: var(--bubble); border-radius: 12px 12px 4px 12px; padding: 10px 14px; font-size: 14px; line-height: 1.7;">把「档案馆」里三份调研报告读一遍，做一份对比文档（docx），比较点：目标、做法、风险、成本、适合我们的部分。原文件不要改。</div>
+
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <button class="proc" aria-expanded="false"><svg class="ic" viewBox="0 0 16 16"><path d="M8 2l1.5 4.5L14 8l-4.5 1.5L8 14l-1.5-4.5L2 8l4.5-1.5z"></path></svg>思考了 8 秒<span style="flex: 1;"></span><svg class="ic" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"></path></svg></button>
+            <button class="proc" aria-expanded="{{openStr}}" onClick="{{toggle}}"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 2.5h6l3 3v8h-9z"></path></svg>读取 3 个文件 · 运行 1 条命令<span style="color: var(--muted); font-size: 12px;">· 正在核对原文件没被改动</span><span style="flex: 1;"></span><svg class="ic" viewBox="0 0 16 16"><path d="{{chev}}"></path></svg></button>
+            <sc-if value="{{open}}" hint-placeholder-val="{{ false }}">
+              <div style="margin: 2px 0 4px 34px; border-left: 1px solid var(--line); padding-left: 12px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted);">
+                <div class="row" style="height: 24px;"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 2.5h6l3 3v8h-9z"></path></svg>Codex-03-DSH 适配报告.md<span style="flex: 1;"></span>27 KB</div>
+                <div class="row" style="height: 24px;"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 2.5h6l3 3v8h-9z"></path></svg>Codex-04-Goal 调研报告.md<span style="flex: 1;"></span>15 KB</div>
+                <div class="row" style="height: 24px;"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 2.5h6l3 3v8h-9z"></path></svg>Codex-05-后台压缩报告.md<span style="flex: 1;"></span>16 KB</div>
+                <div style="margin-top: 4px; background: var(--term); color: var(--on-term); border-radius: 6px; padding: 8px 10px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; line-height: 1.6;">&gt; Get-FileHash .\档案馆\Codex\*.md<br>3 个文件，哈希与开始时一致</div>
+              </div>
+            </sc-if>
+            <button class="proc"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"></circle><path d="M2.5 8h11M8 2.5c2 2 2 9 0 11M8 2.5c-2 2-2 9 0 11"></path></svg>搜索网页：长任务 目标 验收 设计<span style="flex: 1;"></span><svg class="ic" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"></path></svg></button>
+            <button class="proc"><svg class="ic" viewBox="0 0 16 16"><circle cx="5.5" cy="5.5" r="2"></circle><circle cx="11" cy="11" r="2"></circle><path d="M7 7l2.5 2.5"></path></svg>子 Agent「资料员」：核对三份报告的出处<span style="color: var(--accent); font-size: 12px;">· 完成</span><span style="flex: 1;"></span><svg class="ic" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4"></path></svg></button>
+          </div>
+
+          <div class="serif" style="font-size: 15px; line-height: 1.9; color: var(--ink);">
+            <p style="margin: 0 0 10px;">三份报告读完了，原文件没有改动（开始和结束时的哈希一致）。几点主要差异：</p>
+            <p style="margin: 0 0 10px;"><span style="background: var(--sel); border-radius: 2px;">三份报告都强调「一件工作只有一个调度者」，记忆、目标、压缩都只发事件，不各自唤醒会话。</span>差别在于验收：Goal 报告分三层，DSH 报告更看重先存状态、再做副作用。</p>
+            <p style="margin: 0;">对比文档已经生成在 <a href="#">对比-三份报告.docx</a>，五个比较点各一节，末尾单列「适合我们的部分」。</p>
+          </div>
+
+          <!-- 选中文字后浮出的小框 -->
+          <div style="position: relative; height: 0;">
+            <div class="row" style="position: absolute; left: 120px; top: -112px; gap: 2px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);">
+              <button class="chip" style="border: 0; height: 30px;"><svg class="ic" viewBox="0 0 16 16"><path d="M3 5.5h3v3H4.5c0 1.5.5 2.5 1.5 3M9 5.5h3v3h-1.5c0 1.5.5 2.5 1.5 3"></path></svg>回复</button>
+              <button class="chip" style="border: 0; height: 30px;"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"></rect><path d="M9.5 3v10"></path></svg>侧边对话</button>
+            </div>
+          </div>
+
+          <!-- 鼠标移上去才出现：信息行 + 加大的按钮 -->
+          <div class="row" style="gap: 4px; margin-top: -6px;">
+            <button class="ibtn" aria-label="复制" style="width: 34px; height: 34px;"><svg class="ic" viewBox="0 0 16 16" style="width: 18px; height: 18px;"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"></rect><path d="M3 10.5V3.5A1 1 0 0 1 4 2.5h6.5"></path></svg></button>
+            <button class="ibtn" aria-label="重新生成" style="width: 34px; height: 34px;"><svg class="ic" viewBox="0 0 16 16" style="width: 18px; height: 18px;"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3"></path></svg></button>
+            <button class="ibtn" aria-label="从这里分支" style="width: 34px; height: 34px;"><svg class="ic" viewBox="0 0 16 16" style="width: 18px; height: 18px;"><circle cx="4" cy="3.5" r="1.5"></circle><circle cx="4" cy="12.5" r="1.5"></circle><circle cx="12" cy="6" r="1.5"></circle><path d="M4 5v6M12 7.5c0 2.5-4 2-7.5 4"></path></svg></button>
+            <button class="ibtn" aria-label="存成技能" style="width: 34px; height: 34px;"><svg class="ic" viewBox="0 0 16 16" style="width: 18px; height: 18px;"><path d="M4 2.5h8v11l-4-2.5-4 2.5z"></path></svg></button>
+            <span style="font-size: 12px; color: var(--muted); margin-left: 8px;">deepseek-v4.1-flash · 52 秒 · $0.031</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 输入框：模式在这里选 -->
+      <div style="padding: 0 32px 20px;">
+        <div style="max-width: 720px; margin: 0 auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 8px; box-shadow: 0 2px 10px rgba(43,38,32,.06);">
+          <label for="m1" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">给 Agent 发消息</label>
+          <textarea id="m1" rows="2" placeholder="接着说，或者把文件拖进来…" style="width: 100%; box-sizing: border-box; border: 0; outline: 0; resize: none; background: transparent; color: var(--ink); font: inherit; font-size: 14px; line-height: 1.6;"></textarea>
+          <div class="row" style="gap: 6px; margin-top: 4px;">
+            <button class="ibtn" aria-label="添加附件"><svg class="ic" viewBox="0 0 16 16"><path d="M12.5 7.5l-5 5a3 3 0 0 1-4.2-4.2l5.5-5.5a2 2 0 0 1 2.8 2.8l-5.3 5.3a1 1 0 0 1-1.4-1.4l4.6-4.6"></path></svg></button>
+            <button class="ibtn" aria-label="引用资料"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5"></circle><path d="M10.5 8v1a2 2 0 0 0 4 0V8a6.5 6.5 0 1 0-2.5 5.1"></path></svg></button>
+            <span style="flex: 1;"></span>
+            <button class="chip" aria-haspopup="listbox"><span class="dot"></span>标准<svg class="ic" viewBox="0 0 16 16" style="width: 12px; height: 12px;"><path d="M4 6l4 4 4-4"></path></svg></button>
+            <button class="chip" aria-haspopup="listbox">deepseek-v4.1-flash<svg class="ic" viewBox="0 0 16 16" style="width: 12px; height: 12px;"><path d="M4 6l4 4 4-4"></path></svg></button>
+            <span role="img" aria-label="上下文已用 38%" style="width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(var(--accent) 0 38%, var(--line) 38% 100%); display: inline-flex; align-items: center; justify-content: center;"><span style="width: 14px; height: 14px; border-radius: 50%; background: var(--card);"></span></span>
+            <button aria-label="发送" style="width: 34px; height: 34px; border-radius: 8px; border: 0; background: var(--accent); color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center; cursor: pointer;"><svg class="ic" viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"></path></svg></button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 右栏：分块 -->
+    <aside aria-label="工作区面板" style="width: 320px; flex: 1 1 320px; max-width: 320px; overflow: auto; background: var(--side); border-left: 1px solid var(--line); position: relative;">
+      <span aria-hidden="true" style="position: absolute; left: -3px; top: 0; bottom: 0; width: 5px; cursor: col-resize;"></span>
+
+      <section class="blk" style="background: var(--card);">
+        <div class="bh"><svg class="ic" viewBox="0 0 16 16" style="color: var(--seal);"><circle cx="8" cy="8" r="5.5"></circle><circle cx="8" cy="8" r="2"></circle></svg>目标<span style="flex: 1;"></span><span style="font-size: 11px; font-weight: 400; padding: 2px 8px; border-radius: 9px; background: var(--soft); color: var(--accent);">运行中 · 等审查</span></div>
+        <div class="serif" style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">三份报告的对比文档，原文件不变</div>
+        <div class="check"><svg class="ic" viewBox="0 0 16 16" style="color: var(--accent); margin-top: 2px;"><path d="M3 8.5l3 3 7-7"></path></svg>三份报告都读过</div>
+        <div class="check"><svg class="ic" viewBox="0 0 16 16" style="color: var(--accent); margin-top: 2px;"><path d="M3 8.5l3 3 7-7"></path></svg>原文件没有改动</div>
+        <div class="check"><svg class="ic" viewBox="0 0 16 16" style="margin-top: 2px;"><circle cx="8" cy="8" r="5"></circle></svg>文档涵盖五个比较点</div>
+        <div class="check" style="color: var(--muted);"><svg class="ic" viewBox="0 0 16 16" style="margin-top: 2px;"><path d="M8 2.5a5.5 5.5 0 1 0 0 11"></path><path d="M8 5.5v2.5l1.5 1"></path></svg>等你验收</div>
+        <div style="margin-top: 10px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between;"><span>预算</span><span>$0.42 / $2.00 · 6 分钟</span></div>
+        <div style="height: 4px; border-radius: 2px; background: var(--line); margin-top: 4px;"><div style="width: 21%; height: 4px; border-radius: 2px; background: var(--accent);"></div></div>
+        <div class="row" style="margin-top: 12px; gap: 6px;">
+          <button class="act"><svg class="ic" viewBox="0 0 16 16"><path d="M6 4v8M10 4v8"></path></svg>暂停</button>
+          <button class="act"><svg class="ic" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"></rect></svg>停止</button>
+          <button class="act">修改目标</button>
+        </div>
+      </section>
+
+      <section class="blk">
+        <div class="bh"><svg class="ic" viewBox="0 0 16 16"><path d="M3 4.5l1.5 1.5L7 3.5M3 10.5l1.5 1.5L7 9.5M9 5h4.5M9 11h4.5"></path></svg>进度<span style="flex: 1;"></span><span style="font-weight: 400; color: var(--muted);">3 / 4</span></div>
+        <div class="check"><svg class="ic" viewBox="0 0 16 16" style="color: var(--accent); margin-top: 2px;"><path d="M3 8.5l3 3 7-7"></path></svg><span style="text-decoration: line-through; color: var(--muted);">读三份报告</span></div>
+        <div class="check"><svg class="ic" viewBox="0 0 16 16" style="color: var(--accent); margin-top: 2px;"><path d="M3 8.5l3 3 7-7"></path></svg><span style="text-decoration: line-through; color: var(--muted);">列出五个比较点</span></div>
+        <div class="check"><svg class="ic" viewBox="0 0 16 16" style="color: var(--accent); margin-top: 2px;"><path d="M3 8.5l3 3 7-7"></path></svg><span style="text-decoration: line-through; color: var(--muted);">写对比文档</span></div>
+        <div class="check" style="color: var(--ink);"><span class="dot" style="margin: 6px 4px 0;"></span>核对原文件没被改动</div>
+      </section>
+
+      <section class="blk">
+        <div class="bh"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 2.5h6l3 3v8h-9z"></path><path d="M6 9h4M8 7v4"></path></svg>产物与改动<span style="flex: 1;"></span><span style="font-weight: 400; color: var(--muted);">1</span></div>
+        <div class="row" style="padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card);">
+          <span style="width: 32px; height: 38px; border-radius: 4px; background: #2B579A; color: #fff; font-size: 10px; display: inline-flex; align-items: flex-end; justify-content: center; padding-bottom: 4px; box-sizing: border-box;">DOCX</span>
+          <div style="flex: 1; min-width: 0;"><div style="font-size: 13px;">对比-三份报告.docx</div><div style="font-size: 11px; color: var(--muted);">新建 · 18 KB · 刚刚</div></div>
+          <button class="ibtn" aria-label="预览"><svg class="ic" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"></path><circle cx="8" cy="8" r="2"></circle></svg></button>
+          <button class="ibtn" aria-label="在资源管理器中显示"><svg class="ic" viewBox="0 0 16 16"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z"></path></svg></button>
+        </div>
+      </section>
+
+      <section class="blk">
+        <div class="bh"><svg class="ic" viewBox="0 0 16 16"><circle cx="5.5" cy="5.5" r="2"></circle><circle cx="11" cy="11" r="2"></circle><path d="M7 7l2.5 2.5"></path></svg>子 Agent 与后台<span style="flex: 1;"></span><span style="font-weight: 400; color: var(--muted);">没有在跑的</span></div>
+        <div class="row" style="font-size: 12px; color: var(--muted);"><svg class="ic" viewBox="0 0 16 16" style="color: var(--accent);"><path d="M3 8.5l3 3 7-7"></path></svg>资料员 · 核对出处 · 41 秒 · $0.004</div>
+      </section>
+
+      <section class="blk">
+        <div class="bh"><svg class="ic" viewBox="0 0 16 16"><path d="M2.5 13.5h11M4.5 11V8M8 11V4.5M11.5 11V6.5"></path></svg>上下文与花费</div>
+        <div class="row" style="gap: 14px; font-size: 12px; color: var(--ink2);">
+          <span role="img" aria-label="上下文已用 38%" style="width: 40px; height: 40px; border-radius: 50%; background: conic-gradient(var(--accent) 0 38%, var(--line) 38% 100%); display: inline-flex; align-items: center; justify-content: center;"><span style="width: 30px; height: 30px; border-radius: 50%; background: var(--side); display: inline-flex; align-items: center; justify-content: center; font-size: 11px;">38%</span></span>
+          <div style="line-height: 1.7;">49k / 128k token<br>本次 $0.031 · 今天 $0.27</div>
+        </div>
+      </section>
+
+      <section class="blk" style="border-bottom: 0;">
+        <div class="bh"><svg class="ic" viewBox="0 0 16 16"><path d="M8 2.5c-3 0-5 2-5 4.5 0 1.5.8 2.6 2 3.3V13h6v-2.7c1.2-.7 2-1.8 2-3.3 0-2.5-2-4.5-5-4.5z"></path></svg>这次用到的</div>
+        <div style="font-size: 12px; color: var(--ink2); line-height: 1.8;">记忆 3 条 · 技能「写对比文档」</div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 10px;">
+          <button class="act">存成技能</button>
+          <button class="act">存为模板</button>
+          <button class="act">定时接着做</button>
+          <button class="act">刷新记忆快照</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { open: false }; }
+  renderVals() {
+    const open = this.state.open;
+    return {
+      themeClass: this.props.dark ? 'dark' : '',
+      open: open,
+      openStr: open ? 'true' : 'false',
+      chev: open ? 'M4 6l4 4 4-4' : 'M6 4l4 4-4 4',
+      toggle: () => this.setState({ open: !open })
+    };
+  }
+}
+</script>
+</body>
+</html>

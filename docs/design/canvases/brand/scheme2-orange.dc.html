@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方案二 蝶橙</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&amp;family=Noto+Serif+SC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#A9533A}a:hover{color:#8A4330}
+.lbl{font-size:12px;letter-spacing:1.6px;color:#6B6052}
+.cap{font-size:12px;color:#6B6052;margin-top:8px;text-align:center}
+</style>
+</helmet>
+<div style="width: 1280px; height: 900px; box-sizing: border-box; padding: 56px 64px; background: #F6F0E4; color: #2B2620; font-family: 'Noto Sans SC', sans-serif; display: flex; flex-direction: column; gap: 40px;">
+
+  <!-- 标志与中文名 -->
+  <div style="display: flex; gap: 56px; align-items: center;">
+    <img src="/_blob/aeba5faaeb0ee860e8ac2cf2771b694f" alt="DreamFlutter 图标" style="width: 200px; height: 200px; display: block;">
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <span style="font-family: 'Noto Serif SC', serif; font-size: 72px; font-weight: 700; letter-spacing: 12px; color: #3B352D;">梦蝶</span>
+      <span style="font-family: 'Noto Serif SC', serif; font-size: 22px; font-weight: 600; letter-spacing: 6px; color: #A9533A;">DreamFlutter</span>
+    </div>
+    <div style="flex: 1;"></div>
+    <div>
+      <div class="lbl" style="margin-bottom: 12px;">默认主题「梦蝶」的颜色（取自原图）</div>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+        <div><div style="width: 96px; height: 48px; border-radius: 8px; background: #C96A4A;"></div><div class="cap">主色 #C96A4A</div></div>
+        <div><div style="width: 96px; height: 48px; border-radius: 8px; background: #A9533A;"></div><div class="cap">文字用 #A9533A</div></div>
+        <div><div style="width: 96px; height: 48px; border-radius: 8px; background: #DDA27F;"></div><div class="cap">浅 #DDA27F</div></div>
+        <div><div style="width: 96px; height: 48px; border-radius: 8px; background: #F6F0E4; border: 1px solid #DCCFBC; box-sizing: border-box;"></div><div class="cap">底 #F6F0E4</div></div>
+        <div><div style="width: 96px; height: 48px; border-radius: 8px; background: #EEE7D8; border: 1px solid #DCCFBC; box-sizing: border-box;"></div><div class="cap">侧栏 #EEE7D8</div></div>
+        <div><div style="width: 96px; height: 48px; border-radius: 8px; background: #3B352D;"></div><div class="cap">墨 #3B352D</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 窗口：浅色 / 深色 -->
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px;">
+    <div>
+      <div class="lbl" style="margin-bottom: 12px;">浅色</div>
+      <div style="border: 1px solid #DCCFBC; border-radius: 12px; overflow: hidden; background: #F6F0E4;">
+        <div style="height: 42px; background: #EEE7D8; display: flex; align-items: center; gap: 10px; padding: 0 14px; font-size: 13px; color: #6B6052;">
+          <img src="/_blob/aeba5faaeb0ee860e8ac2cf2771b694f" alt="" style="width: 22px; height: 22px; display: block;">
+          <span style="font-family: 'Noto Serif SC', serif; font-weight: 600; color: #2B2620; font-size: 14px;">DreamFlutter</span>
+          <span>工作台 /</span>
+          <span style="border: 1px solid #DCCFBC; background: #FBF7EF; border-radius: 6px; padding: 2px 8px; color: #2B2620;">毕设论文 ▾</span>
+        </div>
+        <div style="display: flex; height: 300px;">
+          <div style="width: 170px; background: #EEE7D8; padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 3px; background: #E3D8C4; border-radius: 7px;">
+              <span style="background: #FBF7EF; border-radius: 5px; text-align: center; font-size: 12px; padding: 4px 0; font-weight: 600;">工作台</span>
+              <span style="text-align: center; font-size: 12px; padding: 4px 0; color: #6B6052;">蝶君</span>
+            </div>
+            <span style="font-size: 12px; color: #A9533A; padding: 4px 6px;">＋ 新建对话</span>
+            <span style="font-size: 12px; background: rgba(201,106,74,.14); border-radius: 6px; padding: 6px; color: #2B2620;">整理三份报告</span>
+            <span style="font-size: 12px; padding: 6px; color: #4A4238;">第三章图表</span>
+          </div>
+          <div style="flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
+            <div style="align-self: flex-end; background: #E9DECB; border-radius: 10px; padding: 8px 12px;">把三份报告做成对比文档</div>
+            <div style="font-family: 'Noto Serif SC', serif; line-height: 1.8;">对比文档已经生成在 <a href="#">对比-三份报告.docx</a>。</div>
+            <div style="flex: 1;"></div>
+            <div style="border: 1px solid #DCCFBC; border-radius: 10px; background: #FBF7EF; padding: 10px; display: flex; align-items: center; gap: 8px;">
+              <span style="flex: 1; color: #8A7F70;">接着说…</span>
+              <span style="border: 1px solid #DCCFBC; border-radius: 12px; padding: 2px 8px; font-size: 12px;">标准 ▾</span>
+              <button aria-label="发送" style="width: 30px; height: 30px; border: 0; border-radius: 8px; background: #C96A4A; color: #FFF8F0; font-size: 15px;">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="lbl" style="margin-bottom: 12px;">深色</div>
+      <div style="border: 1px solid #3A342C; border-radius: 12px; overflow: hidden; background: #221E19;">
+        <div style="height: 42px; background: #1C1915; display: flex; align-items: center; gap: 10px; padding: 0 14px; font-size: 13px; color: #A89C84;">
+          <img src="/_blob/aeba5faaeb0ee860e8ac2cf2771b694f" alt="" style="width: 22px; height: 22px; display: block;">
+          <span style="font-family: 'Noto Serif SC', serif; font-weight: 600; color: #ECE3D2; font-size: 14px;">DreamFlutter</span>
+          <span>工作台 /</span>
+          <span style="border: 1px solid #3A342C; background: #2A2620; border-radius: 6px; padding: 2px 8px; color: #ECE3D2;">毕设论文 ▾</span>
+        </div>
+        <div style="display: flex; height: 300px;">
+          <div style="width: 170px; background: #1C1915; padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 3px; background: #15120F; border-radius: 7px;">
+              <span style="background: #2A2620; border-radius: 5px; text-align: center; font-size: 12px; padding: 4px 0; font-weight: 600; color: #ECE3D2;">工作台</span>
+              <span style="text-align: center; font-size: 12px; padding: 4px 0; color: #A89C84;">蝶君</span>
+            </div>
+            <span style="font-size: 12px; color: #E39A78; padding: 4px 6px;">＋ 新建对话</span>
+            <span style="font-size: 12px; background: rgba(227,154,120,.16); border-radius: 6px; padding: 6px; color: #ECE3D2;">整理三份报告</span>
+            <span style="font-size: 12px; padding: 6px; color: #D2C7B3;">第三章图表</span>
+          </div>
+          <div style="flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: #ECE3D2;">
+            <div style="align-self: flex-end; background: #353028; border-radius: 10px; padding: 8px 12px;">把三份报告做成对比文档</div>
+            <div style="font-family: 'Noto Serif SC', serif; line-height: 1.8;">对比文档已经生成在 <span style="color: #E39A78; text-decoration: underline;">对比-三份报告.docx</span>。</div>
+            <div style="flex: 1;"></div>
+            <div style="border: 1px solid #3A342C; border-radius: 10px; background: #2A2620; padding: 10px; display: flex; align-items: center; gap: 8px;">
+              <span style="flex: 1; color: #8A7F70;">接着说…</span>
+              <span style="border: 1px solid #3A342C; border-radius: 12px; padding: 2px 8px; font-size: 12px;">标准 ▾</span>
+              <button aria-label="发送" style="width: 30px; height: 30px; border: 0; border-radius: 8px; background: #E39A78; color: #221E19; font-size: 15px;">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="font-size: 13px; color: #6B6052;">名画主题（蛱蝶、草间、图谱……）照旧可以在「外观」里换；「梦蝶」成为新装好时的默认主题。</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
