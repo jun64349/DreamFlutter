@@ -230,7 +230,7 @@ class EmptyState extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 48),
       child: Column(
         children: [
-          const ButterflyMark(size: 64, veins: true),
+          const ButterflyMark(size: 64),
           const SizedBox(height: AppTokens.pad),
           Text(title, style: context.serif(context.text.titleMedium)),
           if (message != null) ...[

@@ -222,7 +222,7 @@ class _EmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const ButterflyMark(size: 132, veins: true, semanticLabel: 'DreamFlutter'),
+              const ButterflyMark(size: 132, semanticLabel: 'DreamFlutter'),
               const SizedBox(height: 28),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 640),

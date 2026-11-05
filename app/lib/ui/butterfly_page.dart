@@ -204,7 +204,7 @@ class _Setup extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Center(child: ButterflyMark(size: 88, veins: true)),
+              const Center(child: ButterflyMark(size: 88)),
               const SizedBox(height: AppTokens.padLg),
               Text('先给蝶君建一个沙箱', textAlign: TextAlign.center, style: context.serif(context.text.titleLarge)),
               const SizedBox(height: AppTokens.gap),

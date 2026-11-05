@@ -1,4 +1,9 @@
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+
+import 'butterfly_art.dart';
 
 /// Every visual decision lives here (colors, type, radii, spacing, the
 /// butterfly), so a theme is one set of values.
@@ -69,8 +74,7 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.onTerminal,
     required this.terminalMuted,
     required this.terminalError,
-    required this.wingUpper,
-    required this.wingLower,
+    required this.butterfly,
     required this.diffAdded,
     required this.diffRemoved,
   });
@@ -108,9 +112,8 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color terminalMuted;
   final Color terminalError;
 
-  /// The butterfly's wash colors.
-  final Color wingUpper;
-  final Color wingLower;
+  /// The butterfly mark's colors (docs/design/brand.md, section 二.2).
+  final ButterflyColors butterfly;
   final Color diffAdded;
   final Color diffRemoved;
 
@@ -138,8 +141,7 @@ class AppColors extends ThemeExtension<AppColors> {
     onTerminal: Color(0xFFE8DFCB),
     terminalMuted: Color(0xFFC2B69C),
     terminalError: Color(0xFFE8A091),
-    wingUpper: Color(0xFFE3C995),
-    wingLower: Color(0xFFAFC3A0),
+    butterfly: ButterflyColors(ground: Color(0xFFEEE7D7), line: Color(0xFF3F3B34), core: Color(0xFFF3F0E4), wing: Color(0xFFCA704D), glow: Color(0xFFE8CCB0)),
     diffAdded: Color(0x293F6E5E),
     diffRemoved: Color(0x24A8332A),
   );
@@ -169,8 +171,7 @@ class AppColors extends ThemeExtension<AppColors> {
     onTerminal: Color(0xFFE8DFCB),
     terminalMuted: Color(0xFFA89C84),
     terminalError: Color(0xFFE8A091),
-    wingUpper: Color(0xFFB89B63),
-    wingLower: Color(0xFF7D957A),
+    butterfly: ButterflyColors(ground: Color(0xFF1C1915), line: Color(0xFFFFFFFF), core: Color(0xFF2A2620), wing: Color(0xFFD39A6A), glow: Color(0xFFB89B63)),
     diffAdded: Color(0x3386B8A6),
     diffRemoved: Color(0x33E07A6C),
   );
@@ -290,8 +291,7 @@ class PaintingTheme {
       onTerminal: Color(0xFFE8EBD8),
       terminalMuted: Color(0xFFB3BCA4),
       terminalError: Color(0xFFE8A091),
-      wingUpper: Color(0xFFF4EDB8),
-      wingLower: Color(0xFFFFFFFB),
+      butterfly: ButterflyColors(ground: Color(0xFFE8EBD8), line: Color(0xFF1F281B), core: Color(0xFFFFFFFB), wing: Color(0xFF3C6B32), glow: Color(0xFFF4EDB8)),
       diffAdded: Color(0x293C6B32),
       diffRemoved: Color(0x24B23A24),
     ),
@@ -335,8 +335,7 @@ class PaintingTheme {
       onTerminal: Color(0xFFECE5D3),
       terminalMuted: Color(0xFFB8AD99),
       terminalError: Color(0xFFE8A091),
-      wingUpper: Color(0xFF3F86BF),
-      wingLower: Color(0xFF2C5A8A),
+      butterfly: ButterflyColors(ground: Color(0xFFECE5D3), line: Color(0xFF241E19), core: Color(0xFFFFFFFF), wing: Color(0xFF18649A), glow: Color(0xFF9FC2DF)),
       diffAdded: Color(0x24456A40),
       diffRemoved: Color(0x24A04729),
     ),
@@ -380,8 +379,7 @@ class PaintingTheme {
       onTerminal: Color(0xFFECE4D2),
       terminalMuted: Color(0xFFBCAF98),
       terminalError: Color(0xFFE8A091),
-      wingUpper: Color(0xFFD9A441),
-      wingLower: Color(0xFF6E9DB3),
+      butterfly: ButterflyColors(ground: Color(0xFFECE4D2), line: Color(0xFF29211B), core: Color(0xFFFFFDF8), wing: Color(0xFF9C3328), glow: Color(0xFFD9A441)),
       diffAdded: Color(0x24446940),
       diffRemoved: Color(0x249C3328),
     ),
@@ -425,8 +423,7 @@ class PaintingTheme {
       onTerminal: Color(0xFFE6E1D8),
       terminalMuted: Color(0xFF9DA4AA),
       terminalError: Color(0xFFEF9A8F),
-      wingUpper: Color(0xFFEAF0D0),
-      wingLower: Color(0xFFCFD6BC),
+      butterfly: ButterflyColors(ground: Color(0xFF1B1E22), line: Color(0xFFFFFFFF), core: Color(0xFF21262B), wing: Color(0xFFE2676A), glow: Color(0xFFEAF0D0)),
       diffAdded: Color(0x3393C08C),
       diffRemoved: Color(0x33EF7F76),
     ),
@@ -471,8 +468,7 @@ class PaintingTheme {
       onTerminal: Color(0xFFEDE5DA),
       terminalMuted: Color(0xFFA39B8F),
       terminalError: Color(0xFFEF9A8F),
-      wingUpper: Color(0xFFE09F3E),
-      wingLower: Color(0xFF2B908F),
+      butterfly: ButterflyColors(ground: Color(0xFF201D1A), line: Color(0xFFFFFFFF), core: Color(0xFF2A2622), wing: Color(0xFFE09F3E), glow: Color(0xFFF3D29D)),
       diffAdded: Color(0x334FB3B1),
       diffRemoved: Color(0x33E57A6A),
     ),
@@ -660,110 +656,129 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
 // The butterfly and the seal
 // ---------------------------------------------------------------------------
 
-/// The 蛱蝶 mark: a gongbi butterfly in ink line with a pale wash, drawn from
-/// the same outline as the design mockups (a 120 × 90 box).
+/// The colors of the butterfly mark in one theme (docs/design/brand.md, section 二.2).
+@immutable
+class ButterflyColors {
+  const ButterflyColors({required this.ground, required this.line, required this.core, required this.wing, required this.glow});
+
+  /// The rounded square behind it in the app icon; the window draws the butterfly alone.
+  final Color ground;
+
+  /// Outlines and antennae: dark on light themes, white on dark ones.
+  final Color line;
+
+  /// The light cores of the wings.
+  final Color core;
+
+  /// The bands of the wings.
+  final Color wing;
+
+  /// The light end of the gradients on the right wings.
+  final Color glow;
+
+  /// [wing] mixed into [glow] by [t] (0 = wing).
+  Color mix(double t) => Color.lerp(wing, glow, t)!;
+}
+
+/// The butterfly mark: the user's butterfly, traced 1:1 (butterfly_art.dart),
+/// in the colors of the current theme.
 class ButterflyMark extends StatelessWidget {
-  const ButterflyMark({super.key, this.size = 36, this.veins = false, this.semanticLabel});
+  const ButterflyMark({super.key, this.size = 36, this.semanticLabel, this.colors});
 
   /// Width; the height is three quarters of it.
   final double size;
-
-  /// Draw wing veins and spots (for large sizes).
-  final bool veins;
   final String? semanticLabel;
+
+  /// Defaults to the current theme's.
+  final ButterflyColors? colors;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
     final painter = CustomPaint(
       size: Size(size, size * 0.75),
-      painter: _ButterflyPainter(ink: colors.ink, upper: colors.wingUpper, lower: colors.wingLower, spot: colors.ochre, veins: veins, stroke: context.painting.butterflyStroke),
+      painter: ButterflyPainter(colors ?? context.colors.butterfly, stroke: context.painting.butterflyStroke),
     );
     return semanticLabel == null ? ExcludeSemantics(child: painter) : Semantics(label: semanticLabel, image: true, child: painter);
   }
 }
 
-class _ButterflyPainter extends CustomPainter {
-  _ButterflyPainter({required this.ink, required this.upper, required this.lower, required this.spot, required this.veins, this.stroke = 1});
+/// Paints the butterfly centred in its size, keeping its proportions.
+class ButterflyPainter extends CustomPainter {
+  ButterflyPainter(this.colors, {this.stroke = 1, this.solid});
 
-  final Color ink;
-  final Color upper;
-  final Color lower;
-  final Color spot;
-  final bool veins;
+  final ButterflyColors colors;
+
+  /// Line weight relative to the original (leaded glass draws it heavier).
   final double stroke;
 
-  static Path _upperWing() => Path()
-    ..moveTo(60, 40)
-    ..cubicTo(70, 20, 92, 6, 110, 10)
-    ..cubicTo(118, 12, 116, 28, 106, 38)
-    ..cubicTo(98, 46, 80, 46, 62, 44)
-    ..close();
+  /// Paint everything in this one color (the glyph).
+  final Color? solid;
 
-  static Path _lowerWing() => Path()
-    ..moveTo(61, 46)
-    ..cubicTo(78, 48, 94, 56, 96, 70)
-    ..cubicTo(97, 80, 86, 84, 78, 78)
-    ..cubicTo(70, 72, 64, 60, 61, 48)
-    ..close();
+  static final _bands = [for (final p in butterflyBands) (p, butterflyPath(p.data))];
+  static final _cores = [for (final p in butterflyCores) (p, butterflyPath(p.data))];
+  static final _antennae = butterflyPath(butterflyAntennae);
+  static final _outline = butterflyPath(butterflyOutline);
+
+  /// Width of the original's lines in the 1024 grid.
+  static const lineWidth = 24.0;
+
+  /// Lines are never drawn thinner than this many logical pixels: below about
+  /// 40 px wide the original line would turn into a grey hair (optical
+  /// thickening for small sizes only; larger marks are exactly the trace).
+  static const minLine = 1.2;
+
+  /// Maps the 1024 grid onto [size], centred; returns the scale.
+  static double fit(Canvas canvas, Size size) {
+    const box = butterflyBox;
+    final scale = math.min(size.width / box.width, size.height / box.height);
+    canvas.translate((size.width - box.width * scale) / 2, (size.height - box.height * scale) / 2);
+    canvas.scale(scale);
+    canvas.translate(-box.left, -box.top);
+    return scale;
+  }
+
+  Paint _fill(ButterflyPiece piece, Color flat) {
+    final g = piece.gradient;
+    if (solid != null || g == null) return Paint()..color = solid ?? flat;
+    return Paint()
+      ..shader = ui.Gradient.linear(g.from, g.to, [for (final s in g.stops) colors.mix(s.$2)], [for (final s in g.stops) s.$1]);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.save();
-    canvas.scale(size.width / 120, size.height / 90);
-    final scale = size.width / 120;
-    final line = Paint()
-      ..color = ink
-      ..style = PaintingStyle.stroke
-      ..strokeJoin = StrokeJoin.round
-      // About one pixel wide at any size, never thinner than the drawing's own line.
-      ..strokeWidth = (1.1 * stroke / scale).clamp(0.8 * stroke, 6.0 * stroke);
-    final mirror = Matrix4.identity()
-      ..translateByDouble(120, 0, 0, 1)
-      ..scaleByDouble(-1, 1, 1, 1);
-    for (final (path, color) in [(_upperWing(), upper), (_lowerWing(), lower)]) {
-      for (final p in [path, path.transform(mirror.storage)]) {
-        canvas.drawPath(p, Paint()..color = color.withValues(alpha: 0.75));
-        canvas.drawPath(p, line);
+    final scale = fit(canvas, size);
+    for (final (piece, path) in _bands) {
+      canvas.drawPath(path, _fill(piece, colors.wing));
+    }
+    if (solid == null) {
+      for (final (piece, path) in _cores) {
+        canvas.drawPath(path, _fill(piece, colors.core));
       }
     }
-    if (veins) {
-      final vein = Paint()
-        ..color = ink.withValues(alpha: 0.6)
+    final line = Paint()..color = solid ?? colors.line;
+    canvas.drawPath(_antennae, line);
+    canvas.drawPath(_outline, line);
+    // Heavier lines (leaded glass) or a small mark: widen the filled line shapes on both sides.
+    final extra = math.max((stroke - 1) * 10, minLine / scale - lineWidth);
+    if (extra > 0) {
+      final widen = Paint()
+        ..color = line.color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.45;
-      final right = Path()
-        ..moveTo(62, 42)
-        ..lineTo(104, 16)
-        ..moveTo(62, 43)
-        ..lineTo(109, 27)
-        ..moveTo(63, 44)
-        ..lineTo(98, 40)
-        ..moveTo(62, 47)
-        ..lineTo(90, 64)
-        ..moveTo(62, 48)
-        ..lineTo(80, 76);
-      canvas.drawPath(right, vein);
-      canvas.drawPath(right.transform(mirror.storage), vein);
-      final dot = Paint()..color = spot.withValues(alpha: 0.75);
-      canvas.drawCircle(const Offset(86, 68), 2.6, dot);
-      canvas.drawCircle(const Offset(34, 68), 2.6, dot);
-      final antenna = Path()
-        ..moveTo(59, 36)
-        ..cubicTo(56, 25, 52, 18, 47, 14)
-        ..moveTo(61, 36)
-        ..cubicTo(64, 25, 68, 18, 73, 14);
-      canvas.drawPath(antenna, line..strokeWidth = 0.7);
+        ..strokeJoin = StrokeJoin.round
+        ..strokeWidth = extra;
+      canvas.drawPath(_antennae, widen);
+      canvas.drawPath(_outline, widen);
     }
-    canvas.drawOval(Rect.fromCenter(center: const Offset(60, 47), width: veins ? 3.6 : 6, height: veins ? 24 : 26), Paint()..color = ink);
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(_ButterflyPainter old) => old.ink != ink || old.upper != upper || old.lower != lower || old.veins != veins || old.stroke != stroke;
+  bool shouldRepaint(ButterflyPainter old) =>
+      old.colors.line != colors.line || old.colors.core != colors.core || old.colors.wing != colors.wing || old.colors.glow != colors.glow || old.stroke != stroke || old.solid != solid;
 }
 
-/// The butterfly as a solid one-color glyph, for buttons and small icons.
+/// The butterfly as a solid one-color silhouette, for buttons and small icons.
 class ButterflyGlyph extends StatelessWidget {
   const ButterflyGlyph({super.key, this.size = 18, this.color});
 
@@ -776,33 +791,9 @@ class ButterflyGlyph extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = this.color ?? IconTheme.of(context).color ?? context.colors.ink;
     return ExcludeSemantics(
-      child: CustomPaint(size: Size(size, size * 0.75), painter: _GlyphPainter(color)),
+      child: CustomPaint(size: Size(size, size * 0.75), painter: ButterflyPainter(context.colors.butterfly, solid: color)),
     );
   }
-}
-
-class _GlyphPainter extends CustomPainter {
-  _GlyphPainter(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(size.width / 120, size.height / 90);
-    final mirror = Matrix4.identity()
-      ..translateByDouble(120, 0, 0, 1)
-      ..scaleByDouble(-1, 1, 1, 1);
-    final paint = Paint()..color = color;
-    for (final wing in [_ButterflyPainter._upperWing(), _ButterflyPainter._lowerWing()]) {
-      canvas.drawPath(wing, paint);
-      canvas.drawPath(wing.transform(mirror.storage), paint);
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_GlyphPainter old) => old.color != color;
 }
 
 /// The cinnabar 「梦蝶」 seal.

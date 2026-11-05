@@ -395,7 +395,7 @@ class _EmptyDesk extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ButterflyMark(size: 96, veins: true),
+            const ButterflyMark(size: 96),
             const SizedBox(height: AppTokens.padLg),
             Text('还没有打开的写笺', style: context.serif(context.text.titleLarge)),
             const SizedBox(height: AppTokens.gap),
