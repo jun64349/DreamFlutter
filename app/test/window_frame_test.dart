@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/greetings.dart' show allGreetings;
 import 'package:dreamflutter/ui/run_summary.dart' show RunPanel;
 import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
 import 'package:dreamflutter/ui/window_frame.dart';
@@ -179,6 +180,14 @@ void main() {
     expect(find.textContaining('无痕对话：极简模式，不保存记录'), findsOneWidget);
     expect(find.byTooltip('无痕对话没有详情'), findsOneWidget);
     expect(find.descendant(of: find.byTooltip(RegExp('^模式：')), matching: find.text('无痕')), findsOneWidget);
+  });
+
+  testWidgets('a new conversation shows the butterfly and one greeting, nothing else (0.4, v0.3.1 test 5)', (tester) async {
+    await startApp(tester);
+    final greetings = allGreetings.toSet();
+    expect(find.byWidgetPredicate((w) => w is Text && greetings.contains(w.data)), findsOneWidget);
+    expect(find.text('整理一份周报'), findsNothing, reason: 'no suggestion cards');
+    expect(find.textContaining('Agent 会在工作区里读写文件'), findsNothing, reason: 'no explanation');
   });
 
   testWidgets('the sidebar is as wide as it was dragged, also after a restart', (tester) async {

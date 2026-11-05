@@ -12,6 +12,7 @@ import 'agent_scope.dart';
 import 'composer.dart';
 import 'common.dart';
 import 'context_dialog.dart';
+import 'greetings.dart';
 import 'library_page.dart' show showTemplateEditor;
 import 'markdown_view.dart' show FileLinks;
 import 'message_widgets.dart';
@@ -200,25 +201,20 @@ class _DetailsPanelState extends State<_DetailsPanel> {
 // The first screen of a new conversation
 // ---------------------------------------------------------------------------
 
+/// A new conversation (0.4, v0.3.1 test 5): the butterfly and one greeting,
+/// set large in the serif with a soft ink-to-accent wash; a different line for
+/// each conversation (see greetings.dart). The first-run guide stays until dismissed.
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
-
-  static const _ideas = [
-    (Icons.summarize_outlined, '整理一份周报', '把工作区里本周的资料整理成周报，列出要点和待办。', '把工作区里本周的资料整理成一份周报，列出要点和待办。'),
-    (Icons.folder_open_outlined, '看看这个文件夹', '读一读工作区里的文件，说说各自是做什么的。', '读一读当前工作区里的文件，告诉我里面都有什么、各自是做什么的。'),
-    (Icons.route_outlined, '规划一件事', '先问清目标和时间，再给出分步计划。', '帮我规划一件事：先问我目标和时间，再给出分步计划。'),
-  ];
-
-  static const _butterflyIdeas = [
-    (Icons.table_chart_outlined, '处理一份表格', '把表格拖进来，让蝶君统计并画图。', '我会拖进一份表格。请统计主要指标、画几张图，把结果和图放进 outbox。'),
-    (Icons.code, '试一段代码', '不放心的代码，先在沙箱里跑跑看。', '帮我在沙箱里试一下这段代码，告诉我它做了什么、有没有问题：\n'),
-    (Icons.travel_explore_outlined, '查个资料', '上网查资料，整理成一页笔记。', '帮我查一下这个主题的资料，整理成一页 Markdown 笔记放进 outbox：'),
-  ];
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     final agent = AgentScope.of(context);
+    final now = DateTime.now();
+    // Stable while this conversation is on screen, another line for the next one.
+    final greeting = pickGreeting(now: now, seed: identityHashCode(agent.active) ^ now.day, butterfly: agent.sandbox);
+    final style = context.serif(context.text.headlineSmall).copyWith(fontSize: 32, fontWeight: FontWeight.w600, letterSpacing: 6, height: 1.5);
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
@@ -226,52 +222,20 @@ class _EmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const ButterflyMark(size: 120, veins: true),
-              const SizedBox(height: 20),
-              Text('今天想做点什么？', style: context.text.headlineSmall?.copyWith(fontSize: 26)),
-              const SizedBox(height: 10),
-              Text(
-                agent.sandbox
-                    ? '蝶君在自己的沙箱里干活，装软件、跑代码都不用你批准，也碰不到你电脑上的文件。\n拖进来的文件会复制一份给它；做好的东西放进 outbox，在「工作」里查看和保存。'
-                    : 'Agent 会在工作区里读写文件、运行命令，改动的文件会列在右边。',
-                textAlign: TextAlign.center,
-                style: context.text.bodyMedium?.copyWith(color: colors.muted, height: 1.6),
-              ),
+              const ButterflyMark(size: 132, veins: true, semanticLabel: 'DreamFlutter'),
               const SizedBox(height: 28),
-              if (!agent.onboarded && !agent.sandbox) ...[const _FirstRunGuide(), const SizedBox(height: 20)],
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                alignment: WrapAlignment.center,
-                children: [
-                  for (final (icon, title, subtitle, prompt) in agent.sandbox ? _butterflyIdeas : _ideas)
-                    SizedBox(
-                      width: 210,
-                      child: Material(
-                        color: colors.card,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusLg), side: BorderSide(color: colors.border)),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(context.radiusLg),
-                          onTap: () => agent.insertIntoComposer(prompt),
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(icon, size: 18, color: colors.accent),
-                                const SizedBox(height: 8),
-                                Text(title, style: context.serif(context.text.bodyMedium).copyWith(fontWeight: FontWeight.w600)),
-                                const SizedBox(height: 4),
-                                Text(subtitle, style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.6)),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: ShaderMask(
+                  blendMode: BlendMode.srcIn,
+                  shaderCallback: (rect) => LinearGradient(
+                    colors: [colors.ink, colors.accent, colors.ochre],
+                    stops: const [0.15, 0.6, 1],
+                  ).createShader(rect),
+                  child: Text(greeting, textAlign: TextAlign.center, style: style),
+                ),
               ),
-              if (!agent.sandbox) ...[const SizedBox(height: 24), const WorkspaceSwitcher(compact: true)],
+              if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 32), const _FirstRunGuide()],
             ],
           ),
         ),
@@ -346,7 +310,7 @@ class _FirstRunGuide extends StatelessWidget {
             'Agent 在这个文件夹里读写文件、运行命令。',
             TextButton(onPressed: () => WorkspaceSwitcher.pickFolder(context), child: const Text('换一个文件夹')),
           ),
-          step(3, false, '试一个任务', '点下面任意一张卡片，或者直接在输入框里说。', null),
+          step(3, false, '试一个任务', '在下面的输入框里说一件想做的事，比如「把这个文件夹里的表格汇总一下」。', null),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton(onPressed: agent.finishOnboarding, child: const Text('知道了')),

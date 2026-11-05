@@ -22,6 +22,8 @@
   - 协议层：`SessionTarget.forkOf`，`slot.open` 带上。`SessionRuntime.forkOf`、`editorAppend`（输入框把文字接在已有内容后面）。
   - 窗口：`state/side_chat.dart`（`SideChat`：引用、独立的 SessionRuntime、`baseline` 之后才是侧边对话的内容、第一问带「关于主对话里的这段内容：」+ 引用）；`AgentController.quoteInComposer`、`openSideChat` / `closeSideChat` / `bringBackSideChat`、`canOpenSideChat`（无痕不行）；侧边会话不进 `_runtimes`，也不通知主控制器（流式不重建主对话）。`chat_view.dart` 的 `_MessageListState`：`SelectionArea.onSelectionChanged` 记选中文字，左键松开处浮出 `_SelectionBox`（回复 / 侧边对话），滚动、按下即收；右键菜单加同样两项。`ui/side_chat_view.dart`：详情里新标签「侧边对话」（新开时自动切过去）：引用、问答（问题去掉引用前缀、回答 = 折叠的过程块 + Markdown）、「带回主对话」「结束」、输入框（Enter 发送 / 停止）。
   - 测试：窗口 118（`side_chat_test.dart` 3 个）、协议层 43、后台 200、场景巡检 5。**真实模型下没试过侧边对话**。
+- 4.7 已提交 `7583865`（未推送）。
+- **首页已做（未提交）**：`chat_view.dart` 的 `_EmptyState` 只剩蝴蝶（132）和一句问候语（宋体 32、字距 6、墨色 → 主色 → 赭石渐变的 `ShaderMask`）；问候语在 `ui/greetings.dart`（清晨 / 上午 / 午后 / 傍晚 / 深夜各 4 句、通用 10 句、蝶君 6 句，`pickGreeting` 用会话的 identityHashCode ^ 日期当种子，同一会话不变）；说明文字、三张建议卡片、底部工作区按钮都去掉了；「开始之前」引导第三步的文字改成在输入框里说。测试：`greetings_test.dart` 4 个，`window_frame_test` 加 1；窗口 123，视觉检查过。
 - 用户问过测试窗口里的「Claude Opus 4.8」：是假后台回放的录音 `runtime/fixtures/rpc-session-prompt.jsonl`（v0.1.0 录的，Pi 自带模型清单里的默认项），真正回话的是 DeepSeek；测试不调用任何模型。
 
 **v0.3.4（2026-11-04）**：按用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.3.3测试记录.md`（截图在同目录 `Pasted image 2026110415*.png`），详见 [v0.3.4-release-notes.md](v0.3.4-release-notes.md)。

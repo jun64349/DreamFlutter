@@ -8,7 +8,7 @@ v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实�
 | 层 | 命令（PowerShell，先 `cd` 到目录） | 用时 | 说明 |
 |---|---|---|---|
 | 后台 | `cd core; npm test; npx tsc --noEmit` | 约 3 分钟 | 200 个，假模型，不联网 |
-| 窗口组件 | `cd app; flutter test test` | 约 20 秒 | 118 个，假后台 |
+| 窗口组件 | `cd app; flutter test test` | 约 20 秒 | 123 个，假后台 |
 | 协议层 | `cd packages/pi_rpc; dart test -x integration` | 约 10 秒 | |
 | 场景巡检（真窗口） | `cd app; flutter test integration_test/scenarios_test.dart -d windows` | 约 1 分钟 | 假后台、真字体真窗口：阅读、选字、拖放、全部页面和主题 |
 | 视觉检查 | `cd app; flutter test integration_test/look_test.dart -d windows` | 约 40 秒 | 截图在 `app/build/look_shots/`，要看一遍 |
@@ -31,6 +31,7 @@ v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实�
 | 侧栏拖宽，重启后还是那么宽，不超出上下限（0.4） | 组件 window_frame_test | |
 | 详情「概览」分块（进度、步骤、产物与改动、子 Agent 与后台、上下文与花费、常用操作），可折叠且记得；步骤多时只显示最近 5 步（0.4） | 组件 window_frame_test | |
 | 过程块默认折叠：运行中标题写「正在…」并露出最近三步（各一行）；命令也是一行，点开看终端，出错自动展开；看图有缩略图、点开大图；MCP 写明服务和工具（0.4） | 组件 work_block_test，视觉 02 / 03 | 终端白天用纸色、夜里用深色 |
+| 新会话首页只有蝴蝶和一句问候语（按时段 + 通用随机，蝶君另有一组；同一会话里不变），没有说明和建议卡片（0.4，v0.3.1 第 5 条） | 组件 greetings_test、window_frame_test，视觉 00 / 05 | 第一次使用的「开始之前」引导仍在，知道了就不再出现 |
 | 在回复里拖选文字，松开处浮出「回复 / 侧边对话」（右键菜单里也有）；「回复」把选中内容作为引用接在输入框已有文字后面（0.4） | 组件 side_chat_test | 无痕对话里「侧边对话」不可用 |
 | 侧边对话：在详情的「侧边对话」标签里问，带着主对话到现在的内容；主对话不收到任何消息、会话文件不被写；「带回主对话」把最后的回答作为引用放进输入框；「结束」关掉（0.4） | 组件 side_chat_test，后台 slots.test（forkOf） | 真实模型下还没试过 |
 | 回复下方的信息和按钮平时隐藏，鼠标移上去才出现；信息只留模型 · 耗时 · 花费，完整数字在悬停提示里；按钮加大（0.4） | 组件 chat_and_zoom_test、message_view_test | |
