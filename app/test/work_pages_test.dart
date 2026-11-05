@@ -165,7 +165,7 @@ void main() {
     expect(takes(find.byType(ButterflyPage, skipOffstage: false)), isFalse, reason: 'images dropped on the workbench turned up in 蝶君\'s input box');
 
     // A page pushed on top (settings) covers both.
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.byTooltip(RegExp('^设置')));
     await settle(tester);
     expect(takes(workbench), isFalse);
   });

@@ -157,7 +157,7 @@ void main() {
     expect(agent.providerLabel('df-cglm'), '智谱套餐');
     expect(agent.providerLabel('dreamflutter'), '模型组');
 
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('模型与网关'));
     await tester.pumpAndSettle();
@@ -193,7 +193,7 @@ void main() {
 
   testWidgets('the dashboard shows channels, allowances and the period totals', (tester) async {
     await startApp(tester);
-    await tester.tap(find.text('仪表盘'));
+    await tester.tap(find.byTooltip(RegExp('^仪表盘')));
     await settle(tester);
     expect(find.byType(DashboardPage), findsOneWidget);
     expect(find.text('5 小时'), findsOneWidget);
@@ -212,7 +212,7 @@ void main() {
 
   testWidgets('the settings search looks through every category', (tester) async {
     await startApp(tester);
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
     expect(find.text('每月花费上限'), findsNothing, reason: 'the general category opens first');
     await tester.enterText(find.widgetWithText(TextField, '搜索设置'), '花费上限');

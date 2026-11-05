@@ -7,6 +7,7 @@ import '../state/session_runtime.dart' show QuestionNode;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'artifact_widgets.dart';
+import 'chat_view.dart' show SessionActions;
 import 'message_widgets.dart' show ChatRow, ReplyRow, TodoList, todoItems, toolSubject;
 import 'motion.dart';
 import 'task_widgets.dart';
@@ -16,9 +17,10 @@ import 'dashboard_page.dart' show formatCost, formatTokens;
 /// and the latest run: its steps (live while it runs), the files it
 /// changed, how long it took and what it cost.
 class RunPanel extends StatefulWidget {
-  const RunPanel({super.key, required this.sessionFile, required this.onClose});
+  const RunPanel({super.key, required this.sessionFile, required this.onClose, this.width = AppTokens.runPanelWidth});
 
   final String? sessionFile;
+  final double width;
   final VoidCallback onClose;
 
   @override
@@ -84,7 +86,7 @@ class _RunPanelState extends State<RunPanel> {
     final run = _run;
     final task = _task;
     return Container(
-      width: AppTokens.runPanelWidth,
+      width: widget.width,
       decoration: BoxDecoration(
         color: colors.sidebar,
         border: Border(left: BorderSide(color: colors.border, width: 0.5)),
@@ -103,7 +105,7 @@ class _RunPanelState extends State<RunPanel> {
                   if (agent.sandbox) _TabButton(label: '写笺', selected: _tab == 1, onTap: () => setState(() => _tab = 1)),
                   _TabButton(label: '分支', selected: _tab == 2, onTap: () => setState(() => _tab = 2)),
                   const Spacer(),
-                  IconButton(tooltip: '收起右栏', onPressed: widget.onClose, icon: const Icon(Icons.close, size: 18)),
+                  IconButton(tooltip: '收起详情', onPressed: widget.onClose, icon: const Icon(Icons.close, size: 18)),
                 ],
               ),
             ),
@@ -181,6 +183,10 @@ class _RunPanelState extends State<RunPanel> {
                       ],
                     ),
                   ],
+                  const SizedBox(height: 22),
+                  Text('常用操作', style: context.label),
+                  const SizedBox(height: 8),
+                  const SessionActions(),
                 ],
               ),
             ),

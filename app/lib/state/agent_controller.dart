@@ -1470,7 +1470,26 @@ class AgentController extends ChangeNotifier {
 
   Future<void> setRunPanelOpen(bool open) async {
     await preferences.setRunPanelOpen(open);
-    _notify();
+    _notifyBoth();
+  }
+
+  double get sidebarWidth => preferences.sidebarWidth;
+  double get panelWidth => preferences.panelWidth;
+
+  Future<void> setSidebarWidth(double width) async {
+    await preferences.setSidebarWidth(width);
+    _notifyBoth();
+  }
+
+  Future<void> setPanelWidth(double width) async {
+    await preferences.setPanelWidth(width);
+    _notifyBoth();
+  }
+
+  /// Window-wide settings (panel, widths) are shown by both the workbench and 蝶君.
+  void _notifyBoth() {
+    main._notify();
+    main._butterfly?._notify();
   }
 
   Future<void> setZoom(double zoom) async {

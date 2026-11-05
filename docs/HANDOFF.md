@@ -1,10 +1,18 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-05（v0.3.4 和计划修订已推送；用户确认修订、开始 0.4：先做 4.8、4.9，同时出框架设计稿）
+更新时间：2026-11-05（0.4 开工：4.8 试构建量完大小、4.9 设计文档写好、框架设计稿三个方案，都等用户定；见下面「0.4 进度」）
 
 ## 新窗口从这里开始
 
 **开发前先读 [dev-guide.md](dev-guide.md)（开发规范与踩坑），发布前按 [testing/scenarios.md](testing/scenarios.md)（全场景测试清单）走一遍。** 这是用户 2026-11-04 的要求：「做全量的全功能常用场景的 e2e 全量测试，不放过任何一个角落细节，排除一切影响使用的 bug，然后把踩过的坑总结好放进开发指南规范类的文件里」。用户对 v0.3.2 的评价是「不太收敛」「冒出很多以前没有的 bug」。
+
+**0.4 进度（2026-11-05）**：提交 `299a586`（计划修订 + 忽略 `packages/*/build/`），`main` 和 `v0.3.4` 已推送。
+- **4.8 沙箱镜像**：**用户定了只装编译器、Node、文字识别**（「平台不能太重，以后需要再补，留好空位」）：`IMAGE_PACKAGES` 加 `build-essential nodejs npm tesseract-ocr tesseract-ocr-chi-sim`；ffmpeg 和 `chromium-headless-shell` 记在 `ON_DEMAND_PACKAGES`（以后做应用代装）；`CHECK_SCRIPT` 和 `live-sandbox.ts` 加了这几样的检查。正式镜像按这个重新构建（结果见下一条之后补的「正式镜像」）。之前的记录：`build-sandbox-image.ts` 加了 `--out <file.tar.gz>`（试构建不覆盖正式镜像）。试构建（2026-11-05，Debian 官方源，1279 秒）：压缩包 **282 MB → 788 MB（+506 MB）**，包 240 → 866；`core/sandbox-image/` 里还是旧镜像，试构建的在会话临时目录（不留）。逐组估算（解压后、`--no-install-recommends`，有共用依赖）：编译器 271 MB、Node + npm 210 MB、ffmpeg 400 MB、OCR + 中文 67 MB、chromium 698 MB / `chromium-headless-shell` 517 MB；全装合计约 1.4 GB；不含 ffmpeg 和 Chromium 约 512 MB。大头是 chromium 和 ffmpeg 共用的 libllvm19 + mesa + libz3（约 190 MB）。定了之后：重新构建正式镜像、`live-sandbox.ts` 加这几样工具的检查、重打安装包。
+- **4.9**：[long-task-design.md](long-task-design.md) 写好（目标表 + 在 tasks / runs 上扩展、状态机、唯一调度者和租约、三层验收、进展指纹、预算账本、等待、四种停止、和 0.5 / 0.9 的接口、给 0.4 右栏的数据、11 个待定项的建议值），待用户定待定项。
+- **4.2–4.3 设计稿**：画布 https://claude.ai/artifact/NYpoVANRPEKZPmMgkhKYuS（三个方案：一「一栏到底」单侧栏 + 分块右栏；二「导航条 + 标签」图标导航条 + 会话栏 + 标签式右栏；三「专注」右栏按需滑出、目标和计划固定在输入框上方。都用现在的蛱蝶配色，有深色开关；源文件在会话临时目录，改的话先从画布读回）。**用户 2026-11-05 选定方案三 + 方案一的顶栏**，删了方案二；已按要求改好：顶栏换成方案一的（标志、名字、「工作台 / 工作区 / 会话标题」、分支、详情开关、窗口按钮），工作区是一个明确的下拉按钮（列出每个工作区的路径、对话数、在运行的；查找、打开文件夹、管理工作区；Ctrl O），侧栏顶部写「毕设论文的对话」并有切换按钮，输入框补回上下文用量圆环。下一步：品牌（4.1）和按这个框架开始改界面。
+- **正式镜像**（2026-11-05）：451 MB（原 282），667 个包，构建 546 秒；`live-sandbox.ts` 全部通过（建沙箱 12 秒、自检 11 项、编译运行 C、Node、npm、中文 OCR、联网 / 离线 / 重置）。
+- **4.2 窗口框架第一步已做（未提交）**：新文件 `ui/window_frame.dart`：`AppTitleBar`（替代删掉的 `title_strip.dart`，放在 `MaterialApp.builder` 里、`Overlay.wrap` 包着；标志 + 名字 + 「工作台 / 工作区下拉 / 会话标题」，蝶君页「蝶君 / 标题」，任务 / 记忆 / 技能页显示页名；详情开关；真窗口才有拖动和窗口按钮，测试里没有）、`workspaceMenu`（`MenuAnchor`，Ctrl O、侧栏切换按钮共用，Esc 关）、`ResizeHandle`。`Sidebar` 重写成全窗口共用（`home_page.dart` 去掉了图标导航条 `_NavRail`）：工作台 / 蝶君切换、新建对话（旁边临时对话）、搜索（点了才出搜索框）、任务（待处理数）；「某工作区 的对话」列表（蝶君页列蝶君的会话，`butterfly_page.dart` 的 `_Talk` 不再自带侧栏）；底部记忆、技能、仪表盘、外观、设置图标；右边缘拖宽（`sidebarWidth`，232–420）。对话页去掉了自己的顶栏 `_TopBar`；右栏改成「详情」：**默认关着**（新偏好键 `detailsOpen`，旧的 `runPanelOpen` 不沿用），宽窗口停在对话旁边、窄窗口（对话剩不到 640）盖在对话上带阴影，左边缘拖宽（`panelWidth`，280–560）；原「⋯」菜单变成详情里的「常用操作」按钮（`chat_view.dart` 的 `SessionActions`）。测试：窗口 106（新增 `test/window_frame_test.dart` 4 个，连跑 3 遍稳定）、场景巡检 5、视觉检查（新增 `01b_details_light`）都过；`flutter analyze` 干净；集成测试的 `nav()` 改成在侧栏里找。**还没做**：设计稿里顶栏的「分支」按钮（分支还在详情的「分支」标签里）、工作区下拉里每个工作区的对话数和「在运行」、详情按设计稿分块（目标、进度、产物…，4.3）、过程折叠（4.4）、悬停显示的信息行（4.5）、输入框里的模式（4.6）、选中文字回复（4.7）、首页蝴蝶 + 问候语、品牌（4.1）。
+- 用户问过测试窗口里的「Claude Opus 4.8」：是假后台回放的录音 `runtime/fixtures/rpc-session-prompt.jsonl`（v0.1.0 录的，Pi 自带模型清单里的默认项），真正回话的是 DeepSeek；测试不调用任何模型。
 
 **v0.3.4（2026-11-04）**：按用户的 `C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.3.3测试记录.md`（截图在同目录 `Pasted image 2026110415*.png`），详见 [v0.3.4-release-notes.md](v0.3.4-release-notes.md)。
 - 修了：行内代码 / 文件名选中不显示高亮（**v0.3.3 的修复没生效**：flutter_markdown_plus 把自带的默认样式合并进来，默认 `code` 有底色，要明写 `Colors.transparent`）；文件名链接断行（改成 `Text.rich(WidgetSpan(FileLink))`，去掉 Tooltip，悬停铺底色）；「往上弹」「不明的刷新」：在测试里贴底时一直正确，问题出在用户往上看时——`chat_view.dart` 的 `_AnchoredRow`（阅读锚定：视口上方的行变高变矮，偏移跟着补）、`CardStage.info / height`（卡片重新搭建时不再先显示「正在打开…」）、`_seen`（只有新行播入场动画）、`SessionRuntime.sends`（发消息回到底部）。排队消息插入那一刻在真实应用里到底是哪个原因，没能在测试里复现，要用户再试。

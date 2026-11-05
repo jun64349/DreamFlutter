@@ -71,7 +71,7 @@ void main() {
     await tester.pumpWidget(DreamFlutterApp(controller: agent));
     await tester.runAsync(agent.init);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('数据与迁移'));
     await settle(tester);

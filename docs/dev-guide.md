@@ -58,6 +58,17 @@
 
 - 每个新页面都要在「小窗口 + 150% 缩放」下不溢出：`scenarios_test.dart` 会打开所有页面、设置分类和主题，有溢出就失败（v0.3.3 由它发现左侧导航在 150% 时溢出）。
 - 侧栏、导航这种「上面一组、`Spacer`、下面一组」的竖排，放不下时要能滚（`_FitOrScroll`）。
+- 可拖宽的栏要按**最窄**的宽度排：0.4 的侧栏底部 5 个图标在最窄 200 时溢出，所以最窄改成 232（`Preferences.sidebarWidths`），按钮用紧凑密度。
+
+### 8. 顶栏在导航器外面（0.4）
+
+`AppTitleBar` 放在 `MaterialApp.builder` 里（每个页面都有、不跟界面缩放），所以它**上面没有 Navigator**：
+
+- 它的菜单用 `MenuAnchor`（靠 Overlay），不能用 `PopupMenuButton` / `showMenu` / `showDialog`（都要 Navigator）。Overlay 由 builder 里的 `Overlay.wrap` 提供，Tooltip 也靠它。
+- 要弹对话框的操作不放在顶栏：原来顶栏「⋯」里的存成技能、模板、定时、记忆快照搬到了右栏的「常用操作」（`SessionActions`）。
+- `DragToMoveArea` 只包空白处和标志，不包按钮（它带双击识别，会拖慢里面按钮的单击）。
+- 菜单是键盘（Ctrl O）打开的时候焦点不在菜单里，Esc 不会自动关：顶栏的键盘处理里自己关。
+- 详情（右栏）现在默认关着、可以盖在对话上：窄窗口里它会挡住输入框右边，测试里要发消息先关掉它。
 
 ## 二、后台（core）
 

@@ -143,6 +143,13 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
     await shot('01_chat_light');
 
+    // The details panel (0.4): opened from the title bar, closed again for the shots below.
+    await tester.tap(find.byTooltip(RegExp('^详情')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+    await shot('01b_details_light');
+    await tester.tap(find.byTooltip('收起详情').first);
+    await tester.pumpAndSettle();
+
     // Open the work block to see the terminal and the diff.
     // In a low window the summary line is above the top of the list: bring it into view first.
     await tester.ensureVisible(find.textContaining('读取 1 个文件'));
@@ -158,7 +165,7 @@ void main() {
     await agent.newSession();
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
     await shot('05_empty_dark');
-    await tester.tap(find.text('设置').first);
+    await tester.tap(find.byTooltip(RegExp('^设置')));
     await shot('06_settings_dark');
   });
 
@@ -241,7 +248,7 @@ void main() {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
       await shot('21_${t.id}_chat');
     }
-    await tester.tap(find.text('外观'));
+    await tester.tap(find.byTooltip(RegExp('^外观')));
     await shot('22_appearance');
     await tester.tap(find.text('完成'));
   });

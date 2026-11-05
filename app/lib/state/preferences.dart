@@ -135,7 +135,17 @@ class Preferences {
   bool get onboarded => _prefs.getBool('onboarded') ?? false;
   Future<void> setOnboarded() => _prefs.setBool('onboarded', true);
 
-  /// The run panel beside the conversation is shown.
-  bool get runPanelOpen => _prefs.getBool('runPanelOpen') ?? true;
-  Future<void> setRunPanelOpen(bool value) => _prefs.setBool('runPanelOpen', value);
+  /// The details panel is open over the conversation. Closed until asked for (0.4: it slides
+  /// over the conversation now; the old side column's 'runPanelOpen' is not carried over).
+  bool get runPanelOpen => _prefs.getBool('detailsOpen') ?? false;
+  Future<void> setRunPanelOpen(bool value) => _prefs.setBool('detailsOpen', value);
+
+  /// Widths the user dragged the sidebar and the details panel to (0.4, extra test 8).
+  static const sidebarWidths = (min: 232.0, initial: 248.0, max: 420.0);
+  static const panelWidths = (min: 280.0, initial: 340.0, max: 560.0);
+
+  double get sidebarWidth => (_prefs.getDouble('sidebarWidth') ?? sidebarWidths.initial).clamp(sidebarWidths.min, sidebarWidths.max);
+  Future<void> setSidebarWidth(double value) => _prefs.setDouble('sidebarWidth', value);
+  double get panelWidth => (_prefs.getDouble('panelWidth') ?? panelWidths.initial).clamp(panelWidths.min, panelWidths.max);
+  Future<void> setPanelWidth(double value) => _prefs.setDouble('panelWidth', value);
 }

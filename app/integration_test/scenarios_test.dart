@@ -13,6 +13,7 @@ import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/theme.dart';
+import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
 import 'package:dreamflutter/ui/butterfly_page.dart';
 import 'package:dreamflutter/ui/chat_view.dart';
 import 'package:dreamflutter/ui/keys.dart';
@@ -84,7 +85,10 @@ void main() {
     await settle(tester);
   }
 
-  Finder nav(String label) => find.text(label).first;
+  /// A place in the window's sidebar: 工作台, 蝶君 and 任务 by name, the rest by the foot icons' tooltips (0.4).
+  Finder nav(String label) => const {'工作台', '蝶君', '任务'}.contains(label)
+      ? find.descendant(of: find.byType(Sidebar), matching: find.text(label)).first
+      : find.byTooltip(RegExp('^$label')).first;
 
   void reply(FakePi pi, String text) {
     final message = {

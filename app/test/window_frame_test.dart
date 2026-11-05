@@ -1,0 +1,149 @@
+import 'dart:io';
+
+import 'package:dreamflutter/main.dart';
+import 'package:dreamflutter/state/agent_controller.dart';
+import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/run_summary.dart' show RunPanel;
+import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
+import 'package:dreamflutter/ui/window_frame.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:pi_rpc/pi_rpc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'fake_backend.dart';
+
+/// The 0.4 window frame (design option 3 with option 1's title bar): the title
+/// bar's breadcrumb and workspace menu, the one sidebar, and the details panel.
+void main() {
+  late FakeBackend backend;
+  late AgentController agent;
+  late Directory root;
+  late Directory thesis;
+  late Directory other;
+
+  Future<void> startApp(WidgetTester tester, {Size size = const Size(1400, 900), Map<String, Object> prefs = const {}}) async {
+    await tester.binding.setSurfaceSize(size);
+    root = Directory.systemTemp.createTempSync('df_frame_');
+    thesis = Directory(p.join(root.path, '毕设论文'))..createSync();
+    other = Directory(p.join(root.path, '周报'))..createSync();
+    SharedPreferences.setMockInitialValues({
+      'workspace': thesis.path,
+      'recentWorkspaces': [thesis.path, other.path],
+      'onboarded': true,
+      ...prefs,
+    });
+    backend = FakeBackend();
+    agent = AgentController(
+      preferences: await tester.runAsync(Preferences.load) as Preferences,
+      sessionStore: SessionStore(sessionsDir: (Directory(p.join(root.path, 'sessions'))..createSync()).path),
+      backend: backend,
+    );
+    await tester.pumpWidget(DreamFlutterApp(controller: agent));
+    await tester.runAsync(agent.init);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> settle(WidgetTester tester) async {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+    await tester.pumpAndSettle();
+  }
+
+  tearDown(() {
+    agent.dispose();
+    root.deleteSync(recursive: true);
+  });
+
+  Finder inTitleBar(Finder finder) => find.descendant(of: find.byType(AppTitleBar), matching: finder);
+
+  testWidgets('the title bar says where you are, and its workspace button lists the workspaces', (tester) async {
+    await startApp(tester);
+    expect(inTitleBar(find.text('工作台')), findsOneWidget);
+    expect(inTitleBar(find.text('毕设论文')), findsOneWidget);
+    expect(inTitleBar(find.text('新会话')), findsOneWidget, reason: 'the conversation\'s title');
+    expect(find.text('毕设论文 的对话'), findsOneWidget, reason: 'the sidebar names the workspace its list belongs to');
+
+    // The list of workspaces is read from disk after start.
+    for (var i = 0; i < 100 && agent.recentWorkspaces.isEmpty; i++) {
+      await settle(tester);
+    }
+    expect(agent.recentWorkspaces, contains(other.path));
+    await tester.tap(inTitleBar(find.text('毕设论文')));
+    await tester.pumpAndSettle();
+    expect(find.text('切换工作区'), findsOneWidget);
+    expect(find.text(thesis.path), findsOneWidget);
+    expect(find.text(other.path), findsOneWidget);
+    expect(find.text('打开文件夹作为工作区…'), findsOneWidget);
+
+    await tester.tap(find.text('周报'));
+    await settle(tester);
+    expect(agent.workspace, other.path);
+    expect(inTitleBar(find.text('周报')), findsOneWidget);
+    expect(find.text('切换工作区'), findsNothing, reason: 'the menu closes once a workspace is picked');
+  });
+
+  testWidgets('Ctrl+O and the sidebar\'s switch button open the same menu, from any page', (tester) async {
+    await startApp(tester);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyO);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(find.text('切换工作区'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('切换工作区'), findsNothing);
+
+    // From the memory page: back to the workbench with the menu open.
+    await tester.tap(find.byTooltip(RegExp('^记忆')));
+    await settle(tester);
+    expect(agent.section, AppSection.memory);
+    expect(inTitleBar(find.text('记忆')), findsOneWidget);
+    await tester.tap(find.byTooltip('切换工作区（Ctrl O）'));
+    await tester.pumpAndSettle();
+    expect(agent.section, AppSection.chat);
+    expect(find.text('切换工作区'), findsOneWidget);
+  });
+
+  testWidgets('the details open when asked: beside a wide conversation, over a narrow one', (tester) async {
+    await startApp(tester);
+    expect(find.byType(RunPanel), findsNothing, reason: 'closed until asked for');
+
+    await tester.tap(find.byTooltip(RegExp('^详情')));
+    await settle(tester);
+    expect(find.byType(RunPanel), findsOneWidget);
+    expect(find.text('常用操作'), findsOneWidget, reason: 'the actions of the old 「⋯」 menu are in plain sight');
+    expect(find.text('存成技能'), findsOneWidget);
+    expect(find.text('刷新记忆快照'), findsOneWidget);
+    final panel = tester.getRect(find.byType(RunPanel));
+    final input = tester.getRect(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送')));
+    expect(input.right, lessThanOrEqualTo(panel.left), reason: 'a wide window docks the panel beside the conversation');
+
+    await tester.binding.setSurfaceSize(const Size(1000, 800));
+    await tester.pumpAndSettle();
+    final narrowPanel = tester.getRect(find.byType(RunPanel));
+    final narrowInput = tester.getRect(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送')));
+    expect(narrowInput.right, greaterThan(narrowPanel.left), reason: 'a narrow one lays it over the conversation');
+
+    await tester.tap(find.byTooltip('收起详情').first);
+    await settle(tester);
+    expect(find.byType(RunPanel), findsNothing);
+    expect(agent.preferences.runPanelOpen, isFalse);
+  });
+
+  testWidgets('the sidebar is as wide as it was dragged, also after a restart', (tester) async {
+    await startApp(tester);
+    final before = tester.getSize(find.byType(Sidebar)).width;
+    final handle = find.descendant(of: find.byType(Sidebar), matching: find.byType(ResizeHandle));
+    await tester.drag(handle, const Offset(80, 0));
+    await settle(tester);
+    expect(agent.preferences.sidebarWidth, closeTo(Preferences.sidebarWidths.initial + 80, 1));
+    expect(tester.getSize(find.byType(Sidebar)).width, closeTo(before + 80, 1));
+
+    // Not past its limits.
+    await tester.drag(handle, const Offset(-600, 0));
+    await settle(tester);
+    expect(agent.preferences.sidebarWidth, Preferences.sidebarWidths.min);
+  });
+}

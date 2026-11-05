@@ -11,7 +11,6 @@ import 'common.dart';
 import 'desk_page.dart';
 import 'extension_dialogs.dart';
 import 'sandbox_panel.dart';
-import 'sidebar.dart';
 
 /// 蝶君 (roadmap 3.5): an agent that works in its own WSL sandbox, apart
 /// from the workbench. 「交流」 is the conversations with it (their own list,
@@ -182,15 +181,8 @@ class _TalkState extends State<_Talk> {
     return AgentScope(
       controller: butterfly,
       // Its questions and dialogs are answered here, like the workbench's.
-      child: const ExtensionDialogHost(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Sidebar(),
-            Expanded(child: ChatView()),
-          ],
-        ),
-      ),
+      // Its conversations are listed in the window's sidebar (0.4).
+      child: const ExtensionDialogHost(child: ChatView()),
     );
   }
 }

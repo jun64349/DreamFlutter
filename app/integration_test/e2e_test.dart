@@ -148,7 +148,10 @@ void main() {
   String lastText(AgentController agent) =>
       assistants(agent).lastOrNull?.parts.whereType<TextPart>().map((t) => t.text).join() ?? '';
   /// A navigation-rail button (pages may show the same word, the rail comes first).
-  Finder nav(String label) => find.text(label).first;
+  /// A place in the window's sidebar: 工作台, 蝶君 and 任务 by name, the rest by the foot icons' tooltips (0.4).
+  Finder nav(String label) => const {'工作台', '蝶君', '任务'}.contains(label)
+      ? find.descendant(of: find.byType(Sidebar), matching: find.text(label)).first
+      : find.byTooltip(RegExp('^$label')).first;
 
   Finder sidebarTile(String titleStart) => find.descendant(
     of: find.byType(ListView).first,
@@ -301,7 +304,7 @@ void main() {
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
     await tester.tap(settingsCategory('外观'));
     await tester.pumpAndSettle();
@@ -387,7 +390,7 @@ void main() {
     await idle(tester);
 
     // 11. Channels: the DeepSeek provider from Pi's config is listed and answers a test.
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
     await tester.tap(settingsCategory('模型与网关'));
     await tester.pumpAndSettle();

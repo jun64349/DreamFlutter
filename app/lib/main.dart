@@ -12,8 +12,8 @@ import 'state/preferences.dart';
 import 'theme.dart';
 import 'ui/agent_scope.dart';
 import 'ui/home_page.dart';
-import 'ui/title_strip.dart';
 import 'ui/web_surface.dart';
+import 'ui/window_frame.dart';
 import 'ui/zoom.dart';
 
 /// Shown in the settings page.
@@ -41,7 +41,7 @@ class DreamFlutterApp extends StatelessWidget {
 
   final AgentController controller;
 
-  /// The system title bar is hidden and [TitleStrip] takes its place (the real window; tests leave it off).
+  /// The system title bar is hidden: [AppTitleBar] drags the window and has its buttons (the real window; tests leave them off).
   final bool ownTitleBar;
 
   @override
@@ -59,13 +59,15 @@ class DreamFlutterApp extends StatelessWidget {
             themeMode: appearance.themeMode,
             builder: (context, child) {
               final app = AppZoom(controller: controller, zoom: appearance.zoom, textScale: appearance.textScale, child: child!);
-              if (!ownTitleBar) return app;
-              // The strip stays the same size when the interface is zoomed.
-              return Column(
-                children: [
-                  const TitleStrip(),
-                  Expanded(child: app),
-                ],
+              // The title bar stays the same size when the interface is zoomed, and is on every page;
+              // its own overlay holds its menus and tooltips (it is above the navigator).
+              return Overlay.wrap(
+                child: Column(
+                  children: [
+                    AppTitleBar(windowButtons: ownTitleBar),
+                    Expanded(child: app),
+                  ],
+                ),
               );
             },
             home: const HomePage(),

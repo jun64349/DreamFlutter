@@ -96,7 +96,7 @@ void main() {
     expect(agent.pendingMemories, 1);
     expect(agent.pendingProposals, 1);
 
-    await tester.tap(find.text('记忆'));
+    await tester.tap(find.byTooltip(RegExp('^记忆')));
     await settle(tester);
     // Candidates open first while there are any.
     expect(find.text('用户在杭州工作'), findsOneWidget);
@@ -134,7 +134,7 @@ void main() {
   testWidgets('skills, templates and proposals', (tester) async {
     await startApp(tester);
     await settle(tester);
-    await tester.tap(find.text('技能'));
+    await tester.tap(find.byTooltip(RegExp('^技能')));
     await settle(tester);
 
     // Pending proposals open first.

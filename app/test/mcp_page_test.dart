@@ -62,7 +62,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('工具与 MCP'));
     await tester.pumpAndSettle();

@@ -6,69 +6,324 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/agent_controller.dart';
+import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'dashboard_page.dart';
 import 'motion.dart';
+import 'settings_page.dart';
+import 'window_frame.dart';
+import 'zoom.dart';
 
-class Sidebar extends StatelessWidget {
+/// The one sidebar of the window (0.4, design option 3): 工作台 / 蝶君 at the
+/// top with new conversation, search and tasks; the conversations of the
+/// current workspace (or 蝶君's on its page); memory, skills, dashboard,
+/// appearance and settings at the bottom. Its width is dragged on its right edge.
+class Sidebar extends StatefulWidget {
   const Sidebar({super.key});
+
+  @override
+  State<Sidebar> createState() => _SidebarState();
+}
+
+class _SidebarState extends State<Sidebar> {
+  /// The width while it is being dragged (saved when the drag ends).
+  double? _width;
+  var _searching = false;
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final colors = context.colors;
+    final section = agent.section;
+    final onButterfly = section == AppSection.butterfly;
+    // Whose conversations are listed: 蝶君's on its page, the workbench's everywhere else.
+    final AgentController? lists = onButterfly ? agent.butterfly : agent;
     final usable = agent.status != ConnectionStatus.missingRuntime;
-    return Container(
-      width: AppTokens.sidebarWidth,
-      decoration: BoxDecoration(color: colors.sidebar, border: Border(right: BorderSide(color: colors.border, width: 0.5))),
-      padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
-      child: LayoutBuilder(
-        builder: (context, constraints) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
+    final width = _width ?? agent.sidebarWidth;
+    void push(Widget page) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          width: width,
+          color: colors.sidebar,
+          child: LayoutBuilder(
+            builder: (context, constraints) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(agent.sandbox ? '和蝶君的对话' : '工作台', style: context.text.titleMedium?.copyWith(fontSize: 18)),
-                const SizedBox(width: AppTokens.gap),
-                // 蝶君 has one home, no workspaces.
-                if (!agent.sandbox) const Expanded(child: Align(alignment: Alignment.centerRight, child: WorkspaceSwitcher(compact: true))),
-              ],
-            ),
-            const SizedBox(height: AppTokens.pad),
-            Row(
-              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: _PlaceSwitch(
+                    butterfly: onButterfly,
+                    workbench: section == AppSection.chat,
+                    onWorkbench: () => agent.showSection(AppSection.chat),
+                    onButterfly: () => agent.openButterfly(),
+                    butterflyBusy: (agent.butterfly?.backgroundRunning ?? 0) + ((agent.butterfly?.isRunning ?? false) ? 1 : 0) > 0 && !onButterfly,
+                    workbenchBusy: agent.backgroundRunning > 0 && section != AppSection.chat,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _NavRow(
+                        icon: Icons.add,
+                        label: '新建对话',
+                        accent: true,
+                        onTap: usable && lists != null
+                            ? () {
+                                lists.newSession();
+                                agent.showSection(onButterfly ? AppSection.butterfly : AppSection.chat);
+                                if (onButterfly) agent.butterflyTab.value = ButterflyTab.talk;
+                              }
+                            : null,
+                        trailing: onButterfly
+                            ? null
+                            : IconButton(
+                                tooltip: '临时对话：不保存记录，也不读写记忆',
+                                visualDensity: VisualDensity.compact,
+                                iconSize: 16,
+                                onPressed: usable
+                                    ? () {
+                                        agent.newTemporarySession();
+                                        agent.showSection(AppSection.chat);
+                                      }
+                                    : null,
+                                icon: const Icon(Icons.visibility_off_outlined),
+                              ),
+                      ),
+                      _NavRow(icon: Icons.search, label: '搜索', selected: _searching, onTap: () => setState(() => _searching = !_searching)),
+                      _NavRow(
+                        icon: Icons.task_alt_outlined,
+                        label: '任务',
+                        selected: section == AppSection.tasks,
+                        badge: agent.pendingInbox > 0 ? '${agent.pendingInbox} 等你处理' : null,
+                        onTap: () => agent.showSection(AppSection.tasks),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 8, 4),
+                  child: Row(
+                    children: [
+                      if (!onButterfly) ...[Icon(Icons.folder_outlined, size: 15, color: colors.ochre), const SizedBox(width: 6)],
+                      Expanded(
+                        child: Text(
+                          onButterfly ? '和蝶君的对话' : (agent.workspace.isEmpty ? '对话' : '${p.basename(agent.workspace)} 的对话'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.text.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: colors.ink2),
+                        ),
+                      ),
+                      // 蝶君 has one home, no workspaces.
+                      if (!onButterfly)
+                        IconButton(
+                          tooltip: '切换工作区（Ctrl O）',
+                          visualDensity: VisualDensity.compact,
+                          iconSize: 16,
+                          onPressed: () => openWorkspaceMenu(agent),
+                          icon: const Icon(Icons.unfold_more),
+                        ),
+                    ],
+                  ),
+                ),
                 Expanded(
-                  child: SizedBox(
-                    height: 36,
-                    child: FilledButton.icon(
-                      onPressed: usable ? agent.newSession : null,
-                      icon: const Icon(Icons.add, size: 16),
-                      label: const Text('新会话'),
-                    ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: lists == null
+                        ? Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Text('蝶君的沙箱建好后，和它的对话列在这里。', style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.6)),
+                          )
+                        : AgentScope(
+                            controller: lists,
+                            child: _SessionPane(
+                              key: ValueKey(lists.sandbox),
+                              searching: _searching,
+                              onCloseSearch: () => setState(() => _searching = false),
+                            ),
+                          ),
                   ),
                 ),
-                if (!agent.sandbox) ...[
-                const SizedBox(width: AppTokens.gap),
-                SizedBox.square(
-                  dimension: 36,
-                  child: IconButton.outlined(
-                    tooltip: '临时对话：不保存记录，也不读写记忆',
-                    onPressed: usable ? agent.newTemporarySession : null,
-                    style: IconButton.styleFrom(side: BorderSide(color: colors.border), padding: EdgeInsets.zero),
-                    icon: const Icon(Icons.visibility_off_outlined, size: 16),
+                // The inscription only where there is room for it.
+                if (constraints.maxHeight > 720) const Padding(padding: EdgeInsets.symmetric(horizontal: 14), child: _Inscription()),
+                Divider(height: 1, thickness: 0.5, color: colors.border),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+                  child: Row(
+                    children: [
+                      _FootButton(
+                        icon: Icons.lightbulb_outline,
+                        label: '记忆',
+                        selected: section == AppSection.memory,
+                        badge: agent.pendingMemories,
+                        onTap: () => agent.showSection(AppSection.memory),
+                      ),
+                      _FootButton(
+                        icon: Icons.auto_stories_outlined,
+                        label: '技能',
+                        selected: section == AppSection.library,
+                        badge: agent.pendingProposals,
+                        onTap: () => agent.showSection(AppSection.library),
+                      ),
+                      _FootButton(icon: Icons.bar_chart_rounded, label: '仪表盘', onTap: () => push(const DashboardPage())),
+                      _FootButton(icon: Icons.text_fields, label: '外观', onTap: () => showAppearanceDialog(context)),
+                      const Spacer(),
+                      _FootButton(icon: Icons.settings_outlined, label: '设置', onTap: () => push(const SettingsPage())),
+                    ],
                   ),
                 ),
-                ],
               ],
             ),
-            const SizedBox(height: AppTokens.pad),
-            const Expanded(child: _SessionPane()),
-            // The inscription only where there is room for it.
-            if (constraints.maxHeight > 620) const _Inscription(),
-          ],
+          ),
+        ),
+        Container(width: 0.5, color: colors.border),
+        // Dragged here: the sidebar's width (Preferences.sidebarWidths).
+        Transform.translate(
+          offset: const Offset(-3, 0),
+          child: ResizeHandle(
+            width: width,
+            min: Preferences.sidebarWidths.min,
+            max: Preferences.sidebarWidths.max,
+            onChanged: (w) => setState(() => _width = w),
+            onDone: (w) async {
+              await agent.setSidebarWidth(w);
+              if (mounted) setState(() => _width = null);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 工作台 | 蝶君, the two places to work, with a dot when the other one is busy.
+class _PlaceSwitch extends StatelessWidget {
+  const _PlaceSwitch({
+    required this.workbench,
+    required this.butterfly,
+    required this.onWorkbench,
+    required this.onButterfly,
+    required this.workbenchBusy,
+    required this.butterflyBusy,
+  });
+
+  final bool workbench;
+  final bool butterfly;
+  final VoidCallback onWorkbench;
+  final VoidCallback onButterfly;
+  final bool workbenchBusy;
+  final bool butterflyBusy;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    Widget half(String label, bool selected, bool busy, VoidCallback onTap) => Expanded(
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: Material(
+          color: selected ? colors.card : Colors.transparent,
+          elevation: selected ? 0.5 : 0,
+          borderRadius: BorderRadius.circular(6),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: onTap,
+            child: SizedBox(
+              height: 30,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13, fontWeight: selected ? FontWeight.w600 : null, color: selected ? colors.ink : colors.muted)),
+                  if (busy) ...[const SizedBox(width: 6), const Tooltip(message: '有工作在后台进行', child: BreathingDot())],
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(color: colors.rail, borderRadius: BorderRadius.circular(8)),
+      child: Row(children: [half('工作台', workbench, workbenchBusy, onWorkbench), const SizedBox(width: 4), half('蝶君', butterfly, butterflyBusy, onButterfly)]),
+    );
+  }
+}
+
+/// A row near the top of the sidebar (new conversation, search, tasks).
+class _NavRow extends StatelessWidget {
+  const _NavRow({required this.icon, required this.label, required this.onTap, this.selected = false, this.accent = false, this.badge, this.trailing});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool selected;
+  final bool accent;
+  final String? badge;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Material(
+      color: selected ? colors.accentSoft : Colors.transparent,
+      borderRadius: BorderRadius.circular(context.radius),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(context.radius),
+        onTap: onTap,
+        child: SizedBox(
+          height: 36,
+          child: Row(
+            children: [
+              const SizedBox(width: 10),
+              Icon(icon, size: 17, color: accent ? colors.accent : colors.ink2),
+              const SizedBox(width: 10),
+              Expanded(child: Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13, color: onTap == null ? colors.muted : colors.ink))),
+              if (badge != null)
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                  decoration: BoxDecoration(color: colors.seal, borderRadius: BorderRadius.circular(9)),
+                  child: Text(badge!, style: context.text.labelSmall?.copyWith(color: colors.onAccent, fontSize: 11)),
+                ),
+              ?trailing,
+              if (trailing == null) const SizedBox(width: 4),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// An icon at the foot of the sidebar, with its name on hover and a count when something waits.
+class _FootButton extends StatelessWidget {
+  const _FootButton({required this.icon, required this.label, required this.onTap, this.selected = false, this.badge = 0});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool selected;
+  final int badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final button = IconButton(
+      tooltip: badge > 0 ? '$label（$badge 条待处理）' : label,
+      visualDensity: VisualDensity.compact,
+      isSelected: selected,
+      onPressed: onTap,
+      style: IconButton.styleFrom(foregroundColor: selected ? colors.accent : colors.muted, backgroundColor: selected ? colors.accentSoft : null),
+      icon: Icon(icon, size: 19),
+    );
+    if (badge <= 0) return button;
+    return Badge(label: Text('$badge'), offset: const Offset(-4, 4), backgroundColor: colors.seal, child: button);
   }
 }
 
@@ -240,7 +495,11 @@ class _WorkspaceRow extends StatelessWidget {
 
 /// Search box above either the session list or the search results.
 class _SessionPane extends StatefulWidget {
-  const _SessionPane();
+  const _SessionPane({super.key, required this.searching, required this.onCloseSearch});
+
+  /// The search box is open (the sidebar's 「搜索」).
+  final bool searching;
+  final VoidCallback onCloseSearch;
 
   @override
   State<_SessionPane> createState() => _SessionPaneState();
@@ -278,16 +537,29 @@ class _SessionPaneState extends State<_SessionPane> {
   }
 
   @override
+  void didUpdateWidget(_SessionPane old) {
+    super.didUpdateWidget(old);
+    if (old.searching && !widget.searching) {
+      _query.clear();
+      _debounce?.cancel();
+      _hits = null;
+      _searching = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final colors = context.colors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (widget.searching) ...[
         SizedBox(
           height: 34,
           child: TextField(
             controller: _query,
+            autofocus: true,
             onChanged: _onChanged,
             style: context.text.bodySmall,
             decoration: InputDecoration(
@@ -295,23 +567,19 @@ class _SessionPaneState extends State<_SessionPane> {
               isDense: true,
               prefixIcon: const Icon(Icons.search, size: 16),
               prefixIconConstraints: const BoxConstraints(minWidth: 32),
-              suffixIcon: _query.text.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: '清除',
-                      iconSize: 14,
-                      onPressed: () {
-                        _query.clear();
-                        _onChanged('');
-                      },
-                      icon: const Icon(Icons.close),
-                    ),
+              suffixIcon: IconButton(
+                tooltip: '关闭搜索',
+                iconSize: 14,
+                onPressed: widget.onCloseSearch,
+                icon: const Icon(Icons.close),
+              ),
               contentPadding: const EdgeInsets.symmetric(vertical: 8),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(context.radiusSm)),
             ),
           ),
         ),
         const SizedBox(height: AppTokens.gap),
+        ],
         Expanded(
           child: _hits != null || _searching
               ? _SearchResults(hits: _hits ?? const [], searching: _searching)
@@ -346,7 +614,10 @@ class _SearchResults extends StatelessWidget {
         for (final hit in hits)
           InkWell(
             borderRadius: BorderRadius.circular(context.radiusSm),
-            onTap: () => agent.openSearchHit(hit),
+            onTap: () {
+              agent.openSearchHit(hit);
+              agent.showSection(agent.sandbox ? AppSection.butterfly : AppSection.chat);
+            },
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
               child: Column(
@@ -566,7 +837,13 @@ class _SessionTileState extends State<_SessionTile> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radius)),
             child: InkWell(
               borderRadius: BorderRadius.circular(context.radius),
-              onTap: () => AgentScope.read(context).openSession(entry.path),
+              onTap: () {
+                final agent = AgentScope.read(context);
+                agent.openSession(entry.path);
+                // From the tasks or memory page too: show the conversation.
+                agent.showSection(agent.sandbox ? AppSection.butterfly : AppSection.chat);
+                if (agent.sandbox) agent.main.butterflyTab.value = ButterflyTab.talk;
+              },
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(8, 7, 4, 7),
                 child: Row(

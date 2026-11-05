@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart' show Transcript;
 
 import '../state/agent_controller.dart';
+import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'composer.dart';
@@ -18,6 +19,7 @@ import 'providers_page.dart' show ProvidersPage;
 import 'run_summary.dart';
 import 'schedules.dart' show showScheduleEditor;
 import 'sidebar.dart' show WorkspaceSwitcher;
+import 'window_frame.dart' show ResizeHandle;
 
 /// Takes files dropped anywhere on the conversation (not just on the input
 /// box) and hands them to the input box.
@@ -53,8 +55,11 @@ class _FileDropAreaState extends State<_FileDropArea> {
 class ChatView extends StatelessWidget {
   const ChatView({super.key});
 
-  /// Below this width the run panel stays closed.
-  static const _panelMinWidth = 940.0;
+  /// Below this width the details panel stays closed.
+  static const _panelMinWidth = 600.0;
+
+  /// The conversation keeps at least this much beside a docked panel; narrower, the panel floats over it.
+  static const _dockedChatWidth = 640.0;
 
   @override
   Widget build(BuildContext context) {
@@ -66,17 +71,20 @@ class ChatView extends StatelessWidget {
       builder: (context, constraints) {
         final roomForPanel = constraints.maxWidth >= _panelMinWidth && !incognito;
         final showPanel = roomForPanel && agent.runPanelOpen;
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        // The details open on request (0.4, design option 3): beside the conversation when the
+        // window has room for both, sliding over it on a narrow window.
+        final panelWidth = agent.panelWidth;
+        final docked = showPanel && constraints.maxWidth - panelWidth >= _dockedChatWidth;
+        return Stack(
           children: [
-            Expanded(
+            Positioned.fill(
+              right: docked ? panelWidth + 6 : 0,
               child: _FileDropArea(
                 enabled: agent.isReady,
                 onDrop: agent.dropFiles,
                 builder: (dragging) => Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _TopBar(panelToggle: roomForPanel, panelOpen: showPanel),
                     if (agent.backendProblem != null && agent.status != ConnectionStatus.missingRuntime)
                       _ProblemBanner(status: ConnectionStatus.crashed, detail: agent.backendProblem!, reconnecting: true)
                     else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
@@ -110,10 +118,11 @@ class ChatView extends StatelessWidget {
               ),
             ),
             if (showPanel)
-              RunPanel(
-                key: ValueKey('panel-${agent.currentSessionPath}'),
-                sessionFile: agent.currentSessionPath,
-                onClose: () => agent.setRunPanelOpen(false),
+              Positioned(
+                top: 0,
+                bottom: 0,
+                right: 0,
+                child: _DetailsPanel(maxWidth: constraints.maxWidth - 160, floating: !docked),
               ),
           ],
         );
@@ -123,45 +132,64 @@ class ChatView extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Title bar
+// Details panel
 // ---------------------------------------------------------------------------
 
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.panelToggle, required this.panelOpen});
+/// The details of the conversation (run, files, cost, actions) sliding in over
+/// it from the right; its width is dragged on its left edge and remembered.
+class _DetailsPanel extends StatefulWidget {
+  const _DetailsPanel({required this.maxWidth, required this.floating});
 
-  /// There is room for the run panel, so offer to open or close it.
-  final bool panelToggle;
-  final bool panelOpen;
+  /// Leaves some of the conversation in view on a narrow window.
+  final double maxWidth;
+
+  /// Over the conversation (a shadow sets it apart) rather than beside it.
+  final bool floating;
+
+  @override
+  State<_DetailsPanel> createState() => _DetailsPanelState();
+}
+
+class _DetailsPanelState extends State<_DetailsPanel> {
+  double? _width;
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
-    final colors = context.colors;
-    return Container(
-      height: 56,
-      padding: const EdgeInsets.only(left: 24, right: 12),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: colors.border, width: 0.5))),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              agent.sessionTitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: context.text.titleMedium?.copyWith(fontSize: 18),
+    final max = widget.maxWidth.clamp(Preferences.panelWidths.min, Preferences.panelWidths.max);
+    final width = (_width ?? agent.panelWidth).clamp(Preferences.panelWidths.min, max);
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1, end: 0),
+      duration: AppTokens.medium,
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) => FractionalTranslation(translation: Offset(t, 0), child: child),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          boxShadow: widget.floating ? [BoxShadow(color: Colors.black.withValues(alpha: 0.14), blurRadius: 28, offset: const Offset(-10, 0))] : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ResizeHandle(
+              width: width,
+              min: Preferences.panelWidths.min,
+              max: max,
+              leftEdge: true,
+              onChanged: (w) => setState(() => _width = w),
+              onDone: (w) async {
+                await agent.setPanelWidth(w);
+                if (mounted) setState(() => _width = null);
+              },
             ),
-          ),
-          if (panelToggle)
-            IconButton(
-              tooltip: panelOpen ? '收起右栏' : '展开右栏：本次运行的步骤、文件和花费',
-              isSelected: panelOpen,
-              onPressed: () => agent.setRunPanelOpen(!panelOpen),
-              style: IconButton.styleFrom(backgroundColor: panelOpen ? colors.accentSoft : null, foregroundColor: panelOpen ? colors.accent : colors.muted),
-              icon: const Icon(Icons.view_sidebar_outlined, size: 19),
+            RunPanel(
+              key: ValueKey('panel-${agent.currentSessionPath}'),
+              width: width,
+              sessionFile: agent.currentSessionPath,
+              onClose: () => agent.setRunPanelOpen(false),
             ),
-          const SizedBox(width: 2),
-          const _SessionMenu(),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -589,49 +617,44 @@ class _RenderAnchoredRow extends RenderProxyBox {
   }
 }
 
-/// Top-bar menu: turn the conversation into a skill or template, and see or
-/// refresh the memory snapshot it was given.
-class _SessionMenu extends StatelessWidget {
-  const _SessionMenu();
+/// What can be done with the conversation, in plain sight in the details panel
+/// (0.4, test 27: they were hidden in the title bar's 「⋯」): turn it into a skill
+/// or template, carry on at set times, see or refresh the memory it was given.
+class SessionActions extends StatelessWidget {
+  const SessionActions({super.key});
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final hasContent = agent.isReady && !(agent.active?.isPristine ?? true);
     final remembers = !(agent.active?.incognito ?? false) && agent.coreSettings['memoryEnabled'] != false;
-    return PopupMenuButton<String>(
-      tooltip: '更多操作',
-      icon: const Icon(Icons.more_horiz, size: 20),
-      position: PopupMenuPosition.under,
-      onSelected: (action) => _run(context, action),
-      itemBuilder: (_) => [
-        PopupMenuItem(
-          value: 'skill',
-          enabled: hasContent && !agent.isRunning,
-          child: const ListTile(dense: true, leading: Icon(Icons.auto_fix_high_outlined), title: Text('存成技能'), subtitle: Text('把这次的做法整理成可复用的技能')),
+    Widget action(String id, IconData icon, String label, String tip, bool enabled) => Tooltip(
+      message: tip,
+      child: OutlinedButton.icon(
+        onPressed: enabled ? () => _run(context, id) : null,
+        style: OutlinedButton.styleFrom(
+          alignment: Alignment.centerLeft,
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          side: BorderSide(color: context.colors.border),
+          backgroundColor: context.colors.card,
         ),
-        PopupMenuItem(
-          value: 'template',
-          enabled: hasContent,
-          child: const ListTile(dense: true, leading: Icon(Icons.post_add_outlined), title: Text('存为模板'), subtitle: Text('把最后一条请求存成任务模板')),
-        ),
-        PopupMenuItem(
-          value: 'schedule',
-          enabled: hasContent && agent.active?.sessionPath != null && !(agent.active?.incognito ?? false),
-          child: const ListTile(dense: true, leading: Icon(Icons.schedule), title: Text('定时接着做'), subtitle: Text('按时间在这个会话里继续，比如每天汇报进度')),
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          value: 'snapshots',
-          enabled: remembers && agent.activeSessionId != null,
-          child: const ListTile(dense: true, leading: Icon(Icons.psychology_alt_outlined), title: Text('查看用到的记忆')),
-        ),
-        PopupMenuItem(
-          value: 'refresh',
-          enabled: remembers && hasContent,
-          child: const ListTile(dense: true, leading: Icon(Icons.refresh), title: Text('刷新记忆快照'), subtitle: Text('下一条消息带上最新的记忆')),
-        ),
-      ],
+        icon: Icon(icon, size: 16),
+        label: Text(label, overflow: TextOverflow.ellipsis),
+      ),
+    );
+    final buttons = [
+      action('skill', Icons.auto_fix_high_outlined, '存成技能', '把这次的做法整理成可复用的技能', hasContent && !agent.isRunning),
+      action('template', Icons.post_add_outlined, '存为模板', '把最后一条请求存成任务模板', hasContent),
+      action('schedule', Icons.schedule, '定时接着做', '按时间在这个会话里继续，比如每天汇报进度', hasContent && agent.active?.sessionPath != null && !(agent.active?.incognito ?? false)),
+      action('snapshots', Icons.psychology_alt_outlined, '用到的记忆', '看这个会话带上的记忆快照', remembers && agent.activeSessionId != null),
+      action('refresh', Icons.refresh, '刷新记忆快照', '下一条消息带上最新的记忆', remembers && hasContent),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final half = (constraints.maxWidth - 8) / 2;
+        return Wrap(spacing: 8, runSpacing: 8, children: [for (final b in buttons) SizedBox(width: half, child: b)]);
+      },
     );
   }
 

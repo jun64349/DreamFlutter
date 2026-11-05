@@ -74,6 +74,8 @@ void main() {
       expect(find.text('写笺'), findsNothing, reason: 'the workbench has no desk any more');
       final butterfly = (await tester.runAsync(() => agent.openButterfly(tab: ButterflyTab.talk)))!;
       await settle(tester);
+      await tester.tap(find.byTooltip(RegExp('^详情'))); // the details panel opens when asked for (0.4)
+      await settle(tester);
       await tester.tap(find.text('写笺').last); // the panel's tab
       await settle(tester);
       expect(find.text('去年数据.xlsx'), findsNothing, reason: '蝶君 cannot open this machine\'s paths');
@@ -83,6 +85,9 @@ void main() {
 
       await tester.enterText(input(), '按这个准备材料');
       await tester.pump();
+      // On this narrow test window the panel floats over the input box: close it first.
+      await tester.tap(find.byTooltip('收起详情').first);
+      await settle(tester);
       await tester.tap(find.byTooltip('发送'));
       await settle(tester);
       final pi = backend.pis.singleWhere((p) => p.target.sandbox);
@@ -114,6 +119,8 @@ void main() {
           {'entryId': 'q2b', 'parentId': 'q1', 'text': '改过的写法', 'timestamp': '3', 'active': true, 'target': 'leaf-new'},
         ],
       };
+      await tester.tap(find.byTooltip(RegExp('^详情')));
+      await settle(tester);
       await tester.tap(find.text('分支'));
       await settle(tester);
       expect(find.textContaining('1 处分支'), findsOneWidget);

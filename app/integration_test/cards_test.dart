@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
 import 'package:dreamflutter/ui/card_view.dart' show CardBlock, CardView, showCardDialog;
 import 'package:dreamflutter/ui/chat_view.dart' show ChatView;
 import 'package:dreamflutter/ui/rich_blocks.dart';
@@ -159,7 +160,7 @@ void main() {
     if (!withModel) return;
 
     // ---- 3. The agent makes a card and pictures in a conversation (DeepSeek).
-    await tester.tap(find.text('工作台').first);
+    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.text('工作台')).first);
     await tester.pumpAndSettle();
     expect(find.textContaining('想要读取文件'), findsNothing, reason: 'closing the enlarged card does not run it again');
     // This step tests cards, not approvals: let the agent act without asking.

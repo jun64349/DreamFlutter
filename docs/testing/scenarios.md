@@ -8,7 +8,7 @@ v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实�
 | 层 | 命令（PowerShell，先 `cd` 到目录） | 用时 | 说明 |
 |---|---|---|---|
 | 后台 | `cd core; npm test; npx tsc --noEmit` | 约 3 分钟 | 199 个，假模型，不联网 |
-| 窗口组件 | `cd app; flutter test test` | 约 20 秒 | 95 个，假后台 |
+| 窗口组件 | `cd app; flutter test test` | 约 20 秒 | 106 个，假后台 |
 | 协议层 | `cd packages/pi_rpc; dart test -x integration` | 约 10 秒 | |
 | 场景巡检（真窗口） | `cd app; flutter test integration_test/scenarios_test.dart -d windows` | 约 1 分钟 | 假后台、真字体真窗口：阅读、选字、拖放、全部页面和主题 |
 | 视觉检查 | `cd app; flutter test integration_test/look_test.dart -d windows` | 约 40 秒 | 截图在 `app/build/look_shots/`，要看一遍 |
@@ -26,6 +26,9 @@ v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实�
 
 | 场景 | 自动 | 备注 |
 |---|---|---|
+| 顶栏显示「工作台 / 工作区 / 会话标题」；工作区下拉（点按钮、Ctrl O、侧栏的切换按钮，从别的页面也能开）列出完整路径，选了就换（0.4） | 组件 window_frame_test | |
+| 详情（右栏）默认关着，顶栏按钮打开；宽窗口停在对话旁边、窄窗口盖在对话上；里面有「常用操作」（0.4） | 组件 window_frame_test，视觉 01b | |
+| 侧栏拖宽，重启后还是那么宽，不超出上下限（0.4） | 组件 window_frame_test | |
 | 发消息、流式回复、停止 | e2e 1–4，组件 chat_scroll_test | |
 | 生成中滚轮往上看，不被拉回底部（v0.3.2 实测） | 组件 chat_reading_test，场景 | 一格滚轮就要放开 |
 | 生成中拖滚动条后点一下，不跳回底部（v0.3.2 实测） | 组件 chat_reading_test | |

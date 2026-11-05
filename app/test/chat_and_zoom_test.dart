@@ -125,7 +125,7 @@ void main() {
 
   testWidgets('the rail opens the appearance controls', (tester) async {
     await startApp(tester);
-    await tester.tap(find.bySemanticsLabel('外观'));
+    await tester.tap(find.byTooltip('外观'));
     await tester.pumpAndSettle();
     expect(find.text('界面缩放'), findsOneWidget);
     await tester.tap(find.byTooltip('放大（Ctrl + +）'));
