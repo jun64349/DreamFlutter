@@ -82,6 +82,7 @@ class SessionRuntime extends ChangeNotifier {
     this.incognito = false,
     this.requestedAgentMode,
     this.sandbox = false,
+    this.forkOf,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now,
        lastActivity = (clock ?? DateTime.now)();
@@ -97,6 +98,9 @@ class SessionRuntime extends ChangeNotifier {
 
   /// Agent mode asked for when this runtime opens a new session (null = the core's default).
   final String? requestedAgentMode;
+
+  /// A side conversation (0.4): an in-memory copy of this session file's current branch.
+  final String? forkOf;
   final ClientLauncher launch;
   final DateTime Function() _clock;
   final void Function(String message) onToast;
@@ -140,6 +144,9 @@ class SessionRuntime extends ChangeNotifier {
   /// composer consumes it when [editorTextRevision] changes.
   String editorText = '';
   int editorTextRevision = 0;
+
+  /// [editorText] goes after what is already typed instead of replacing it (a quoted passage, 0.4).
+  bool editorAppend = false;
 
   /// The open session's agent mode: "standard" (DeepSeek Harness's standard
   /// preset plus DreamFlutter's tools) or "minimal" (its minimal preset).
@@ -202,7 +209,7 @@ class SessionRuntime extends ChangeNotifier {
 
     try {
       final launched = launch(
-        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito, agentMode: requestedAgentMode, sandbox: sandbox),
+        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito, agentMode: requestedAgentMode, sandbox: sandbox, forkOf: forkOf),
       );
       final client = launched.client;
       _launched = launched;

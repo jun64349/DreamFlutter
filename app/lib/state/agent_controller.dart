@@ -11,6 +11,7 @@ import 'cards.dart';
 import 'mentions.dart';
 import 'preferences.dart';
 import 'session_runtime.dart';
+import 'side_chat.dart';
 import 'gateway_models.dart';
 import '../theme.dart';
 import 'work_models.dart';
@@ -924,6 +925,7 @@ class AgentController extends ChangeNotifier {
     backupJob.dispose();
     restoreResult.dispose();
     _butterfly?.dispose();
+    sideChat?.runtime.dispose();
     _reaper?.cancel();
     _backendEvents?.cancel();
     for (final runtime in _runtimes) {
@@ -1352,6 +1354,68 @@ class AgentController extends ChangeNotifier {
     runtime.editorText = text;
     runtime.editorTextRevision++;
     _notify();
+  }
+
+  /// Adds [text] as a quote to what is typed in the input box (0.4: 「回复」 on selected text,
+  /// and a side conversation's answer brought back).
+  void quoteInComposer(String text, {String? lead}) {
+    final runtime = _active;
+    if (runtime == null || text.trim().isEmpty) return;
+    runtime.editorText = '${lead == null ? '' : '$lead\n'}${SideChat.quoteLines(text)}\n\n';
+    runtime.editorAppend = true;
+    runtime.editorTextRevision++;
+    _notify();
+  }
+
+  // --- Side conversation (0.4, roadmap 4.7) ------------------------------------
+
+  /// The side conversation in the details panel, if one is open.
+  SideChat? sideChat;
+
+  /// Only a saved session can be forked (a 无痕 one has no file).
+  bool get canOpenSideChat => _active?.sessionPath != null && !(_active?.incognito ?? true);
+
+  /// Opens a side conversation about [quote] in the details panel: an in-memory copy of the
+  /// session so far, so asking there neither interrupts nor adds to the conversation.
+  Future<void> openSideChat(String quote) async {
+    final source = _active;
+    final path = source?.sessionPath;
+    if (source == null || path == null || source.incognito) {
+      _toast('无痕对话没有保存，不能开侧边对话。');
+      return;
+    }
+    closeSideChat();
+    final runtime = SessionRuntime(
+      workspace: source.workspace,
+      incognito: true,
+      forkOf: path,
+      sandbox: sandbox,
+      launch: backend.launch,
+      onToast: _toast,
+      clock: _clock,
+    );
+    final side = SideChat(quote: quote, runtime: runtime, sourcePath: path);
+    sideChat = side;
+    await preferences.setRunPanelOpen(true);
+    _notifyBoth();
+    await runtime.start();
+    if (sideChat != side) return; // closed while it opened
+    side.baseline = runtime.transcript.items.length;
+    _notify();
+  }
+
+  void closeSideChat() {
+    final side = sideChat;
+    if (side == null) return;
+    sideChat = null;
+    side.runtime.dispose();
+    _notify();
+  }
+
+  /// Puts the side conversation's latest answer into the main input box.
+  void bringBackSideChat() {
+    final answer = sideChat?.lastAnswer;
+    if (answer != null) quoteInComposer(answer, lead: '侧边对话的结论：');
   }
 
   // --- Context ---------------------------------------------------------------

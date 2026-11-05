@@ -388,6 +388,17 @@ class _ComposerState extends State<Composer> {
       // Switched sessions: adopt its revision without replacing the input.
       _editorRuntime = runtime;
       _editorRevision = runtime.editorTextRevision;
+    } else if (runtime != null && runtime.editorTextRevision != _editorRevision && runtime.editorAppend) {
+      // A quote (「回复」 on selected text, a side conversation's answer): after what is typed, cursor at the end.
+      _editorRevision = runtime.editorTextRevision;
+      runtime.editorAppend = false;
+      final quote = runtime.editorText;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final typed = _controller.text.trimRight();
+        final text = typed.isEmpty ? quote : '$typed\n\n$quote';
+        _controller.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+        _focus.requestFocus();
+      });
     } else if (runtime != null && runtime.editorTextRevision != _editorRevision) {
       _editorRevision = runtime.editorTextRevision;
       {

@@ -1,4 +1,5 @@
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/gestures.dart' show kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path/path.dart' as p;
@@ -377,6 +378,28 @@ class _MessageListState extends State<_MessageList> {
   /// entrance again, which looked like the conversation refreshing (v0.3.3 test).
   final Set<String> _seen = {};
 
+  /// The text selected in the conversation, and where the mouse let go of it: the
+  /// 「回复 / 侧边对话」 box floats there (0.4, roadmap 4.7).
+  String _selected = '';
+  Offset? _boxAt;
+
+  /// The press was the left button (a right-click shows the menu instead).
+  var _primary = false;
+
+  void _hideBox() {
+    if (_boxAt != null) setState(() => _boxAt = null);
+  }
+
+  void _reply(String text) {
+    _hideBox();
+    AgentScope.read(context).quoteInComposer(text);
+  }
+
+  void _side(String text) {
+    _hideBox();
+    AgentScope.read(context).openSideChat(text);
+  }
+
   @override
   void dispose() {
     _scroll.dispose();
@@ -412,7 +435,33 @@ class _MessageListState extends State<_MessageList> {
     // offset unscaled to scaled positions, so under interface zoom a drag
     // selected text further down the more the list was scrolled, or nothing
     // at all (v0.3.2 test: dragging over the first paragraph selected the third).
+    final canSide = agent.canOpenSideChat;
     final list = SelectionArea(
+      onSelectionChanged: (content) {
+        _selected = content?.plainText.trim() ?? '';
+        if (_selected.isEmpty) _hideBox();
+      },
+      // Right-click: copy and select all as before, and the two new ones.
+      contextMenuBuilder: (context, region) {
+        final text = _selected;
+        return AdaptiveTextSelectionToolbar.buttonItems(
+          anchors: region.contextMenuAnchors,
+          buttonItems: [
+            ...region.contextMenuButtonItems,
+            if (text.isNotEmpty) ...[
+              ContextMenuButtonItem(label: '回复', onPressed: () {
+                region.hideToolbar();
+                _reply(text);
+              }),
+              if (canSide)
+                ContextMenuButtonItem(label: '侧边对话', onPressed: () {
+                  region.hideToolbar();
+                  _side(text);
+                }),
+            ],
+          ],
+        );
+      },
       child: Builder(
         builder: (context) {
           final registrar = SelectionContainer.maybeOf(context)!;
@@ -451,7 +500,37 @@ class _MessageListState extends State<_MessageList> {
     final body = cwd == null ? list : FileLinks(baseDir: cwd, reveal: agent.revealFile, open: agent.openFile, child: list);
     return Stack(
       children: [
-        Positioned.fill(child: body),
+        Positioned.fill(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (_) {
+              _hideBox();
+              return false;
+            },
+            child: Listener(
+              onPointerDown: (event) {
+                _primary = event.buttons == kPrimaryButton;
+                _hideBox();
+              },
+              // After the selection settles, float the box where the mouse let go.
+              onPointerUp: (event) => WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && _primary && _selected.isNotEmpty) setState(() => _boxAt = event.localPosition);
+              }),
+              child: body,
+            ),
+          ),
+        ),
+        if (_boxAt case final at?)
+          LayoutBuilder(
+            builder: (context, constraints) => Stack(
+              children: [
+                Positioned(
+                  left: (at.dx - 40).clamp(8.0, (constraints.maxWidth - 200).clamp(8.0, double.infinity)),
+                  top: (at.dy + 14).clamp(8.0, (constraints.maxHeight - 52).clamp(8.0, double.infinity)),
+                  child: _SelectionBox(text: _selected, canSide: canSide, onReply: _reply, onSide: _side),
+                ),
+              ],
+            ),
+          ),
         Positioned(
           right: 24,
           bottom: 12,
@@ -461,6 +540,49 @@ class _MessageListState extends State<_MessageList> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The little box over selected text: quote it in the reply, or ask about it on the side.
+class _SelectionBox extends StatelessWidget {
+  const _SelectionBox({required this.text, required this.canSide, required this.onReply, required this.onSide});
+
+  final String text;
+  final bool canSide;
+  final ValueChanged<String> onReply;
+  final ValueChanged<String> onSide;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    ButtonStyle style() => TextButton.styleFrom(foregroundColor: colors.ink, padding: const EdgeInsets.symmetric(horizontal: 12), minimumSize: const Size(0, 34));
+    return Material(
+      color: colors.card,
+      elevation: 6,
+      shadowColor: Colors.black26,
+      shape: RoundedRectangleBorder(side: BorderSide(color: colors.border), borderRadius: BorderRadius.circular(8)),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Tooltip(
+              message: '把选中的内容作为引用放进输入框',
+              child: TextButton.icon(style: style(), onPressed: () => onReply(text), icon: const Icon(Icons.format_quote_outlined, size: 16), label: const Text('回复')),
+            ),
+            Tooltip(
+              message: canSide ? '在右边开一段小对话问这段内容，不打断也不写进主对话' : '无痕对话没有保存，不能开侧边对话',
+              child: TextButton.icon(
+                style: style(),
+                onPressed: canSide ? () => onSide(text) : null,
+                icon: const Icon(Icons.vertical_split_outlined, size: 16),
+                label: const Text('侧边对话'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

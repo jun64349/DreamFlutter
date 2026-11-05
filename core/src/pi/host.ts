@@ -113,6 +113,11 @@ export interface OpenTarget {
 	unattended?: boolean;
 	/** A 蝶君 session: its tools run in the WSL sandbox (remembered in the session file). */
 	sandbox?: boolean;
+	/**
+	 * With [inMemory]: begin with this session file's current branch (a side conversation, 0.4).
+	 * The copy gets its own id and remembers the source as its parent; the file is only read.
+	 */
+	forkOf?: string;
 }
 
 /**
@@ -122,7 +127,9 @@ export interface OpenTarget {
  */
 export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdentity, ui: UiBridge, target: OpenTarget): Promise<AgentSessionRuntime> {
 	const sessionManager = target.inMemory
-		? SessionManager.inMemory(target.cwd)
+		? target.forkOf
+			? SessionManager.inMemory(target.cwd, { parentSession: target.forkOf }, SessionManager.open(target.forkOf, config.sessionDir).getBranch())
+			: SessionManager.inMemory(target.cwd)
 		: target.sessionFile
 			? SessionManager.open(target.sessionFile, config.sessionDir)
 			: SessionManager.create(target.cwd, config.sessionDir);

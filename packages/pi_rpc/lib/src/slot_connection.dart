@@ -94,7 +94,7 @@ class SlotConnection implements PiConnection {
 
 /// What to open in the core.
 class SessionTarget {
-  const SessionTarget({required this.cwd, this.sessionPath, this.attachSlotId, this.incognito = false, this.agentMode, this.sandbox = false});
+  const SessionTarget({required this.cwd, this.sessionPath, this.attachSlotId, this.incognito = false, this.agentMode, this.sandbox = false, this.forkOf});
 
   /// Working directory for a new session.
   final String cwd;
@@ -113,6 +113,9 @@ class SessionTarget {
 
   /// A 蝶君 session: its tools run in the WSL sandbox.
   final bool sandbox;
+
+  /// With [incognito]: start from this session file's current branch, in memory (a side conversation).
+  final String? forkOf;
 }
 
 /// A session client that may still be starting. Listen to [client] right away
@@ -155,6 +158,7 @@ LaunchedSession launchInCore(CoreClient core, SessionTarget target, {String Func
         if (target.incognito) 'incognito': true,
         'agentMode': ?target.agentMode,
         if (target.sandbox) 'sandbox': true,
+        if (target.incognito) 'forkOf': ?target.forkOf,
       }, const Duration(minutes: 30)), // may wait on the trust prompt
     );
     final actual = asString(info['slotId']);

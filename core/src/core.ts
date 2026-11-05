@@ -71,6 +71,8 @@ export interface OpenSlotOptions {
 	agentMode?: AgentMode;
 	/** A 蝶君 session: tools run in the WSL sandbox, without approval. */
 	sandbox?: boolean;
+	/** With [incognito]: start from this session file's current branch, kept in memory (0.4, a side conversation). */
+	forkOf?: string;
 }
 
 /** Feature modules plug in through these. */
@@ -337,7 +339,10 @@ export class Core {
 			inMemory: options.incognito === true,
 			unattended: options.unattended === true,
 			sandbox: options.sandbox === true,
+			// Read only for an in-memory session: nothing is ever written back to the source.
+			forkOf: options.incognito ? options.forkOf : undefined,
 		};
+		if (target.forkOf && !(target.forkOf.endsWith(".jsonl") && existsSync(target.forkOf))) throw new RpcError("not_found", `会话文件不存在：${target.forkOf}`);
 		const slot = Slot.prepare(
 			this.db,
 			{ slotId, target, taskId: options.taskId, unattended: options.unattended, agentMode: options.agentMode ?? this.settings.get().agentMode },
@@ -539,6 +544,7 @@ export class Core {
 				incognito: params.incognito === true,
 				agentMode: AGENT_MODES.includes(params.agentMode as AgentMode) ? (params.agentMode as AgentMode) : undefined,
 				sandbox: params.sandbox === true,
+				forkOf: str(params.forkOf),
 				client,
 			});
 			return slot.info();

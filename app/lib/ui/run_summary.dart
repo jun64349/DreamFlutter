@@ -4,12 +4,14 @@ import 'package:pi_rpc/pi_rpc.dart';
 import '../state/agent_controller.dart';
 import '../state/mentions.dart';
 import '../state/session_runtime.dart' show QuestionNode;
+import '../state/side_chat.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'artifact_widgets.dart';
 import 'chat_view.dart' show SessionActions;
 import 'message_widgets.dart' show ChatRow, ReplyRow, TodoList, todoItems, toolSubject;
 import 'motion.dart';
+import 'side_chat_view.dart';
 import 'task_widgets.dart';
 import 'dashboard_page.dart' show formatCost, formatTokens;
 
@@ -33,8 +35,11 @@ class _RunPanelState extends State<RunPanel> {
   List<RunStepInfo>? _steps;
   TaskInfo? _task;
 
-  /// 0 the run, 1 the desk, 2 the branch tree.
+  /// 0 the run, 1 the desk, 2 the branch tree, 3 the side conversation.
   var _tab = 0;
+
+  /// The side conversation last shown: a new one brings its tab to the front.
+  SideChat? _side;
 
   @override
   void initState() {
@@ -83,6 +88,15 @@ class _RunPanelState extends State<RunPanel> {
     final agent = AgentScope.of(context);
     final colors = context.colors;
     final running = agent.isRunning;
+    final side = agent.sideChat;
+    if (!identical(side, _side)) {
+      _side = side;
+      if (side != null) {
+        _tab = 3;
+      } else if (_tab == 3) {
+        _tab = 0;
+      }
+    }
     final run = _run;
     final task = _task;
     return Container(
@@ -104,6 +118,7 @@ class _RunPanelState extends State<RunPanel> {
                   // The desk is 蝶君's 「工作」 now: only its conversations get the tab.
                   if (agent.sandbox) _TabButton(label: '写笺', selected: _tab == 1, onTap: () => setState(() => _tab = 1)),
                   _TabButton(label: '分支', selected: _tab == 2, onTap: () => setState(() => _tab = 2)),
+                  if (side != null) _TabButton(label: '侧边对话', selected: _tab == 3, onTap: () => setState(() => _tab = 3)),
                   const Spacer(),
                   IconButton(tooltip: '收起详情', onPressed: widget.onClose, icon: const Icon(Icons.close, size: 18)),
                 ],
@@ -111,7 +126,9 @@ class _RunPanelState extends State<RunPanel> {
             ),
           ),
           Divider(height: 0.5, color: colors.border),
-          if (_tab == 1 && agent.sandbox)
+          if (_tab == 3 && side != null)
+            Expanded(child: SideChatView(key: ObjectKey(side), side: side))
+          else if (_tab == 1 && agent.sandbox)
             const Expanded(child: _DeskTab())
           else if (_tab == 2)
             const Expanded(child: _BranchTab())

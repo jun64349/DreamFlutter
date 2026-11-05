@@ -250,6 +250,34 @@ describe("session slots", () => {
 		assert.deepEqual(files, []);
 	});
 
+	it("opens a side conversation: the session so far, in memory, the source untouched (0.4)", async () => {
+		const info = await open();
+		t.respond(fauxAssistantMessage("报告的结论是 A"));
+		await t.send("s1", { id: "p", type: "prompt", message: "总结报告" });
+		await t.waitFor(() => settledCount(t.records("s1")) === 1);
+		const before = readFileSync(info.sessionFile!, "utf8");
+
+		const side = (await t.core.call("slot.open", { slotId: "side", cwd: t.workspace, incognito: true, forkOf: info.sessionFile }, t.client)) as SlotInfo;
+		assert.equal(side.incognito, true);
+		assert.ok(!side.sessionFile, "nothing on disk");
+		let seen: string[] = [];
+		t.respond((context) => {
+			seen = context.messages.map((m) => JSON.stringify(m.content));
+			return fauxAssistantMessage("A 的意思是……");
+		});
+		await t.send("side", { id: "q", type: "prompt", message: "结论 A 是什么意思" });
+		await t.waitFor(() => settledCount(t.records("side")) === 1);
+		assert.ok(seen.some((c) => c.includes("总结报告")) && seen.some((c) => c.includes("报告的结论是 A")), "the side conversation sees the main one");
+		assert.equal(readFileSync(info.sessionFile!, "utf8"), before, "the main session is not written to");
+		await t.send("side", { id: "st", type: "get_state" });
+		const state = (await t.waitFor(() => t.records("side").find((r) => r.id === "st"))).data as { sessionId: string };
+		await t.send("s1", { id: "st", type: "get_state" });
+		const main = (await t.waitFor(() => t.records("s1").find((r) => r.id === "st"))).data as { sessionId: string };
+		assert.notEqual(state.sessionId, main.sessionId, "its own id");
+
+		await assert.rejects(t.core.call("slot.open", { slotId: "bad", cwd: t.workspace, incognito: true, forkOf: join(t.dir, "nope.jsonl") }, t.client), /不存在/);
+	});
+
 	it("exports the conversation as Markdown", async () => {
 		await open();
 		t.respond(fauxAssistantMessage("答案是 42"));
