@@ -132,6 +132,40 @@ void main() {
     expect(agent.preferences.runPanelOpen, isFalse);
   });
 
+  testWidgets('the details\' overview is in blocks that fold, and a long run shows its latest steps', (tester) async {
+    await startApp(tester);
+    backend.handlers['runs.list'] = (_) => [
+      {'id': 'r1', 'status': 'done', 'toolCalls': 9, 'cost': 0.031, 'inputTokens': 5000, 'outputTokens': 800, 'startedAt': 1, 'endedAt': 52001, 'files': [p.join(thesis.path, '对比.docx')]},
+    ];
+    backend.handlers['runs.steps'] = (_) => [
+      for (var i = 1; i <= 9; i++) {'kind': 'tool', 'name': 'read', 'summary': '报告$i.md', 'status': 'done', 'durationMs': 120},
+    ];
+    await tester.tap(find.byTooltip(RegExp('^详情')));
+    await settle(tester);
+    for (final block in ['步骤', '产物与改动', '上下文与花费', '常用操作']) {
+      expect(find.text(block), findsOneWidget, reason: block);
+    }
+    // Nine steps: the latest five, and a button for the rest.
+    expect(find.text('读取  报告9.md'), findsOneWidget);
+    expect(find.text('读取  报告4.md'), findsNothing);
+    await tester.tap(find.text('显示前面的 4 步'));
+    await settle(tester);
+    expect(find.text('读取  报告1.md'), findsOneWidget);
+    expect(find.text('对比.docx'), findsOneWidget);
+    expect(find.text('\$0.03'), findsOneWidget, reason: 'the last run\'s cost');
+
+    // A folded block stays folded when the panel is built again.
+    await tester.tap(find.text('步骤'));
+    await settle(tester);
+    expect(find.text('读取  报告9.md'), findsNothing);
+    await tester.tap(find.byTooltip('收起详情').first);
+    await settle(tester);
+    await tester.tap(find.byTooltip(RegExp('^详情')));
+    await settle(tester);
+    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('读取  报告9.md'), findsNothing);
+  });
+
   testWidgets('the sidebar is as wide as it was dragged, also after a restart', (tester) async {
     await startApp(tester);
     final before = tester.getSize(find.byType(Sidebar)).width;

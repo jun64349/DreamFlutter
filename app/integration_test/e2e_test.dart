@@ -149,7 +149,7 @@ void main() {
       assistants(agent).lastOrNull?.parts.whereType<TextPart>().map((t) => t.text).join() ?? '';
   /// A navigation-rail button (pages may show the same word, the rail comes first).
   /// A place in the window's sidebar: 工作台, 蝶君 and 任务 by name, the rest by the foot icons' tooltips (0.4).
-  Finder nav(String label) => const {'工作台', '蝶君', '任务'}.contains(label)
+  Finder nav(String label) => const {'工作台', '蝶君', '任务', '搜索'}.contains(label)
       ? find.descendant(of: find.byType(Sidebar), matching: find.text(label)).first
       : find.byTooltip(RegExp('^$label')).first;
 
@@ -369,6 +369,8 @@ void main() {
 
     // 9b. The run panel's branch tab: the star request and its moon rewrite
     //     both hang under the same point, and the star version is shown.
+    await tester.tap(find.byTooltip(RegExp('^详情'))); // the details open on request (0.4)
+    await tester.pumpAndSettle();
     await tester.tap(find.text('分支'));
     await waitFor(
       tester,
@@ -378,16 +380,22 @@ void main() {
       timeout: const Duration(seconds: 30),
     );
     await shot(tester, '15b_branch_tree');
-    await tester.tap(find.text('本次运行'));
+    await tester.tap(find.text('概览'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('收起详情').first);
     await tester.pumpAndSettle();
 
     // 10. Full-text search across sessions.
+    await tester.tap(nav('搜索')); // the sidebar's search opens the box (0.4)
+    await tester.pumpAndSettle();
     final searchBox = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '搜索所有会话');
     await tester.enterText(searchBox, '星空');
     await waitFor(tester, 'search hit', () => find.textContaining('我：', findRichText: true).evaluate().isNotEmpty, agent);
     await shot(tester, '16_search');
     await tester.enterText(searchBox, '');
     await idle(tester);
+    await tester.tap(find.byTooltip('关闭搜索'));
+    await tester.pumpAndSettle();
 
     // 11. Channels: the DeepSeek provider from Pi's config is listed and answers a test.
     await tester.tap(find.byTooltip(RegExp('^设置')));
@@ -439,7 +447,7 @@ void main() {
     // 15. Save the request as a task template (drafted by the model), see it on the skills page.
     await tester.tap(nav('工作台'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('更多操作'));
+    await tester.tap(find.byTooltip(RegExp('^详情'))); // the actions are in the details since 0.4
     await tester.pumpAndSettle();
     await tester.tap(find.text('存为模板'));
     await waitFor(tester, 'template draft', () => find.text('保存任务模板').evaluate().isNotEmpty, agent, timeout: const Duration(minutes: 2));
@@ -449,6 +457,8 @@ void main() {
     await shot(tester, '21_template_draft');
     await tester.tap(find.widgetWithText(FilledButton, '保存'));
     await waitFor(tester, 'template saved', () => find.text('保存任务模板').evaluate().isEmpty, agent);
+    await tester.tap(find.byTooltip('收起详情').first);
+    await tester.pumpAndSettle();
     await tester.tap(nav('技能'));
     await tester.pumpAndSettle();
     await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('任务模板')));

@@ -155,6 +155,14 @@ void main() {
     await tester.ensureVisible(find.textContaining('读取 1 个文件'));
     await tester.pump();
     await tester.tap(find.textContaining('读取 1 个文件'));
+    await tester.pumpAndSettle();
+    // Commands are one line since 0.4: open this one to see the terminal.
+    await tester.ensureVisible(find.text('Summarize sales for the east region'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Summarize sales for the east region'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.textContaining('summary.py', findRichText: true).last);
+    await tester.pumpAndSettle();
     await shot('02_work_open_light');
 
     await agent.setThemeMode(ThemeMode.dark);

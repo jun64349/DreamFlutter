@@ -65,7 +65,13 @@ void main() {
       if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String?;
       return null;
     });
-    // The latest reply shows its actions without hovering.
+    // 0.4 (test 21): the buttons and numbers stay out of sight until the mouse is over the reply.
+    double shown() => tester.widget<AnimatedOpacity>(find.ancestor(of: find.byTooltip('复制回复（Markdown 原文）'), matching: find.byType(AnimatedOpacity)).first).opacity;
+    expect(shown(), 0);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: tester.getCenter(find.textContaining('是 42', findRichText: true)));
+    await tester.pumpAndSettle();
+    expect(shown(), 1);
     await tester.tap(find.byTooltip('复制回复（Markdown 原文）'));
     await tester.pump();
     expect(copied, '**答案**是 42');

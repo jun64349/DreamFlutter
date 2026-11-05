@@ -11,7 +11,7 @@ import '../state/session_runtime.dart' show MessageBranch;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'card_view.dart';
-import 'common.dart' show memoryImageOf;
+import 'common.dart' show ImageThumb;
 import 'composer.dart' show MentionChip;
 import 'markdown_view.dart';
 import 'motion.dart';
@@ -155,17 +155,7 @@ class _UserBubbleState extends State<_UserBubble> {
                 runSpacing: 6,
                 alignment: WrapAlignment.end,
                 children: [
-                  for (final image in item.images)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(context.radius),
-                      child: Image(
-                        image: memoryImageOf(image.data),
-                        gaplessPlayback: true,
-                        height: 140,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined),
-                      ),
-                    ),
+                  for (final image in item.images) ImageThumb(base64: image.data, height: 140),
                 ],
               ),
             ),
@@ -273,10 +263,9 @@ class _ActionButton extends StatelessWidget {
   Widget build(BuildContext context) => IconButton(
     tooltip: tooltip,
     onPressed: onTap,
-    iconSize: 15,
-    visualDensity: VisualDensity.compact,
+    iconSize: 18,
     padding: EdgeInsets.zero,
-    constraints: const BoxConstraints(minWidth: 30, minHeight: 28),
+    constraints: const BoxConstraints(minWidth: 36, minHeight: 34),
     icon: Icon(icon, color: context.colors.muted),
   );
 }
@@ -459,8 +448,11 @@ class _ReplyFrameState extends State<_ReplyFrame> {
     final branch = question == null ? null : agent.active?.branchFor(question);
     final canRegenerate = branch != null && !busy;
     final others = agent.models.where((m) => m != agent.model).toList();
-    final visible = info.isLatest || _hovered || _focused;
-    final facts = replyFacts(widget.row.assistants, modelName: (id) => agent.models.where((m) => m.id == id).firstOrNull?.name ?? id);
+    // 0.4 (test 21): the numbers and the buttons show together, only under the mouse or with keyboard focus.
+    final visible = _hovered || _focused;
+    String modelName(String id) => agent.models.where((m) => m.id == id).firstOrNull?.name ?? id;
+    final facts = replyFacts(widget.row.assistants, modelName: modelName);
+    final short = replyFactsShort(widget.row.assistants, modelName: modelName);
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -468,16 +460,12 @@ class _ReplyFrameState extends State<_ReplyFrame> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           widget.child,
-          if (facts.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(facts, style: context.text.labelSmall?.copyWith(color: colors.muted, fontSize: 11.5)),
-            ),
+          const SizedBox(height: 4),
           Focus(
             skipTraversal: true,
             onFocusChange: (focused) => setState(() => _focused = focused),
             child: SizedBox(
-              height: 30,
+              height: 36,
               child: Row(
                 children: [
                   AnimatedOpacity(
@@ -509,9 +497,9 @@ class _ReplyFrameState extends State<_ReplyFrame> {
                             tooltip: '换一个模型重新生成',
                             enabled: canRegenerate,
                             padding: EdgeInsets.zero,
-                            iconSize: 15,
+                            iconSize: 18,
                             icon: Icon(Icons.expand_more, color: colors.muted),
-                            style: IconButton.styleFrom(minimumSize: const Size(20, 28), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                            style: IconButton.styleFrom(minimumSize: const Size(24, 34), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
                             itemBuilder: (_) => [
                               for (final m in others) PopupMenuItem(value: m, child: Text('用 ${m.name} 重新生成')),
                             ],
@@ -527,6 +515,20 @@ class _ReplyFrameState extends State<_ReplyFrame> {
                   ),
                   if (question != null && branch != null && branch.total > 1)
                     _VersionSwitcher(item: question, branch: branch, enabled: !busy),
+                  if (short.isNotEmpty)
+                    Expanded(
+                      child: AnimatedOpacity(
+                        opacity: visible ? 1 : 0,
+                        duration: AppTokens.fast,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Tooltip(
+                            message: facts,
+                            child: Text(short, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.labelSmall?.copyWith(color: colors.muted, fontSize: 12)),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -535,6 +537,20 @@ class _ReplyFrameState extends State<_ReplyFrame> {
       ),
     );
   }
+}
+
+/// The reply's numbers kept under it (0.4): model · how long · cost; the rest is in [replyFacts], on hover.
+String replyFactsShort(List<AssistantItem> replies, {required String Function(String id) modelName}) {
+  if (replies.isEmpty) return '';
+  final first = replies.first;
+  final last = replies.last;
+  final cost = replies.fold<double>(0, (sum, r) => sum + (r.usage?.costTotal ?? 0));
+  final took = first.requestedAt != null && last.endedAt != null ? last.endedAt!.difference(first.requestedAt!) : null;
+  return [
+    if (last.model.isNotEmpty) modelName(last.model),
+    if (took != null) took.inMilliseconds < 10000 ? '${(took.inMilliseconds / 1000).toStringAsFixed(1)} 秒' : '${took.inSeconds} 秒',
+    if (cost > 0) formatCost(cost),
+  ].join(' · ');
 }
 
 /// The reply's numbers in one line: model · input / output / cache tokens ·
@@ -589,8 +605,9 @@ String replyFacts(List<AssistantItem> replies, {required String Function(String 
 // ---------------------------------------------------------------------------
 
 /// A run of thinking and tool calls, summed up in one line
-/// (「思考了 12 秒 · 读取 2 个文件 · 运行 1 条命令」). Open while it runs,
-/// folded once done; each step opens on its own.
+/// (「思考了 12 秒 · 读取 2 个文件 · 运行 1 条命令」). Folded by default (0.4,
+/// tests 32 and extra 7): while it runs the header says what it is doing and
+/// the latest three steps show one line each; opened, every step in full.
 class WorkBlock extends StatefulWidget {
   const WorkBlock({super.key, required this.steps, required this.active, this.waiting = false});
 
@@ -611,7 +628,8 @@ class _WorkBlockState extends State<WorkBlock> {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final steps = widget.steps;
-    final expanded = _expanded ?? widget.active;
+    final expanded = _expanded ?? false;
+    const previewSteps = 3;
     final tools = steps.whereType<ToolRun>().toList();
     final errors = tools.where((t) => t.status == ToolStatus.error).length;
     final toolMs = tools.fold<int>(0, (sum, t) => sum + (t.durationMs ?? 0));
@@ -680,6 +698,22 @@ class _WorkBlockState extends State<WorkBlock> {
                   ],
                 ),
               ),
+            ] else if (widget.active && canExpand) ...[
+              Divider(height: 0.5, color: colors.border),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (steps.length > previewSteps)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text('前面还有 ${steps.length - previewSteps} 步', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+                      ),
+                    for (final step in steps.skip((steps.length - previewSteps).clamp(0, steps.length))) _OneLineStep(step: step),
+                  ],
+                ),
+              ),
             ],
           ],
         ),
@@ -715,6 +749,55 @@ class _WorkBlockState extends State<WorkBlock> {
     _ => '调用 $tool',
   };
 }
+
+/// A step as one line, for a running block that is folded: what it is and how it is going.
+class _OneLineStep extends StatelessWidget {
+  const _OneLineStep({required this.step});
+
+  final Object step;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final step = this.step;
+    if (step is ThinkingPart) {
+      final first = step.text.trim().split('\n').firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
+      return _StepLine(icon: Icons.psychology_outlined, verb: '思考', subject: step.redacted ? null : first);
+    }
+    final run = step as ToolRun;
+    final (icon, verb) = toolIconVerb(run.name);
+    final trailing = switch (run.status) {
+      ToolStatus.running || ToolStatus.pending || ToolStatus.drafting => const SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.3)),
+      ToolStatus.error => Text('出错', style: context.text.bodySmall?.copyWith(color: colors.danger)),
+      _ => null,
+    };
+    return _StepLine(icon: icon, verb: verb, subject: toolSubject(run), trailing: trailing);
+  }
+}
+
+/// The icon and verb a tool call is shown with. MCP tools (`mcp__server__tool`) say which server and tool.
+(IconData, String) toolIconVerb(String name) => switch (name) {
+  'read' => (Icons.description_outlined, '读取'),
+  'read_image' => (Icons.image_outlined, '看图'),
+  'grep' => (Icons.search, '搜索'),
+  'find' || 'glob' => (Icons.manage_search, '查找文件'),
+  'ls' => (Icons.folder_open_outlined, '查看目录'),
+  'web_fetch' => (Icons.language, '读取网页'),
+  'web_search' => (Icons.travel_explore, '搜索网页'),
+  'bash' || 'powershell' || 'pwsh' => (Icons.terminal, '运行'),
+  'edit' => (Icons.edit_outlined, '修改'),
+  'write' => (Icons.note_add_outlined, '写入'),
+  'agent' => (Icons.hub_outlined, '子 Agent'),
+  'todo_write' => (Icons.checklist_rounded, '更新待办'),
+  'exit_plan_mode' => (Icons.map_outlined, '计划'),
+  'working_directory' => (Icons.drive_file_move_outlined, '工作目录'),
+  'job_output' || 'job_list' => (Icons.pending_outlined, '后台任务'),
+  'job_kill' => (Icons.stop_circle_outlined, '停止后台任务'),
+  'skill' => (Icons.auto_awesome_outlined, '载入技能'),
+  'ask_user_question' => (Icons.help_outline, '向你提问'),
+  _ when name.startsWith('mcp__') => (Icons.extension_outlined, 'MCP · ${name.substring(5).split('__').join(' · ')}'),
+  _ => (Icons.extension_outlined, name),
+};
 
 /// Tools that only keep the agent's own bookkeeping (not counted as work).
 const _bookkeepingTools = {'read_card', 'todo_write', 'working_directory', 'job_list', 'job_output', 'ask_user_question', 'exit_plan_mode', 'skill'};
@@ -936,33 +1019,33 @@ class _ToolStepState extends State<ToolStep> {
           startOpen: run.status == ToolStatus.error,
         );
       default:
-        final (icon, verb) = switch (run.name) {
-          'read' => (Icons.description_outlined, '读取'),
-          'read_image' => (Icons.image_outlined, '看图'),
-          'grep' => (Icons.search, '搜索'),
-          'find' || 'glob' => (Icons.manage_search, '查找文件'),
-          'ls' => (Icons.folder_open_outlined, '查看目录'),
-          'web_fetch' => (Icons.language, '读取网页'),
-          'working_directory' => (Icons.drive_file_move_outlined, '工作目录'),
-          'job_output' || 'job_list' => (Icons.pending_outlined, '后台任务'),
-          'job_kill' => (Icons.stop_circle_outlined, '停止后台任务'),
-          'skill' => (Icons.auto_awesome_outlined, '载入技能'),
-          'ask_user_question' => (Icons.help_outline, '向你提问'),
-          _ => (Icons.extension_outlined, run.name),
-        };
+        final (icon, verb) = toolIconVerb(run.name);
         final known = const {
           'read', 'read_image', 'grep', 'find', 'glob', 'ls', 'web_fetch', 'working_directory', 'job_output', 'job_list', 'job_kill', 'skill', 'ask_user_question',
         }.contains(run.name);
-        return _Expandable(
+        // Pictures the tool returned (看图, screenshots from MCP tools): small, and open in full on a click.
+        final images = run.output.whereType<ImageBlock>().toList();
+        final line = _Expandable(
           line: (open, toggle) => _StepLine(icon: icon, verb: verb, subject: toolSubject(run), trailing: trailing, onTap: toggle, open: open),
           body: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (!known && run.args.isNotEmpty) _OutputBox(text: formatArguments(run.args)),
-              _OutputBox(text: run.outputText.isEmpty ? '（无输出）' : run.outputText, error: run.status == ToolStatus.error),
+              if (run.outputText.isNotEmpty || images.isEmpty) _OutputBox(text: run.outputText.isEmpty ? '（无输出）' : run.outputText, error: run.status == ToolStatus.error),
             ],
           ),
           startOpen: run.status == ToolStatus.error,
+        );
+        if (images.isEmpty) return line;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            line,
+            Padding(
+              padding: const EdgeInsets.only(left: 22, top: 4, bottom: 2),
+              child: Wrap(spacing: 6, runSpacing: 6, children: [for (final image in images) ImageThumb(base64: image.data)]),
+            ),
+          ],
         );
     }
   }
@@ -1233,35 +1316,33 @@ class _TerminalStepState extends State<_TerminalStep> {
     const tail = 12;
     final hidden = _all ? 0 : (lines.length - tail).clamp(0, lines.length);
     final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12, height: 1.6);
-    return Container(
-      decoration: BoxDecoration(color: colors.terminal, borderRadius: BorderRadius.circular(context.radius)),
+    // The terminal follows the theme (0.4, test 32: a black block on the paper-coloured page stood out):
+    // the code colours by day, the terminal's own at night.
+    final night = Theme.of(context).brightness == Brightness.dark;
+    final ground = night ? colors.terminal : colors.codeBackground;
+    final ink = night ? colors.onTerminal : colors.ink;
+    final quiet = night ? colors.terminalMuted : colors.muted;
+    final failed = night ? colors.terminalError : colors.danger;
+    final terminal = Container(
+      decoration: BoxDecoration(color: ground, borderRadius: BorderRadius.circular(context.radius)),
       padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (purpose.isNotEmpty) Text('# $purpose', style: mono.copyWith(color: colors.terminalMuted, fontStyle: FontStyle.italic)),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text.rich(
-                  TextSpan(children: [
-                    TextSpan(text: '\$ ', style: TextStyle(color: colors.terminalMuted)),
-                    TextSpan(text: command, style: TextStyle(color: colors.onTerminal)),
-                  ]),
-                  style: mono,
-                ),
-              ),
-              const SizedBox(width: 8),
-              DefaultTextStyle.merge(style: TextStyle(color: colors.terminalMuted), child: IconTheme.merge(data: IconThemeData(color: colors.terminalMuted), child: widget.trailing)),
-            ],
+          if (purpose.isNotEmpty) Text('# $purpose', style: mono.copyWith(color: quiet, fontStyle: FontStyle.italic)),
+          Text.rich(
+            TextSpan(children: [
+              TextSpan(text: '\$ ', style: TextStyle(color: quiet)),
+              TextSpan(text: command, style: TextStyle(color: ink)),
+            ]),
+            style: mono,
           ),
           if (hidden > 0)
             InkWell(
               onTap: () => setState(() => _all = true),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text('… 还有 $hidden 行，点开查看全部', style: mono.copyWith(color: colors.terminalMuted, fontStyle: FontStyle.italic)),
+                child: Text('… 还有 $hidden 行，点开查看全部', style: mono.copyWith(color: quiet, fontStyle: FontStyle.italic)),
               ),
             ),
           if (lines.isNotEmpty)
@@ -1271,12 +1352,26 @@ class _TerminalStepState extends State<_TerminalStep> {
                 reverse: true,
                 child: Text(
                   lines.skip(hidden).join('\n'),
-                  style: mono.copyWith(color: run.status == ToolStatus.error ? colors.terminalError : colors.terminalMuted),
+                  style: mono.copyWith(color: run.status == ToolStatus.error ? failed : quiet),
                 ),
               ),
             ),
         ],
       ),
+    );
+    // One line like the other tools; the terminal opens below it (open from the start when it failed).
+    final firstLine = command.split('\n').first;
+    return _Expandable(
+      line: (open, toggle) => _StepLine(
+        icon: Icons.terminal,
+        verb: '运行',
+        subject: purpose.isNotEmpty ? purpose : firstLine,
+        trailing: widget.trailing,
+        onTap: toggle,
+        open: open,
+      ),
+      body: terminal,
+      startOpen: run.status == ToolStatus.error,
     );
   }
 }

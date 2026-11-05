@@ -86,7 +86,7 @@ void main() {
   }
 
   /// A place in the window's sidebar: 工作台, 蝶君 and 任务 by name, the rest by the foot icons' tooltips (0.4).
-  Finder nav(String label) => const {'工作台', '蝶君', '任务'}.contains(label)
+  Finder nav(String label) => const {'工作台', '蝶君', '任务', '搜索'}.contains(label)
       ? find.descendant(of: find.byType(Sidebar), matching: find.text(label)).first
       : find.byTooltip(RegExp('^$label')).first;
 

@@ -454,6 +454,61 @@ MemoryImage memoryImageOf(String base64) {
   return image;
 }
 
+/// A picture in full: fits the window, zooms with the wheel or a pinch, closes on a click outside or Esc.
+Future<void> showImagePreview(BuildContext context, String base64) => showDialog<void>(
+  context: context,
+  barrierColor: Colors.black.withValues(alpha: 0.72),
+  builder: (context) => Dialog(
+    backgroundColor: Colors.transparent,
+    insetPadding: const EdgeInsets.all(32),
+    child: Stack(
+      children: [
+        InteractiveViewer(
+          maxScale: 6,
+          child: Center(child: Image(image: memoryImageOf(base64), gaplessPlayback: true, errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined, color: Colors.white))),
+        ),
+        Positioned(
+          top: 0,
+          right: 0,
+          child: IconButton.filledTonal(tooltip: '关闭', onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+        ),
+      ],
+    ),
+  ),
+);
+
+/// A small picture that opens in full when clicked (0.4, test 32: pictures the agent looked at can be previewed).
+class ImageThumb extends StatelessWidget {
+  const ImageThumb({super.key, required this.base64, this.height = 72});
+
+  final String base64;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: '点击查看大图',
+    child: Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(context.radius),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => showImagePreview(context, base64),
+        // Keeps its place (and can be clicked) before the picture is decoded.
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: height * 0.75, minHeight: height),
+          child: Image(
+          image: memoryImageOf(base64),
+          gaplessPlayback: true,
+          height: height,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined),
+        ),
+        ),
+      ),
+    ),
+  );
+}
+
 /// Whether a file drop target at [context] is on screen. A drop target hears
 /// every drop on the window, wherever it is, so the pages kept alive behind the
 /// shown one (the IndexedStacks of the navigation and of 蝶君) and the pages

@@ -100,7 +100,7 @@ class _RunPanelState extends State<RunPanel> {
               padding: const EdgeInsets.only(left: 12, right: 8),
               child: Row(
                 children: [
-                  _TabButton(label: '本次运行', selected: _tab == 0, onTap: () => setState(() => _tab = 0), dot: running),
+                  _TabButton(label: '概览', selected: _tab == 0, onTap: () => setState(() => _tab = 0), dot: running),
                   // The desk is 蝶君's 「工作」 now: only its conversations get the tab.
                   if (agent.sandbox) _TabButton(label: '写笺', selected: _tab == 1, onTap: () => setState(() => _tab = 1)),
                   _TabButton(label: '分支', selected: _tab == 2, onTap: () => setState(() => _tab = 2)),
@@ -118,75 +118,10 @@ class _RunPanelState extends State<RunPanel> {
           else
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 18),
                 children: [
-                  if (task != null && task.source != 'chat') ...[_TaskCard(task: task), const SizedBox(height: 18)],
-                  if (agent.planMode) ...[_PlanModeNote(), const SizedBox(height: 18)],
-                  if (todoItems(agent.todos) case final todos when todos.isNotEmpty) ...[
-                    Text('待办', style: context.label),
-                    const SizedBox(height: 8),
-                    TodoList(todos: todos),
-                    const SizedBox(height: 18),
-                  ],
-                  if (running)
-                    ..._liveSteps(context, agent)
-                  else if (run == null)
-                    Text('发出第一条消息后，这里会显示每次运行的步骤、改动的文件、耗时和花费。', style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.7))
-                  else ...[
-                    Text('步骤', style: context.label),
-                    const SizedBox(height: 8),
-                    if (_steps == null) const LinearProgressIndicator(),
-                    if (_steps != null && _steps!.isEmpty) Text('这次没有调用工具。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-                    for (final s in _steps ?? const <RunStepInfo>[])
-                      _StepRow(
-                        label: switch (s.kind) {
-                          'retry' => '重试',
-                          'compaction' => '压缩上下文',
-                          'error' => '出错',
-                          _ => _stepLabel(s.name ?? '', s.summary),
-                        },
-                        status: s.status,
-                        durationMs: s.durationMs,
-                      ),
-                    if (run.files.isNotEmpty) ...[
-                      const SizedBox(height: 18),
-                      Text('改动的文件', style: context.label),
-                      const SizedBox(height: 8),
-                      for (final f in run.files) ArtifactTile(path: f, exists: true, onContinue: () => _agent.insertIntoComposer('继续修改 $f：')),
-                    ],
-                    if (run.error != null && run.status == 'failed') ...[
-                      const SizedBox(height: 12),
-                      Text(run.error!, style: context.text.bodySmall?.copyWith(color: colors.danger)),
-                    ],
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _Fact(label: '耗时', value: formatDuration(run.duration)),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _Fact(label: '花费', value: run.cost > 0 ? formatCost(run.cost) : '—'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _Fact(label: '工具调用', value: run.toolErrors > 0 ? '${run.toolCalls}（${run.toolErrors} 出错）' : '${run.toolCalls}'),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _Fact(label: 'Token', value: run.tokens > 0 ? formatTokens(run.tokens) : '—'),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 22),
-                  Text('常用操作', style: context.label),
-                  const SizedBox(height: 8),
-                  const SessionActions(),
+                  if (task != null && task.source != 'chat') ...[_TaskCard(task: task), const SizedBox(height: 10)],
+                  ..._sections(context, agent, running, run),
                 ],
               ),
             ),
@@ -195,31 +130,201 @@ class _RunPanelState extends State<RunPanel> {
     );
   }
 
-  /// While a run is going, its steps come straight from the transcript.
-  List<Widget> _liveSteps(BuildContext context, AgentController agent) {
+  /// Whether the step list shows every step (otherwise only the latest few).
+  var _allSteps = false;
+
+  /// The overview in blocks (0.4, roadmap 4.3 and the design's option 3):
+  /// progress, steps, products and changes, subagents, context and cost, actions.
+  List<Widget> _sections(BuildContext context, AgentController agent, bool running, RunInfo? run) {
+    final colors = context.colors;
+    final muted = context.text.bodySmall?.copyWith(color: colors.muted, height: 1.6);
+    final todos = todoItems(agent.todos);
+    final tools = _replyTools(agent);
+    final steps = running ? _liveStepRows(tools) : _savedStepRows();
+    final latest = running ? null : run;
+    final changed = running
+        ? {for (final t in tools) if ((t.name == 'edit' || t.name == 'write') && t.args['path'] is String) t.args['path'] as String}.toList()
+        : latest?.files ?? const <String>[];
+    final subagents = [for (final t in tools) if (t.name == 'agent') t];
+    const shown = 5;
+    final hidden = _allSteps ? 0 : (steps.length - shown).clamp(0, steps.length);
+    final stats = agent.stats;
+    final small = TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 4), visualDensity: VisualDensity.compact);
+    return [
+      if (todos.isNotEmpty || agent.planMode)
+        _Section(
+          id: 'progress',
+          icon: Icons.checklist_rounded,
+          title: '进度',
+          trailing: todos.isEmpty ? null : '${todos.where((t) => t.status == 'completed').length} / ${todos.length}',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (agent.planMode) ...[_PlanModeNote(), if (todos.isNotEmpty) const SizedBox(height: 10)],
+              if (todos.isNotEmpty) TodoList(todos: todos),
+            ],
+          ),
+        ),
+      _Section(
+        id: 'steps',
+        icon: Icons.timeline,
+        title: '步骤',
+        trailing: steps.isEmpty ? null : '${steps.length}',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (steps.isEmpty)
+              Text(
+                running
+                    ? '正在思考…'
+                    : run == null
+                    ? '发出第一条消息后，这里会显示每次运行的步骤、改动的文件、耗时和花费。'
+                    : _steps == null
+                    ? '正在读取…'
+                    : '这次没有调用工具。',
+                style: muted,
+              ),
+            if (hidden > 0)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(style: small, onPressed: () => setState(() => _allSteps = true), child: Text('显示前面的 $hidden 步')),
+              ),
+            ...steps.skip(hidden),
+            if (_allSteps && steps.length > shown)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(style: small, onPressed: () => setState(() => _allSteps = false), child: const Text('只看最近几步')),
+              ),
+            if (latest?.error != null && latest?.status == 'failed') ...[
+              const SizedBox(height: 6),
+              Text(latest!.error!, style: context.text.bodySmall?.copyWith(color: colors.danger)),
+            ],
+          ],
+        ),
+      ),
+      if (changed.isNotEmpty)
+        _Section(
+          id: 'files',
+          icon: Icons.description_outlined,
+          title: '产物与改动',
+          trailing: '${changed.length}',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [for (final f in changed) ArtifactTile(path: f, exists: true, onContinue: () => _agent.insertIntoComposer('继续修改 $f：'))],
+          ),
+        ),
+      if (subagents.isNotEmpty || agent.backgroundRunning > 0)
+        _Section(
+          id: 'background',
+          icon: Icons.hub_outlined,
+          title: '子 Agent 与后台',
+          trailing: subagents.any((t) => t.isActive) || agent.backgroundRunning > 0 ? '进行中' : null,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final t in subagents) _subagentRow(t),
+              if (agent.backgroundRunning > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('后台还有 ${agent.backgroundRunning} 项工作在进行，结束后 Agent 会接着处理。', style: muted),
+                ),
+            ],
+          ),
+        ),
+      _Section(
+        id: 'cost',
+        icon: Icons.data_usage_rounded,
+        title: '上下文与花费',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                _ContextGauge(percent: stats.contextKnown && stats.contextWindow > 0 ? stats.contextPercent : null),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    [
+                      stats.contextKnown && stats.contextWindow > 0
+                          ? '上下文 ${formatTokens(stats.contextTokens)} / ${formatTokens(stats.contextWindow)}'
+                          : '上下文用量在下一次回复后显示',
+                      '这个会话共花费 ${stats.cost > 0 ? formatCost(stats.cost) : '—'}',
+                    ].join('\n'),
+                    style: context.text.bodySmall?.copyWith(color: colors.ink2, height: 1.7),
+                  ),
+                ),
+              ],
+            ),
+            if (latest != null) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(child: _Fact(label: '上次耗时', value: formatDuration(latest.duration))),
+                  const SizedBox(width: 8),
+                  Expanded(child: _Fact(label: '上次花费', value: latest.cost > 0 ? formatCost(latest.cost) : '—')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _Fact(label: '工具调用', value: latest.toolErrors > 0 ? '${latest.toolCalls}（${latest.toolErrors} 出错）' : '${latest.toolCalls}'),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: _Fact(label: 'Token', value: latest.tokens > 0 ? formatTokens(latest.tokens) : '—')),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      const _Section(id: 'actions', icon: Icons.bolt_outlined, title: '常用操作', child: SessionActions()),
+    ];
+  }
+
+  Widget _subagentRow(ToolRun t) {
+    final role = t.details['roleName'] as String? ?? '子 Agent';
+    final what = t.details['description'] as String? ?? t.args['description'] as String? ?? '';
+    final cost = (t.details['cost'] as num?)?.toDouble() ?? 0;
+    return _StepRow(label: '$role  $what', status: _status(t.status), durationMs: t.durationMs, note: cost > 0 ? formatCost(cost) : null);
+  }
+
+  static String _status(ToolStatus status) => switch (status) {
+    ToolStatus.error => 'error',
+    ToolStatus.done => 'done',
+    ToolStatus.interrupted => 'interrupted',
+    _ => 'running',
+  };
+
+  /// The tool calls of the reply on screen (the latest one), in order.
+  List<ToolRun> _replyTools(AgentController agent) {
     final rows = ChatRow.fromItems(agent.transcript.items);
     final reply = rows.lastOrNull is ReplyRow ? rows.last as ReplyRow : null;
-    final tools = [
+    return [
       for (final a in reply?.assistants ?? const <AssistantItem>[])
         for (final part in a.parts.whereType<ToolCallPart>()) ?agent.transcript.tool(part.toolCallId),
     ];
-    return [
-      Text('步骤', style: context.label),
-      const SizedBox(height: 8),
-      if (tools.isEmpty) Text('正在思考…', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-      for (final t in tools)
-        _StepRow(
-          label: _stepLabel(t.name, toolSubject(t)),
-          status: switch (t.status) {
-            ToolStatus.error => 'error',
-            ToolStatus.done => 'done',
-            ToolStatus.interrupted => 'interrupted',
-            _ => 'running',
-          },
-          durationMs: t.durationMs,
-        ),
-    ];
   }
+
+  /// While a run is going, its steps come straight from the transcript.
+  List<Widget> _liveStepRows(List<ToolRun> tools) => [
+    for (final t in tools) _StepRow(label: _stepLabel(t.name, toolSubject(t)), status: _status(t.status), durationMs: t.durationMs),
+  ];
+
+  /// The steps the core recorded for the latest finished run.
+  List<Widget> _savedStepRows() => [
+    for (final s in _steps ?? const <RunStepInfo>[])
+      _StepRow(
+        label: switch (s.kind) {
+          'retry' => '重试',
+          'compaction' => '压缩上下文',
+          'error' => '出错',
+          _ => _stepLabel(s.name ?? '', s.summary),
+        },
+        status: s.status,
+        durationMs: s.durationMs,
+      ),
+  ];
 
   static String _stepLabel(String tool, String? subject) {
     final verb = switch (tool) {
@@ -564,11 +669,14 @@ class _PanelRow extends StatelessWidget {
 }
 
 class _StepRow extends StatelessWidget {
-  const _StepRow({required this.label, required this.status, required this.durationMs});
+  const _StepRow({required this.label, required this.status, required this.durationMs, this.note});
 
   final String label;
   final String? status;
   final int? durationMs;
+
+  /// A short figure after the time (a subagent's cost).
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -604,7 +712,109 @@ class _StepRow extends StatelessWidget {
               durationMs! < 1000 ? '$durationMs 毫秒' : '${(durationMs! / 1000).toStringAsFixed(1)} 秒',
               style: context.text.bodySmall?.copyWith(color: colors.muted),
             ),
+          if (note != null) ...[
+            const SizedBox(width: 6),
+            Text(note!, style: context.text.bodySmall?.copyWith(color: colors.muted)),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// One block of the details' overview: an icon, a title and a figure on its header,
+/// folded or open (remembered for the window's lifetime, across conversations).
+class _Section extends StatefulWidget {
+  const _Section({required this.id, required this.icon, required this.title, required this.child, this.trailing});
+
+  final String id;
+  final IconData icon;
+  final String title;
+  final String? trailing;
+  final Widget child;
+
+  static final _folded = <String>{};
+
+  @override
+  State<_Section> createState() => _SectionState();
+}
+
+class _SectionState extends State<_Section> {
+  bool get _open => !_Section._folded.contains(widget.id);
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final open = _open;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: colors.card,
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            button: true,
+            expanded: open,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => setState(() => open ? _Section._folded.add(widget.id) : _Section._folded.remove(widget.id)),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                child: Row(
+                  children: [
+                    Icon(widget.icon, size: 16, color: colors.ink2),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(widget.title, style: context.text.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: colors.ink2))),
+                    if (widget.trailing != null) Text(widget.trailing!, style: context.text.bodySmall?.copyWith(color: colors.muted)),
+                    const SizedBox(width: 4),
+                    Icon(open ? Icons.expand_less : Icons.expand_more, size: 16, color: colors.muted),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (open) Padding(padding: const EdgeInsets.fromLTRB(12, 0, 12, 12), child: widget.child),
+        ],
+      ),
+    );
+  }
+}
+
+/// How full the context window is, as a ring with the percentage (unknown: an empty ring).
+class _ContextGauge extends StatelessWidget {
+  const _ContextGauge({required this.percent});
+
+  final double? percent;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final value = percent;
+    final color = value == null
+        ? colors.muted
+        : value >= 85
+        ? colors.danger
+        : value >= 70
+        ? colors.warning
+        : colors.accent;
+    return Semantics(
+      label: value == null ? '上下文用量未知' : '上下文已用 ${value.round()}%',
+      child: SizedBox.square(
+        dimension: 44,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox.square(
+              dimension: 44,
+              child: CircularProgressIndicator(value: ((value ?? 0) / 100).clamp(0.0, 1.0), strokeWidth: 4, color: color, backgroundColor: colors.border),
+            ),
+            ExcludeSemantics(child: Text(value == null ? '—' : '${value.round()}%', style: context.text.labelSmall?.copyWith(color: colors.ink2))),
+          ],
+        ),
       ),
     );
   }
