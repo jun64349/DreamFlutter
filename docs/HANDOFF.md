@@ -1,12 +1,77 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-06（v0.4.0 已打 tag；后端优先；记忆设计全部定稿，下一步 0.5 写代码）
+更新时间：2026-11-06（v0.4.0 已打 tag；计划改成后端优先；记忆设计全部定稿。**下一个窗口：开发 0.5「记忆与上下文」**）
 
-## 新窗口从这里开始
+## 新窗口从这里开始：0.5 开发
 
-**开发前先读 [dev-guide.md](dev-guide.md)（开发规范与踩坑），发布前按 [testing/scenarios.md](testing/scenarios.md)（全场景测试清单）走一遍。** 这是用户 2026-11-04 的要求：「做全量的全功能常用场景的 e2e 全量测试，不放过任何一个角落细节，排除一切影响使用的 bug，然后把踩过的坑总结好放进开发指南规范类的文件里」。用户对 v0.3.2 的评价是「不太收敛」「冒出很多以前没有的 bug」。
+### 一、先读这些（按顺序）
 
-### 当前状态（2026-11-05 晚，给下一个窗口 / 内容管理 agent）
+1. [dev-guide.md](dev-guide.md)：开发规范和踩过的坑（**动手前必读**）。
+2. [roadmap.md](roadmap.md)：第一节第 6 条「后端优先」；第二节「2026-11-06 定下的事」；**v0.5 一节（5.0–5.13）**；附录 D（0.4.0 报告 11 条的去向）。
+3. [memory-design.md](memory-design.md)：0.5 的开发设计，**用户 2026-11-06 已定稿**。重点：第二节数据结构、第四节「默认自动生效」和例外、第六节快照组装、第十二节定稿值、**第十四节实现顺序**、第十六节任务边界、第十七节遗忘补强。
+4. [research/hermes-memory.md](research/hermes-memory.md)：Hermes 记忆机制调研（第十七节的来源，可选读）。
+5. [long-task-design.md](long-task-design.md)：只看和 0.5 的接口（任务边界事件、压缩完成只发事件不续跑）。
+6. [testing/scenarios.md](testing/scenarios.md)：发布前要走的全场景清单；0.5 的新功能要在里面加行。
+
+### 二、0.5 的范围
+
+- **后端**：roadmap 5.1–5.13：三级记忆、快照、写入、转化与遗忘、作用域、记忆 Agent、用户控制的接口、强度和频率设置、模式行为、旧记忆迁移、任务边界（5.11）、上下文服务和压缩（5.12）、会话关系（5.13：分叉来源接口；**侧边对话保存**：挂在原对话下、能打开，不进记忆、搜索、任务，算进统计）。
+- **只做必要的界面**（后端优先，roadmap 第一节第 6 条）：
+  - **记忆日志**：按天列出存了哪些、改了哪些、忘了哪些，能改、能删、能撤销（「默认自动生效」的安全网，必须有）；
+  - 工作区记忆提升为全局时的确认；
+  - 「说记住了但没存」的提示和「保存」按钮（memory-design 17.7）；
+  - 新的设置项（写入前要我确认、记忆模型、后台预算、强度和频率）加在现有设置分类里；
+  - 侧边对话保存后的最简打开入口。
+  - 其余（完整记忆页、「本次用了哪些记忆」「为什么没想起来」、右栏的上下文）都在 0.11。
+
+### 三、已经定下的（不要再问用户）
+
+- **记忆默认自动生效**（2026-11-06）：新增、修改、升级、合并、到期、推翻、软遗忘都自动做，记入按天的记忆日志（原因、来源、可撤销）。**例外**：锁定的不自动改（只标待复核并提醒）；彻底删除只能用户做；工作区记忆提升为全局要用户决定。设置里有「写入前要我确认」（默认关）。
+- 遗忘（17.10）：有效期到了自动标「已结束」退出快照；对工具 / 环境的判断默认 30 天有效，遇到反例自动推翻；回想时发现矛盾自动排复查；「说记住了但没存」提示 + 保存按钮；删除会话时提取出的记忆保留（来源标「会话已删除」）。
+- 第十二节 12 项全部按表里的值；记忆 Agent 只碰记忆库（无文件、无命令、无网络）；记忆模型默认用辅助模型（`llm.ts` 的 `auxModel`）；记忆后台预算默认每天 $0.20。
+- 侧边对话：保存、不进记忆 / 搜索 / 任务、算进统计。
+
+### 四、还没定、做到时再问用户
+
+- 后台压缩（5.12）：提前量、摘要用哪个模型、费用上限（roadmap v0.5「要用户定的」）。
+- long-task-design 第十八节 11 个待定项（0.8 前定就行，0.5 不用）。
+
+### 五、现有代码起点
+
+- `core/src/modules/memory.ts`（736 行）：v0.2 的扁平模型（表 `memories` / `memory_blocks` / `memory_snapshots` / `memory_extraction`）；工具 `memory_search` / `memory_save` / `memory_update` / `memory_forget` / `memory_block_edit` / `session_search`；`before_agent_start` 注入 `df-memory` 快照；运行结束后 `extract`；v0.3.3 的止血 `nearDuplicate` / `saysMore`。窗口接口 `memory.*`（list、add、edit、remove、history、accept、reject、blocks、setBlock、snapshots、extractNow、refresh、clear、export，事件 `memory.changed`）。
+- `core/src/schema.ts`：迁移只能往后加，现在 16 个（`user_version` 16），新表从第 17 个开始；**新表要 `core.declareBackup(...)`**，否则 `backup.test.ts` 失败（dev-guide 第二节）。
+- 窗口：`app/lib/ui/memory_page.dart`；测试 `core/test/memory.test.ts`。
+- 压缩：`core/src/agent/harness.ts`（`session_before_compact`）、`core/src/pi/host.ts`。
+- 侧边对话：窗口 `agent_controller.dart` 的 `openSideChat` / `_endSideChat`、`state/side_chat.dart`；后台 `core.ts` 的 `openNewSlot`（`forkOf`）、`pi/host.ts`（`SessionManager.inMemory`）、`slots/slot.ts`（会话信息里的 `forkOf`）。5.13 要把它改成存盘的会话。
+
+### 六、建议的开工顺序（memory-design 第十四节，补上 0.5 新加的）
+
+1. 新表 + 旧记忆迁移 + 范围函数 `allowedScopes` + 操作接口（程序侧守门、事务、版本、留痕）+ **记忆日志**；先不接记忆 Agent。
+2. 快照组装改造：预算、配额、素材、`context` 钩子防重复和即时纠正、压缩防复活、降级标记。
+3. 记忆 Agent 角色卡 + 任务队列 + 任务结束提取 + 每周整理。
+4. 分层转化、冲突、周期复查；第十七节的到期、反例推翻、回想复查、矛盾预筛、不记的清单、原子条目。
+5. 软遗忘、恢复、回撤、彻底删除；写入 / 加载安全扫描；「说记住了但没存」检测。
+6. 任务边界（5.11，第十六节）+ 上下文服务和压缩（5.12；后台压缩那几个参数先问用户）。
+7. 会话关系和侧边对话保存（5.13）。
+8. 最简界面（第二节列的那几样）+ 端到端测试加对应步骤 + scenarios.md 加行。
+
+每一步都带测试（后台用假时钟、脚本化假模型，见 memory-design 第十三节和 17.11）；每个修复确认「去掉修复测试会失败」。
+
+### 七、仓库和发布状态
+
+- 交接时工作区干净。**从 `aba5e45` 起的所有提交（0.4 全部、计划修订、记忆设计、这份交接）和 tag `v0.4.0` 都没推送**（GitHub 上最新还是 `v0.3.4`；用 `git log origin/main..main` 看）。推送要用户点头，命令见下面「推送」。
+- 用户的测试版 `E:\DreamFlutter测试版` 是 0.4.0（升级命令见下面「用户的测试版在哪、怎么升级」）。
+- 用户 0.4.0 的测试报告：`C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.4.0 测试记录.md`（已全部处理进计划）。
+
+### 八、和用户合作的规矩（摘要，详见下面「和用户合作的约定」）
+
+- 回复用平实的简体中文；用户不是开发者，要用户运行的命令给完整的 PowerShell（先 `cd`）。
+- **提交、打 tag、推送都等用户说**。
+- 测试模型走 OpenCode Go（不新建渠道、不经手 Key）；e2e 前用户的应用要先退出。
+- 不从 Claude 的终端替用户启动应用做试用。
+- 本机没有全局 Python：用 `core\bin\uv.exe` + `core\python\` 建临时 venv。改代码用 Edit / Write，别用 heredoc / sed 改含反斜杠的代码。
+
+## 0.4 收尾记录（2026-11-05 / 06）
 
 - **2026-11-06：用户交了 0.4.0 的测试报告**（`C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.4.0 测试记录.md`，11 条，截图在同目录 `Pasted image 20261105*.png`）。大多是方向性意见，**最重要的是第 6 条：改成后端优先、前端只做必要的，后端做完写接口文档再设计前端**。Claude 逐条对照代码给出理解和计划调整草案，用户确认了（第 3 条是侧边对话：保存、挂在原对话下、能打开；不进记忆、搜索、任务，**算进统计**；搜索方案先调研再定），计划修订写进 roadmap.md。用户说「0.4.0 现在提交、打 tag」：修复提交 `eb8c9d6`，版本号和发布说明一个提交，annotated tag `v0.4.0` 打在它上面，**都没推送**。
 
@@ -99,7 +164,8 @@ Get-Content "$dst\使用说明.txt" -TotalCount 1
 | [design/](design/README.md) | **设计资料**：0.4 界面设计语言、品牌（已定的事和下一步）、设计稿源文件、图标原图、截图 |
 | [long-task-design.md](long-task-design.md) | 长任务内核开发设计（0.8 照此实现；第十八节待用户定） |
 | [testing/scenarios.md](testing/scenarios.md) | **全场景测试清单**：怎么跑每层测试、每个场景由谁覆盖、发布前的手动清单 |
-| [v0.3.3-release-notes.md](v0.3.3-release-notes.md) | 最新版本做了什么 |
+| [v0.4-release-notes.md](v0.4-release-notes.md) | 最新版本（0.4.0）做了什么 |
+| [memory-design.md](memory-design.md) | **0.5 的开发设计（2026-11-06 定稿）** |
 | [roadmap.md](roadmap.md) | v0.3–v1.0 计划（第二节是已定的事）、v0.2.0 已有能力对照表、35 条 + 额外 12 条反馈的去向、要用户定的事 |
 | [roadmap-review-2026-11-02.md](roadmap-review-2026-11-02.md) | 重排时的讨论稿：对 Gemini 隔离方案的核查（为什么不给 root）、额外测试的核查、Agent 运行时的想法 |
 | 用户的新材料（`C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\2026-11-01\`） | `2026-11-01 df测试记录（额外）.md`、`2026-11-01 DreamFlutter-三级记忆管理系统-调研与讨论纪要-2026-11-01.md`（0.5 的依据）、`2026-11-01 v0.3补充：对话、书桌两板块的设计文档与调研报告.md`（蝶君和沙箱方案） |
