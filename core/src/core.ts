@@ -19,7 +19,7 @@ import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
 import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
 
-export const CORE_VERSION = "0.5.0-dev.6";
+export const CORE_VERSION = "0.5.0";
 
 export interface CoreOptions {
 	paths: CorePaths;
