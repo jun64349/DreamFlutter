@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { RpcError } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, parseJson } from "../db.ts";
+import { defaultValidity, promotionBlock } from "./lifecycle.ts";
 import { type ScopeSet, visibleIn, writableIn } from "./scopes.ts";
 import { relevance, trigrams } from "./text.ts";
 import {
@@ -151,6 +152,8 @@ export const MAX_CONTENT = 2000;
 
 /** Fields whose change is not a change of the memory itself (left out of the log's 「改了什么」). */
 const BOOKKEEPING = new Set(["version", "updatedAt", "lastUsedAt", "useCount"]);
+/** A patch of only these says when the item was looked at, not what it says: allowed on locked items too. */
+const REVIEW_ONLY = new Set(["lastVerifiedAt", "nextReviewAt"]);
 
 type Check = { apply: true } | { reject: string } | { pending: PendingWhy; review?: boolean };
 
@@ -328,7 +331,15 @@ export class MemoryStore {
 			const target = { scope: op.patch.scope ?? current.scope, workspaceId: op.patch.workspaceId !== undefined ? op.patch.workspaceId : current.workspaceId, groupId: op.patch.groupId !== undefined ? op.patch.groupId : current.groupId };
 			if (target.scope === "workspace" && !target.workspaceId) return { reject: "工作区记忆要指明工作区" };
 			if (target.scope === "group" && !target.groupId) return { reject: "共享组记忆要指明共享组" };
+			const touched = Object.entries(op.patch).filter(([, v]) => v !== undefined).map(([k]) => k);
+			if (!byUser && touched.length && touched.every((k) => REVIEW_ONLY.has(k))) return { apply: true };
 			if (!byUser) {
+				// Raising a level rests on evidence the program checks (§3, §12 item 3); lowering is recorded like any change.
+				if (op.patch.level !== undefined && op.patch.level > current.level) {
+					// Judged on the item as the patch leaves it (new conditions count), from the level it has now.
+					const block = promotionBlock({ ...current, ...definedOnly(op.patch), level: current.level } as MemoryItem, op.patch.level, this.sources(current.id), this.clock());
+					if (block) return { reject: block };
+				}
 				if (op.patch.retention === "locked") return { reject: "只有用户本人能锁定记忆" };
 				if (current.retention === "locked") return { pending: "locked", review: true };
 				if (target.scope === "global" && current.scope !== "global") return { pending: "promote_global" };
@@ -387,7 +398,8 @@ export class MemoryStore {
 				autoOk: true,
 				occurredAt: item.occurredAt ?? null,
 				validFrom: item.validFrom ?? null,
-				validUntil: item.validUntil ?? null,
+				// 17.3: a judgment about tools or the environment the background wrote gets 30 days when it gave none.
+				validUntil: item.validUntil ?? (input.actor === "user" || input.actor === "migration" ? null : defaultValidity(item.kind, at)),
 				lastVerifiedAt: null,
 				nextReviewAt: item.nextReviewAt ?? null,
 				lastUsedAt: null,
@@ -449,6 +461,52 @@ export class MemoryStore {
 	/** Marks the sources of a deleted session (17.10 item 5: the memories stay, the source says so). */
 	markSessionDeleted(sessionRef: string): number {
 		return this.db.run("UPDATE memory_sources SET excerpt = COALESCE(excerpt, '') || '（会话已删除）', kind = 'session' WHERE ref = ? AND kind = 'session' AND (excerpt IS NULL OR excerpt NOT LIKE '%（会话已删除）')", sessionRef).changes;
+	}
+
+	/**
+	 * Records that [from] and [to] contradict each other (memory_links
+	 * `conflicts`), when the memory agent found it and the item already waits
+	 * for review (no new version: the relation is not a change of the text).
+	 */
+	link(from: string, to: string, kind: LinkKind): void {
+		this.db.run("INSERT OR IGNORE INTO memory_links(from_id, to_id, kind, at) VALUES(?, ?, ?, ?)", from, to, kind, this.clock());
+	}
+
+	/** Conflict relations made since [since] (a reason for the next review). */
+	conflictsSince(since: number): { from: string; to: string; at: number }[] {
+		return this.db.all<{ from_id: string; to_id: string; at: number }>("SELECT from_id, to_id, at FROM memory_links WHERE kind = 'conflicts' AND at > ?", since).map((r) => ({ from: r.from_id, to: r.to_id, at: r.at }));
+	}
+
+	/**
+	 * Items changed after [since] by anything but the batch kinds in [except]
+	 * (a review's own changes are not a reason for the next review: §12 item 1
+	 * 「没有变化不调模型」).
+	 */
+	changedSince(since: number, except: readonly string[] = []): Set<string> {
+		const rows = this.db.all<{ item_id: string }>(
+			`SELECT DISTINCT o.item_id FROM memory_ops o JOIN memory_batches b ON b.id = o.batch_id WHERE o.at > ? ${except.length ? `AND b.kind NOT IN (${except.map(() => "?").join(",")})` : ""}`,
+			since,
+			...except,
+		);
+		return new Set(rows.map((r) => r.item_id));
+	}
+
+	/** Whether [id]'s running out was already handled after [since] (marked for review once, not every sweep). */
+	expiredBefore(id: string, since: number): boolean {
+		return !!this.db.get("SELECT 1 FROM memory_ops o JOIN memory_batches b ON b.id = o.batch_id WHERE o.item_id = ? AND b.kind = 'expire' AND o.at >= ? LIMIT 1", id, since);
+	}
+
+	/** What a batch changed: item ids and whether their text is new (added, or edited text). */
+	batchChanges(batchId: string): { itemId: string; kind: string; newText: boolean; actor: Actor; batchKind: string }[] {
+		const rows = this.db.all<{ item_id: string; kind: string; before_version: number | null; after_version: number; actor: string; batch_kind: string }>(
+			"SELECT o.item_id, o.kind, o.before_version, o.after_version, o.actor, b.kind AS batch_kind FROM memory_ops o JOIN memory_batches b ON b.id = o.batch_id WHERE o.batch_id = ? ORDER BY o.rowid",
+			batchId,
+		);
+		return rows.map((r) => {
+			let newText = r.kind === "add";
+			if (r.kind === "edit" && r.before_version !== null) newText = this.version(r.item_id, r.before_version)?.content !== this.version(r.item_id, r.after_version)?.content;
+			return { itemId: r.item_id, kind: r.kind, newText, actor: r.actor as Actor, batchKind: r.batch_kind };
+		});
 	}
 
 	/** Bookkeeping only (§2.1: hints for reviews, never evidence); no version, no log line. */

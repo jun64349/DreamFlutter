@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { Core, CoreModule, Params } from "../core.ts";
 import { normalizeCwd, num, RpcError, requireStr, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, now, parseJson } from "../db.ts";
+import { resultText, sentences } from "../memory/lifecycle.ts";
 import { migrateV02, migrationDone, splitBlock } from "../memory/migrate.ts";
 import { allowedScopes, homeScope, type ScopeSet, visibleIn, Workspaces } from "../memory/scopes.ts";
 import { memoryBudget, planSnapshot, SHARES, type SnapshotPlan } from "../memory/snapshot.ts";
@@ -96,6 +97,8 @@ export class MemoryModule implements CoreModule {
 	readonly work: MemoryWork;
 	/** Sessions compacted since their last model call: the snapshot is checked again and comes back after the checkpoint. */
 	readonly compacted = new Set<string>();
+	/** slot id + tool call id → the call's arguments, until it ends (counter-evidence, 17.3). */
+	private readonly toolCalls = new Map<string, unknown>();
 
 	constructor(core: Core, llm: Llm) {
 		this.core = core;
@@ -180,6 +183,8 @@ export class MemoryModule implements CoreModule {
 
 	/** Plans the snapshot for [prompt] in [cwd]: the budget from [model]'s window and what the request already holds (§6.1). */
 	snapshot(prompt: string, cwd: string, model?: { contextWindow: number; maxTokens: number }, nonMemory = 0): Snapshot {
+		// Validity that ran out is swept first (17.3): an ended item never makes it into a new snapshot.
+		this.work.sweep();
 		const set = this.scopesFor(cwd);
 		const live = this.store.list({ set, statuses: LIVE_STATUSES });
 		const cap = this.core.settings.get().memoryBudgetTokens;
@@ -461,7 +466,14 @@ export class MemoryModule implements CoreModule {
 					// Much the same as a memory already there: a fuller version updates it, a shorter one is not saved twice.
 					const twin = nearDuplicate(params.content, module.store.list({ set }));
 					if (twin) {
-						if (!saysMore(params.content, twin.content)) return text(`已经有相同意思的记忆（#${twin.id}：${twin.content}），没有重复保存。`);
+						if (!saysMore(params.content, twin.content)) {
+							// The user said it again in another conversation: one more independent source (§3), not a second item.
+							const ref = sessionRef();
+							if (params.explicit && ref && !module.store.sources(twin.id).some((s) => s.kind === "session" && s.ref === ref)) {
+								commit([{ kind: "edit", id: twin.id, baseVersion: twin.version, patch: { lastVerifiedAt: module.clock() }, sources: [{ kind: "session", ref, excerpt: params.reason ?? null }], reason: "用户在另一次对话里又说了一遍" }]);
+							}
+							return text(`已经有相同意思的记忆（#${twin.id}：${twin.content}），没有重复保存。`);
+						}
 						const result = commit([{ kind: "edit", id: twin.id, baseVersion: twin.version, patch: { content: params.content }, sources: [{ kind: "session", ref: sessionRef() }], reason: params.reason ?? "说得更完整" }]);
 						return text(receipt(result, (item) => `已有相近的记忆，已把它改成新的说法（#${item.id}）。`));
 					}
@@ -565,13 +577,44 @@ export class MemoryModule implements CoreModule {
 
 	// ---- the memory agent's work (docs/memory-design.md §5, §7) -----------------------------
 
+	/**
+	 * A tool call that succeeded disproves observations saying it does not
+	 * work (17.3: 「遇到反例就失效」), whatever mode the session is in, except
+	 * incognito (it touches no memory at all).
+	 */
+	onSlotEvent(slot: Slot, event: AgentSessionEvent): void {
+		if (event.type === "tool_execution_start") {
+			this.toolCalls.set(`${slot.slotId}:${event.toolCallId}`, event.args);
+			return;
+		}
+		if (event.type !== "tool_execution_end") return;
+		const key = `${slot.slotId}:${event.toolCallId}`;
+		const args = this.toolCalls.get(key);
+		this.toolCalls.delete(key);
+		if (event.isError || slot.incognito || event.toolName.startsWith("memory_") || event.toolName === "session_search") return;
+		try {
+			this.work.refuteByTool({ cwd: slot.cwd, toolName: event.toolName, args, output: resultText(event.result), sessionRef: slot.info().sessionFile ?? null });
+		} catch (error) {
+			this.core.log.warn("memory: checking a tool result against memory failed", error);
+		}
+	}
+
 	/** A task ended: what was said goes to the memory agent's queue (it runs in the background, never waking the session: 16.7). */
 	onRunFinished(slot: Slot, run: Run): void {
 		const settings = this.core.settings.get();
-		if (run.status !== "done" || !settings.memoryEnabled || !settings.memoryAutoExtract || slot.incognito || slot.unattended) return;
+		if (!settings.memoryEnabled || !settings.memoryAutoExtract || slot.incognito || slot.unattended) return;
 		const sessionFile = slot.info().sessionFile;
 		if (!sessionFile) return;
-		this.work.queueExtraction({ sessionFile, sessionId: slot.session.sessionId, cwd: slot.cwd });
+		if (run.status === "done") this.work.queueExtraction({ sessionFile, sessionId: slot.session.sessionId, cwd: slot.cwd });
+		// 17.4: what the user said this time against the memories this task recalled.
+		const snapshot = this.latestSnapshot(slot.session.sessionId);
+		if (snapshot?.itemVersions && run.prompt) {
+			const shown = Object.keys(snapshot.itemVersions).flatMap((id) => {
+				const item = this.store.get(id);
+				return item && LIVE_STATUSES.includes(item.status) ? [item] : [];
+			});
+			this.work.checkRecalled({ shown, said: sentences(run.prompt), sessionRef: sessionFile, cwd: slot.cwd });
+		}
 		void this.work.drain();
 	}
 

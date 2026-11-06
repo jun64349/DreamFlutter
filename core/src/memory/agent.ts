@@ -62,16 +62,22 @@ export const PROPOSE_TOOL: Tool = {
 				items: {
 					type: "object",
 					properties: {
-						action: { type: "string", enum: ["add", "update", "set_status", "combine"], description: "add a new item; update an item's text or details; set_status of an item; combine several items into one new item (they are retired)" },
-						id: { type: "string", description: "update / set_status: the item" },
-						version: { type: "integer", description: "update / set_status: the version you read" },
+						action: {
+							type: "string",
+							enum: ["add", "update", "set_status", "combine", "keep", "promote", "demote", "conflict"],
+							description:
+								"add a new item; update an item's text or details; set_status of an item; combine several items into one new item (they are retired); keep = still right as it is (records the check); promote / demote = one level up or down (the program checks the evidence for promote); conflict = the item (id) contradicts another (with) and you cannot tell which is right: it is marked for review. Which actions a job allows is said in its instructions.",
+						},
+						id: { type: "string", description: "update / set_status / keep / promote / demote / conflict: the item" },
+						version: { type: "integer", description: "the version of [id] you read" },
+						with: { type: "string", description: "conflict: the item it contradicts" },
 						from: { type: "array", items: { type: "object", properties: { id: { type: "string" }, version: { type: "integer" } } }, description: "combine: the items it replaces" },
 						retire_as: { type: "string", enum: ["archived", "superseded"], description: "combine: archived = distilled into the new item (kept, out of daily use); superseded = plain duplicates" },
 						content: { type: "string" },
 						kind: { type: "string", enum: ["preference", "background", "experience", "decision", "progress", "agreement", "observation", "persona"] },
 						scope: { type: "string", enum: ["global", "here"], description: "add / combine: global = applies everywhere; here = this workspace (or 蝶君's partition). When unsure, here." },
 						said: { type: "boolean", description: "add: the user said it themselves (false = your inference)" },
-						status: { type: "string", enum: ["review", "outdated", "archived", "ended", "refuted", "active"], description: "set_status" },
+						status: { type: "string", enum: ["review", "outdated", "archived", "ended", "refuted", "superseded", "active"], description: "set_status" },
 						conditions: { type: "string", description: "When it applies (version, project, situation)" },
 						valid_until: { type: "string", description: "YYYY-MM-DD when it stops being true, if known" },
 						evidence: { type: "string", description: "Short quote or fact it rests on" },

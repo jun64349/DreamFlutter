@@ -9,11 +9,14 @@ import { json, parseJson } from "../db.ts";
  * memory budget for the day is spent or tidying is paused.
  */
 
-export type JobKind = "extract" | "tidy_l1";
+export type JobKind = "extract" | "tidy_l1" | "review" | "conflict";
 export type JobStatus = "queued" | "running" | "done" | "skipped" | "deferred" | "failed";
 
-/** §7: the user's corrections > the current task's snapshot > extraction after a task > periodic tidying. */
-export const PRIORITY = { correction: 100, snapshot: 80, extract: 50, periodic: 10 } as const;
+/**
+ * §7: the user's corrections > the current task's snapshot > extraction after a task > a possible
+ * contradiction (after extraction, which may already settle it) > periodic tidying.
+ */
+export const PRIORITY = { correction: 100, snapshot: 80, extract: 50, conflict: 40, periodic: 10 } as const;
 /** Below this, a job waits while tidying is paused or the budget is spent. */
 const ORDINARY = PRIORITY.snapshot;
 export const MAX_RETRIES = 2;

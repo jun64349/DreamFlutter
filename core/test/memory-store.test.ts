@@ -171,7 +171,9 @@ describe("memory store (0.5 step 1: the gate, versions, the memory log)", () => 
 		assert.equal(progress.applied.length, 1, "level-1 progress is recorded directly");
 		const m = store.get(asked.applied[0]!.itemId)!;
 		assert.equal(store.commit({ actor: "memory_agent", ops: [{ kind: "status", id: m.id, baseVersion: m.version, status: "review" }] }).applied.length, 1);
-		assert.equal(store.commit({ actor: "memory_agent", ops: [{ kind: "edit", id: m.id, baseVersion: m.version + 1, patch: { level: 3 } }] }).pending.length, 1);
+		assert.equal(store.commit({ actor: "memory_agent", ops: [{ kind: "edit", id: m.id, baseVersion: m.version + 1, patch: { content: "用户让记住的（改写过）" } }] }).pending.length, 1);
+		// A level change without the evidence is refused before any question to the user (0.5 step 4, §3).
+		assert.match(store.commit({ actor: "memory_agent", ops: [{ kind: "edit", id: m.id, baseVersion: m.version + 1, patch: { level: 3 } }] }).rejected[0]!.reason, /三级/);
 		assert.equal(store.commit({ actor: "user", ops: [{ kind: "add", item: item("用户自己加的") }] }).applied.length, 1);
 	});
 
