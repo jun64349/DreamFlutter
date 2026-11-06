@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentSessionEvent, AgentSessionRuntime, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type AgentSessionEvent, type AgentSessionRuntime, type ExtensionFactory, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { BackupPart } from "./backup/parts.ts";
 import { ConfirmationStore } from "./confirmations.ts";
 import { Db, now } from "./db.ts";
@@ -13,7 +13,8 @@ import type { Logger } from "./log.ts";
 import type { Notifier } from "./notify.ts";
 import type { CorePaths } from "./paths.ts";
 import { dialogKind } from "./pi/dialogs.ts";
-import { createSessionRuntime, isProjectTrusted, type PiHostConfig } from "./pi/host.ts";
+import { createSessionRuntime, isProjectTrusted, recordedSandbox, type PiHostConfig } from "./pi/host.ts";
+import { isSideFile } from "./pi/session-metadata.ts";
 import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
 import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
@@ -72,13 +73,16 @@ export interface OpenSlotOptions {
 	agentMode?: AgentMode;
 	/** A 蝶君 session: tools run in the WSL sandbox, without approval. */
 	sandbox?: boolean;
-	/** With [incognito]: start from this session file's current branch, kept in memory (0.4, a side conversation). */
+	/** Start a side conversation from this file; persist on first send unless incognito. */
 	forkOf?: string;
+	parentSlotId?: string;
+	sideQuote?: string;
+	quoteEntryId?: string;
 }
 
 /** Feature modules plug in through these. */
 export interface CoreModule {
-	extensions?(slot: { slotId: string }): ExtensionFactory[];
+	extensions?(slot: { slotId: string; sideConversation?: boolean }): ExtensionFactory[];
 	/** Its extensions change what the model sees (tools, context): left out of minimal-mode sessions. */
 	readonly modelFacing?: boolean;
 	/** Its extensions also load into subagents (model routing, document reading); others belong to one conversation. */
@@ -118,6 +122,15 @@ export class Core {
 	readonly agentDir: string;
 	readonly sessionDir: string | undefined;
 	readonly slots = new Map<string, Slot>();
+	/** First-send files are invisible to indexing/opening until the send is accepted. */
+	readonly pendingSessionFiles = new Set<string>();
+	readonly deletingSessionFiles = new Set<string>();
+	private readonly closingSlots = new Map<string, { slot: Slot; done: Promise<void> }>();
+
+	isSlotClosing(slotId: string): boolean { return this.closingSlots.has(slotId); }
+
+	/** Includes starts still waiting for extension binding or trust. */
+	sessionSlots(): Slot[] { return this.allSlots(); }
 	readonly clients = new Set<Client>();
 	/** Runs a previous core process left unfinished. */
 	readonly interruptedAtStartup: Run[];
@@ -162,6 +175,7 @@ export class Core {
 			this.log.info(`recovered: ${this.interruptedAtStartup.length} interrupted run(s), ${expired} expired dialog(s)`);
 		}
 		this.hostConfig = {
+			pendingSessionFiles: this.pendingSessionFiles,
 			agentDir: options.agentDir,
 			sessionDir: options.sessionDir,
 			modelRuntime: options.modelRuntime,
@@ -209,7 +223,7 @@ export class Core {
 			...this.hostConfig,
 			extensions: () => [
 				this.approval(parentSlotId),
-				...this.modules.filter((m) => m.forSubagents).flatMap((m) => m.extensions?.({ slotId: parentSlotId }) ?? []),
+				...this.modules.filter((m) => m.forSubagents).flatMap((m) => m.extensions?.({ slotId: parentSlotId, sideConversation: this.slots.get(parentSlotId)?.isSideConversation }) ?? []),
 			],
 			newSessionMode: () => "standard",
 			agentStateChanged: undefined,
@@ -300,8 +314,13 @@ export class Core {
 	// ---- slots -----------------------------------------------------------------------
 
 	findSlotByFile(sessionFile: string): Slot | undefined {
-		for (const slot of this.slots.values()) if (samePath(slot.info().sessionFile, sessionFile)) return slot;
+		for (const slot of [...this.slots.values(), ...[...this.closingSlots.values()].map((c) => c.slot)]) if (samePath(slot.info().sessionFile, sessionFile)) return slot;
 		return undefined;
+	}
+
+	/** All task entry points share the same side-session exclusion. */
+	assertTaskSession(sessionFile: string): void {
+		if (this.findSlotByFile(sessionFile)?.isSideConversation || (existsSync(sessionFile) && isSideFile(sessionFile))) throw new RpcError("bad_request", "侧边对话不能绑定任务或定时计划");
 	}
 
 	/**
@@ -309,9 +328,16 @@ export class Core {
 	 * [sessionFile] open (two runtimes on one file would corrupt it).
 	 */
 	async openSlot(options: OpenSlotOptions): Promise<Slot> {
+		if (this.stopped) throw new RpcError("unavailable", "后台正在退出");
+		if (options.slotId && this.isSlotClosing(options.slotId)) throw new RpcError("conflict", "会话正在关闭，请稍后重试");
+		if (options.taskId && options.sessionFile) this.assertTaskSession(options.sessionFile);
+		if (options.sessionFile && this.deletingSessionFiles.has(normalizeCwd(options.sessionFile))) throw new RpcError("conflict", "会话正在删除");
+		if (options.sessionFile && this.pendingSessionFiles.has(normalizeCwd(options.sessionFile))) throw new RpcError("conflict", "会话正在保存，请稍后重试");
 		if (!options.sessionFile) return this.openNewSlot(options);
 		const existing = this.findSlotByFile(options.sessionFile);
 		if (existing) {
+			if (this.isSlotClosing(existing.slotId)) throw new RpcError("conflict", "会话正在关闭，请稍后重试");
+			existing.resetPromptRequests(options.client?.id);
 			options.client?.attached.add(existing.slotId);
 			return existing;
 		}
@@ -335,16 +361,30 @@ export class Core {
 
 	private async openNewSlot(options: OpenSlotOptions): Promise<Slot> {
 		const slotId = options.slotId ?? randomUUID();
-		if (this.slots.has(slotId) || this.opening.has(slotId)) throw new RpcError("conflict", `Slot ${slotId} already exists`);
+		if (this.slots.has(slotId) || this.opening.has(slotId) || this.isSlotClosing(slotId)) throw new RpcError("conflict", `Slot ${slotId} already exists or is closing`);
 		options.client?.attached.add(slotId);
+		const parentSlot = options.parentSlotId ? this.slot(options.parentSlotId) : undefined;
+		const parentFile = parentSlot?.info().sessionFile ?? options.forkOf;
+		const isSide = !!(options.forkOf || options.parentSlotId);
+		if (isSide && options.taskId) throw new RpcError("bad_request", "侧边对话不能绑定任务");
+		if (isSide && !parentFile && !parentSlot?.incognito) throw new RpcError("bad_request", "主会话尚未保存");
+		if (isSide && options.sessionFile) throw new RpcError("bad_request", "不能同时创建和打开侧边对话");
+		if (isSide && parentSlot && !samePath(parentSlot.cwd, options.cwd)) throw new RpcError("bad_request", "侧边对话必须在同一工作区");
+		if (isSide && !parentSlot && (!parentFile || !existsSync(parentFile))) throw new RpcError("not_found", "主会话文件不存在");
+		if (parentFile && this.deletingSessionFiles.has(normalizeCwd(parentFile))) throw new RpcError("conflict", "主会话正在删除");
+		if (parentFile && this.pendingSessionFiles.has(normalizeCwd(parentFile))) throw new RpcError("conflict", "主会话正在保存");
+		const parentManager = parentSlot?.session.sessionManager ?? (isSide ? SessionManager.open(parentFile!, this.sessionDir) : undefined);
+		if (parentManager && !samePath(parentManager.getCwd(), options.cwd)) throw new RpcError("bad_request", "侧边对话必须在同一工作区");
 		const target = {
 			cwd: options.cwd,
 			sessionFile: options.incognito ? undefined : options.sessionFile,
-			inMemory: options.incognito === true,
+			inMemory: parentSlot?.incognito === true || options.incognito === true,
 			unattended: options.unattended === true,
-			sandbox: options.sandbox === true,
+			sandbox: parentManager ? recordedSandbox(parentManager) : options.sandbox === true,
 			// Read only for an in-memory session: nothing is ever written back to the source.
-			forkOf: options.incognito ? options.forkOf : undefined,
+			forkOf: isSide ? parentFile : undefined,
+			forkEntries: parentManager ? structuredClone(parentManager.getBranch()) : undefined,
+			side: isSide ? { quote: options.sideQuote ?? "", quoteEntryId: options.quoteEntryId ?? null } : undefined,
 		};
 		if (target.forkOf && !(target.forkOf.endsWith(".jsonl") && existsSync(target.forkOf))) throw new RpcError("not_found", `会话文件不存在：${target.forkOf}`);
 		const slot = Slot.prepare(
@@ -361,7 +401,7 @@ export class Core {
 				throw new RpcError("cancelled", "会话在打开过程中被关闭了");
 			}
 			this.slots.set(slotId, slot);
-			if (!options.sessionFile) await this.applyDefaultModel(slot);
+			if (!options.sessionFile && (!isSide || !slot.session.model)) await this.applyDefaultModel(slot);
 			this.broadcast({ event: "slot.changed", info: slot.info() });
 			return slot;
 		} catch (error) {
@@ -402,10 +442,12 @@ export class Core {
 	}
 
 	private allSlots(): Slot[] {
-		return [...this.slots.values(), ...this.opening.values()];
+		return [...new Set([...this.slots.values(), ...this.opening.values(), ...[...this.closingSlots.values()].map((c) => c.slot)])];
 	}
 
 	async closeSlot(slotId: string): Promise<void> {
+		const closing = this.closingSlots.get(slotId);
+		if (closing) return closing.done;
 		const starting = this.opening.get(slotId);
 		if (starting && !this.slots.has(slotId)) {
 			this.cancelledOpens.add(slotId);
@@ -417,10 +459,16 @@ export class Core {
 		if (!slot) return;
 		this.slots.delete(slotId);
 		for (const client of this.clients) client.attached.delete(slotId);
-		await slot.dispose();
-		this.hostConfig.harnessControls?.delete(slotId);
-		for (const module of this.modules) module.onSlotClosed?.(slot);
-		this.broadcast({ event: "slot.closed", slotId });
+		// Register ownership before dispose can emit callbacks or yield.
+		const operation = Promise.resolve().then(async () => {
+			await slot.dispose();
+			this.hostConfig.harnessControls?.delete(slotId);
+			for (const module of this.modules) module.onSlotClosed?.(slot);
+			this.broadcast({ event: "slot.closed", slotId });
+		});
+		this.closingSlots.set(slotId, { slot, done: operation });
+		try { await operation; }
+		finally { this.closingSlots.delete(slotId); }
 	}
 
 	/** Disposes idle slots nobody is watching. */
@@ -462,6 +510,7 @@ export class Core {
 			},
 			sessionCreated: (slot) => this.applyDefaultModel(slot),
 			fileTaken: (slot, file) => {
+				if (this.pendingSessionFiles.has(normalizeCwd(file)) || this.deletingSessionFiles.has(normalizeCwd(file))) return true;
 				const owner = this.findSlotByFile(file);
 				return (owner !== undefined && owner !== slot) || this.openingFiles.has(normalizeCwd(file));
 			},
@@ -549,6 +598,9 @@ export class Core {
 				agentMode: AGENT_MODES.includes(params.agentMode as AgentMode) ? (params.agentMode as AgentMode) : undefined,
 				sandbox: params.sandbox === true,
 				forkOf: str(params.forkOf),
+				parentSlotId: str(params.parentSlotId),
+				sideQuote: str(params.sideQuote),
+				quoteEntryId: str(params.quoteEntryId),
 				client,
 			});
 			return slot.info();
@@ -556,6 +608,7 @@ export class Core {
 		this.register("slot.list", () => [...this.slots.values()].map((s) => s.info()));
 		this.register("slot.attach", (params, client) => {
 			const slot = this.slot(params.slotId);
+			slot.resetPromptRequests(client?.id);
 			client?.attached.add(slot.slotId);
 			return { info: slot.info(), replay: slot.ui.replay(), live: slot.liveSnapshot() };
 		});
@@ -563,12 +616,13 @@ export class Core {
 			if (typeof params.slotId === "string") client?.attached.delete(params.slotId);
 			return { ok: true };
 		});
-		this.register("slot.send", (params) => {
+		this.register("slot.send", (params, client) => {
 			const slot = this.slot(params.slotId, { includeOpening: true });
 			const record = params.record as { type?: unknown } | undefined;
 			if (!record || typeof record.type !== "string") throw new RpcError("bad_request", "record.type is required");
+			if (this.stopped && record.type === "prompt") throw new RpcError("unavailable", "后台正在退出");
 			if (this.maintenance && record.type === "prompt") throw new RpcError("busy", `${this.maintenance}，请稍后再发`);
-			void slot.handle(record as { type: string });
+			void slot.handle(record as { type: string }, client?.id);
 			return { ok: true };
 		});
 		this.register("slot.close", async (params) => {
@@ -619,6 +673,7 @@ export class Core {
 		}
 		for (const slot of this.opening.values()) slot.ui.cancelAll();
 		for (const slotId of [...this.slots.keys()]) await this.closeSlot(slotId);
+		await Promise.all([...this.closingSlots.values()].map((c) => c.done));
 		this.db.close();
 		for (const listener of this.shutdownListeners) listener();
 	}

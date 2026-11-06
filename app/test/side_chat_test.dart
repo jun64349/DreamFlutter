@@ -101,7 +101,8 @@ void main() {
     await settle(tester);
     final side = backend.pis.last;
     expect(side, isNot(same(main)));
-    expect(side.target.incognito, isTrue);
+    expect(side.target.incognito, isFalse);
+    expect(side.target.sideQuote, '结论是 A');
     expect(side.target.forkOf, agent.active!.sessionPath, reason: 'a copy of this session so far');
     expect(find.byType(SideChatView), findsOneWidget, reason: 'the details open on the side conversation');
     expect(find.text('结论是 A'), findsWidgets);
@@ -127,6 +128,30 @@ void main() {
     expect(agent.sideChat, isNull);
     expect(backend.callsTo('slot.close').map((c) => c['slotId']), [side.slotId], reason: 'its session in the core closes too (e2e 1b)');
     expect(find.byType(SideChatView), findsNothing);
+  });
+
+  testWidgets('a failed first send retains input and quote for retry without resetting the side view', (tester) async {
+    await startApp(tester);
+    reply(backend.pis.single, '问题', '结论是 A。');
+    await settle(tester);
+    await tester.runAsync(() => agent.openSideChat('结论是 A'));
+    await settle(tester);
+    final side = backend.pis.last;
+    final baseline = agent.sideChat!.baseline;
+    side.failures['prompt'] = '保存失败';
+    final field = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('问问这段内容'));
+    await tester.enterText(field, '保留这个问题');
+    await tester.tap(find.byTooltip('在侧边对话里发送'));
+    await settle(tester);
+    expect(tester.widget<TextField>(field).controller!.text, '保留这个问题');
+    expect(agent.sideChat!.baseline, baseline);
+    final failed = side.commands.lastWhere((c) => c['type'] == 'prompt')['message'];
+    side.failures.clear();
+    await tester.tap(find.byTooltip('在侧边对话里发送'));
+    await settle(tester);
+    expect(side.commands.lastWhere((c) => c['type'] == 'prompt')['message'], failed);
+    expect(tester.widget<TextField>(field).controller!.text, isEmpty);
+    expect(find.byType(SideChatView), findsOneWidget);
   });
 
   testWidgets('a 无痕 conversation has nothing to fork', (tester) async {

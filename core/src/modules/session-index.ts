@@ -1,15 +1,23 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { inheritedIds, readSessionEntries, sideFromEntries } from "../pi/session-metadata.ts";
+import { existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
 import { normalizeCwd, requireStr, samePath, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { textOf } from "../runs.ts";
+import type { Slot } from "../slots/slot.ts";
 
 export interface SessionRow {
 	path: string;
 	cwd: string | null;
 	sessionId: string | null;
 	parentSession: string | null;
+	sessionType: "ordinary" | "side";
+	parentMissing: boolean;
+	quote: string | null;
+	quoteEntryId: string | null;
 	title: string;
 	name: string | null;
 	createdAt: number | null;
@@ -34,6 +42,9 @@ interface MetaRow {
 	cwd: string | null;
 	session_id: string | null;
 	parent_session: string | null;
+	session_type: "ordinary" | "side";
+	side_quote: string | null;
+	quote_entry_id: string | null;
 	name: string | null;
 	first_message: string | null;
 	created_at: number | null;
@@ -63,9 +74,10 @@ export class SessionIndex implements CoreModule {
 		core.declareBackup({
 			id: "sessions",
 			title: "会话索引、用量",
-			tables: ["session_meta", "session_fts", "usage_records"],
+			tables: ["session_meta", "session_fts", "usage_records", "session_inherited_history"],
 			paths: {
 				session_meta: { path: "path", cwd: "path", parent_session: "path" },
+				session_inherited_history: { parent_session: "path" },
 				session_fts: { path: "path" },
 				usage_records: { path: "path", cwd: "path" },
 			},
@@ -91,6 +103,19 @@ export class SessionIndex implements CoreModule {
 		void this.refresh();
 	}
 
+	onSlotChanged(slot: Slot): void {
+		const path = slot.info().sessionFile;
+		if (!slot.isSideConversation || !path || !existsSync(path) || this.core.pendingSessionFiles.has(normalizeCwd(path))) return;
+		// Make the type available to session-id APIs immediately after first-send commit,
+		// even when the last run's refresh happened while the file was provisional.
+		if (!this.get(path)) {
+			try {
+				const stat = statSync(path);
+				this.indexFile(path, Math.floor(stat.mtimeMs), stat.size);
+			} catch (error) { this.core.log.warn(`could not index ${path}`, error); }
+		}
+	}
+
 	/** Re-indexes changed files; returns how many were (re)parsed. */
 	refresh(): Promise<number> {
 		this.scanning ??= Promise.resolve()
@@ -108,6 +133,7 @@ export class SessionIndex implements CoreModule {
 		);
 		let changed = 0;
 		for (const file of files) {
+			if (this.core.pendingSessionFiles.has(resolve(file).toLowerCase())) { known.delete(file); continue; }
 			let stat;
 			try {
 				stat = statSync(file);
@@ -131,6 +157,7 @@ export class SessionIndex implements CoreModule {
 
 	private forget(path: string): void {
 		this.db.transaction(() => {
+			this.db.run("DELETE FROM session_inherited_history WHERE session_id IN (SELECT session_id FROM session_meta WHERE path = ?)", path);
 			this.db.run("DELETE FROM session_meta WHERE path = ?", path);
 			this.db.run("DELETE FROM session_fts WHERE path = ?", path);
 			this.db.run("DELETE FROM usage_records WHERE path = ?", path);
@@ -138,7 +165,11 @@ export class SessionIndex implements CoreModule {
 	}
 
 	indexFile(path: string, mtime: number, size: number): void {
-		const lines = readFileSync(path, "utf8").split("\n");
+		if (this.core.pendingSessionFiles.has(resolve(path).toLowerCase())) return;
+		const entries = readSessionEntries(path);
+		const header = entries.find((e) => e.type === "session");
+		const side = sideFromEntries(entries, header?.id ?? "");
+		const inherited = inheritedIds(entries, header?.id ?? "", header?.parentSession, header?.timestamp, this.db);
 		let cwd: string | null = null;
 		let sessionId: string | null = null;
 		let parent: string | null = null;
@@ -149,14 +180,7 @@ export class SessionIndex implements CoreModule {
 		const texts: { entryId: string; role: string; text: string }[] = [];
 		const usage: { entryId: string; at: number; provider: string | null; model: string | null; u: Record<string, unknown> }[] = [];
 
-		for (const line of lines) {
-			if (!line.trim()) continue;
-			let entry: Record<string, unknown>;
-			try {
-				entry = JSON.parse(line);
-			} catch {
-				continue;
-			}
+		for (const entry of entries) {
 			switch (entry.type) {
 				case "session":
 					cwd = typeof entry.cwd === "string" ? entry.cwd : null;
@@ -169,6 +193,7 @@ export class SessionIndex implements CoreModule {
 					break;
 				// Model calls outside the replies: compaction summaries and background summaries (roadmap 5.12) are spending too.
 				case "compaction":
+				case "branch_summary":
 				case "usage":
 					if (entry.usage && typeof entry.usage === "object") {
 						const at = Date.parse(String(entry.timestamp ?? "")) || mtime;
@@ -222,10 +247,12 @@ export class SessionIndex implements CoreModule {
 				mtime,
 				size,
 			);
+			this.db.run("UPDATE session_meta SET session_type = ?, side_quote = ?, quote_entry_id = ? WHERE path = ?", side ? "side" : "ordinary", side?.quote ?? null, side?.quoteEntryId ?? null, path);
 			this.db.run("DELETE FROM session_fts WHERE path = ?", path);
-			for (const t of texts) this.db.run("INSERT INTO session_fts(path, entry_id, role, text) VALUES(?, ?, ?, ?)", path, t.entryId, t.role, t.text);
+			for (const t of side ? [] : texts) this.db.run("INSERT INTO session_fts(path, entry_id, role, text) VALUES(?, ?, ?, ?)", path, t.entryId, t.role, t.text);
 			this.db.run("DELETE FROM usage_records WHERE path = ?", path);
 			for (const record of usage) {
+				if (inherited.has(record.entryId)) continue;
 				const u = record.u;
 				const cost = (u.cost ?? {}) as Record<string, unknown>;
 				this.db.run(
@@ -247,7 +274,7 @@ export class SessionIndex implements CoreModule {
 	}
 
 	list(filter: { cwd?: string; archived?: "exclude" | "only" | "include" } = {}): SessionRow[] {
-		const where: string[] = [];
+		const where: string[] = ["session_type = 'ordinary'"];
 		const params: string[] = [];
 		const archived = filter.archived ?? "exclude";
 		if (archived === "exclude") where.push("archived = 0");
@@ -255,6 +282,59 @@ export class SessionIndex implements CoreModule {
 		let rows = this.db.all<MetaRow>(`SELECT * FROM session_meta ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY pinned DESC, modified_at DESC`, ...params);
 		if (filter.cwd) rows = rows.filter((r) => samePath(r.cwd, filter.cwd));
 		return rows.map(toSession);
+	}
+
+	children(parent: string, cwd?: string): SessionRow[] {
+		return this.db.all<MetaRow>("SELECT * FROM session_meta ORDER BY created_at").filter((r) => samePath(r.parent_session, parent) && (!cwd || samePath(r.cwd, cwd))).map(toSession);
+	}
+
+	/** Only side descendants cascade. Ordinary forks keep their complete history. */
+	private deletionFiles(path: string): SessionRow[] {
+		const root = this.get(path);
+		if (!root) throw new Error("没有找到这个会话");
+		const out = [root];
+		const seen = new Set([normalizeCwd(root.path)]);
+		for (let i = 0; i < out.length; i++) {
+			for (const child of this.children(out[i]!.path, root.cwd ?? undefined)) {
+				if (child.sessionType !== "side" || seen.has(normalizeCwd(child.path))) continue;
+				seen.add(normalizeCwd(child.path));
+				out.push(child);
+			}
+		}
+		// Index membership alone is insufficient: reject symlinks/out-of-root paths.
+		const rootDir = realpathSync(this.sessionsDir);
+		for (const row of out) {
+			const rel = relative(rootDir, realpathSync(row.path));
+			if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error("会话文件不在会话目录内");
+		}
+		return out;
+	}
+
+	async deleteSession(path: string): Promise<{ deleted: string[]; sideCount: number }> {
+		await this.refresh();
+		let rows = this.deletionFiles(path);
+		const locks = new Set(rows.map((r) => normalizeCwd(r.path)));
+		if ([...locks].some((p) => this.core.deletingSessionFiles.has(p))) throw new Error("会话正在删除");
+		for (const p of locks) this.core.deletingSessionFiles.add(p);
+		try {
+			const affected = this.core.sessionSlots().filter((slot) => locks.has(normalizeCwd(slot.info().sessionFile ?? "")) || (slot.forkOf && locks.has(normalizeCwd(slot.forkOf))));
+			if (affected.some((slot) => !this.core.slots.has(slot.slotId) && !this.core.isSlotClosing(slot.slotId))) throw new Error("会话正在打开，请稍后重试删除");
+			for (const slot of affected) await this.core.closeSlot(slot.slotId);
+			// Closing joins a first send already in progress; include its newly saved file.
+			await this.refresh();
+			rows = this.deletionFiles(path);
+			for (const row of rows) { const key = normalizeCwd(row.path); locks.add(key); this.core.deletingSessionFiles.add(key); }
+			const deleted: string[] = [];
+			for (const row of rows.slice().reverse()) {
+				await recycleSession(row.path);
+				this.forget(row.path);
+				deleted.push(row.path);
+				await this.core.call("cards.forgetSession", { sessionFile: row.path });
+			}
+			return { deleted, sideCount: rows.length - 1 };
+		} finally {
+			for (const p of locks) this.core.deletingSessionFiles.delete(p);
+		}
 	}
 
 	get(path: string): SessionRow | undefined {
@@ -286,7 +366,7 @@ export class SessionIndex implements CoreModule {
 		const out: SearchHit[] = [];
 		for (const hit of hits) {
 			const meta = metas.get(hit.path);
-			if (!meta || meta.archived) continue;
+			if (!meta || meta.archived || meta.session_type === "side") continue;
 			if (options.cwd && !samePath(meta.cwd, options.cwd)) continue;
 			const count = perSession.get(hit.path) ?? 0;
 			if (count >= 3) continue;
@@ -351,6 +431,19 @@ export class SessionIndex implements CoreModule {
 
 	private register(): void {
 		const core = this.core;
+		core.register("sessions.deletePreview", async (params) => {
+			await this.refresh();
+			const rows = this.deletionFiles(requireStr(params.path, "path"));
+			return { sideCount: rows.length - 1, paths: rows.map((r) => r.path) };
+		});
+		core.register("sessions.delete", (params) => this.deleteSession(requireStr(params.path, "path")));
+		core.register("sessions.children", async (params) => {
+			await this.refresh();
+			const parent = requireStr(params.parentSession, "parentSession");
+			const cwd = str(params.cwd) ?? this.get(parent)?.cwd;
+			if (!cwd) throw new Error("父会话不存在时请提供 cwd");
+			return this.children(parent, cwd);
+		});
 		core.register("sessions.list", async (params) => {
 			await this.refresh();
 			const archived = params.archived === "only" || params.archived === "include" ? params.archived : "exclude";
@@ -403,6 +496,10 @@ function toSession(row: MetaRow): SessionRow {
 		cwd: row.cwd,
 		sessionId: row.session_id,
 		parentSession: row.parent_session,
+		sessionType: row.session_type,
+		parentMissing: !!row.parent_session && !existsSync(row.parent_session),
+		quote: row.side_quote,
+		quoteEntryId: row.quote_entry_id,
 		title: titleOf(row),
 		name: row.name,
 		createdAt: row.created_at,
@@ -455,4 +552,14 @@ function around(text: string, query: string, radius = 30): string {
 export function localDay(at: number): string {
 	const d = new Date(at);
 	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Matches the existing desktop deletion semantics, now owned by the core. */
+async function recycleSession(path: string): Promise<void> {
+	if (!existsSync(path)) return;
+	if (process.platform !== "win32") { rmSync(path); return; }
+	const literal = path.replaceAll("'", "''");
+	const command = `$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('${literal}', 'OnlyErrorDialogs', 'SendToRecycleBin')`;
+	await promisify(execFile)("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")], { windowsHide: true });
+	if (existsSync(path)) throw new Error("删除失败：文件可能正被占用");
 }

@@ -107,6 +107,10 @@ class SessionStore {
           header = first.cast<String, dynamic>();
           continue;
         }
+        if (line.contains('df.sideConversation')) {
+          final entry = asJson(jsonDecode(line));
+          if (entry['type'] == 'custom' && entry['customType'] == 'df.sideConversation' && asJson(entry['data'])['sessionId'] == header['id']) return null;
+        }
         if (line.contains('"type":"session_info"')) {
           name = asString(asJson(jsonDecode(line))['name']);
         } else if (firstUserText == null && line.contains('"role":"user"')) {

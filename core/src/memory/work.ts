@@ -1,3 +1,4 @@
+import { isSideFile } from "../pi/session-metadata.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { Model } from "@earendil-works/pi-ai";
@@ -624,6 +625,7 @@ export class MemoryWork {
 	private async extract(job: MemoryJob): Promise<JobOutcome> {
 		const { sessionFile, sessionId, cwd } = job.payload as { sessionFile: string; sessionId: string; cwd: string };
 		if (!sessionFile || !existsSync(sessionFile)) return { status: "skipped", result: { why: "会话文件不在了" } };
+		if (isSideFile(sessionFile)) return { status: "skipped", result: { why: "侧边对话不提取记忆" } };
 		const cursor = this.db.get<{ last_entry_id: string | null }>("SELECT last_entry_id FROM memory_extraction WHERE session_id = ?", sessionId)?.last_entry_id ?? null;
 		const entries = readMessages(sessionFile);
 		const start = cursor ? entries.findIndex((e) => e.id === cursor) + 1 : 0;

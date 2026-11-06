@@ -25,6 +25,7 @@ class SideChatView extends StatefulWidget {
 class _SideChatViewState extends State<SideChatView> {
   final _input = TextEditingController();
   final _focus = FocusNode();
+  bool _sending = false;
 
   @override
   void dispose() {
@@ -35,9 +36,14 @@ class _SideChatViewState extends State<SideChatView> {
 
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (text.isEmpty || !widget.side.isReady || widget.side.runtime.isRunning) return;
-    _input.clear();
-    await widget.side.ask(text);
+    if (_sending || text.isEmpty || !widget.side.isReady || widget.side.runtime.isRunning) return;
+    _sending = true;
+    try {
+      final accepted = await widget.side.ask(text);
+      if (mounted && accepted && _input.text.trim() == text) _input.clear();
+    } finally {
+      _sending = false;
+    }
   }
 
   @override
@@ -66,7 +72,7 @@ class _SideChatViewState extends State<SideChatView> {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Text('这里的问答带着主对话到现在的内容，但不会写进主对话，也不会保存。', style: context.text.labelSmall?.copyWith(color: colors.muted, height: 1.5)),
+              child: Text(!runtime.willPersist ? '这里的问答不会写进主对话，也不会保存。' : '这里的问答不会写进主对话，发送第一条消息后自动保存。', style: context.text.labelSmall?.copyWith(color: colors.muted, height: 1.5)),
             ),
             Expanded(
               child: !side.isReady

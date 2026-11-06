@@ -296,7 +296,7 @@ export class TasksModule implements CoreModule {
 
 	/** The task a session belongs to; chat sessions get one at their first run. */
 	resolveTaskId(slot: Slot): string | null {
-		if (slot.incognito) return null;
+		if (slot.incognito || slot.isSideConversation) return null;
 		const file = slot.info().sessionFile;
 		if (!file) return null;
 		const existing = this.db.get<{ id: string }>("SELECT id FROM tasks WHERE session_file = ? ORDER BY created_at DESC LIMIT 1", file);
@@ -334,6 +334,7 @@ export class TasksModule implements CoreModule {
 	// ---- run lifecycle -----------------------------------------------------------------
 
 	onRunStarted(slot: Slot, run: Run): void {
+		if (slot.isSideConversation) return;
 		if (!run.taskId) return;
 		const task = this.get(run.taskId);
 		if (!task) return;
@@ -347,6 +348,7 @@ export class TasksModule implements CoreModule {
 	}
 
 	onSlotChanged(slot: Slot): void {
+		if (slot.isSideConversation) return;
 		const run = slot.currentRun;
 		if (!run?.taskId || !slot.running) return;
 		const task = this.get(run.taskId);
@@ -356,6 +358,7 @@ export class TasksModule implements CoreModule {
 	}
 
 	onSlotEvent(slot: Slot, event: AgentSessionEvent): void {
+		if (slot.isSideConversation) return;
 		const run = slot.currentRun;
 		if (!run) return;
 		if (event.type === "tool_execution_start" && run.taskId) {
@@ -367,6 +370,7 @@ export class TasksModule implements CoreModule {
 	}
 
 	onRunFinished(slot: Slot, run: Run): void {
+		if (slot.isSideConversation) return;
 		this.stoppedRuns.delete(run.id);
 		if (!run.taskId) return;
 		const task = this.get(run.taskId);
@@ -725,6 +729,7 @@ export class TasksModule implements CoreModule {
 			const task = this.get(requireStr(p.taskId, "taskId"));
 			if (!task) throw new RpcError("not_found", "这个任务不存在");
 			const slot = core.slot(p.slotId);
+			if (slot.isSideConversation) throw new RpcError("bad_request", "侧边对话不参与任务");
 			slot.taskId = task.id;
 			const file = slot.info().sessionFile;
 			if (file && !task.sessionFile) this.update(task.id, { session_file: file });

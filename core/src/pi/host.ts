@@ -22,9 +22,11 @@ import type { TodoItem } from "../agent/state.ts";
 import { DISTRUST_ONCE, DISTRUST_REMEMBER, TRUST_ONCE, TRUST_REMEMBER, TRUST_TITLE } from "./dialogs.ts";
 import type { UiBridge } from "./ui-bridge.ts";
 import { dropSharedAgentSkills } from "../paths.ts";
+import { HISTORY_ENTRY, SIDE_ENTRY, sideConversation } from "./session-metadata.ts";
 
 /** Fixed inputs shared by every session the core hosts. */
 export interface PiHostConfig {
+	pendingSessionFiles?: Set<string>;
 	agentDir: string;
 	/** Overrides Pi's session directory (tests); undefined = Pi's default. */
 	sessionDir?: string;
@@ -57,6 +59,7 @@ export interface PiHostConfig {
 
 export interface SlotIdentity {
 	slotId: string;
+	sideConversation?: boolean;
 }
 
 /** DreamFlutter tools a standard session keeps beside dsh's (patterns as Pi's tool lists accept them). */
@@ -117,10 +120,13 @@ export interface OpenTarget {
 	/** A 蝶君 session: its tools run in the WSL sandbox (remembered in the session file). */
 	sandbox?: boolean;
 	/**
-	 * With [inMemory]: begin with this session file's current branch (a side conversation, 0.4).
+	 * Begin with this session file's current branch (a side conversation).
 	 * The copy gets its own id and remembers the source as its parent; the file is only read.
 	 */
 	forkOf?: string;
+	/** Host-owned snapshot of the parent's branch (also supports an incognito parent). */
+	forkEntries?: import("@earendil-works/pi-coding-agent").SessionEntry[];
+	side?: { quote: string; quoteEntryId: string | null };
 }
 
 /**
@@ -129,15 +135,24 @@ export interface OpenTarget {
  * fork in place, recreating cwd-bound services as needed.
  */
 export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdentity, ui: UiBridge, target: OpenTarget): Promise<AgentSessionRuntime> {
-	const sessionManager = target.inMemory
-		? target.forkOf
-			? SessionManager.inMemory(target.cwd, { parentSession: target.forkOf }, SessionManager.open(target.forkOf, config.sessionDir).getBranch())
+	const sessionManager = target.inMemory || target.side
+		? target.forkOf || target.forkEntries
+			? SessionManager.inMemory(target.cwd, { parentSession: target.forkOf }, target.forkEntries ?? SessionManager.open(target.forkOf!, config.sessionDir).getBranch())
 			: SessionManager.inMemory(target.cwd)
 		: target.sessionFile
 			? SessionManager.open(target.sessionFile, config.sessionDir)
 			: SessionManager.create(target.cwd, config.sessionDir);
+	if (target.side) {
+		const lastEntryId = sessionManager.getLeafId();
+		sessionManager.appendCustomEntry(HISTORY_ENTRY, { sessionId: sessionManager.getSessionId(), lastEntryId });
+		sessionManager.appendCustomEntry(SIDE_ENTRY, { sessionId: sessionManager.getSessionId(), ...target.side });
+	}
 
 	const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
+		const side = !!sideConversation(sessionManager);
+		if (sessionStartEvent?.reason === "fork") {
+			sessionManager.appendCustomEntry(HISTORY_ENTRY, { sessionId: sessionManager.getSessionId(), lastEntryId: sessionManager.getLeafId() });
+		}
 		const needsTrust = hasTrustRequiringProjectResources(cwd);
 		const stored = new ProjectTrustStore(agentDir).get(cwd);
 		const cached = config.trustDecisions.get(cwd.toLowerCase());
@@ -208,7 +223,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 					}
 				: undefined,
 			resourceLoaderOptions: {
-				extensionFactories: [...builtIns, harness, ...config.extensions(slot, mode)],
+				extensionFactories: [...builtIns, harness, ...config.extensions({ ...slot, sideConversation: side }, mode)],
 				skillsOverride: dropSharedAgentSkills,
 			},
 		});

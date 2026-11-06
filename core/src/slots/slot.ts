@@ -1,5 +1,8 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import { mkdirSync, openSync, closeSync, writeFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { inheritedIds, sideConversation } from "../pi/session-metadata.ts";
+import { SessionManager, type AgentSession, type AgentSessionEvent, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { AGENT_MODES, type AgentMode, recordedMode } from "../agent/harness.ts";
 import type { TodoItem } from "../agent/state.ts";
 import type { Db } from "../db.ts";
@@ -26,8 +29,10 @@ export interface SlotInfo {
 	unattended: boolean;
 	/** Temporary chat: in memory only, no memory read or write. */
 	incognito: boolean;
-	/** A side conversation: the session file it was copied from (read only); never reopened as a conversation of its own. */
+	/** Side conversation source. Excluded from top-level reattachment even when saved. */
 	forkOf: string | null;
+	sessionType: "ordinary" | "side";
+	willPersist: boolean;
 	/** Runs in 蝶君's sandbox. */
 	sandbox: boolean;
 	model: string | null;
@@ -80,9 +85,18 @@ export class Slot {
 	readonly ui: UiBridge;
 	readonly unattended: boolean;
 	readonly incognito: boolean;
-	readonly forkOf: string | null;
+	private readonly initialParent: string | null;
+	private firstSend: Promise<string> | undefined;
+	private closing = false;
+	private readonly acceptedPrompts = new Map<string, string>();
 	private readonly sandboxRequested: boolean;
-	taskId: string | null;
+	private boundTaskId: string | null = null;
+	private readonly db: Db;
+	get taskId(): string | null { return this.isSideConversation ? null : this.boundTaskId; }
+	set taskId(value: string | null) {
+		if (value && this.isSideConversation) throw new Error("侧边对话不能绑定任务");
+		this.boundTaskId = value;
+	}
 	lastActivity = now();
 	/** Text of the last prompt sent (the goal of a chat task). */
 	lastPrompt: string | null = null;
@@ -102,10 +116,11 @@ export class Slot {
 
 	private constructor(db: Db, options: SlotOptions, hooks: SlotHooks) {
 		this.slotId = options.slotId;
-		this.taskId = options.taskId ?? null;
+		this.db = db;
 		this.unattended = options.unattended ?? false;
 		this.incognito = options.target.inMemory === true;
-		this.forkOf = options.target.forkOf ?? null;
+		this.initialParent = options.target.forkOf ?? null;
+		this.taskId = options.taskId ?? null;
 		this.sandboxRequested = options.target.sandbox === true;
 		this.hooks = hooks;
 		this.fallbackCwd = options.target.cwd;
@@ -128,7 +143,7 @@ export class Slot {
 				cwd: this.fallbackCwd,
 				sessionFile: () => this.sessionOrUndefined?.sessionFile,
 				sessionId: () => this.sessionOrUndefined?.sessionId,
-				taskId: () => this.taskId ?? (this.taskId = this.hooks.resolveTaskId?.(this) ?? null),
+				taskId: () => this.isSideConversation ? null : this.taskId ?? (this.taskId = this.hooks.resolveTaskId?.(this) ?? null),
 			},
 			{
 				runStarted: (run) => this.hooks.runStarted?.(this, run),
@@ -158,6 +173,10 @@ export class Slot {
 			this.ui.cancelAll();
 			throw error;
 		}
+		if (this.isSideConversation && this.boundTaskId) {
+			await this.runtime.dispose();
+			throw new Error("侧边对话不能绑定任务");
+		}
 		this.runtime.setRebindSession(async () => {
 			this.taskId = null;
 			await this.rebind();
@@ -168,6 +187,14 @@ export class Slot {
 
 	get session(): AgentSession {
 		return this.runtime.session;
+	}
+
+	get isSideConversation(): boolean {
+		return this.started ? !!sideConversation(this.session.sessionManager) : this.initialParent !== null;
+	}
+
+	get forkOf(): string | null {
+		return this.isSideConversation ? this.sessionOrUndefined?.sessionManager.getHeader()?.parentSession ?? this.initialParent : null;
 	}
 
 	/** The session, or undefined while the runtime is still being created. */
@@ -212,6 +239,8 @@ export class Slot {
 			unattended: this.unattended,
 			incognito: this.incognito,
 			forkOf: this.forkOf,
+			sessionType: this.isSideConversation ? "side" : "ordinary",
+			willPersist: !this.incognito,
 			sandbox: this.sandboxed,
 			model: model ? `${model.provider}/${model.id}` : null,
 			agentMode: session ? (recordedMode(session.sessionManager) ?? "standard") : null,
@@ -244,30 +273,35 @@ export class Slot {
 		this.hooks.record(this.slotId, record);
 	}
 
-	private async rebind(): Promise<void> {
-		const session = this.runtime.session;
+	private async bind(runtime: AgentSessionRuntime): Promise<void> {
+		const session = runtime.session;
 		await session.bindExtensions({
 			uiContext: this.ui.context(),
 			mode: "rpc",
 			commandContextActions: {
 				waitForIdle: () => session.waitForIdle(),
-				newSession: async (options) => this.runtime.newSession(options),
+				newSession: async (options) => runtime.newSession(options),
 				fork: async (entryId, options) => {
-					const result = await this.runtime.fork(entryId, options);
+					const result = await runtime.fork(entryId, options);
 					return { cancelled: result.cancelled };
 				},
 				navigateTree: async (targetId, options) => {
-					const result = await this.runtime.session.navigateTree(targetId, options);
+					const result = await runtime.session.navigateTree(targetId, options);
 					return { cancelled: result.cancelled };
 				},
-				switchSession: async (sessionPath, options) => this.runtime.switchSession(sessionPath, options),
+				switchSession: async (sessionPath, options) => runtime.switchSession(sessionPath, options),
 				reload: async () => {
-					await this.runtime.session.reload();
+					await runtime.session.reload();
 				},
 			},
 			shutdownHandler: () => {},
 			onError: (err) => this.emit({ type: "extension_error", extensionPath: err.extensionPath, event: err.event, error: err.error }),
 		});
+	}
+
+	private async rebind(): Promise<void> {
+		await this.bind(this.runtime);
+		const session = this.session;
 		this.unsubscribe?.();
 		this.unsubscribe = session.subscribe((event) => this.onEvent(event));
 		this.hooks.changed(this);
@@ -314,7 +348,7 @@ export class Slot {
 	}
 
 	/** Handles one inbound record: a command or an extension UI response. */
-	async handle(record: Command): Promise<void> {
+	async handle(record: Command, requestScope = "core"): Promise<void> {
 		this.lastActivity = now();
 		if (record.type === "extension_ui_response") {
 			this.ui.answer(record as unknown as UiResponse);
@@ -325,33 +359,95 @@ export class Slot {
 			return;
 		}
 		try {
-			const response = await this.command(record);
+			const response = await this.command(record, requestScope);
 			if (response) this.emit(response);
 		} catch (error) {
 			this.emit(failure(record.id, record.type, error instanceof Error ? error.message : String(error)));
 		}
 	}
 
-	/** Sends a prompt on behalf of the core (tasks, schedules) and resolves when accepted. */
-	async prompt(message: string, options: { images?: unknown[] } = {}): Promise<void> {
-		this.lastActivity = now();
-		this.lastPrompt = message;
-		await new Promise<void>((resolve, reject) => {
+	/** Resolves on acceptance, not completion of the model response. */
+	private submit(session: AgentSession, message: string, options: Record<string, unknown>): Promise<string> {
+		return new Promise((resolve, reject) => {
 			let accepted = false;
-			this.session
+			session
 				.prompt(message, {
-					images: options.images as never,
-					streamingBehavior: this.session.isStreaming ? "followUp" : undefined,
+					...options,
 					source: "rpc",
-					preflightResult: () => {
+					preflightResult: (disposition) => {
 						accepted = true;
-						resolve();
+						resolve(disposition);
 					},
 				})
 				.catch((error) => {
 					if (!accepted) reject(error);
 				});
 		});
+	}
+
+	private async sendPrompt(message: string, options: Record<string, unknown> = {}): Promise<string> {
+		if (this.closing) throw new Error("会话正在关闭");
+		if (this.firstSend) throw new Error("侧边对话正在保存并发送，请等待结果");
+		this.lastActivity = now();
+		this.lastPrompt = message;
+		if (!this.isSideConversation || this.incognito || this.session.sessionFile) return this.submit(this.session, message, options);
+		const operation = this.persistAndSend(message, options);
+		this.firstSend = operation;
+		try { return await operation; }
+		finally { this.firstSend = undefined; }
+	}
+
+	/** F-01: retain the original runtime until the replacement accepts the first message. */
+	private async persistAndSend(message: string, options: Record<string, unknown>): Promise<string> {
+		const config = this.config!;
+		const original = this.runtime;
+		const manager = original.session.sessionManager;
+		const dir = SessionManager.create(this.cwd, config.sessionDir).getSessionDir();
+		const path = join(dir, `${manager.getHeader()!.timestamp.replace(/[:.]/g, "-")}_${manager.getSessionId()}.jsonl`);
+		const key = resolve(path).toLowerCase();
+		const controls = new Map(config.harnessControls);
+		let candidate: AgentSessionRuntime | undefined;
+		let created = false;
+		let active = false;
+		config.pendingSessionFiles?.add(key);
+		try {
+			mkdirSync(dir, { recursive: true });
+			const fd = openSync(path, "wx");
+			created = true;
+			try { writeFileSync(fd, [manager.getHeader(), ...manager.getEntries()].map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8"); }
+			finally { closeSync(fd); }
+			candidate = await createSessionRuntime({ ...config, harnessControls: controls, agentStateChanged: (slot, state) => {
+				if (active) config.agentStateChanged?.(slot, state);
+			} }, { slotId: this.slotId }, this.ui, { cwd: this.cwd, sessionFile: path, unattended: this.unattended });
+			await this.bind(candidate);
+			if (this.closing) throw new Error("会话已关闭，未发送消息");
+			this.unsubscribe?.();
+			this.runtime = candidate;
+			this.unsubscribe = candidate.session.subscribe((event) => this.onEvent(event));
+			active = true;
+			const disposition = await this.submit(candidate.session, message, options);
+			const control = controls.get(this.slotId);
+			if (control) config.harnessControls?.set(this.slotId, control);
+			// This is not a new conversation: no sessionCreated/sessionReplaced hook.
+			candidate.setRebindSession(async () => { this.taskId = null; await this.rebind(); this.hooks.sessionReplaced?.(this); });
+			await original.dispose().catch(() => {});
+			return disposition;
+		} catch (error) {
+			active = false;
+			this.unsubscribe?.();
+			await candidate?.dispose().catch(() => {});
+			this.runtime = original;
+			this.unsubscribe = original.session.subscribe((event) => this.onEvent(event));
+			if (created) rmSync(path, { force: true });
+			throw error;
+		} finally {
+			config.pendingSessionFiles?.delete(key);
+			this.hooks.changed(this);
+		}
+	}
+
+	async prompt(message: string, options: { images?: unknown[] } = {}): Promise<void> {
+		await this.sendPrompt(message, { images: options.images, streamingBehavior: this.session.isStreaming ? "followUp" : undefined });
 	}
 
 	private async replaceAndRebind<T extends { cancelled: boolean }>(operation: () => Promise<T>): Promise<T> {
@@ -365,32 +461,29 @@ export class Slot {
 		return result;
 	}
 
-	private async command(command: Command): Promise<Record<string, unknown> | undefined> {
+	resetPromptRequests(requestScope = "core"): void {
+		for (const key of this.acceptedPrompts.keys()) if (key.startsWith(`${requestScope}:`)) this.acceptedPrompts.delete(key);
+	}
+
+	private async command(command: Command, requestScope: string): Promise<Record<string, unknown> | undefined> {
+		if (this.firstSend && command.type !== "prompt" && !command.type.startsWith("get_")) throw new Error("侧边对话正在保存并发送，请等待结果");
 		const id = command.id;
 		const session = this.session;
 		const str = (key: string) => (typeof command[key] === "string" ? (command[key] as string) : undefined);
 		switch (command.type) {
 			case "prompt": {
-				let accepted = false;
-				this.lastPrompt = String(command.message ?? "");
-				void session
-					.prompt(String(command.message ?? ""), {
-						images: command.images as never,
-						streamingBehavior: command.streamingBehavior as never,
-						source: "rpc",
-						preflightResult: (disposition) => {
-							accepted = true;
-							this.emit(ok(id, "prompt", { disposition }));
-						},
-					})
-					.catch((error: unknown) => {
-						if (!accepted) this.emit(failure(id, "prompt", error instanceof Error ? error.message : String(error)));
-					});
-				return undefined;
+				const key = `${requestScope}:${JSON.stringify([session.sessionId, id, command.message, command.images])}`;
+				if (id && this.acceptedPrompts.has(key)) return ok(id, "prompt", { disposition: this.acceptedPrompts.get(key) });
+				const first = this.isSideConversation && !this.incognito && !session.sessionFile;
+				const disposition = await this.sendPrompt(String(command.message ?? ""), { images: command.images, streamingBehavior: command.streamingBehavior });
+				if (id && first) this.acceptedPrompts.set(key, disposition);
+				return ok(id, "prompt", { disposition });
 			}
 			case "steer":
+				if (this.isSideConversation && !this.incognito && !session.sessionFile) throw new Error("请先发送第一条消息");
 				return ok(id, "steer", { disposition: await session.steer(String(command.message ?? ""), command.images as never, { source: "rpc" }) });
 			case "follow_up":
+				if (this.isSideConversation && !this.incognito && !session.sessionFile) throw new Error("请先发送第一条消息");
 				return ok(id, "follow_up", { disposition: await session.followUp(String(command.message ?? ""), command.images as never, { source: "rpc" }) });
 			case "abort":
 				await session.abort();
@@ -479,8 +572,23 @@ export class Slot {
 			case "abort_bash":
 				session.abortBash();
 				return ok(id, "abort_bash");
-			case "get_session_stats":
-				return ok(id, "get_session_stats", session.getSessionStats());
+			case "get_session_stats": {
+				const stats = session.getSessionStats();
+				const manager = session.sessionManager;
+				const entries = manager.getEntries();
+				const header = manager.getHeader()!;
+				const inherited = inheritedIds(entries, manager.getSessionId(), header.parentSession ?? null, header.timestamp, this.db);
+				for (const entry of entries) {
+					if (!inherited.has(entry.id)) continue;
+					const usage = entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary" ? entry.usage
+						: entry.type === "message" && (entry.message.role === "assistant" || entry.message.role === "toolResult") ? entry.message.usage : undefined;
+					if (!usage) continue;
+					for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) stats.tokens[key] = Math.max(0, stats.tokens[key] - usage[key]);
+					stats.cost = Math.max(0, stats.cost - usage.cost.total);
+				}
+				stats.tokens.total = stats.tokens.input + stats.tokens.output + stats.tokens.cacheRead + stats.tokens.cacheWrite;
+				return ok(id, "get_session_stats", stats);
+			}
 			case "export_html":
 				return ok(id, "export_html", { path: await session.exportToHtml(str("outputPath")) });
 			case "switch_session": {
@@ -580,8 +688,10 @@ export class Slot {
 
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
-		this.disposed = true;
+		this.closing = true;
 		this.ui.cancelAll();
+		await this.firstSend?.catch(() => {});
+		this.disposed = true;
 		this.recorder.interrupt();
 		this.unsubscribe?.();
 		try {

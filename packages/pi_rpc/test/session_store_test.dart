@@ -59,6 +59,13 @@ void main() {
     expect((await store.workspaces()).length, 2);
   });
 
+  test('fallback list hides only a marker owned by this session', () async {
+    final marker = {'type': 'custom', 'customType': 'df.sideConversation', 'data': {'sessionId': 'side', 'quote': 'quote'}};
+    writeSession('--E--a--', 'side.jsonl', [header('side', r'E:\a'), user('hidden'), marker]);
+    writeSession('--E--a--', 'fork.jsonl', [header('fork', r'E:\a'), user('ordinary fork'), marker]);
+    expect((await SessionStore(sessionsDir: root.path).list()).map((s) => s.id), ['fork']);
+  });
+
   test('deleteSession removes the file (Recycle Bin on Windows)', () async {
     final file = writeSession('--E--a--', 'gone.jsonl', [header('s9', r'E:\a'), user('bye')]);
     expect(await SessionStore.deleteSession(file.path), isTrue);

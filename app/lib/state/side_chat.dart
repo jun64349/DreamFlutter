@@ -2,8 +2,8 @@ import 'package:pi_rpc/pi_rpc.dart';
 
 import 'session_runtime.dart';
 
-/// A side conversation (0.4, roadmap 4.7): questions about a passage of the
-/// conversation, asked in a copy of the session that lives only in memory. It
+/// A side conversation: questions about a passage, in a copy of the parent
+/// branch. The core saves it on first send unless it is incognito. It
 /// sees everything said so far, and neither interrupts nor adds to the main
 /// line; its answer can be brought back to the main input box.
 class SideChat {
@@ -12,7 +12,7 @@ class SideChat {
   /// The passage it is about.
   final String quote;
 
-  /// Its own session in the core (incognito, forked from [sourcePath]).
+  /// Its own session in the core, copied from [sourcePath].
   final SessionRuntime runtime;
   final String sourcePath;
 
@@ -45,10 +45,11 @@ class SideChat {
   /// The first question carries the passage, quoted.
   static const lead = '关于主对话里的这段内容：';
 
-  Future<void> ask(String question) async {
+  Future<bool> ask(String question) async {
     final text = _asked ? question : '$lead\n${quoteLines(quote)}\n\n$question';
-    _asked = true;
-    await runtime.send(text);
+    final accepted = await runtime.send(text);
+    if (accepted) _asked = true;
+    return accepted;
   }
 
   /// [text] as a Markdown quote.

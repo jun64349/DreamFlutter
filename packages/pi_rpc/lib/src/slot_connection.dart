@@ -94,7 +94,7 @@ class SlotConnection implements PiConnection {
 
 /// What to open in the core.
 class SessionTarget {
-  const SessionTarget({required this.cwd, this.sessionPath, this.attachSlotId, this.incognito = false, this.agentMode, this.sandbox = false, this.forkOf});
+  const SessionTarget({required this.cwd, this.sessionPath, this.attachSlotId, this.incognito = false, this.agentMode, this.sandbox = false, this.forkOf, this.sideQuote, this.quoteEntryId, this.parentSlotId});
 
   /// Working directory for a new session.
   final String cwd;
@@ -114,14 +114,17 @@ class SessionTarget {
   /// A 蝶君 session: its tools run in the WSL sandbox.
   final bool sandbox;
 
-  /// With [incognito]: start from this session file's current branch, in memory (a side conversation).
+  /// Side conversation source; saved on first send unless [incognito].
   final String? forkOf;
+  final String? sideQuote;
+  final String? quoteEntryId;
+  final String? parentSlotId;
 }
 
 /// A session client that may still be starting. Listen to [client] right away
 /// (the trust prompt can arrive before [ready]), then await [ready].
 class LaunchedSession {
-  LaunchedSession(this.client, this.ready, {this.slotId, this.afterHistory = _noop});
+  LaunchedSession(this.client, this.ready, {this.slotId, this.willPersist, this.afterHistory = _noop});
 
   final PiRpcClient client;
   final Future<void> ready;
@@ -129,6 +132,7 @@ class LaunchedSession {
   /// Current core slot id (null for test doubles). A function because the
   /// core may hand back an existing slot during [ready].
   final String? Function()? slotId;
+  final bool? Function()? willPersist;
 
   /// Call once the history from `get_messages` is shown; replays the dialogs
   /// and live run state of a slot that was attached mid-run.
@@ -143,10 +147,12 @@ LaunchedSession launchInCore(CoreClient core, SessionTarget target, {String Func
   final connection = SlotConnection(core, requested);
   final client = PiRpcClient(connection);
   var deferred = <Json>[];
+  bool? willPersist;
 
   Future<void> start() async {
     if (target.attachSlotId != null) {
       final result = asJson(await core.call('slot.attach', {'slotId': requested}));
+      willPersist = asJson(result['info'])['willPersist'] as bool?;
       deferred = [...asJsonList(result['replay']), ...asJsonList(result['live'])];
       return;
     }
@@ -158,10 +164,14 @@ LaunchedSession launchInCore(CoreClient core, SessionTarget target, {String Func
         if (target.incognito) 'incognito': true,
         'agentMode': ?target.agentMode,
         if (target.sandbox) 'sandbox': true,
-        if (target.incognito) 'forkOf': ?target.forkOf,
+        'forkOf': ?target.forkOf,
+        'sideQuote': ?target.sideQuote,
+        'quoteEntryId': ?target.quoteEntryId,
+        'parentSlotId': ?target.parentSlotId,
       }, const Duration(minutes: 30)), // may wait on the trust prompt
     );
     final actual = asString(info['slotId']);
+    willPersist = info['willPersist'] as bool?;
     if (actual != null && actual != requested) {
       connection.retarget(actual);
       final result = asJson(await core.call('slot.attach', {'slotId': actual}));
@@ -173,6 +183,7 @@ LaunchedSession launchInCore(CoreClient core, SessionTarget target, {String Func
     client,
     start(),
     slotId: () => connection.slotId,
+    willPersist: () => willPersist,
     afterHistory: () {
       connection.inject(deferred);
       deferred = const [];

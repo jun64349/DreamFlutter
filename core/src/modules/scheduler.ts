@@ -380,6 +380,7 @@ export class SchedulerModule implements CoreModule {
 		const sessionMode = (input.sessionMode ?? existing?.sessionMode) === "bound" ? "bound" : "fresh";
 		const sessionFile = sessionMode === "bound" ? (input.sessionFile ?? existing?.sessionFile ?? null) : null;
 		if (sessionMode === "bound" && !sessionFile) throw new RpcError("bad_request", "绑定会话时需要指定会话");
+		if (sessionFile) this.core.assertTaskSession(sessionFile);
 		let status: ScheduleStatus = input.status ?? existing?.status ?? (createdBy === "agent" ? "pending_approval" : "active");
 		if (status === "finished" && input.trigger) status = "active"; // a used-up one-off given a new time
 		const nextRunAt = status === "active" ? nextOccurrence(trigger, at - 1) : (existing?.nextRunAt ?? null);
@@ -609,6 +610,13 @@ export class SchedulerModule implements CoreModule {
 	}
 
 	private async launch(run: ScheduleRun, schedule: Schedule): Promise<void> {
+		// Recheck persisted schedules too, before creating any general task.
+		try {
+			if (schedule.sessionMode === "bound" && schedule.sessionFile) this.core.assertTaskSession(schedule.sessionFile);
+		} catch (error) {
+			this.finishRun(run.id, "failed", { error: error instanceof Error ? error.message : String(error) });
+			return;
+		}
 		const task = run.taskId ? this.tasks.get(run.taskId) : undefined;
 		const taskId = task?.id ?? this.tasks.create({ cwd: schedule.cwd, goal: schedule.prompt, title: `定时：${schedule.name}`, source: "schedule", scheduleId: schedule.id }).id;
 		let slot: Slot;

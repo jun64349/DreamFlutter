@@ -27,6 +27,7 @@ export class AutoTitle implements CoreModule {
 	}
 
 	async title(slot: Slot): Promise<string | undefined> {
+		if (slot.isSideConversation) return undefined;
 		const session = slot.session;
 		if (session.sessionName || this.pending.has(slot.slotId)) return undefined;
 		const messages = session.messages as unknown as { role: string; content: unknown }[];

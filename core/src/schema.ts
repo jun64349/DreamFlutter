@@ -672,4 +672,33 @@ export const MIGRATIONS: string[] = [
 		resolved_at INTEGER
 	);
 	`,
+	// 10: session relationships; JSONL remains authoritative.
+	`
+	ALTER TABLE session_meta ADD COLUMN session_type TEXT NOT NULL DEFAULT 'ordinary';
+	ALTER TABLE session_meta ADD COLUMN side_quote TEXT;
+	ALTER TABLE session_meta ADD COLUMN quote_entry_id TEXT;
+	UPDATE session_meta SET indexed_mtime = -1;
+	`,
+	// 11: retain the user's explicit intent separately from an item's confidence.
+	`
+	ALTER TABLE memory_ops ADD COLUMN explicit_requested INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE memory_message_preparations (
+		session_id TEXT NOT NULL, entry_id TEXT NOT NULL, PRIMARY KEY(session_id, entry_id)
+	);
+	CREATE TABLE memory_deferred_extractions (
+		session_id TEXT PRIMARY KEY, session_file TEXT NOT NULL, cwd TEXT NOT NULL, through_entry_id TEXT NOT NULL
+	);
+	CREATE TABLE memory_purge_log (
+		id TEXT PRIMARY KEY, batch_id TEXT NOT NULL, item_id TEXT NOT NULL, at INTEGER NOT NULL,
+		scope TEXT NOT NULL, workspace_id TEXT, level INTEGER NOT NULL
+	);
+	ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'conversation';
+	`,
+	// 12: confirmed legacy fork inheritance survives deletion of its source JSONL.
+	`
+	CREATE TABLE session_inherited_history (
+		session_id TEXT PRIMARY KEY, parent_session TEXT NOT NULL, entry_ids TEXT NOT NULL
+	);
+	UPDATE session_meta SET indexed_mtime = -1;
+	`,
 ];

@@ -29,6 +29,7 @@ class FakePi implements PiConnection {
 
   /// Answers for commands the recording has no example of (`df_tree`).
   final extraResponses = <String, Object?>{};
+  final failures = <String, String>{};
 
   /// Editor text `df_navigate_tree` hands back.
   String? navigateText;
@@ -69,6 +70,11 @@ class FakePi implements PiConnection {
       final command = (jsonDecode(line) as Map).cast<String, dynamic>();
       commands.add(command);
       if (command['type'] == 'extension_ui_response') continue;
+      final error = failures[command['type']];
+      if (error != null) {
+        scheduleMicrotask(() => emit({'type': 'response', 'id': command['id'], 'command': command['type'], 'success': false, 'error': error}));
+        continue;
+      }
       switch (command['type']) {
         case 'new_session':
           sessionFile = _newSessionFile();

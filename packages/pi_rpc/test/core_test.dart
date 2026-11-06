@@ -2,6 +2,7 @@
 library;
 
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
@@ -78,6 +79,30 @@ void main() {
     await core.call('slot.close', {'slotId': slotId});
     expect(await core.call('slot.list') as List, isEmpty);
     expect(await attached.client.connection.done, 0);
+  });
+
+  test('side creation passes quote and parent without incognito; private parent returns willPersist false', () async {
+    final workspace = await Directory(p.join(temp.path, 'side-ws')).create();
+    final path = p.join(temp.path, 'sessions', 'source.jsonl');
+    await File(path).writeAsString(jsonEncode({'type': 'session', 'version': 3, 'id': 'source', 'timestamp': '2026-11-06T00:00:00.000Z', 'cwd': workspace.path}) + '\n');
+    final launched = launchInCore(core, SessionTarget(cwd: workspace.path, forkOf: path, sideQuote: 'quoted', quoteEntryId: 'entry'));
+    await launched.ready;
+    final slotId = launched.slotId!()!;
+    final info = (await core.call('slot.list') as List).cast<Map>().firstWhere((r) => r['slotId'] == slotId);
+    expect(info['sessionType'], 'side'); expect(info['willPersist'], isTrue); expect(info['sessionFile'], isNull);
+    final entries = await launched.client.send('get_entries') as Map;
+    final marker = (entries['entries'] as List).cast<Map>().firstWhere((e) => e['customType'] == 'df.sideConversation');
+    expect((marker['data'] as Map)['quote'], 'quoted'); expect((marker['data'] as Map)['quoteEntryId'], 'entry');
+    await core.call('slot.close', {'slotId': slotId});
+    await launched.client.dispose();
+    final parent = launchInCore(core, SessionTarget(cwd: workspace.path, incognito: true));
+    await parent.ready;
+    final side = launchInCore(core, SessionTarget(cwd: workspace.path, parentSlotId: parent.slotId!()!, sideQuote: 'private'));
+    await side.ready;
+    final privateInfo = (await core.call('slot.list') as List).cast<Map>().firstWhere((r) => r['slotId'] == side.slotId!()!);
+    expect(privateInfo['willPersist'], isFalse); expect(privateInfo['incognito'], isTrue);
+    await core.call('slot.close', {'slotId': side.slotId!()!}); await side.client.dispose();
+    await core.call('slot.close', {'slotId': parent.slotId!()!}); await parent.client.dispose();
   });
 
   // v0.4.0: the user's first start after the update took 22 s; the window gave up at 20 s with the core alive.

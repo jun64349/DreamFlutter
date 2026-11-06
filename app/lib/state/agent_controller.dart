@@ -1400,8 +1400,9 @@ class AgentController extends ChangeNotifier {
     closeSideChat();
     final runtime = SessionRuntime(
       workspace: source.workspace,
-      incognito: true,
+      incognito: false,
       forkOf: path,
+      sideQuote: quote,
       sandbox: sandbox,
       launch: backend.launch,
       onToast: _toast,
@@ -1425,9 +1426,8 @@ class AgentController extends ChangeNotifier {
     _notify();
   }
 
-  /// A side conversation is never reopened, so its session in the core closes with it rather than
-  /// waiting to be reaped as idle (until then it held a Pi session, and a window opened meanwhile
-  /// took it for a conversation of its own).
+  /// Closing the panel closes its runtime. Saved side files can be reopened through
+  /// the children API; ordinary window reattachment must still skip them.
   void _endSideChat(SideChat side) {
     final slotId = side.runtime.slotId;
     side.runtime.dispose();
@@ -1494,7 +1494,7 @@ class AgentController extends ChangeNotifier {
   }
 
   /// Moves a session file to the Recycle Bin, closing it in the core first.
-  Future<void> deleteSession(String path) async {
+  Future<bool> deleteSession(String path) async {
     final live = _liveRuntimeFor(path);
     final wasActive = live != null && live == _active;
     if (live != null) {
@@ -1502,16 +1502,20 @@ class AgentController extends ChangeNotifier {
       if (wasActive) _active = null;
       await _closeInCore(live);
     }
-    final deleted = await SessionStore.deleteSession(path);
-    if (!deleted) _toast('删除失败：文件可能正被占用。');
-    // Cards shown in the conversation end with it (pinned copies on the desk stay).
-    if (deleted) unawaited(backend.call('cards.forgetSession', {'sessionFile': path}).catchError((_) => null));
+    var deleted = false;
+    try {
+      await backend.call('sessions.delete', {'path': path});
+      deleted = true;
+    } catch (e) {
+      _toast('删除失败：$e');
+    }
     _unseen.remove(_key(path));
     if (wasActive || _active == null) {
       final blank = _runtimes.where((r) => r.isPristine && r.isReady && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
       await _activate(blank ?? await _spawn());
     }
     await refreshSessions();
+    return deleted;
   }
 
   // --- Settings ----------------------------------------------------------------

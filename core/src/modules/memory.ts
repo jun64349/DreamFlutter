@@ -147,11 +147,15 @@ export class MemoryModule implements CoreModule {
 				"memory_suppressions",
 				"memory_task_views",
 				"memory_session_modes",
+				"memory_message_preparations",
+				"memory_deferred_extractions",
+				"memory_purge_log",
 			],
 			paths: {
 				memories: { cwd: "path", source_session: "path" },
 				workspaces: { path: "path", path_key: "key" },
 				memory_sources: { ref: "path" },
+				memory_deferred_extractions: { session_file: "path", cwd: "path" },
 				memory_batches: { session_ref: "path" },
 				memory_pending: { session_ref: "path", op: "json" },
 				memory_suppressions: { source_ref: "path" },
@@ -344,7 +348,16 @@ export class MemoryModule implements CoreModule {
 	// ---- a session's memory mode and its tasks (§10, §16) -----------------------------------
 
 	/** normal / readonly 只读记忆 (reads its snapshot, writes nothing) / off 不记忆 (neither). */
+	private sideSession(sessionId: string): boolean {
+		return [...this.core.slots.values()].some((s) => s.info().sessionId === sessionId && s.isSideConversation) || this.db.get<{ session_type: string }>("SELECT session_type FROM session_meta WHERE session_id = ?", sessionId)?.session_type === "side";
+	}
+
+	private requireOrdinary(sessionId: string): void {
+		if (this.sideSession(sessionId)) throw new RpcError("bad_request", "侧边对话不参与记忆和任务");
+	}
+
 	sessionMode(sessionId: string): SessionMemoryMode {
+		if (this.sideSession(sessionId)) return "readonly";
 		return (this.db.get<{ mode: string }>("SELECT mode FROM memory_session_modes WHERE session_id = ?", sessionId)?.mode as SessionMemoryMode | undefined) ?? "normal";
 	}
 
@@ -693,8 +706,8 @@ export class MemoryModule implements CoreModule {
 		};
 	}
 
-	extensions(slot: { slotId: string }): ExtensionFactory[] {
-		return [this.extension(slot)];
+	extensions(slot: { slotId: string; sideConversation?: boolean }): ExtensionFactory[] {
+		return slot.sideConversation ? [] : [this.extension(slot)];
 	}
 
 	// ---- the memory agent's work (docs/memory-design.md §5, §7) -----------------------------
@@ -705,6 +718,7 @@ export class MemoryModule implements CoreModule {
 	 * incognito (it touches no memory at all).
 	 */
 	onSlotEvent(slot: Slot, event: AgentSessionEvent): void {
+		if (slot.isSideConversation) return;
 		if (event.type === "message_end") {
 			const message = event.message as { role?: string; provider?: string; model?: string; usage?: { input?: number; cacheRead?: number; cacheWrite?: number } };
 			if (message.role === "assistant" && message.provider && message.model) this.calibration.afterCall(slot.session.sessionId, `${message.provider}/${message.model}`, message.usage);
@@ -763,6 +777,7 @@ export class MemoryModule implements CoreModule {
 
 	/** A task ended: what was said goes to the memory agent's queue (it runs in the background, never waking the session: 16.7). */
 	onRunFinished(slot: Slot, run: Run): void {
+		if (slot.isSideConversation) return;
 		const settings = this.core.settings.get();
 		if (settings.memoryEnabled && !slot.incognito && !slot.unattended) this.checkClaim(slot, run);
 		else this.runSaves.delete(slot.slotId);
@@ -928,14 +943,16 @@ export class MemoryModule implements CoreModule {
 		core.register("memory.snapshotInfo", (p) => this.latestSnapshot(requireStr(p.sessionId, "sessionId")) ?? null);
 		core.register("memory.whyNot", (p) => this.whyNot(requireStr(p.sessionId, "sessionId"), requireStr(p.itemId, "itemId"), str(p.cwd)));
 		// 16.2 / 16.6: a session's tasks, 「作为新任务」, 「改为继续上一个」, and its own memory mode.
-		core.register("memory.tasks", (p) => this.tasks.list(requireStr(p.sessionId, "sessionId")));
+		core.register("memory.tasks", (p) => this.sideSession(requireStr(p.sessionId, "sessionId")) ? [] : this.tasks.list(String(p.sessionId)));
 		core.register("memory.newTask", (p) => {
 			const sessionId = requireStr(p.sessionId, "sessionId");
+			this.requireOrdinary(sessionId);
 			this.newTaskRequested.add(sessionId);
 			return { ok: true, note: "下一条消息开始一个新任务" };
 		});
 		core.register("memory.continueTask", (p) => {
 			const sessionId = requireStr(p.sessionId, "sessionId");
+			this.requireOrdinary(sessionId);
 			const out = this.tasks.resumePrevious(sessionId);
 			if (!out) throw new RpcError("bad_request", "当前任务不是程序猜出来的新任务，没有可以接回去的上一个任务");
 			// The snapshot goes back to the old task's at the next message.
@@ -946,19 +963,21 @@ export class MemoryModule implements CoreModule {
 		core.register("memory.sessionMode", (p) => ({ mode: this.sessionMode(requireStr(p.sessionId, "sessionId")) }));
 		core.register("memory.setSessionMode", (p) => {
 			const sessionId = requireStr(p.sessionId, "sessionId");
+			this.requireOrdinary(sessionId);
 			const mode = (["normal", "readonly", "off"] as const).find((m) => m === p.mode);
 			if (!mode) throw new RpcError("bad_request", "mode 是 normal、readonly 或 off");
 			this.setSessionMode(sessionId, mode);
 			return { mode };
 		});
 		core.register("memory.refresh", (p) => {
+			this.requireOrdinary(requireStr(p.sessionId, "sessionId"));
 			this.refreshRequested.add(requireStr(p.sessionId, "sessionId"));
 			return { ok: true };
 		});
 		core.register("memory.extractNow", async (p) => {
 			const slot = core.slot(p.slotId);
 			const sessionFile = slot.info().sessionFile;
-			if (!sessionFile) return null;
+			if (slot.isSideConversation || !sessionFile) return null;
 			const job = this.work.queueExtraction({ sessionFile, sessionId: slot.session.sessionId, cwd: slot.cwd });
 			await this.work.drain();
 			return this.work.jobs.get(job.id) ?? null;

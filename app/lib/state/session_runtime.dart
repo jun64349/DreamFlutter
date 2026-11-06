@@ -83,6 +83,8 @@ class SessionRuntime extends ChangeNotifier {
     this.requestedAgentMode,
     this.sandbox = false,
     this.forkOf,
+    this.sideQuote,
+    this.parentSlotId,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now,
        lastActivity = (clock ?? DateTime.now)();
@@ -101,6 +103,9 @@ class SessionRuntime extends ChangeNotifier {
 
   /// A side conversation (0.4): an in-memory copy of this session file's current branch.
   final String? forkOf;
+  final String? sideQuote;
+  final String? parentSlotId;
+  bool get willPersist => _launched?.willPersist?.call() ?? !incognito;
   final ClientLauncher launch;
   final DateTime Function() _clock;
   final void Function(String message) onToast;
@@ -209,7 +214,7 @@ class SessionRuntime extends ChangeNotifier {
 
     try {
       final launched = launch(
-        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito, agentMode: requestedAgentMode, sandbox: sandbox, forkOf: forkOf),
+        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito, agentMode: requestedAgentMode, sandbox: sandbox, forkOf: forkOf, sideQuote: sideQuote, parentSlotId: parentSlotId),
       );
       final client = launched.client;
       _launched = launched;
@@ -456,10 +461,10 @@ class SessionRuntime extends ChangeNotifier {
   int sends = 0;
 
   /// Sends a prompt; while a run is active it steers the current run.
-  Future<void> send(String text, {List<ImageBlock> images = const []}) async {
+  Future<bool> send(String text, {List<ImageBlock> images = const []}) async {
     final client = _client;
     final message = text.trim();
-    if (client == null || (message.isEmpty && images.isEmpty) || !isReady) return;
+    if (client == null || (message.isEmpty && images.isEmpty) || !isReady) return false;
     _touch();
     sends++;
     _scheduleNotify();
@@ -470,8 +475,10 @@ class SessionRuntime extends ChangeNotifier {
         await _refreshState(client);
         _notifyNow();
       }
+      return true;
     } catch (e) {
       onToast('发送失败：${describeError(e)}');
+      return false;
     }
   }
 
