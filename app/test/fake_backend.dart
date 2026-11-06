@@ -15,6 +15,7 @@ class FakeBackend implements AgentBackend {
   final List<Json> liveSlots;
   final List<Json> interruptedRuns;
   final pis = <FakePi>[];
+  void Function(FakePi pi)? onLaunch;
 
   /// 蝶君's home as core.hello gives it (null: an older core without 蝶君).
   String? butterflyHome;
@@ -71,6 +72,7 @@ class FakeBackend implements AgentBackend {
   @override
   LaunchedSession launch(SessionTarget target) {
     final pi = FakePi(target);
+    onLaunch?.call(pi);
     pis.add(pi);
     return LaunchedSession(PiRpcClient(pi), Future.value(), slotId: () => pi.slotId);
   }
@@ -91,6 +93,23 @@ class FakeBackend implements AgentBackend {
         return searchHits;
       case _ when handlers.containsKey(method):
         return handlers[method]!(params);
+      case 'memory.items':
+        return handlers['memory.list']?.call({'status': 'active', ...params}) ?? <Json>[];
+      case 'memory.pending':
+        final candidates = handlers['memory.list']?.call({'status': 'candidate'});
+        return candidates is List ? [for (final c in candidates.whereType<Map>()) {'id': c['id'], 'op': {'kind': 'add', 'item': c}, 'reason': c['reason'], 'createdAt': c['updatedAt'], 'why': 'confirm'}] : <Json>[];
+      case 'memory.unsaved':
+        return null;
+      case 'memory.log':
+        return {'days': <Json>[], 'cursor': null, 'hasMore': false};
+      case 'memory.sessionMode':
+        return {'mode': 'normal'};
+      case 'memory.tasks' || 'sessions.children' || 'context.checkpoints':
+        return <Json>[];
+      case 'sessions.deletePreview':
+        return {'sideCount': 0, 'paths': [params['path']]};
+      case 'context.info':
+        return {'usage': null, 'contextWindow': 200000, 'thresholdPercent': 80, 'thresholdTokens': 126000, 'ownThreshold': null, 'autoCompaction': true, 'background': {'on': false, 'ownChoice': null, 'model': 'session', 'leadPercent': 85, 'last': null}, 'compacting': false, 'checkpoints': 0};
       case 'slot.close':
         for (final pi in pis.where((p) => p.slotId == params['slotId'])) {
           pi.crash(code: 0);

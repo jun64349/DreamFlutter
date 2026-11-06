@@ -7,7 +7,9 @@ import 'session_runtime.dart';
 /// sees everything said so far, and neither interrupts nor adds to the main
 /// line; its answer can be brought back to the main input box.
 class SideChat {
-  SideChat({required this.quote, required this.runtime, required this.sourcePath});
+  SideChat({required this.quote, required this.runtime, required this.sourcePath, this.reopened = false, this.parentMissing = false}) : _asked = reopened;
+  final bool reopened;
+  final bool parentMissing;
 
   /// The passage it is about.
   final String quote;
@@ -20,7 +22,7 @@ class SideChat {
   /// null while it is still opening.
   int? baseline;
 
-  var _asked = false;
+  bool _asked;
 
   bool get isReady => baseline != null && runtime.isReady;
 

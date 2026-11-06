@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'backend.dart';
 import 'cards.dart';
 import 'mentions.dart';
+import 'memory_ui.dart';
 import 'preferences.dart';
 import 'session_runtime.dart';
 import 'side_chat.dart';
@@ -147,6 +148,13 @@ class AgentController extends ChangeNotifier {
   final Preferences preferences;
   final SessionStore sessionStore;
   final AgentBackend backend;
+  final _memoryUi = MemoryUi();
+  MemoryUi get memoryUi => main._memoryUi;
+
+  void openMemory({String tab = 'memory', String? itemId}) {
+    memoryUi.open(tab: tab, itemId: itemId);
+    main.showSection(AppSection.memory);
+  }
   final DateTime Function() _clock;
 
   /// How long an idle background session stays attached.
@@ -600,6 +608,7 @@ class AgentController extends ChangeNotifier {
 
   /// Events only the main controller acts on (toasts, badges, the sandbox panel), so 蝶君's does not repeat them.
   static const _mainOnlyEvents = {
+    'memory.unsaved', 'memory.notice', 'memory.warning', 'memory.task',
     'memory.changed', 'proposals.changed', 'skills.changed', 'templates.changed', 'schedules.delivered', //
     'gateway.switched', 'gateway.alert', 'vision.missing', 'notices.changed', 'sandbox.changed', 'butterfly.outbox', //
     'backup.job', 'backup.restarting',
@@ -608,6 +617,26 @@ class AgentController extends ChangeNotifier {
   void _onBackendEvent(Json message) {
     if (sandbox && _mainOnlyEvents.contains(message['event'])) return;
     switch (message['event']) {
+      case 'memory.unsaved':
+        final id = message['sessionId'] as String?;
+        if (id != null) {
+          memoryUi.setClaim(id, message);
+          unawaited(_bindMemoryEntries(id));
+        }
+      case 'memory.task':
+        final id = message['sessionId'] as String?;
+        if (id != null) {
+          if (message['kind'] == 'guessed') {
+            memoryUi.boundaries[id] = {...message};
+            unawaited(_bindMemoryEntries(id));
+          } else {
+            memoryUi.boundaries.remove(id);
+          }
+          memoryUi.changed();
+        }
+      case 'memory.notice' || 'memory.warning':
+        memoryUi.notices.add({...message});
+        memoryUi.changed();
       case 'butterfly.outbox':
         outboxRevision.value++;
         final fresh = (message['fresh'] as List?)?.whereType<String>().toList() ?? const [];
@@ -623,8 +652,8 @@ class AgentController extends ChangeNotifier {
         final confirmation = message['confirmation'];
         if (confirmation is Map && confirmation['status'] != 'pending' && confirmation['id'] is String) {
           // Closed by the core (a question that timed out): close its window too.
-          for (final runtime in _runtimes) {
-            runtime.dropDialog(confirmation['id'] as String);
+          for (final runtime in [..._runtimes, if (sideChat != null) sideChat!.runtime]) {
+            if (runtime.slotId == confirmation['slotId']) runtime.dropDialog(confirmation['id'] as String);
           }
         }
         if (message['event'] == 'confirm.changed' || message['event'] == 'run.finished' || message['event'] == 'schedules.changed') unawaited(refreshPendingCounts());
@@ -863,6 +892,42 @@ class AgentController extends ChangeNotifier {
     return id == null || id.isEmpty ? null : id;
   }
 
+  Future<void> _bindMemoryEntries(String sessionId) async {
+    final runtimes = [...main._runtimes, ...?main._butterfly?._runtimes];
+    final runtime = runtimes.where((r) => r.state?.sessionId == sessionId).firstOrNull;
+    if (runtime == null) return;
+    await runtime.refreshEntryIds();
+    if (_disposed) return;
+    final boundary = memoryUi.boundaries[sessionId];
+    if (boundary != null) {
+      try {
+        final tasks = memoryRows(await backend.call('memory.tasks', {'sessionId': sessionId}));
+        final task = tasks.where((t) => t['id'] == boundary['taskId']).firstOrNull;
+        if (task != null) {
+          final anchor = await runtime.memoryTaskAnchor(task);
+          if (identical(memoryUi.boundaries[sessionId], boundary)) boundary['userEntryId'] = anchor;
+        }
+      } catch (_) { /* Do not attach a boundary to a guessed message. */ }
+    }
+    if (!_disposed) memoryUi.changed();
+  }
+
+  Future<void> refreshMemorySession() async {
+    final id = activeSessionId;
+    if (id == null || _active?.incognito == true) return;
+    final runtime = _active;
+    final before = memoryUi.claimRevision(id);
+    try {
+      final claim = await backend.call('memory.unsaved', {'sessionId': id});
+      if (_disposed) return;
+      if (before == memoryUi.claimRevision(id)) memoryUi.setClaim(id, claim is Map && claim['runId'] != null ? memoryMap(claim) : null);
+      await runtime?.refreshEntryIds();
+      if (!_disposed) memoryUi.changed();
+    } catch (_) {
+      // A failed reconnect query does not erase a live warning.
+    }
+  }
+
   /// Asks the auxiliary model to turn the active session into a skill
   /// proposal; returns true when one was created.
   Future<bool> draftSkillFromSession() async {
@@ -938,6 +1003,7 @@ class AgentController extends ChangeNotifier {
     _toasts.close();
     _mentions.close();
     _drops.close();
+    _memoryUi.dispose();
     super.dispose();
   }
 
@@ -978,6 +1044,7 @@ class AgentController extends ChangeNotifier {
     final path = runtime.sessionPath;
     if (path != null) _unseen.remove(_key(path));
     _notify();
+    unawaited(refreshMemorySession());
   }
 
   void _onRuntimeChanged(SessionRuntime runtime) {
@@ -1385,30 +1452,32 @@ class AgentController extends ChangeNotifier {
   /// The side conversation in the details panel, if one is open.
   SideChat? sideChat;
 
-  /// Only a saved session can be forked (a 无痕 one has no file).
-  bool get canOpenSideChat => _active?.sessionPath != null && !(_active?.incognito ?? true);
+  /// Saved parents fork their file; private parents use T-07's live slot.
+  bool get canOpenSideChat => _active?.isReady == true && (_active?.sessionPath != null || (_active?.incognito == true && _active?.slotId != null));
 
   /// Opens a side conversation about [quote] in the details panel: an in-memory copy of the
   /// session so far, so asking there neither interrupts nor adds to the conversation.
   Future<void> openSideChat(String quote) async {
     final source = _active;
     final path = source?.sessionPath;
-    if (source == null || path == null || source.incognito) {
-      _toast('无痕对话没有保存，不能开侧边对话。');
+    if (source == null || !canOpenSideChat) {
+      _toast('会话还未准备好，暂时不能开侧边对话。');
       return;
     }
     closeSideChat();
     final runtime = SessionRuntime(
       workspace: source.workspace,
-      incognito: false,
-      forkOf: path,
+      incognito: source.incognito,
+      forkOf: source.incognito ? null : path,
+      parentSlotId: source.incognito ? source.slotId : null,
       sideQuote: quote,
+      rejectDialogsOnEnd: true,
       sandbox: sandbox,
       launch: backend.launch,
       onToast: _toast,
       clock: _clock,
     );
-    final side = SideChat(quote: quote, runtime: runtime, sourcePath: path);
+    final side = SideChat(quote: quote, runtime: runtime, sourcePath: path ?? '');
     sideChat = side;
     await preferences.setRunPanelOpen(true);
     _notifyBoth();
@@ -1416,6 +1485,30 @@ class AgentController extends ChangeNotifier {
     if (sideChat != side) return; // closed while it opened
     side.baseline = runtime.transcript.items.length;
     _notify();
+  }
+
+  Future<void> openSavedSideChat(Json row) async {
+    final path = row['path'] as String?;
+    if (path == null) throw StateError('侧边对话没有文件路径');
+    closeSideChat();
+    final runtime = SessionRuntime(workspace: row['cwd'] as String? ?? workspace, sandbox: sandbox, launch: backend.launch, onToast: _toast, clock: _clock, rejectDialogsOnEnd: true);
+    final side = SideChat(quote: row['quote'] as String? ?? '', runtime: runtime, sourcePath: row['parentSession'] as String? ?? '', reopened: true, parentMissing: row['parentMissing'] == true);
+    sideChat = side;
+    await preferences.setRunPanelOpen(true);
+    _notifyBoth();
+    await runtime.start(sessionPath: path);
+    if (sideChat != side) return;
+    if (!runtime.isReady) throw StateError(runtime.statusDetail);
+    try {
+      await runtime.loadSideHistory();
+      side.baseline = 0;
+    } catch (e) {
+      runtime.status = ConnectionStatus.crashed;
+      runtime.statusDetail = SessionRuntime.describeError(e);
+      rethrow;
+    } finally {
+      _notifyBoth();
+    }
   }
 
   void closeSideChat() {
@@ -1559,6 +1652,7 @@ class AgentController extends ChangeNotifier {
   bool get runPanelOpen => preferences.runPanelOpen;
 
   Future<void> setRunPanelOpen(bool open) async {
+    if (!open) closeSideChat();
     await preferences.setRunPanelOpen(open);
     _notifyBoth();
   }

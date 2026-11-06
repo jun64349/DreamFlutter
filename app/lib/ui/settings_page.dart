@@ -9,6 +9,7 @@ import '../state/agent_controller.dart' show AgentController, groupProvider;
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'memory_settings.dart';
 import 'composer.dart' show agentModeHints, agentModeNames;
 import 'dashboard_page.dart';
 import 'gateway_pages.dart';
@@ -256,10 +257,15 @@ class _SettingsPageState extends State<SettingsPage> {
               dense: true,
             ),
           ),
+          _Entry('压缩阈值', CoreNumberSetting(agent: agent, setting: 'compactionThresholdPercent', title: '压缩阈值（上下文窗口百分比）', value: agent.coreSettings['compactionThresholdPercent'] as num? ?? 80, min: 20, max: 95, integer: true, hint: '实际不会超过模型的安全阈值')),
+          _Entry('后台压缩', CoreChoiceSetting(agent: agent, setting: 'backgroundCompaction', title: '后台压缩', choices: const {'auto': '自动', 'on': '开', 'off': '关'}, fallback: 'auto')),
+          _Entry('后台压缩模型', CoreChoiceSetting(agent: agent, setting: 'backgroundCompactionModel', title: '后台压缩模型', choices: const {'session': '会话模型', 'aux': '辅助模型'}, fallback: 'session')),
+          const _Entry('后台压缩提前量', _Hint('后台压缩提前量：阈值的 85%（固定）')),
           _Entry(
             'Agent 提问 等待 限时 超时 离开',
             _Row(
               title: 'Agent 提问时等多久',
+              wrapWhenNarrow: true,
               subtitle: '到时没有回答，自动选 Agent 推荐的选项继续（人暂时离开时不会卡住）。只用于提问，批准操作永远等你。',
               trailing: SegmentedButton<int>(
                 segments: const [
@@ -277,6 +283,12 @@ class _SettingsPageState extends State<SettingsPage> {
       ]),
       _Category('记忆', Icons.lightbulb_outline, [
         _Group([
+          _Entry('写入前确认', SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('写入前要我确认'), subtitle: const Text('关闭时自动生效，所有改动记在日志里，可撤销'), value: agent.coreSettings['memoryConfirmWrites'] == true, onChanged: (v) => saveCoreSetting(context, agent, 'memoryConfirmWrites', v))),
+          _Entry('记忆模型', _Row(title: '记忆模型', trailing: _ModelMenu(tooltip: '选择记忆模型', selected: agent.coreSettings['memoryModel'] as String? ?? '', label: agent.coreSettings['memoryModel'] == null ? '跟随辅助模型' : modelName(agent.coreSettings['memoryModel'] as String), extra: const [('', '跟随辅助模型')], onSelected: (key) => saveCoreSetting(context, agent, 'memoryModel', key.isEmpty ? null : key)))),
+          _Entry('后台每日预算 美元', CoreNumberSetting(agent: agent, setting: 'memoryDailyBudgetUsd', title: '后台每日预算（美元）', value: agent.coreSettings['memoryDailyBudgetUsd'] as num? ?? 0.2, hint: '0 = 不运行后台记忆任务')),
+          _Entry('详细程度 记忆强度', CoreChoiceSetting(agent: agent, setting: 'memoryDetail', title: '详细程度', choices: const {'brief': '简要', 'standard': '标准', 'detailed': '详细'}, fallback: 'standard', hint: '只影响自动提取的内容，不改变整理日历')),
+          _Entry('写入频率', CoreChoiceSetting(agent: agent, setting: 'memoryWriteFrequency', title: '写入频率', choices: const {'standard': '每次回复后', 'low': '换任务或关闭对话时'}, fallback: 'standard', hint: '只影响自动提取的时机，不改变整理日历')),
+          _Entry('高级 容量', ExpansionTile(tilePadding: EdgeInsets.zero, title: const Text('高级'), children: [CoreNumberSetting(agent: agent, setting: 'memoryCapacityTokens', title: '每个范围的容量（tokens）', value: agent.coreSettings['memoryCapacityTokens'] as num? ?? 40000, min: 1, integer: true, hint: '全局、每个工作区和蝶君分别计算')])),
           _Entry(
             '长期记忆 记忆',
             SwitchListTile(
@@ -292,8 +304,8 @@ class _SettingsPageState extends State<SettingsPage> {
             SwitchListTile(
               value: agent.coreSettings['memoryAutoExtract'] != false,
               onChanged: (v) => agent.updateCoreSettings({'memoryAutoExtract': v}),
-              title: const Text('任务结束后自动整理候选记忆'),
-              subtitle: const Text('用辅助模型从对话里找出值得记住的内容，放进「待确认」，你同意后才生效。'),
+              title: const Text('自动整理记忆'),
+              subtitle: const Text('自动提取值得记住的内容；默认自动生效，所有改动记在日志里，可撤销。'),
               dense: true,
             ),
           ),
@@ -583,33 +595,24 @@ class _Section extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
-  const _Row({required this.title, this.subtitle, this.trailing});
+  const _Row({required this.title, this.subtitle, this.trailing, this.wrapWhenNarrow = false});
 
   final String title;
   final String? subtitle;
   final Widget? trailing;
+  final bool wrapWhenNarrow;
 
   @override
   Widget build(BuildContext context) {
+    final description = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: context.text.bodyLarge),
+      if (subtitle != null) ...[const SizedBox(height: 2), Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted))],
+    ]);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppTokens.padLg, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: context.text.bodyLarge),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 2),
-                  Text(subtitle!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-                ],
-              ],
-            ),
-          ),
-          if (trailing != null) ...[const SizedBox(width: AppTokens.padLg), trailing!],
-        ],
-      ),
+      child: LayoutBuilder(builder: (context, size) => wrapWhenNarrow && size.maxWidth < 600
+        ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [description, if (trailing != null) ...[const SizedBox(height: AppTokens.gap), trailing!]])
+        : Row(children: [Expanded(child: description), if (trailing != null) ...[const SizedBox(width: AppTokens.padLg), trailing!]])),
     );
   }
 }

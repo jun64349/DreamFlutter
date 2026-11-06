@@ -12,6 +12,7 @@ import 'agent_scope.dart';
 import 'dashboard_page.dart';
 import 'motion.dart';
 import 'settings_page.dart';
+import 'session_dialogs.dart';
 import 'window_frame.dart';
 import 'zoom.dart';
 
@@ -784,7 +785,7 @@ class _SessionTileState extends State<_SessionTile> {
       case 'clone':
         await agent.cloneSession(entry.path);
       case 'delete':
-        if (await _confirmDelete(context, entry.title)) await agent.deleteSession(entry.path);
+        if (await confirmSessionDelete(context, entry.path, entry.title)) await agent.deleteSession(entry.path);
       case 'pin':
         await agent.setPinned(entry.path, !entry.pinned);
       case 'archive':
@@ -918,21 +919,3 @@ Future<String?> _askName(BuildContext context, String current) {
     ),
   );
 }
-
-Future<bool> _confirmDelete(BuildContext context, String title) async =>
-    await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除会话？'),
-        content: Text('「$title」会被移到回收站，需要时可以从回收站恢复。'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: context.colors.danger),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    ) ??
-    false;

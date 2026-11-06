@@ -15,5 +15,6 @@ export 'src/launcher.dart';
 export 'src/messages.dart';
 export 'src/models.dart';
 export 'src/session_store.dart';
+export 'src/session_tree.dart';
 export 'src/slot_connection.dart';
 export 'src/transcript.dart';

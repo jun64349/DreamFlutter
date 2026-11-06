@@ -529,13 +529,12 @@ class _ComposerState extends State<Composer> {
                         ),
                         _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
                         if (agent.agentMode == 'standard') const _PlanToggle(),
-                        const Spacer(),
-                        // 蝶君 always works in the standard mode.
-                        if (!agent.sandbox) const _ModeChip(),
-                        const SizedBox(width: 4),
-                        const Flexible(child: _ModelChip()),
-                        const SizedBox(width: 4),
-                        const _ThinkingChip(),
+                        Expanded(child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                          // 蝶君 always works in the standard mode.
+                          if (!agent.sandbox) const _ModeChip(),
+                          const SizedBox(width: 4),
+                          const Flexible(child: _ModelThinkingChips()),
+                        ])),
                         const SizedBox(width: 6),
                         const _ContextRing(),
                         const SizedBox(width: 8),
@@ -582,7 +581,7 @@ const _levelNames = {'off': '关闭', 'minimal': '极低', 'low': '低', 'medium
 
 /// A quiet chip in the input box's toolbar that opens a menu.
 class _Chip<T> extends StatelessWidget {
-  const _Chip({required this.label, required this.tooltip, required this.enabled, required this.items, required this.onSelected, this.filled = false});
+  const _Chip({super.key, required this.label, required this.tooltip, required this.enabled, required this.items, required this.onSelected, this.filled = false, this.icon, this.tightLabel = false});
 
   final String label;
   final String tooltip;
@@ -590,6 +589,8 @@ class _Chip<T> extends StatelessWidget {
   final List<PopupMenuEntry<T>> items;
   final ValueChanged<T> onSelected;
   final bool filled;
+  final IconData? icon;
+  final bool tightLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -602,9 +603,9 @@ class _Chip<T> extends StatelessWidget {
       position: PopupMenuPosition.over,
       child: Container(
         height: 30,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        padding: EdgeInsets.symmetric(horizontal: tightLabel ? 4 : 10),
         decoration: BoxDecoration(color: filled ? colors.accentSoft : null, borderRadius: BorderRadius.circular(context.radius)),
-        child: Row(
+        child: icon != null ? Icon(icon, size: 18, color: enabled ? colors.ink : colors.muted) : Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Flexible(
@@ -618,8 +619,10 @@ class _Chip<T> extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 2),
-            Icon(Icons.expand_more, size: 15, color: colors.muted),
+            if (!tightLabel) ...[
+              const SizedBox(width: 2),
+              Icon(Icons.expand_more, size: 15, color: colors.muted),
+            ],
           ],
         ),
       ),
@@ -748,8 +751,40 @@ class _PlanToggle extends StatelessWidget {
   }
 }
 
+/// Only this pair yields width: first the model label, then the thinking text.
+/// Measure the current labels with the actual font/scale; no window breakpoint
+/// or translated label length can steal space from the fixed toolbar buttons.
+class _ModelThinkingChips extends StatelessWidget {
+  const _ModelThinkingChips();
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    double textWidth(String text) {
+      final painter = TextPainter(text: TextSpan(text: text, style: context.text.bodySmall), textDirection: Directionality.of(context), textScaler: MediaQuery.textScalerOf(context))..layout();
+      final width = painter.width;
+      painter.dispose();
+      return width;
+    }
+    // _Chip: 20px horizontal padding + 2px gap + 15px menu chevron.
+    final modelWidth = textWidth(agent.model?.name ?? '选择模型').clamp(0.0, 180.0) + 37;
+    final thinkingWidth = textWidth('思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}').clamp(0.0, 180.0) + 37;
+    final minimumModelWidth = textWidth('…') + 37;
+    return LayoutBuilder(builder: (context, constraints) {
+      final iconOnly = constraints.maxWidth < minimumModelWidth + 4 + thinkingWidth;
+      final desired = modelWidth + 4 + (iconOnly ? 38 : thinkingWidth);
+      return SizedBox(width: desired.clamp(0.0, constraints.maxWidth), child: Row(children: [
+        Expanded(child: _ModelChip(tightLabel: constraints.maxWidth - 4 - (iconOnly ? 38 : thinkingWidth) < minimumModelWidth)),
+        const SizedBox(width: 4),
+        _ThinkingChip(iconOnly: iconOnly),
+      ]));
+    });
+  }
+}
+
 class _ModelChip extends StatelessWidget {
-  const _ModelChip();
+  const _ModelChip({this.tightLabel = false});
+  final bool tightLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -762,6 +797,8 @@ class _ModelChip extends StatelessWidget {
     }
     final providers = byProvider.keys.toList()..sort((a, b) => (a == groupProvider ? 0 : 1).compareTo(b == groupProvider ? 0 : 1));
     return _Chip<PiModel>(
+      key: const ValueKey('composer-model'),
+      tightLabel: tightLabel,
       label: model?.name ?? '选择模型',
       tooltip: model == null ? '模型' : '模型：${model.name} · ${agent.providerLabel(model.provider)}',
       enabled: agent.isReady && agent.models.isNotEmpty,
@@ -782,15 +819,18 @@ class _ModelChip extends StatelessWidget {
 }
 
 class _ThinkingChip extends StatelessWidget {
-  const _ThinkingChip();
+  const _ThinkingChip({this.iconOnly = false});
+  final bool iconOnly;
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final model = agent.model;
     return _Chip<String>(
+      key: const ValueKey('composer-thinking'),
+      icon: iconOnly ? Icons.psychology_outlined : null,
       label: '思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}',
-      tooltip: model != null && !model.reasoning ? '当前模型不支持思考' : '思考级别：越高越慢，但更仔细',
+      tooltip: model != null && !model.reasoning ? '当前模型不支持思考' : '${iconOnly ? '思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}；' : ''}思考级别：越高越慢，但更仔细',
       enabled: agent.isReady && (model?.reasoning ?? false),
       items: [
         for (final level in agent.thinkingLevels)

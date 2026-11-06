@@ -4,18 +4,23 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
+import 'package:path/path.dart' as p;
 
 import '../state/agent_controller.dart';
+import '../state/memory_ui.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
+import 'memory_details.dart';
+import 'memory_log.dart';
 
 /// One long-term memory (or candidate) from the core.
 class MemoryItem {
   MemoryItem.fromJson(Json json)
-    : id = json['id'] as String? ?? '',
+    : raw = json,
+      id = json['id'] as String? ?? '',
       scope = json['scope'] as String? ?? 'global',
-      cwd = json['cwd'] as String?,
+      cwd = (json['workspacePath'] ?? json['cwd']) as String?,
       kind = json['kind'] as String? ?? 'background',
       content = json['content'] as String? ?? '',
       source = json['source'] as String? ?? 'manual',
@@ -24,6 +29,14 @@ class MemoryItem {
       targetId = json['targetId'] as String?,
       reason = json['reason'] as String?,
       updatedAt = (json['updatedAt'] as num?)?.toInt() ?? 0;
+
+  factory MemoryItem.pending(Json row) {
+    final op = memoryMap(row['op']);
+    final current = memoryMap(row['current']);
+    final next = op['kind'] == 'add' ? memoryMap(op['item']) : {...current, ...memoryMap(op['patch'])};
+    return MemoryItem.fromJson({...next, 'id': row['id'], 'status': 'candidate', 'action': op['kind'] == 'edit' ? 'update' : op['kind'] == 'status' ? 'delete' : 'add', 'targetId': row['itemId'], 'reason': row['reason'], 'updatedAt': row['createdAt'], 'pendingWhy': row['why'], 'current': current, 'pending': row});
+  }
+  final Json raw;
 
   final String id;
   final String scope;
@@ -37,13 +50,13 @@ class MemoryItem {
   final String? reason;
   final int updatedAt;
 
-  static const kinds = {'preference': '偏好', 'background': '背景', 'experience': '经验'};
+  static const kinds = {'preference': '偏好', 'background': '背景', 'experience': '经验', 'decision': '决定', 'progress': '进展', 'agreement': '约定', 'observation': '观察', 'persona': 'Agent设定'};
   static const sources = {'user': '你明说的', 'agent': 'Agent 推断', 'manual': '手写'};
   static const statuses = {'active': '有效', 'superseded': '已被替代', 'deleted': '已删除', 'candidate': '候选', 'rejected': '已忽略', 'applied': '已应用'};
 
   String get kindLabel => kinds[kind] ?? kind;
   String get sourceLabel => sources[source] ?? source;
-  String get scopeLabel => scope == 'workspace' ? '仅工作区' : '全局';
+  String get scopeLabel => memoryScope(raw);
 }
 
 class MemoryBlock {
@@ -71,7 +84,7 @@ class MemoryPage extends StatefulWidget {
   State<MemoryPage> createState() => _MemoryPageState();
 }
 
-class _MemoryPageState extends State<MemoryPage> {
+class _MemoryPageState extends State<MemoryPage> with SingleTickerProviderStateMixin {
   List<MemoryItem> _memories = const [];
   List<MemoryItem> _candidates = const [];
   List<MemoryBlock> _blocks = const [];
@@ -80,16 +93,27 @@ class _MemoryPageState extends State<MemoryPage> {
   String? _scope;
   String? _error;
   var _loading = true;
+  bool _changing = false;
+  int _request = 0;
   late final AgentController _agent;
 
   /// 0 library, 1 candidates, 2 blocks; candidates open first when there are any.
   var _section = 0;
   var _chose = false;
+  late final TabController _tabs;
+  var _routeRevision = -1;
 
   @override
   void initState() {
     super.initState();
     _agent = AgentScope.read(context);
+    _tabs = TabController(length: 3, vsync: this)..addListener(() {
+      if (_tabs.indexIsChanging) return;
+      final section = [0, 3, 1][_tabs.index];
+      if (_section != section) setState(() { _section = section; _chose = true; });
+    });
+    _agent.memoryUi.addListener(_route);
+    _route();
     _agent.libraryRevision.addListener(_load);
     _load();
   }
@@ -97,38 +121,64 @@ class _MemoryPageState extends State<MemoryPage> {
   @override
   void dispose() {
     _agent.libraryRevision.removeListener(_load);
+    _agent.memoryUi.removeListener(_route);
+    _tabs.dispose();
     _query.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
+    final request = ++_request;
     try {
       final results = await Future.wait([
-        _agent.backend.call('memory.list', {'status': 'active', if (_query.text.trim().isNotEmpty) 'query': _query.text.trim()}),
-        _agent.backend.call('memory.list', {'status': 'candidate'}),
+        _agent.backend.call('memory.items', {'status': ['active', 'review'], if (_query.text.trim().isNotEmpty) 'query': _query.text.trim()}),
+        _agent.backend.call('memory.pending'),
         _agent.backend.call('memory.blocks'),
       ]);
+      if (!mounted || request != _request) return;
       List<Json> rows(Object? v) => v is List ? v.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList() : const [];
       _memories = rows(results[0]).map(MemoryItem.fromJson).toList();
-      _candidates = rows(results[1]).map(MemoryItem.fromJson).toList();
+      _candidates = rows(results[1]).map(MemoryItem.pending).toList();
       _blocks = rows(results[2]).map(MemoryBlock.fromJson).toList();
       _error = null;
       if (!_chose) {
         _chose = true;
-        if (_candidates.isNotEmpty) _section = 1;
+        if (_candidates.isNotEmpty) { _section = 1; _tabs.index = 2; }
       }
     } catch (e) {
+      if (!mounted || request != _request) return;
       _error = SessionRuntime.describeError(e);
     }
     if (mounted) setState(() => _loading = false);
   }
 
+  void _route() {
+    final route = _agent.memoryUi;
+    if (_routeRevision == route.routeRevision) return;
+    _routeRevision = route.routeRevision;
+    if (_routeRevision == 0) return;
+    _select(route.tab == 'pending' ? 1 : route.tab == 'log' ? 3 : 0);
+    final id = route.itemId;
+    if (id != null) WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) showMemoryDetails(context, id); });
+  }
+
+  void _select(int section) {
+    setState(() { _section = section; _chose = true; });
+    if (section != 2) _tabs.index = section == 3 ? 1 : section == 1 ? 2 : 0;
+  }
+
   Future<void> _call(String method, Json params, {String? done}) async {
+    if (_changing) return;
+    _changing = true;
     try {
-      await _agent.backend.call(method, params);
-      if (done != null && mounted) _snack(done);
+      final result = memoryMap(await _agent.backend.call(method, params));
+      if (memoryRows(result['rejected']).isNotEmpty) throw StateError(memoryRows(result['rejected']).map((r) => r['reason']).join('\n'));
+      if (['memory.save', 'memory.acceptPending', 'memory.setStatus'].contains(method) && memoryRows(result['applied']).isEmpty) throw StateError('没有改动生效，请重新查看当前内容');
+      if (done != null && mounted) _snack(memoryReceipt(result, verb: done));
     } catch (e) {
       if (mounted) _snack('操作失败：${SessionRuntime.describeError(e)}');
+    } finally {
+      _changing = false;
     }
     await _load();
   }
@@ -156,8 +206,8 @@ class _MemoryPageState extends State<MemoryPage> {
         SideNavItem('待确认', Icons.rule, count: _candidates.length, alert: true),
         SideNavItem('常驻记忆块', Icons.push_pin_outlined, count: _blocks.length),
       ],
-      selected: _section,
-      onSelect: (i) => setState(() => _section = i),
+      selected: _section == 3 ? 0 : _section,
+      onSelect: _select,
       panel: [
         if (_section == 0) ...[
           const PanelLabel('类别'),
@@ -171,8 +221,8 @@ class _MemoryPageState extends State<MemoryPage> {
         const PanelLabel('设置'),
         PanelSwitch(title: '启用长期记忆', subtitle: '关闭后不再读取和保存记忆，已有内容保留', value: enabled, onChanged: (v) => agent.updateCoreSettings({'memoryEnabled': v})),
         PanelSwitch(
-          title: '自动整理候选记忆',
-          subtitle: '任务结束后找出值得记住的内容，放进「待确认」',
+          title: '自动整理记忆',
+          subtitle: '自动生效的改动记在日志里，可撤销',
           value: agent.coreSettings['memoryAutoExtract'] != false,
           onChanged: enabled ? (v) => agent.updateCoreSettings({'memoryAutoExtract': v}) : null,
         ),
@@ -219,6 +269,7 @@ class _MemoryPageState extends State<MemoryPage> {
           ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
           : PageBody(
               children: [
+                TabBar(controller: _tabs, tabs: [const Tab(text: '记忆'), const Tab(text: '日志'), Tab(text: '待确认(${_candidates.length})')]),
                 if (!enabled)
                   Padding(
                     padding: const EdgeInsets.only(top: AppTokens.pad),
@@ -227,6 +278,7 @@ class _MemoryPageState extends State<MemoryPage> {
                 ...switch (_section) {
                   1 => _candidatesSection(),
                   2 => _blocksSection(),
+                  3 => [const MemoryLog()],
                   _ => _librarySection(),
                 },
               ],
@@ -259,7 +311,7 @@ class _MemoryPageState extends State<MemoryPage> {
         _memories.isEmpty && _query.text.isEmpty
             ? EmptyState(
                 title: '还没有记忆',
-                message: '对 Agent 说「记住……」，或者点「添加记忆」。\n开启自动整理后，任务结束时也会提出候选记忆。',
+                message: '对 Agent 说「记住……」，或者点「添加记忆」。\n自动生效的改动可以在日志中查看和撤销。',
                 action: OutlinedButton.icon(onPressed: () => _edit(null), icon: const Icon(Icons.add, size: 16), label: const Text('添加一条')),
               )
             : const EmptyNote('没有符合条件的记忆。')
@@ -284,13 +336,14 @@ class _MemoryPageState extends State<MemoryPage> {
   ];
 
   Future<void> _edit(MemoryItem? existing) async {
+    if (existing != null) { await showMemoryDetails(context, existing.id); await _load(); return; }
     final result = await showDialog<Json>(
       context: context,
       builder: (_) => _MemoryDialog(existing: existing, workspace: _agent.workspace),
     );
     if (result == null) return;
     if (existing == null) {
-      await _call('memory.add', result, done: '已保存');
+      await _call('memory.save', result, done: '已保存');
     } else {
       await _call('memory.edit', {'id': existing.id, ...result}, done: '已更新，旧版本保留在历史里');
     }
@@ -298,35 +351,12 @@ class _MemoryPageState extends State<MemoryPage> {
 
   Future<void> _delete(MemoryItem memory) async {
     if (!await confirmAction(context, title: '删除这条记忆？', message: memory.content, confirm: '删除', danger: true)) return;
-    await _call('memory.remove', {'id': memory.id});
+    await _call('memory.setStatus', {'id': memory.id, 'version': memory.raw['version'], 'status': 'forgotten'}, done: '已遗忘');
   }
 
   Future<void> _history(MemoryItem memory) async {
     try {
-      final rows = await _agent.backend.call('memory.history', {'id': memory.id});
-      final versions = (rows as List).whereType<Map>().map((m) => MemoryItem.fromJson(m.cast<String, dynamic>())).toList();
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('历史版本'),
-          content: SizedBox(
-            width: 560,
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final (i, v) in versions.indexed)
-                  ListTile(
-                    dense: true,
-                    title: Text(v.content),
-                    subtitle: Text('${i == 0 ? '当前' : MemoryItem.statuses[v.status] ?? v.status} · ${v.sourceLabel} · ${formatDate(v.updatedAt)}'),
-                  ),
-              ],
-            ),
-          ),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
-        ),
-      );
+      await showMemoryDetails(context, memory.id);
     } catch (e) {
       _snack('读取历史失败：${SessionRuntime.describeError(e)}');
     }
@@ -389,6 +419,9 @@ class _MemoryTile extends StatelessWidget {
                   children: [
                     TagChip(memory.kindLabel, color: Theme.of(context).colorScheme.primary),
                     TagChip(memory.scopeLabel),
+                    TagChip(memoryLevel(memory.raw['level'])),
+                    if (memory.status == 'review') TagChip('待复核', color: context.colors.warning),
+                    if (memory.raw['retention'] == 'locked') const Icon(Icons.lock_outline, size: 16, semanticLabel: '已锁定'),
                     Text('${memory.sourceLabel} · ${formatDate(memory.updatedAt)}', style: muted),
                   ],
                 ),
@@ -471,24 +504,27 @@ class _CandidateCard extends StatelessWidget {
           ],
           if (candidate.action != 'delete') SelectableText(block != null ? '改为：${candidate.content}' : candidate.content),
           if ((candidate.reason ?? '').isNotEmpty) ...[const SizedBox(height: 4), Text('理由：${candidate.reason}', style: muted)],
+          if (candidate.raw['pendingWhy'] == 'promote_global') Text('从${existing?.cwd == null ? '工作区' : p.basename(existing!.cwd!)}提升为全局：所有工作区都能看到', style: context.text.bodyMedium),
           const SizedBox(height: AppTokens.gap),
-          Row(
+          Wrap(
+            spacing: AppTokens.gap,
+            runSpacing: AppTokens.gap,
             children: [
               FilledButton(
-                onPressed: () => onAction('memory.accept', {'id': candidate.id}, done: candidate.action == 'delete' ? '已删除' : '已保存'),
-                child: Text(candidate.action == 'delete' ? '确认删除' : '保存'),
+                onPressed: () => onAction('memory.acceptPending', {'id': candidate.id}, done: candidate.action == 'delete' ? '已遗忘' : '已保存'),
+                child: const Text('同意'),
               ),
               const SizedBox(width: AppTokens.gap),
               if (candidate.action != 'delete')
                 OutlinedButton(
                   onPressed: () async {
                     final text = await _editText(context, candidate.content);
-                    if (text != null) await onAction('memory.accept', {'id': candidate.id, 'content': text}, done: '已保存');
+                    if (text != null) await onAction('memory.acceptPending', {'id': candidate.id, 'content': text}, done: '已保存');
                   },
-                  child: const Text('修改后保存'),
+                  child: const Text('修改后同意'),
                 ),
               const SizedBox(width: AppTokens.gap),
-              TextButton(onPressed: () => onAction('memory.reject', {'id': candidate.id}), child: const Text('忽略')),
+              TextButton(onPressed: () => onAction('memory.rejectPending', {'id': candidate.id}), child: const Text('拒绝')),
             ],
           ),
         ],
@@ -615,7 +651,7 @@ class _MemoryDialogState extends State<_MemoryDialog> {
             Text('类别', style: context.text.labelMedium),
             const SizedBox(height: 4),
             SegmentedButton<String>(
-              segments: [for (final e in MemoryItem.kinds.entries) ButtonSegment(value: e.key, label: Text(e.value))],
+              segments: [for (final e in MemoryItem.kinds.entries.take(3)) ButtonSegment(value: e.key, label: Text(e.value))],
               selected: {_kind},
               onSelectionChanged: (s) => setState(() => _kind = s.first),
             ),

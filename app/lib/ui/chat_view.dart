@@ -16,6 +16,7 @@ import 'greetings.dart';
 import 'library_page.dart' show showTemplateEditor;
 import 'markdown_view.dart' show FileLinks;
 import 'message_widgets.dart';
+import 'memory_chat_controls.dart';
 import 'motion.dart';
 import 'providers_page.dart' show ProvidersPage;
 import 'run_summary.dart';
@@ -71,7 +72,7 @@ class ChatView extends StatelessWidget {
     agent.cardStage.setLatest(latestCardId(agent.transcript));
     return LayoutBuilder(
       builder: (context, constraints) {
-        final roomForPanel = constraints.maxWidth >= _panelMinWidth && !incognito;
+        final roomForPanel = constraints.maxWidth >= _panelMinWidth && (!incognito || agent.sideChat != null);
         final showPanel = roomForPanel && agent.runPanelOpen;
         // The details open on request (0.4, design option 3): beside the conversation when the
         // window has room for both, sliding over it on a narrow window.
@@ -236,6 +237,7 @@ class _EmptyState extends StatelessWidget {
                 ),
               ),
               if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 32), const _FirstRunGuide()],
+              const MemoryLiveNotices(),
             ],
           ),
         ),
@@ -739,7 +741,7 @@ class SessionActions extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final half = (constraints.maxWidth - 8) / 2;
-        return Wrap(spacing: 8, runSpacing: 8, children: [for (final b in buttons) SizedBox(width: half, child: b)]);
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Wrap(spacing: 8, runSpacing: 8, children: [for (final b in buttons) SizedBox(width: half, child: b)]), const SessionMemoryActions()]);
       },
     );
   }

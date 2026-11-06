@@ -3,6 +3,7 @@ import 'package:pi_rpc/pi_rpc.dart' show SessionStats;
 
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'context_controls.dart';
 
 /// Context window usage, session totals and compaction controls.
 Future<void> showContextDialog(BuildContext context) =>
@@ -121,14 +122,7 @@ class _ContextDialogState extends State<_ContextDialog> {
                 ],
               ),
               const Divider(height: AppTokens.padLg * 2),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: agent.autoCompactionEnabled,
-                onChanged: agent.isReady ? agent.setSessionAutoCompaction : null,
-                title: const Text('快满时自动压缩（本会话）'),
-                subtitle: const Text('默认值在设置里修改'),
-                dense: true,
-              ),
+              const ContextControls(),
               const SizedBox(height: AppTokens.gap),
               Text('立即压缩', style: context.text.titleSmall),
               const SizedBox(height: AppTokens.gap),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../theme.dart';
+import '../state/session_runtime.dart';
 import 'agent_scope.dart';
 import 'markdown_view.dart';
 
@@ -58,10 +59,29 @@ class _Answer {
   final bool cancelled;
 }
 
+/// The same confirmation card as the main conversation, answered through the
+/// owning runtime's slot connection rather than the active main conversation.
+class SideExtensionDialog extends StatelessWidget {
+  const SideExtensionDialog({super.key, required this.runtime});
+  final SessionRuntime runtime;
+
+  @override
+  Widget build(BuildContext context) {
+    final request = runtime.pendingDialogs.firstOrNull;
+    if (request == null) return const SizedBox.shrink();
+    return SingleChildScrollView(child: _ExtensionDialog(
+      key: ObjectKey(request),
+      request: request,
+      onAnswer: (answer) => runtime.answerDialog(request, value: answer.value, confirmed: answer.confirmed, cancelled: answer.cancelled),
+    ));
+  }
+}
+
 class _ExtensionDialog extends StatefulWidget {
-  const _ExtensionDialog({required this.request});
+  const _ExtensionDialog({super.key, required this.request, this.onAnswer});
 
   final ExtensionUiRequest request;
+  final void Function(_Answer)? onAnswer;
 
   @override
   State<_ExtensionDialog> createState() => _ExtensionDialogState();
@@ -81,7 +101,11 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
   void _answer(BuildContext context, _Answer answer) {
     if (_closing) return;
     _closing = true;
-    Navigator.pop(context, answer);
+    if (widget.onAnswer != null) {
+      widget.onAnswer!(answer);
+    } else {
+      Navigator.pop(context, answer);
+    }
   }
 
   // Title prefixes the core uses (core/src/pi/dialogs.ts).
@@ -102,7 +126,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     // during its exit animation, and a second pop would close the page below.
     final agent = AgentScope.of(context);
     final stillPending = agent.active?.pendingDialogs.contains(widget.request) ?? false;
-    if (!stillPending && !_closing) {
+    if (widget.onAnswer == null && !stillPending && !_closing) {
       _closing = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) Navigator.of(context).pop();
@@ -120,6 +144,15 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     };
   }
 
+  Widget _card({Widget? icon, required Widget title, required Widget content, List<Widget>? actions, double? actionsOverflowButtonSpacing}) => AlertDialog(
+    icon: icon,
+    title: title,
+    content: content,
+    actions: actions,
+    actionsOverflowButtonSpacing: actionsOverflowButtonSpacing,
+    insetPadding: widget.onAnswer == null ? null : EdgeInsets.zero,
+  );
+
   Widget _approval(BuildContext context) {
     final colors = context.colors;
     final request = widget.request;
@@ -129,7 +162,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     final detail = newline == -1 ? '' : body.substring(newline + 1);
     final options = request.options;
     final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 13);
-    return AlertDialog(
+    return _card(
       icon: Icon(Icons.shield_outlined, color: colors.warning),
       title: const Text('Agent 请求执行操作'),
       content: SizedBox(
@@ -159,7 +192,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
         for (final option in options.length >= 3 ? options.sublist(1, options.length - 1) : const <String>[])
           TextButton(onPressed: () => _answer(context, _Answer(value: option)), child: Text(option)),
         OutlinedButton(
-          onPressed: () => _answer(context, _Answer(value: options.last)),
+          onPressed: () => _answer(context, options.isEmpty ? const _Answer(cancelled: true) : _Answer(value: options.last)),
           child: Text(options.isEmpty ? '拒绝' : options.last),
         ),
         FilledButton(
@@ -179,7 +212,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     final cwd = lines.first.trim();
     final options = widget.request.options;
     String option(int i, String fallback) => i < options.length ? options[i] : fallback;
-    return AlertDialog(
+    return _card(
       icon: Icon(Icons.verified_user_outlined, color: colors.warning),
       title: const Text('信任这个工作区的配置吗？'),
       content: SizedBox(
@@ -212,7 +245,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     final colors = context.colors;
     final plan = widget.request.title.substring(planTitle.length).trim();
     final options = widget.request.options;
-    return AlertDialog(
+    return _card(
       icon: Icon(Icons.map_outlined, color: colors.accent),
       title: const Text(planTitle),
       content: SizedBox(
@@ -238,7 +271,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     final body = widget.request.title.substring(questionTitle.length).trim();
     final timeout = widget.request.timeout;
     final recommended = widget.request.options.firstWhere((o) => RegExp(r'\(recommended\)|（推荐）|\(推荐\)', caseSensitive: false).hasMatch(o), orElse: () => widget.request.options.first);
-    return AlertDialog(
+    return _card(
       icon: Icon(Icons.help_outline, color: colors.accent),
       title: const Text('Agent 想问你'),
       content: SizedBox(
@@ -267,7 +300,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     );
   }
 
-  Widget _select(BuildContext context) => AlertDialog(
+  Widget _select(BuildContext context) => _card(
     title: Text(widget.request.title),
     content: SizedBox(
       width: 460,
@@ -286,7 +319,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     actions: [TextButton(onPressed: () => _answer(context, const _Answer(cancelled: true)), child: const Text('取消'))],
   );
 
-  Widget _confirm(BuildContext context) => AlertDialog(
+  Widget _confirm(BuildContext context) => _card(
     title: Text(widget.request.title),
     content: SizedBox(width: 460, child: Text(widget.request.message)),
     actions: [
@@ -295,7 +328,7 @@ class _ExtensionDialogState extends State<_ExtensionDialog> {
     ],
   );
 
-  Widget _input(BuildContext context, {required bool multiline}) => AlertDialog(
+  Widget _input(BuildContext context, {required bool multiline}) => _card(
     title: Text(_isQuestion ? 'Agent 想问你' : widget.request.title),
     content: SizedBox(
       width: 520,

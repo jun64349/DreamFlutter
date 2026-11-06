@@ -18,8 +18,11 @@ class FakePi implements PiConnection {
   final _stdout = StreamController<List<int>>();
   final _done = Completer<int>();
   final commands = <Json>[];
+  /// Inject events before command acknowledgement (e.g. first-send approval).
+  void Function(Json command)? onCommand;
   var streaming = false;
   late String sessionFile;
+  String? sessionId;
 
   /// What `get_messages` returns (history of the current session).
   List<Json> messages = [];
@@ -48,7 +51,9 @@ class FakePi implements PiConnection {
 
   Iterable<String> sent(String type) => commands.where((c) => c['type'] == type).map(jsonEncode);
 
-  void emit(Json record) => _stdout.add(utf8.encode('${jsonEncode(record)}\n'));
+  void emit(Json record) {
+    if (!_stdout.isClosed) _stdout.add(utf8.encode('${jsonEncode(record)}\n'));
+  }
 
   /// A run that has started and shown the user's message.
   void startRun(String text) {
@@ -69,6 +74,7 @@ class FakePi implements PiConnection {
     for (final line in const LineSplitter().convert(data)) {
       final command = (jsonDecode(line) as Map).cast<String, dynamic>();
       commands.add(command);
+      onCommand?.call(command);
       if (command['type'] == 'extension_ui_response') continue;
       final error = failures[command['type']];
       if (error != null) {
@@ -86,11 +92,15 @@ class FakePi implements PiConnection {
           sessionFile = _newSessionFile();
       }
       final data = extraResponses.containsKey(command['type']) ? extraResponses[command['type']] : switch (command['type']) {
-        'get_state' => {...(_recorded('get_state') as Json), 'isStreaming': streaming, 'sessionFile': sessionFile},
+        'get_state' => {...(_recorded('get_state') as Json), 'isStreaming': streaming, 'sessionFile': sessionFile, 'sessionId': ?sessionId},
         'set_model' => _recorded('set_model'),
         'prompt' => {'disposition': streaming ? 'queued' : 'started'},
         'new_session' || 'switch_session' || 'clone' => {'cancelled': false},
         'get_messages' => {'messages': messages},
+        'get_tree' => {
+          'leafId': messages.isEmpty ? null : messages.last['entryId'] ?? 'entry-${messages.length - 1}',
+          'tree': [for (final (i, message) in messages.indexed) {'entry': {'id': message['entryId'] ?? 'entry-$i', 'parentId': i == 0 ? null : messages[i - 1]['entryId'] ?? 'entry-${i - 1}', 'type': 'message', 'message': message}, 'children': <Object>[] }],
+        },
         'get_fork_messages' => {
           'messages': [
             for (final (i, m) in messages.where((m) => m['role'] == 'user').indexed) {'entryId': 'e$i', 'text': m['content']},

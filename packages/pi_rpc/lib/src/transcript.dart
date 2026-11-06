@@ -23,11 +23,13 @@ sealed class TranscriptItem {
 
   /// Stable identity for list rendering.
   final String key;
+  String? entryId;
 }
 
 class UserItem extends TranscriptItem {
-  UserItem(super.key, {required this.text, this.images = const []});
+  UserItem(super.key, {required this.text, this.images = const [], this.timestamp = 0});
   String text;
+  int timestamp;
   List<ImageBlock> images;
 }
 
@@ -302,7 +304,7 @@ class Transcript {
         _items.add(item);
         return true;
       case UserMessage():
-        _items.add(UserItem(_key('u'), text: message.text, images: message.content.whereType<ImageBlock>().toList()));
+        _items.add(UserItem(_key('u'), text: message.text, images: message.content.whereType<ImageBlock>().toList(), timestamp: message.timestamp));
         return true;
       default:
         // Other roles are added once complete.
@@ -411,6 +413,7 @@ class Transcript {
         if (last is UserItem) {
           last
             ..text = message.text
+            ..timestamp = message.timestamp
             ..images = message.content.whereType<ImageBlock>().toList();
         } else {
           _addCompletedMessage(message);
@@ -453,7 +456,7 @@ class Transcript {
   bool _addCompletedMessage(AgentMessage message) {
     switch (message) {
       case UserMessage():
-        _items.add(UserItem(_key('u'), text: message.text, images: message.content.whereType<ImageBlock>().toList()));
+        _items.add(UserItem(_key('u'), text: message.text, images: message.content.whereType<ImageBlock>().toList(), timestamp: message.timestamp));
       case AssistantMessage():
         final item = AssistantItem(_key('a'));
         _items.add(item);
@@ -476,6 +479,25 @@ class Transcript {
         return false;
     }
     return true;
+  }
+
+  /// Binds stable backend entry ids without changing list keys or streaming
+  /// state. Matching from the end also works after compaction hides history.
+  void bindEntries(List<Json> branch) {
+    var end = branch.length;
+    for (final item in _items.reversed) {
+      final role = item is UserItem ? 'user' : item is AssistantItem ? 'assistant' : null;
+      if (role == null) continue;
+      final stamp = item is UserItem ? item.timestamp : (item as AssistantItem).timestamp;
+      for (var i = end - 1; i >= 0; i--) {
+        final message = branch[i]['message'];
+        if (message is! Map || message['role'] != role || message['timestamp'] != stamp) continue;
+        if (item is UserItem && textOf(ContentBlock.listFrom(message['content'])) != item.text) continue;
+        item.entryId = branch[i]['id'] as String?;
+        end = i;
+        break;
+      }
+    }
   }
 
   void _settle() {

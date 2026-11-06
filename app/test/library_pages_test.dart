@@ -46,7 +46,7 @@ void main() {
         {'key': 'preferences', 'title': '偏好与习惯', 'content': '', 'locked': true},
         {'key': 'agreements', 'title': '当前约定', 'content': '', 'locked': false},
       ],
-      'memory.accept': (p) {
+      'memory.acceptPending': (p) {
         candidates = [];
         return {'ok': true};
       },
@@ -100,9 +100,9 @@ void main() {
     await settle(tester);
     // Candidates open first while there are any.
     expect(find.text('用户在杭州工作'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, '保存').first);
+    await tester.tap(find.widgetWithText(FilledButton, '同意').first);
     await settle(tester);
-    expect(backend.callsTo('memory.accept').single, {'id': 'c1'});
+    expect(backend.callsTo('memory.acceptPending').single, {'id': 'c1'});
     expect(find.text('用户在杭州工作'), findsNothing);
 
     await tester.tap(find.text('记忆库'));
@@ -116,7 +116,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, '保存').last);
     await settle(tester);
-    expect(backend.callsTo('memory.add').single, {'content': '周报每周五交', 'kind': 'preference', 'scope': 'global', 'cwd': null});
+    expect(backend.callsTo('memory.save').single, {'content': '周报每周五交', 'kind': 'preference', 'scope': 'global', 'cwd': null});
 
     // Editing a block enables its save button.
     await tester.tap(find.text('常驻记忆块'));

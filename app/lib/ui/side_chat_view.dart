@@ -6,6 +6,8 @@ import '../state/session_runtime.dart' show ConnectionStatus;
 import '../state/side_chat.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'common.dart' show TagChip;
+import 'extension_dialogs.dart';
 import 'markdown_view.dart' show ReplyMarkdown;
 import 'message_widgets.dart' show ChatRow, QuestionRow, ReplyRow, WorkBlock;
 
@@ -57,9 +59,14 @@ class _SideChatViewState extends State<SideChatView> {
         final runtime = side.runtime;
         final rows = ChatRow.fromItems(side.items);
         final running = runtime.isRunning;
-        return Column(
+        return LayoutBuilder(builder: (context, constraints) => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (side.parentMissing || !runtime.willPersist)
+              Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 0), child: Wrap(spacing: 8, children: [
+                if (side.parentMissing) Text('来源对话已删除', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+                if (!runtime.willPersist) TagChip('不保存', color: colors.muted),
+              ])),
             Container(
               margin: const EdgeInsets.fromLTRB(14, 12, 14, 6),
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
@@ -108,6 +115,11 @@ class _SideChatViewState extends State<SideChatView> {
                 ],
               ),
             ),
+            if (runtime.pendingDialogs.isNotEmpty)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: constraints.maxHeight * .5),
+                child: Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), child: SideExtensionDialog(runtime: runtime)),
+              ),
             Container(
               margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
               padding: const EdgeInsets.only(left: 12, right: 4),
@@ -135,7 +147,7 @@ class _SideChatViewState extends State<SideChatView> {
               ),
             ),
           ],
-        );
+        ));
       },
     );
   }

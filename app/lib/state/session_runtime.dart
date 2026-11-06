@@ -85,6 +85,7 @@ class SessionRuntime extends ChangeNotifier {
     this.forkOf,
     this.sideQuote,
     this.parentSlotId,
+    this.rejectDialogsOnEnd = false,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now,
        lastActivity = (clock ?? DateTime.now)();
@@ -105,6 +106,8 @@ class SessionRuntime extends ChangeNotifier {
   final String? forkOf;
   final String? sideQuote;
   final String? parentSlotId;
+  /// Side panels own their prompts; closing one must not leave approvals running.
+  final bool rejectDialogsOnEnd;
   bool get willPersist => _launched?.willPersist?.call() ?? !incognito;
   final ClientLauncher launch;
   final DateTime Function() _clock;
@@ -206,6 +209,7 @@ class SessionRuntime extends ChangeNotifier {
   /// window was open). The core applies the default model to new sessions.
   Future<void> start({String? sessionPath, String? attachSlotId}) async {
     await _stopClient();
+    if (_disposed) return;
     transcript.clear();
     pendingDialogs.clear();
     status = ConnectionStatus.starting;
@@ -241,6 +245,7 @@ class SessionRuntime extends ChangeNotifier {
       launched.afterHistory();
       await _refreshState(client);
       await _refreshBranches();
+      await refreshEntryIds();
       status = ConnectionStatus.ready;
     } catch (e) {
       status = ConnectionStatus.crashed;
@@ -284,12 +289,15 @@ class SessionRuntime extends ChangeNotifier {
   }
 
   Future<void> _stopClient() async {
+    if (rejectDialogsOnEnd) _rejectPendingDialogs();
     final client = _client;
     _client = null;
-    await _eventSub?.cancel();
-    await _uiSub?.cancel();
+    // Cancel both subscriptions before yielding, so a late UI request cannot
+    // be queued after the side panel has rejected and detached its requests.
+    final cancellations = [if (_eventSub != null) _eventSub!.cancel(), if (_uiSub != null) _uiSub!.cancel()];
     _eventSub = null;
     _uiSub = null;
+    await Future.wait(cancellations);
     if (client != null) await client.dispose();
   }
 
@@ -344,6 +352,7 @@ class SessionRuntime extends ChangeNotifier {
         _notifyNow();
       case AgentSettledEvent():
         // A run that ended cannot be waiting for an answer any more.
+        if (rejectDialogsOnEnd) _rejectPendingDialogs();
         pendingDialogs.clear();
         _notifyNow();
         unawaited(_afterRun());
@@ -383,6 +392,7 @@ class SessionRuntime extends ChangeNotifier {
     try {
       await _refreshState(client);
       await _refreshBranches();
+      await refreshEntryIds();
     } catch (_) {}
     _notifyNow();
     onSettled?.call(this);
@@ -427,6 +437,20 @@ class SessionRuntime extends ChangeNotifier {
     _client?.respondToUi(request.id, value: value, confirmed: confirmed, cancelled: cancelled);
     _touch();
     _notifyNow();
+  }
+
+  void _rejectPendingDialogs() {
+    for (final request in pendingDialogs.toList()) {
+      // Tool approval has an explicit denial. Other dialogs use the protocol's
+      // negative/cancelled answer, never an arbitrary last select option.
+      if (request.method == 'select' && request.title.startsWith('Agent 请求执行操作') && request.options.contains('拒绝')) {
+        answerDialog(request, value: '拒绝');
+      } else if (request.method == 'confirm') {
+        answerDialog(request, confirmed: false);
+      } else {
+        answerDialog(request, cancelled: true);
+      }
+    }
   }
 
   /// Forgets a dialog the core closed on its own (a question that timed out);
@@ -483,6 +507,62 @@ class SessionRuntime extends ChangeNotifier {
   }
 
   // --- Context -------------------------------------------------------------
+
+  Future<void> refreshEntryIds() async {
+    final client = _client;
+    if (client == null) return;
+    try {
+      final tree = await client.send('get_tree');
+      if (!_disposed && identical(client, _client)) transcript.bindEntries(currentSessionBranch(tree));
+    } catch (_) {
+      // Older test doubles can lack get_tree; never guess a persisted id.
+    }
+  }
+
+  Future<String?> memoryTaskAnchor(Json task) async {
+    final client = _client;
+    if (client == null) return null;
+    final branch = currentSessionBranch(await client.send('get_tree'));
+    if (_disposed || !identical(client, _client)) return null;
+    transcript.bindEntries(branch);
+    final prompt = task['prompt'] as String?;
+    final started = task['startedAt'] as num?;
+    if (prompt == null || started == null) return null;
+    for (final entry in branch.reversed) {
+      final raw = entry['message'];
+      if (raw is! Map) continue;
+      final message = AgentMessage.fromJson(raw.cast<String, dynamic>());
+      if (message is UserMessage && message.timestamp > 0 && message.timestamp <= started && message.text.startsWith(prompt)) return entry['id'] as String?;
+    }
+    return null;
+  }
+
+  /// After a context RPC changes the branch, reread the actual messages.
+  Future<void> refreshHistory() async {
+    final client = _client;
+    if (client == null) return;
+    final messages = await client.getMessages();
+    if (_disposed || !identical(client, _client)) return;
+    transcript.loadHistory(messages);
+    await _refreshState(client);
+    await _refreshBranches();
+    await refreshEntryIds();
+    _notifyNow();
+  }
+
+  /// Reopening a side conversation uses the core's inherited-history marker,
+  /// never a guessed number of messages or text matching against the parent.
+  Future<void> loadSideHistory() async {
+    final client = _client;
+    if (client == null) return;
+    final branch = currentSessionBranch(await client.send('get_tree'));
+    final marker = branch.lastIndexWhere((e) => e['customType'] == 'df.inheritedHistory' && (e['data'] as Map?)?['sessionId'] == state?.sessionId);
+    if (marker < 0) throw StateError('侧边对话缺少继承历史标记，未能确定自己的消息范围');
+    final own = branch.skip(marker + 1).toList();
+    transcript.loadHistory([for (final e in own) if (e['type'] == 'message' && e['message'] is Map) AgentMessage.fromJson((e['message'] as Map).cast<String, dynamic>())]);
+    transcript.bindEntries(own);
+    _notifyNow();
+  }
 
   /// Summarizes older history. Returns a short result description, or null.
   Future<CompactionResult?> compact({String? instructions}) async {

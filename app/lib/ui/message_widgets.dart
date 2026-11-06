@@ -15,6 +15,7 @@ import 'common.dart' show ImageThumb;
 import 'composer.dart' show MentionChip;
 import 'markdown_view.dart';
 import 'motion.dart';
+import 'memory_chat_controls.dart';
 import 'dashboard_page.dart' show formatCost, formatTokens;
 
 // ---------------------------------------------------------------------------
@@ -111,8 +112,8 @@ class ChatRowView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => switch (row) {
-    QuestionRow(:final item) => _UserBubble(item: item),
-    final ReplyRow reply => _ReplyView(row: reply, transcript: transcript, live: transcript.isRunning && reply.info.isLatest),
+    QuestionRow(:final item) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [MemoryBoundaryNote(item: item), _UserBubble(item: item)]),
+    final ReplyRow reply => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [_ReplyView(row: reply, transcript: transcript, live: transcript.isRunning && reply.info.isLatest), UnsavedMemoryNote(replies: reply.assistants), if (reply.info.isLatest) const MemoryLiveNotices()]),
   };
 }
 
