@@ -682,8 +682,6 @@ export class TasksModule implements CoreModule {
 		for (const n of this.listNotices("pending")) {
 			items.push({ kind: "limit", id: n.id, title: n.title, body: n.body, createdAt: n.createdAt, cwd: n.cwd, sessionFile: n.sessionFile, slotId: n.slotId, data: n });
 		}
-		const memories = this.db.all<{ id: string; content: string; created_at: number; cwd: string | null }>("SELECT id, content, created_at, cwd FROM memories WHERE status = 'candidate' ORDER BY created_at DESC");
-		for (const m of memories) items.push({ kind: "memory", id: m.id, title: m.content, createdAt: m.created_at, cwd: m.cwd });
 		const proposals = this.db.all<{ id: string; title: string; created_at: number; cwd: string | null }>("SELECT id, title, created_at, cwd FROM proposals WHERE status = 'pending' ORDER BY created_at DESC");
 		for (const p of proposals) items.push({ kind: "proposal", id: p.id, title: p.title, createdAt: p.created_at, cwd: p.cwd });
 		for (const r of this.core.runs.unacknowledgedInterrupted()) {

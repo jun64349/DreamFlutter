@@ -39,7 +39,7 @@
 ### 五、现有代码起点
 
 - `core/src/modules/memory.ts`（736 行）：v0.2 的扁平模型（表 `memories` / `memory_blocks` / `memory_snapshots` / `memory_extraction`）；工具 `memory_search` / `memory_save` / `memory_update` / `memory_forget` / `memory_block_edit` / `session_search`；`before_agent_start` 注入 `df-memory` 快照；运行结束后 `extract`；v0.3.3 的止血 `nearDuplicate` / `saysMore`。窗口接口 `memory.*`（list、add、edit、remove、history、accept、reject、blocks、setBlock、snapshots、extractNow、refresh、clear、export，事件 `memory.changed`）。
-- `core/src/schema.ts`：迁移只能往后加，现在 16 个（`user_version` 16），新表从第 17 个开始；**新表要 `core.declareBackup(...)`**，否则 `backup.test.ts` 失败（dev-guide 第二节）。
+- `core/src/schema.ts`：迁移只能往后加。0.4.0 是 8 个（`user_version` 8；原来这里写的 16 是错的）；**0.5 的新表都在第 9 个里**（0.5 发布前还可以往第 9 个里加，发布后就不能再改）；**新表要 `core.declareBackup(...)`**，否则 `backup.test.ts` 失败（dev-guide 第二节）。
 - 窗口：`app/lib/ui/memory_page.dart`；测试 `core/test/memory.test.ts`。
 - 压缩：`core/src/agent/harness.ts`（`session_before_compact`）、`core/src/pi/host.ts`。
 - 侧边对话：窗口 `agent_controller.dart` 的 `openSideChat` / `_endSideChat`、`state/side_chat.dart`；后台 `core.ts` 的 `openNewSlot`（`forkOf`）、`pi/host.ts`（`SessionManager.inMemory`）、`slots/slot.ts`（会话信息里的 `forkOf`）。5.13 要把它改成存盘的会话。
@@ -70,6 +70,28 @@
 - 测试模型走 OpenCode Go（不新建渠道、不经手 Key）；e2e 前用户的应用要先退出。
 - 不从 Claude 的终端替用户启动应用做试用。
 - 本机没有全局 Python：用 `core\bin\uv.exe` + `core\python\` 建临时 venv。改代码用 Edit / Write，别用 heredoc / sed 改含反斜杠的代码。
+
+## 0.5 进度
+
+### 第 1 步：新表、迁移、范围函数、操作接口、记忆日志（2026-11-06，**未提交**）
+
+- 代码在 `core/src/memory/`：`types.ts`（条目、操作、日志的类型）、`store.ts`（记忆库和程序侧守门）、`scopes.ts`（工作区的稳定 id、`allowedScopes`）、`migrate.ts`（v0.2 迁移）、`text.ts`（相似度，从 memory.ts 挪出来）。`modules/memory.ts` 改成接在新库上。
+- 数据库第 9 个迁移：`workspaces`、`workspace_groups`、`workspace_group_members`、`memory_items`、`memory_versions`（每一版都存整条）、`memory_sources`、`memory_links`、`memory_batches`、`memory_ops`（记忆日志就是它）、`memory_pending`（等用户的改动）。旧表留着只读。
+- **守门**（`MemoryStore.commit`）：一批操作一个事务；逐项查作用域、版本（记忆 Agent 必须带版本）、例外——锁定的只有用户能改（Agent 的修改变成待确认，条目标「待复核」）、工作区提升为全局要用户、只有用户能锁定；「写入前要我确认」打开时按 memory-design 第四节的表；不合格的项拒绝并写原因，其余照常提交。
+- **记忆日志**：`memory.log`（按本地日期分组，最新在前，每条带改前改后、改了哪些字段、谁、原因、是不是推测、来自哪个会话、能不能撤销）；`memory.undo`（单条）、`memory.undoBatch`（整批，之后被改过的条目不覆盖、列为冲突）。撤销本身也是一个新版本。
+- 新接口：`memory.items`、`memory.item`、`memory.save`、`memory.update`、`memory.setStatus`、`memory.log`、`memory.undo`、`memory.undoBatch`、`memory.pending`、`memory.acceptPending`、`memory.rejectPending`、`memory.workspaces`、`memory.setWorkspaceBackground`、`memory.migrationReport`。**旧接口**（`memory.list`、`add`、`edit`、`remove`、`history`、`accept`、`reject`、`blocks`、`setBlock`、`clear`、`export`）暂时接在新库上，窗口的记忆页不用改就能用；第 8 步做最简界面时换掉。
+- 新设置 `memoryConfirmWrites`（默认关）。
+- 这一步 Claude 自己定的（memory-design 没写死的地方，有异议再改）：
+  - 新条目的层级：用户在界面加的默认二级；主 Agent 照用户的话存的偏好 / 背景 / 约定 / 决定 / Agent 设定进二级，用户说「长期记住」进三级，其余和推测的进一级；对话后提取的都进一级。
+  - 「关于 Agent 的设定」单独一类 `persona`（第十五节第 2 条），快照里单独一节「用户给你（Agent）的设定」。
+  - 定时任务（没人看着的运行）里 Agent 存的记忆一律等用户确认，不自动生效（沿用 v0.2 的安全规则）。
+  - 主 Agent 不带 explicit 的「忘记」只标「待复核」，带 explicit（用户要求）才软遗忘。
+  - 「待复核」的条目仍进快照，带「待核对」标记、排在最后（第六节 6.2）。
+  - 去掉了 `memory_block_edit` 工具（常驻块变成了 `pinned` 条目，`memory_save` 加了 `pinned`、`long_term`、`valid_until`）。
+  - `session_search` 只搜本工作区（蝶君只搜蝶君的），第八节。
+  - 迁移沿用旧 id，中途崩了再跑一次不会重复；迁移整批可以从记忆日志撤销。
+- 测试：`core/test/memory-store.test.ts`（14 个，假时钟）、`core/test/memory.test.ts`（重写，12 个，含迁移）；`backup.test.ts` 改查新表。守门的 5 条关键规则逐条去掉确认测试会失败。后台全部 217 个通过，`tsc` 无错（2026-11-06）。窗口没改，还没跑窗口测试。
+- 快照（第 2 步要重做）和提取（第 3 步交给记忆 Agent）暂时是在新库上的过渡版本。
 
 ## 0.4 收尾记录（2026-11-05 / 06）
 

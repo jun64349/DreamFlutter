@@ -425,4 +425,133 @@ export const MIGRATIONS: string[] = [
 		at INTEGER NOT NULL
 	);
 	`,
+	// 9: v0.5 memory (docs/memory-design.md §2): workspaces with a stable id, memory items with
+	// every version, sources, links, the op log in batches (the memory log, undoable), and
+	// changes waiting for the user. The v0.2 tables stay, read-only, for one version.
+	`
+	CREATE TABLE workspaces (
+		id TEXT PRIMARY KEY,
+		path TEXT NOT NULL,
+		path_key TEXT NOT NULL UNIQUE,
+		global_background INTEGER NOT NULL DEFAULT 1,
+		created_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE workspace_groups (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		created_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE workspace_group_members (
+		group_id TEXT NOT NULL REFERENCES workspace_groups(id) ON DELETE CASCADE,
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		PRIMARY KEY (group_id, workspace_id)
+	);
+
+	CREATE TABLE memory_items (
+		id TEXT PRIMARY KEY,
+		version INTEGER NOT NULL,
+		level INTEGER NOT NULL,
+		kind TEXT NOT NULL,
+		content TEXT NOT NULL,
+		conditions TEXT,
+		scope TEXT NOT NULL,
+		workspace_id TEXT,
+		group_id TEXT,
+		confidence TEXT NOT NULL,
+		status TEXT NOT NULL,
+		pinned INTEGER NOT NULL DEFAULT 0,
+		retention TEXT NOT NULL DEFAULT 'normal',
+		auto_ok INTEGER NOT NULL DEFAULT 1,
+		occurred_at INTEGER,
+		valid_from INTEGER,
+		valid_until INTEGER,
+		last_verified_at INTEGER,
+		next_review_at INTEGER,
+		last_used_at INTEGER,
+		use_count INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		created_by TEXT NOT NULL
+	);
+	CREATE INDEX memory_items_scope ON memory_items(scope, workspace_id, status);
+	CREATE INDEX memory_items_status ON memory_items(status, updated_at);
+
+	CREATE TABLE memory_versions (
+		item_id TEXT NOT NULL,
+		version INTEGER NOT NULL,
+		snapshot TEXT NOT NULL,
+		op_id TEXT,
+		at INTEGER NOT NULL,
+		PRIMARY KEY (item_id, version)
+	);
+
+	CREATE TABLE memory_sources (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		item_id TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		ref TEXT,
+		excerpt TEXT,
+		at INTEGER NOT NULL
+	);
+	CREATE INDEX memory_sources_item ON memory_sources(item_id);
+	CREATE INDEX memory_sources_ref ON memory_sources(ref);
+
+	CREATE TABLE memory_links (
+		from_id TEXT NOT NULL,
+		to_id TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		at INTEGER NOT NULL,
+		PRIMARY KEY (from_id, to_id, kind)
+	);
+	CREATE INDEX memory_links_to ON memory_links(to_id);
+
+	CREATE TABLE memory_batches (
+		id TEXT PRIMARY KEY,
+		actor TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		reason TEXT,
+		session_ref TEXT,
+		cost_usd REAL NOT NULL DEFAULT 0,
+		at INTEGER NOT NULL,
+		undone_at INTEGER
+	);
+
+	CREATE TABLE memory_ops (
+		id TEXT PRIMARY KEY,
+		batch_id TEXT NOT NULL REFERENCES memory_batches(id),
+		actor TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		item_id TEXT NOT NULL,
+		before_version INTEGER,
+		after_version INTEGER NOT NULL,
+		reason TEXT,
+		inferred INTEGER NOT NULL DEFAULT 0,
+		undo_of TEXT,
+		at INTEGER NOT NULL,
+		undone_at INTEGER
+	);
+	CREATE INDEX memory_ops_at ON memory_ops(at);
+	CREATE INDEX memory_ops_item ON memory_ops(item_id);
+	CREATE INDEX memory_ops_batch ON memory_ops(batch_id);
+
+	CREATE TABLE memory_pending (
+		id TEXT PRIMARY KEY,
+		kind TEXT NOT NULL,
+		item_id TEXT,
+		base_version INTEGER,
+		op TEXT NOT NULL,
+		actor TEXT NOT NULL,
+		reason TEXT,
+		why TEXT NOT NULL,
+		scope TEXT NOT NULL,
+		workspace_id TEXT,
+		session_ref TEXT,
+		status TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		resolved_at INTEGER
+	);
+	CREATE INDEX memory_pending_status ON memory_pending(status, created_at);
+	`,
 ];

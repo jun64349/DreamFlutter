@@ -25,6 +25,8 @@ export interface CoreSettings {
 	memoryAutoExtract: boolean;
 	/** Tokens of long-term memory injected at task start. */
 	memoryBudgetTokens: number;
+	/** 「写入前要我确认」: memory changes the agents make wait for the user (docs/memory-design.md §4); off = they take effect and go in the memory log. */
+	memoryConfirmWrites: boolean;
 	autoTitle: boolean;
 	/** Daily spending cap for all runs, in USD; 0 = no cap. */
 	dailyBudgetUsd: number;
@@ -55,6 +57,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	memoryEnabled: true,
 	memoryAutoExtract: true,
 	memoryBudgetTokens: 1500,
+	memoryConfirmWrites: false,
 	autoTitle: true,
 	dailyBudgetUsd: 0,
 	monthlyBudgetUsd: 0,

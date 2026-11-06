@@ -116,7 +116,7 @@ export class BackupModule implements CoreModule {
 		if (!existsSync(join(legacy.dataDir, "core.db")) || existsSync(join(legacy.dataDir, MOVED_MARKER))) return false;
 		// One that stopped before the switch (closed, cancelled, failed copying) starts over.
 		if (existsSync(this.migrationFile) && this.migrationState() !== "started") return false;
-		const used = this.core.db.get<{ n: number }>("SELECT (SELECT COUNT(*) FROM runs) + (SELECT COUNT(*) FROM memories) + (SELECT COUNT(*) FROM gateway_channels) AS n");
+		const used = this.core.db.get<{ n: number }>("SELECT (SELECT COUNT(*) FROM runs) + (SELECT COUNT(*) FROM memories) + (SELECT COUNT(*) FROM memory_items) + (SELECT COUNT(*) FROM gateway_channels) AS n");
 		return (used?.n ?? 0) === 0;
 	}
 

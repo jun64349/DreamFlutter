@@ -143,8 +143,8 @@ describe("backup", () => {
 		b = restored.t;
 		const db = b.core.db;
 		// Counts and relations.
-		assert.equal(db.all("SELECT * FROM memories").length, 1, "the backup replaced B's memories");
-		assert.equal(db.get<{ cwd: string }>("SELECT cwd FROM memories")!.cwd, b.workspace);
+		assert.equal(db.all("SELECT * FROM memory_items").length, 1, "the backup replaced B's memories");
+		assert.equal(db.get<{ path: string }>("SELECT w.path FROM memory_items m JOIN workspaces w ON w.id = m.workspace_id")!.path, b.workspace, "the memory's workspace moved with the data");
 		assert.equal(db.get<{ cwd: string; cwd_key: string }>("SELECT cwd, cwd_key FROM tasks")!.cwd, b.workspace);
 		assert.equal(db.get<{ cwd_key: string }>("SELECT cwd_key FROM tasks")!.cwd_key, b.workspace.toLowerCase());
 		assert.equal(db.get<{ status: string }>("SELECT status FROM schedules")!.status, "paused", "restored schedules wait for the user");
@@ -178,7 +178,7 @@ describe("backup", () => {
 		assert.equal(applyPendingRestore(b.core.paths)?.ok, true);
 		b = await startTestCore(b.dir);
 		cores.push(b);
-		assert.deepEqual(b.core.db.all<{ content: string }>("SELECT content FROM memories").map((m) => m.content), ["B 原来的记忆"]);
+		assert.deepEqual(b.core.db.all<{ content: string }>("SELECT content FROM memory_items").map((m) => m.content), ["B 原来的记忆"]);
 	});
 
 	it("without keys, lists the channels to fill in again", { timeout: 120_000 }, async () => {
@@ -236,7 +236,7 @@ describe("backup", () => {
 		assert.equal(staged.status, "failed");
 		assert.match(staged.error!, /校验值不对/);
 		assert.ok(!existsSync(join(a.core.paths.dataDir, "restore-staging")), "nothing staged is left");
-		assert.equal(a.core.db.all("SELECT * FROM memories").length, 1, "the live data is untouched");
+		assert.equal(a.core.db.all("SELECT * FROM memory_items").length, 1, "the live data is untouched");
 	});
 
 	it("refuses to export while a task runs, and leaves no package when cancelled", { timeout: 60_000 }, async () => {
@@ -266,7 +266,7 @@ describe("backup", () => {
 			assert.equal((await job(t, (await t.core.call("backup.apply", {})) as Job)).status, "done");
 			await new Promise((r) => setTimeout(r, 1500));
 		};
-		const memories = (t: TestCore) => t.core.db.all<{ content: string }>("SELECT content FROM memories").map((m) => m.content);
+		const memories = (t: TestCore) => t.core.db.all<{ content: string }>("SELECT content FROM memory_items").map((m) => m.content);
 
 		// Killed after two moves: the next start rolls back and switches again.
 		let b = await start();
@@ -315,7 +315,7 @@ describe("backup", () => {
 		cores.push(fresh);
 
 		const db = fresh.core.db;
-		assert.equal(db.all("SELECT * FROM memories").length, 1);
+		assert.equal(db.all("SELECT * FROM memory_items").length, 1);
 		assert.equal(db.get<{ status: string }>("SELECT status FROM schedules")!.status, "paused");
 		const sessions = readdirSync(piSessionFolder(fresh.sessionDir, old.workspace));
 		assert.deepEqual(sessions, ["2026-11-03T00-00-00-000Z_test.jsonl"], "only DreamFlutter's session came along");
