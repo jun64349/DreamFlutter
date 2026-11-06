@@ -289,15 +289,15 @@ export class MemoryStore {
 					return;
 				}
 				if ("pending" in check) {
-					result.pending.push({ pendingId: this.addPending(op, current, input, check.pending, at), itemId: current?.id ?? null, why: check.pending });
+					result.pending.push({ pendingId: this.addPending(op, current, input, check.pending, at), itemId: current?.id ?? null, why: check.pending, index });
 					if (check.review && current && current.status !== "review") {
 						const review: MemoryOp = { kind: "status", id: current.id, status: "review", reason: op.reason ?? "有新的修改建议，等用户复核" };
-						result.applied.push({ opId: this.apply(review, current, input, batch(), at), itemId: current.id, kind: "status" });
+						result.applied.push({ opId: this.apply(review, current, input, batch(), at), itemId: current.id, kind: "status", index });
 					}
 					return;
 				}
 				const opId = this.apply(op, current, input, batch(), at);
-				result.applied.push({ opId, itemId: op.kind === "add" ? this.db.get<{ item_id: string }>("SELECT item_id FROM memory_ops WHERE id = ?", opId)!.item_id : op.id, kind: op.kind });
+				result.applied.push({ opId, itemId: op.kind === "add" ? this.db.get<{ item_id: string }>("SELECT item_id FROM memory_ops WHERE id = ?", opId)!.item_id : op.id, kind: op.kind, index });
 			});
 		});
 		if (result.applied.length || result.pending.length) this.changed(result.batchId);

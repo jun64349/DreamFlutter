@@ -136,8 +136,9 @@ export type PendingWhy = "locked" | "promote_global" | "confirm";
 export interface CommitResult {
 	/** null when nothing was applied. */
 	batchId: string | null;
-	applied: { opId: string; itemId: string; kind: MemoryOp["kind"] }[];
-	pending: { pendingId: string; itemId: string | null; why: PendingWhy }[];
+	/** [index] = the op's place in the batch. */
+	applied: { opId: string; itemId: string; kind: MemoryOp["kind"]; index: number }[];
+	pending: { pendingId: string; itemId: string | null; why: PendingWhy; index: number }[];
 	rejected: { index: number; reason: string }[];
 }
 

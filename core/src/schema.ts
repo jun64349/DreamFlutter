@@ -565,5 +565,28 @@ export const MIGRATIONS: string[] = [
 	ALTER TABLE memory_snapshots ADD COLUMN reason TEXT;
 	ALTER TABLE memory_snapshots ADD COLUMN pinned_over INTEGER NOT NULL DEFAULT 0;
 	CREATE INDEX memory_snapshots_session ON memory_snapshots(session_id, created_at);
+
+	-- The memory agent's job queue (§7) and where extraction got to in each session file
+	-- (by entry, so a compaction never makes it skip anything: 17.7 item 1).
+	CREATE TABLE memory_jobs (
+		id TEXT PRIMARY KEY,
+		kind TEXT NOT NULL,
+		scope_key TEXT NOT NULL,
+		payload TEXT NOT NULL DEFAULT '{}',
+		dedupe_key TEXT,
+		priority INTEGER NOT NULL,
+		status TEXT NOT NULL,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		run_after INTEGER NOT NULL,
+		cost_usd REAL NOT NULL DEFAULT 0,
+		error TEXT,
+		result TEXT,
+		created_at INTEGER NOT NULL,
+		started_at INTEGER,
+		ended_at INTEGER
+	);
+	CREATE INDEX memory_jobs_status ON memory_jobs(status, priority, run_after);
+	CREATE INDEX memory_jobs_dedupe ON memory_jobs(dedupe_key);
+	ALTER TABLE memory_extraction ADD COLUMN last_entry_id TEXT;
 	`,
 ];

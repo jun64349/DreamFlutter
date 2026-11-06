@@ -27,6 +27,12 @@ export interface CoreSettings {
 	memoryBudgetTokens: number;
 	/** 「写入前要我确认」: memory changes the agents make wait for the user (docs/memory-design.md §4); off = they take effect and go in the memory log. */
 	memoryConfirmWrites: boolean;
+	/** Model the memory agent uses (provider/id or a model group); null = the auxiliary model (memory-design §5). */
+	memoryModel: string | null;
+	/** USD the memory agent may spend a day on ordinary work; 0 = none (memory-design §7). */
+	memoryDailyBudgetUsd: number;
+	/** 「暂停整理」: the memory agent's ordinary work waits; snapshots are still used. */
+	memoryPaused: boolean;
 	autoTitle: boolean;
 	/** Daily spending cap for all runs, in USD; 0 = no cap. */
 	dailyBudgetUsd: number;
@@ -58,6 +64,9 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	memoryAutoExtract: true,
 	memoryBudgetTokens: 2000,
 	memoryConfirmWrites: false,
+	memoryModel: null,
+	memoryDailyBudgetUsd: 0.2,
+	memoryPaused: false,
 	autoTitle: true,
 	dailyBudgetUsd: 0,
 	monthlyBudgetUsd: 0,
@@ -145,6 +154,7 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 		case "askTimeoutSeconds":
 			return Number.isInteger(value) && (value as number) >= 0;
 		case "dailyBudgetUsd":
+		case "memoryDailyBudgetUsd":
 		case "monthlyBudgetUsd":
 			return (value as number) >= 0;
 		default:

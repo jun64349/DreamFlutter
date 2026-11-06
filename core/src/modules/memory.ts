@@ -8,6 +8,7 @@ import { migrateV02, migrationDone, splitBlock } from "../memory/migrate.ts";
 import { allowedScopes, homeScope, type ScopeSet, visibleIn, Workspaces } from "../memory/scopes.ts";
 import { memoryBudget, planSnapshot, SHARES, type SnapshotPlan } from "../memory/snapshot.ts";
 import { MemoryStore } from "../memory/store.ts";
+import { MemoryWork } from "../memory/work.ts";
 import { estimateTokens, nearDuplicate, saysMore } from "../memory/text.ts";
 import {
 	type Actor,
@@ -29,9 +30,8 @@ import {
 	RETENTIONS,
 } from "../memory/types.ts";
 import type { Run } from "../runs.ts";
-import { textOf } from "../runs.ts";
 import type { Slot } from "../slots/slot.ts";
-import { parseJsonAnswer, type Llm } from "./llm.ts";
+import type { Llm } from "./llm.ts";
 import { TasksModule } from "./tasks.ts";
 
 export { estimateTokens, nearDuplicate, overlap, relevance, saysMore } from "../memory/text.ts";
@@ -93,17 +93,18 @@ export class MemoryModule implements CoreModule {
 	readonly workspaces: Workspaces;
 	/** Session id → refresh the snapshot at the next prompt. */
 	private readonly refreshRequested = new Set<string>();
-	private readonly extracting = new Set<string>();
+	readonly work: MemoryWork;
 	/** Sessions compacted since their last model call: the snapshot is checked again and comes back after the checkpoint. */
 	readonly compacted = new Set<string>();
 
-	constructor(core: Core, llm: Llm, options: { clock?: () => number } = {}) {
+	constructor(core: Core, llm: Llm) {
 		this.core = core;
 		this.db = core.db;
 		this.llm = llm;
-		const clock = options.clock ?? now;
+		const clock = () => this.clock();
 		this.store = new MemoryStore(core.db, { clock, confirmWrites: () => core.settings.get().memoryConfirmWrites });
 		this.workspaces = new Workspaces(core.db, clock);
+		this.work = new MemoryWork(core, this.store, this.workspaces, llm, (cwd) => this.scopesFor(cwd), clock);
 		this.store.onChange((batchId) => core.broadcast({ event: "memory.changed", batchId }));
 		core.declareBackup({
 			id: "memory",
@@ -123,6 +124,7 @@ export class MemoryModule implements CoreModule {
 				"memory_batches",
 				"memory_ops",
 				"memory_pending",
+				"memory_jobs",
 			],
 			paths: {
 				memories: { cwd: "path", source_session: "path" },
@@ -142,7 +144,15 @@ export class MemoryModule implements CoreModule {
 		this.core.module(TasksModule)?.addInboxSource(() =>
 			this.store.pending().map((p) => ({ kind: "memory", id: p.id, title: pendingText(p), createdAt: p.createdAt, cwd: p.workspaceId ? (this.workspaces.get(p.workspaceId)?.path ?? null) : null })),
 		);
+		this.work.start();
 	}
+
+	async stop(): Promise<void> {
+		await this.work.stop();
+	}
+
+	/** Time for everything memory does; tests move it (two weeks, a month, a year: §13). */
+	clock: () => number = now;
 
 	private get enabled(): boolean {
 		return this.core.settings.get().memoryEnabled;
@@ -553,92 +563,16 @@ export class MemoryModule implements CoreModule {
 		return [this.extension(slot)];
 	}
 
-	// ---- extraction after a run (step 3 of 0.5 hands this to the memory agent) ----------------
+	// ---- the memory agent's work (docs/memory-design.md §5, §7) -----------------------------
 
+	/** A task ended: what was said goes to the memory agent's queue (it runs in the background, never waking the session: 16.7). */
 	onRunFinished(slot: Slot, run: Run): void {
 		const settings = this.core.settings.get();
 		if (run.status !== "done" || !settings.memoryEnabled || !settings.memoryAutoExtract || slot.incognito || slot.unattended) return;
-		void this.extract(slot).catch((error) => this.core.log.warn("memory extraction failed", error));
-	}
-
-	/** Adds what was said since the last extraction to memory (auto-applied, in the memory log). */
-	async extract(slot: Slot): Promise<CommitResult | undefined> {
-		const session = slot.session;
-		const sessionId = session.sessionId;
-		if (this.extracting.has(sessionId)) return undefined;
-		const messages = (session.messages as unknown as { role: string; content: unknown }[]).filter((m) => m.role === "user" || m.role === "assistant");
-		const done = this.db.get<{ message_count: number }>("SELECT message_count FROM memory_extraction WHERE session_id = ?", sessionId)?.message_count ?? 0;
-		const fresh = messages.slice(Math.min(done, messages.length));
-		const userText = fresh.filter((m) => m.role === "user").map((m) => textOf(m.content)).join("\n");
-		if (userText.trim().length < 12) return undefined;
-		this.extracting.add(sessionId);
-		try {
-			const set = this.scopesFor(slot.cwd);
-			const sessionRef = slot.info().sessionFile;
-			const transcript = fresh
-				.map((m) => `${m.role === "user" ? "用户" : "助手"}：${textOf(m.content).slice(0, 1500)}`)
-				.join("\n\n")
-				.slice(-8000);
-			// All the memories in scope (not just the ones sharing words with this conversation), so the same thing is not added again.
-			const shown = this.store.list({ set, limit: 80 });
-			const versions = new Map(shown.map((m) => [m.id, m.version]));
-			const existing = shown.map((m) => `#${m.id} [${m.kind}] ${m.content}`).join("\n") || "（无）";
-			const answer = await this.llm.complete(`已有的记忆：\n${existing}\n\n最近的对话：\n${transcript}`, {
-				system:
-					"你负责维护用户的长期记忆。从对话中找出值得长期记住的信息：用户稳定的偏好、个人或工作背景、定下的决定和约定、经确认有效的做事经验；还有这次任务做完了什么、定了什么、下一步是什么（每个任务最多 3 条，每条一句，kind 用 progress）。" +
-					"对话里的「助手」是 DreamFlutter 里的 Agent（用户可能叫它「蝶君」等名字）；助手的名字、身份、能力和它说过的话都不是用户的信息。用户给 Agent 定的设定（名字、称呼、角色）用 kind=persona，写成「用户称 Agent 为……」。" +
-					"不要提取：缺软件、没装好、路径不对、没配凭据造成的失败（要记的是怎么修好的）；重试就好了的临时错误；没有解决的失败；一次性的任务经过；闲聊；助手自己的话。一条只写一件事。" +
-					"和已有记忆逐条对比：意思相同或相近的不要输出（换个说法也算重复）；比已有记忆更完整或有修正时用 update（给 target_id）；已有记忆被明确推翻用 delete（给 target_id）；真正的新信息才用 add。" +
-					'只输出 JSON 数组，例如 [{"action":"add","kind":"preference","scope":"global","content":"用户喜欢简洁的中文回答","said":true,"reason":"用户说……"}]。没有就输出 []。' +
-					"kind 取 preference/background/experience/decision/progress/agreement/observation/persona；scope 取 global（任何场合都适用）或 workspace（只和当前项目有关）；said=true 表示用户亲口说的，false 表示你的推测。content 用用户的语言、以「用户」为主语。",
-				maxTokens: 1200,
-				sessionModel: slot.info().model,
-				timeoutMs: 60_000,
-			});
-			const items = parseJsonAnswer<{ action?: string; kind?: string; scope?: string; content?: string; reason?: string; target_id?: string; said?: boolean }[]>(answer) ?? [];
-			const ops: MemoryOp[] = [];
-			const added: { content: string }[] = [];
-			const known = this.store.list({ set });
-			for (const item of items.slice(0, 8)) {
-				const action = (["add", "update", "delete"] as const).find((a) => a === item.action) ?? "add";
-				const kind = ITEM_KINDS.find((k) => k === item.kind) ?? "background";
-				const sources = [{ kind: "session" as const, ref: sessionRef, excerpt: item.reason ?? null }];
-				const content = (item.content ?? "").trim();
-				if (action !== "add") {
-					const target = item.target_id ? this.store.get(item.target_id.replace(/^#/, "")) : undefined;
-					if (!target || !versions.has(target.id)) continue;
-					if (action === "delete") ops.push({ kind: "status", id: target.id, baseVersion: versions.get(target.id), status: "refuted", sources, reason: item.reason ?? "被新的对话推翻" });
-					else if (content) ops.push({ kind: "edit", id: target.id, baseVersion: versions.get(target.id), patch: { content }, sources, reason: item.reason ?? "说得更完整" });
-					continue;
-				}
-				if (!content) continue;
-				// The model still repeats itself now and then: a near repeat is dropped, or an update when it says more.
-				const twin = nearDuplicate(content, [...known, ...added]);
-				if (twin && !saysMore(content, twin.content)) continue;
-				if (twin && "id" in twin) {
-					const target = twin as MemoryItem;
-					ops.push({ kind: "edit", id: target.id, baseVersion: target.version, patch: { content }, sources, reason: item.reason ?? "说得更完整" });
-					continue;
-				}
-				if (twin) continue;
-				const target = item.scope === "global" ? { scope: "global" as ItemScope, workspaceId: null } : homeScope(set);
-				ops.push({ kind: "add", item: { content, kind, level: 1, ...target, confidence: item.said === true ? "user_reported" : "agent_inferred" }, sources, reason: item.reason });
-				added.push({ content });
-			}
-			const result = ops.length ? this.store.commit({ actor: "memory_agent", ops, allowed: set, sessionRef, batchKind: "extract", reason: "对话结束后的整理" }) : undefined;
-			this.db.run(
-				"INSERT INTO memory_extraction(session_id, message_count, updated_at) VALUES(?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET message_count = excluded.message_count, updated_at = excluded.updated_at",
-				sessionId,
-				messages.length,
-				now(),
-			);
-			if (result?.pending.length && !this.core.clients.size && this.core.settings.get().notifications) {
-				this.core.notifier.notify("有记忆改动等你确认", `${result.pending.length} 条，打开 DreamFlutter 的「记忆」查看`);
-			}
-			return result;
-		} finally {
-			this.extracting.delete(sessionId);
-		}
+		const sessionFile = slot.info().sessionFile;
+		if (!sessionFile) return;
+		this.work.queueExtraction({ sessionFile, sessionId: slot.session.sessionId, cwd: slot.cwd });
+		void this.work.drain();
 	}
 
 	// ---- methods -----------------------------------------------------------------------
@@ -775,7 +709,21 @@ export class MemoryModule implements CoreModule {
 			this.refreshRequested.add(requireStr(p.sessionId, "sessionId"));
 			return { ok: true };
 		});
-		core.register("memory.extractNow", async (p) => this.extract(core.slot(p.slotId)) ?? null);
+		core.register("memory.extractNow", async (p) => {
+			const slot = core.slot(p.slotId);
+			const sessionFile = slot.info().sessionFile;
+			if (!sessionFile) return null;
+			const job = this.work.queueExtraction({ sessionFile, sessionId: slot.session.sessionId, cwd: slot.cwd });
+			await this.work.drain();
+			return this.work.jobs.get(job.id) ?? null;
+		});
+		core.register("memory.jobs", (p) => this.work.jobs.list({ status: many(p.status, ["queued", "running", "done", "skipped", "deferred", "failed"] as const), limit: num(p.limit) }));
+		core.register("memory.runJobs", async () => {
+			this.work.checkSchedule();
+			await this.work.drain();
+			return { ok: true };
+		});
+		core.register("memory.spending", () => ({ today: this.work.spentToday(), dailyBudget: core.settings.get().memoryDailyBudgetUsd }));
 		core.register("memory.export", () => ({
 			items: store.list({ statuses: ITEM_STATUSES }).map((m) => ({ ...this.decorate(m), sources: store.sources(m.id) })),
 			workspaces: this.workspaces.list(),

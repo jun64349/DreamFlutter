@@ -199,7 +199,8 @@ describe("memory", () => {
 		t.core.settings.update({ memoryAutoExtract: true });
 		t.respond(
 			fauxAssistantMessage("这是为你规划的东京五日行程……"),
-			fauxAssistantMessage('```json\n[{"action":"add","kind":"preference","scope":"global","content":"用户旅行偏好慢节奏，不喜欢赶景点","said":true,"reason":"用户说不想太累"}]\n```'),
+			fauxAssistantMessage([fauxToolCall("memory_propose_ops", { ops: [{ action: "add", kind: "preference", scope: "global", content: "用户旅行偏好慢节奏，不喜欢赶景点", said: true, reason: "用户说不想太累" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("记了一条旅行偏好。"),
 		);
 		await prompt("帮我规划东京五日游，我不喜欢赶景点，想慢慢逛");
 		const found = await t.waitFor(() => t.core.db.get<{ id: string }>("SELECT id FROM memory_items WHERE content = '用户旅行偏好慢节奏，不喜欢赶景点'"));
@@ -214,16 +215,25 @@ describe("memory", () => {
 		t.core.settings.update({ memoryAutoExtract: true });
 		const { item: old } = (await t.core.call("memory.save", { content: "回复要简练，少说话", kind: "preference" })) as { item: MemoryItem };
 		const seen: string[] = [];
-		t.respond(fauxAssistantMessage("好的。"), (context) => {
-			seen.push(JSON.stringify(context.messages));
-			return fauxAssistantMessage(
-				JSON.stringify([
-					{ action: "add", kind: "preference", content: "回复要简练，少说话。" },
-					{ action: "add", kind: "preference", content: "回复要简练，别长篇大论；正常问答不要用卡片" },
-					{ action: "add", kind: "preference", content: "回复要简练，别长篇大论" },
-				]),
-			);
-		});
+		t.respond(
+			fauxAssistantMessage("好的。"),
+			(context) => {
+				seen.push(JSON.stringify(context));
+				return fauxAssistantMessage(
+					[
+						fauxToolCall("memory_propose_ops", {
+							ops: [
+								{ action: "add", kind: "preference", content: "回复要简练，少说话。", reason: "用户说" },
+								{ action: "add", kind: "preference", content: "回复要简练，别长篇大论；正常问答不要用卡片", reason: "用户说" },
+								{ action: "add", kind: "preference", content: "回复要简练，别长篇大论", reason: "用户说" },
+							],
+						}),
+					],
+					{ stopReason: "toolUse" },
+				);
+			},
+			fauxAssistantMessage("好"),
+		);
 		await prompt("以后回复简练一点，别长篇大论，普通问答也不要做卡片");
 		await t.waitFor(() => t.core.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM memory_ops WHERE kind = 'edit'")!.n === 1);
 		// The first repeats the memory; the second says more, so it updates it; the third repeats the second.
