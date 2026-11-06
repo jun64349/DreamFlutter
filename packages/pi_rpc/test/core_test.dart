@@ -35,7 +35,7 @@ void main() {
 
   test('hello reports the core version and no slots', () async {
     final hello = asJsonForTest(await core.call('core.hello'));
-    expect(hello['version'], '0.3.4');
+    expect(hello['version'], '0.4.0');
     expect(hello['slots'], isEmpty);
   });
 
@@ -78,6 +78,44 @@ void main() {
     await core.call('slot.close', {'slotId': slotId});
     expect(await core.call('slot.list') as List, isEmpty);
     expect(await attached.client.connection.done, 0);
+  });
+
+  // v0.4.0: the user's first start after the update took 22 s; the window gave up at 20 s with the core alive.
+  group('starting the core', () {
+    Future<Directory> emptyDir(String name) => Directory(p.join(temp.path, name)).create();
+
+    test('waits for a core that is still starting, past the first checks', () async {
+      final dir = await emptyDir('late');
+      // The running core "comes up" in this data dir after 3 s.
+      Future<void>.delayed(const Duration(seconds: 3), () => File(p.join(temp.path, 'data', 'core.json')).copySync(p.join(dir.path, 'core.json')));
+      final client = await CoreLocator.waitForStart(dir.path, 1234, isAlive: (_) async => true, startTimeout: const Duration(seconds: 30));
+      expect(asJsonForTest(await client.call('core.hello'))['version'], '0.4.0');
+      await client.close();
+    });
+
+    test('a core that exited is reported at once, not after the whole wait', () async {
+      final dir = await emptyDir('exited');
+      final watch = Stopwatch()..start();
+      await expectLater(
+        CoreLocator.waitForStart(dir.path, 1234, isAlive: (_) async => false, startTimeout: const Duration(minutes: 1)),
+        throwsA(isA<CoreException>().having((e) => e.code, 'code', 'start_failed').having((e) => e.message, 'message', contains('core.log'))),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+    });
+
+    test('ours stepping aside for another core that holds the lock keeps the wait going', () async {
+      final dir = await emptyDir('aside');
+      File(p.join(dir.path, 'core.lock')).writeAsStringSync('4242');
+      await expectLater(
+        CoreLocator.waitForStart(dir.path, 1234, isAlive: (pid) async => pid == 4242, startTimeout: const Duration(seconds: 5)),
+        throwsA(isA<CoreException>().having((e) => e.code, 'code', 'start_timeout')),
+      );
+    });
+
+    test('a live process is told apart from a gone one', () async {
+      expect(await CoreLocator.processAlive(pid), isTrue);
+      expect(await CoreLocator.processAlive(999999), isFalse);
+    });
   });
 }
 

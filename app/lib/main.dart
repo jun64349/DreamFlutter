@@ -17,7 +17,7 @@ import 'ui/window_frame.dart';
 import 'ui/zoom.dart';
 
 /// Shown in the settings page.
-const appVersion = '0.3.4';
+const appVersion = '0.4.0';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
