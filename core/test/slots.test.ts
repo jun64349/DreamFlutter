@@ -345,7 +345,7 @@ describe("settings", () => {
 		try {
 			t.core.settings.update({ approvalMode: "all", memoryBudgetTokens: -5, bogus: 1, fallbackModels: ["a/b"] });
 			assert.equal(t.core.settings.get().approvalMode, "all");
-			assert.equal(t.core.settings.get().memoryBudgetTokens, 1500);
+			assert.equal(t.core.settings.get().memoryBudgetTokens, 2000);
 			assert.deepEqual(t.core.settings.get().fallbackModels, ["a/b"]);
 			assert.ok(t.messages.some((m) => m.event === "settings.changed"));
 			const reopened = await t.reopen();

@@ -1,12 +1,14 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { Core, CoreModule, Params } from "../core.ts";
 import { normalizeCwd, num, RpcError, requireStr, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, now, parseJson } from "../db.ts";
 import { migrateV02, migrationDone, splitBlock } from "../memory/migrate.ts";
-import { allowedScopes, homeScope, type ScopeSet, Workspaces } from "../memory/scopes.ts";
+import { allowedScopes, homeScope, type ScopeSet, visibleIn, Workspaces } from "../memory/scopes.ts";
+import { memoryBudget, planSnapshot, SHARES, type SnapshotPlan } from "../memory/snapshot.ts";
 import { MemoryStore } from "../memory/store.ts";
-import { estimateTokens, nearDuplicate, relevance, saysMore, trigrams } from "../memory/text.ts";
+import { estimateTokens, nearDuplicate, saysMore } from "../memory/text.ts";
 import {
 	type Actor,
 	type CommitResult,
@@ -15,6 +17,7 @@ import {
 	ITEM_SCOPES,
 	ITEM_STATUSES,
 	type ItemKind,
+	MEMORY_MESSAGE_TYPE,
 	type ItemPatch,
 	type ItemScope,
 	type ItemStatus,
@@ -32,6 +35,7 @@ import { parseJsonAnswer, type Llm } from "./llm.ts";
 import { TasksModule } from "./tasks.ts";
 
 export { estimateTokens, nearDuplicate, overlap, relevance, saysMore } from "../memory/text.ts";
+export { MEMORY_MESSAGE_TYPE } from "../memory/types.ts";
 
 /** An item in v0.2's shape (memory.list, memory.add… until the memory page moves to the v0.5 methods). */
 export interface Memory {
@@ -51,7 +55,6 @@ export interface Memory {
 	updatedAt: number;
 }
 
-export const MEMORY_MESSAGE_TYPE = "df-memory";
 export const MEMORY_TOOLS = ["memory_search", "memory_save", "memory_update", "memory_forget", "session_search"];
 
 const KIND_LABEL: Record<ItemKind, string> = {
@@ -91,6 +94,8 @@ export class MemoryModule implements CoreModule {
 	/** Session id → refresh the snapshot at the next prompt. */
 	private readonly refreshRequested = new Set<string>();
 	private readonly extracting = new Set<string>();
+	/** Sessions compacted since their last model call: the snapshot is checked again and comes back after the checkpoint. */
+	readonly compacted = new Set<string>();
 
 	constructor(core: Core, llm: Llm, options: { clock?: () => number } = {}) {
 		this.core = core;
@@ -161,49 +166,147 @@ export class MemoryModule implements CoreModule {
 		}
 	}
 
-	// ---- snapshot (step 2 of 0.5 rebuilds this with the budget and materials) ---------------
+	// ---- snapshot (docs/memory-design.md §6) -------------------------------------------------
 
-	/** The memory a task starts with: pinned items plus the ones most related to [prompt]. */
-	snapshot(prompt: string, cwd: string): { content: string; ids: string[] } {
+	/** Plans the snapshot for [prompt] in [cwd]: the budget from [model]'s window and what the request already holds (§6.1). */
+	snapshot(prompt: string, cwd: string, model?: { contextWindow: number; maxTokens: number }, nonMemory = 0): Snapshot {
 		const set = this.scopesFor(cwd);
 		const live = this.store.list({ set, statuses: LIVE_STATUSES });
-		const pinned = live.filter((m) => m.pinned);
-		const budget = this.core.settings.get().memoryBudgetTokens;
-		const grams = trigrams(prompt);
-		const candidates = live
-			.filter((m) => !m.pinned)
-			.map((m) => ({ m, score: relevance(grams, m.content) + (m.scope !== "global" ? 0.3 : 0) + (m.kind === "preference" ? 0.2 : 0) - (m.status === "review" ? 0.5 : 0) }))
-			.sort((a, b) => b.score - a.score || b.m.updatedAt - a.m.updatedAt);
-		let used = pinned.reduce((sum, m) => sum + estimateTokens(m.content) + 6, 0);
-		const picked: MemoryItem[] = [];
-		for (const { m } of candidates) {
-			const cost = estimateTokens(m.content) + 6;
-			if (used + cost > budget) continue;
-			picked.push(m);
-			used += cost;
-			if (picked.length >= 30) break;
-		}
-		if (pinned.length === 0 && picked.length === 0) return { content: "", ids: [] };
+		const cap = this.core.settings.get().memoryBudgetTokens;
+		const budget = model?.contextWindow ? memoryBudget({ cap, contextWindow: model.contextWindow, maxOutput: model.maxTokens || 0, nonMemory }) : cap;
+		const plan = planSnapshot(live, prompt, budget);
+		const items = [...plan.pinned, ...plan.related];
+		return { plan, content: items.length ? this.render(plan) : "", ids: items.map((m) => m.id), itemVersions: Object.fromEntries(items.map((m) => [m.id, m.version])) };
+	}
+
+	private render(plan: SnapshotPlan): string {
 		const line = (m: MemoryItem) => `- [${KIND_LABEL[m.kind]}${m.scope !== "global" ? `·${this.where(m)}` : ""}${m.status === "review" ? "·待核对" : ""}] ${m.content} (#${m.id})`;
-		const persona = [...pinned, ...picked].filter((m) => m.kind === "persona");
+		const all = [...plan.pinned, ...plan.related];
+		const persona = all.filter((m) => m.kind === "persona");
 		const lines = [`<记忆快照 生成于 ${new Date(this.store.clock()).toLocaleDateString("zh-CN")}>`, "以下是 DreamFlutter 为这个任务准备的记忆，任务期间保持不变。条目以「用户」为主语；标「待核对」的还没核实，用之前留意。"];
 		if (persona.length) lines.push("", "## 用户给你（Agent）的设定", ...persona.map(line));
-		const pinnedOther = pinned.filter((m) => m.kind !== "persona");
-		if (pinnedOther.length) lines.push("", "## 常驻", ...pinnedOther.map(line));
-		const related = picked.filter((m) => m.kind !== "persona");
+		const pinned = plan.pinned.filter((m) => m.kind !== "persona");
+		if (pinned.length) lines.push("", "## 常驻", ...pinned.map(line));
+		const related = plan.related.filter((m) => m.kind !== "persona");
 		if (related.length) lines.push("", "## 可能相关的记忆", ...related.map(line));
 		lines.push(
 			"</记忆快照>",
 			"需要更多背景时用 memory_search 查找，也可以用 session_search 查以前的对话。用户明确要求你记住的事，用 memory_save 并设 explicit=true；你自己总结或推测的，设 explicit=false（会标成「推测」）。保存会直接生效并记入记忆日志，用户可以随时修改或撤销。",
 		);
-		const ids = [...pinned, ...picked].map((m) => m.id);
-		return { content: lines.join("\n"), ids };
+		return lines.join("\n");
 	}
 
-	snapshotsFor(sessionId: string): { createdAt: number; content: string; memoryIds: string[] }[] {
+	/**
+	 * Builds, records and returns the snapshot a session uses from now on.
+	 * Assembly failing is said, not hidden (§6.3 「静默失败」): the session gets
+	 * a notice that memory did not load, never an older snapshot standing in.
+	 */
+	buildSnapshot(sessionId: string, prompt: string, cwd: string, model: { contextWindow: number; maxTokens: number } | undefined, nonMemory: number, reason: SnapshotReason): SnapshotRow | undefined {
+		let snapshot: Snapshot;
+		try {
+			snapshot = this.snapshot(prompt, cwd, model, nonMemory);
+		} catch (error) {
+			this.core.log.warn("memory snapshot failed", error);
+			return this.recordSnapshot(sessionId, prompt, { content: FAILED_NOTICE, ids: [], itemVersions: {}, plan: undefined }, "failed", reason);
+		}
+		if (!snapshot.content) return undefined;
+		this.store.markUsed(snapshot.ids);
+		return this.recordSnapshot(sessionId, prompt, snapshot, "ok", reason);
+	}
+
+	private recordSnapshot(sessionId: string, prompt: string, snapshot: Omit<Snapshot, "plan"> & { plan: SnapshotPlan | undefined }, status: "ok" | "degraded" | "failed", reason: SnapshotReason): SnapshotRow {
+		const snapshotId = `ss_${randomUUID().replaceAll("-", "").slice(0, 10)}`;
+		let at = this.store.clock();
+		// Two snapshots in the same millisecond (a correction right after the start) keep both rows.
+		while (this.db.get("SELECT 1 FROM memory_snapshots WHERE session_id = ? AND created_at = ?", sessionId, at)) at++;
+		this.db.run(
+			"INSERT INTO memory_snapshots(session_id, created_at, content, memory_ids, snapshot_id, prompt, budget, tokens, item_versions, left_out, status, reason, pinned_over) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			sessionId,
+			at,
+			snapshot.content,
+			json(snapshot.ids),
+			snapshotId,
+			prompt.slice(0, 4000),
+			snapshot.plan?.budget ?? null,
+			snapshot.plan?.tokens ?? null,
+			json(snapshot.itemVersions),
+			json(snapshot.plan?.leftOut ?? []),
+			status,
+			reason,
+			snapshot.plan?.pinnedOver ? 1 : 0,
+		);
+		return this.latestSnapshot(sessionId)!;
+	}
+
+	/** The snapshot [sessionId] uses now (the newest one recorded). */
+	latestSnapshot(sessionId: string): SnapshotRow | undefined {
+		const row = this.db.get<SnapshotDbRow>("SELECT * FROM memory_snapshots WHERE session_id = ? ORDER BY created_at DESC LIMIT 1", sessionId);
+		return row ? toSnapshotRow(row) : undefined;
+	}
+
+	/**
+	 * The user corrected, undid or set aside an item of [snapshot] since it was
+	 * built (§6.3 「纠正立即生效」, 16.4). Background tidying is not a reason:
+	 * it waits for the next task, so one run sees stable memory.
+	 */
+	corrected(snapshot: SnapshotRow): string[] {
+		if (!snapshot.itemVersions) return [];
+		return Object.entries(snapshot.itemVersions)
+			.filter(([id, version]) => this.db.get("SELECT 1 FROM memory_ops WHERE item_id = ? AND actor = 'user' AND after_version > ? LIMIT 1", id, version))
+			.map(([id]) => id);
+	}
+
+	/**
+	 * [snapshot] with the user's corrections of [ids] put in: those items as
+	 * they are now (gone if set aside), every other item as it was shown, the
+	 * selection unchanged.
+	 */
+	correctSnapshot(sessionId: string, snapshot: SnapshotRow, ids: string[]): SnapshotRow {
+		const items: MemoryItem[] = [];
+		for (const [id, version] of Object.entries(snapshot.itemVersions ?? {})) {
+			const item = ids.includes(id) ? this.store.get(id) : this.store.version(id, version);
+			if (item && LIVE_STATUSES.includes(item.status)) items.push(item);
+		}
+		const plan: SnapshotPlan = {
+			budget: snapshot.budget ?? 0,
+			tokens: snapshot.tokens ?? 0,
+			pinned: items.filter((m) => m.pinned),
+			related: items.filter((m) => !m.pinned),
+			leftOut: snapshot.leftOut as SnapshotPlan["leftOut"],
+			pinnedOver: snapshot.pinnedOver,
+			searchRoom: Math.floor((snapshot.budget ?? 0) * SHARES.search),
+		};
+		const content = items.length ? this.render(plan) : "<记忆快照>\n（用户刚撤掉了这次任务用到的记忆，现在没有可用的记忆。）\n</记忆快照>";
+		return this.recordSnapshot(sessionId, snapshot.prompt ?? "", { plan, content, ids: items.map((m) => m.id), itemVersions: Object.fromEntries(items.map((m) => [m.id, m.version])) }, "ok", "correction");
+	}
+
+	/** Items the user set aside that a compaction summary still repeats (§6.3: such text must not come back). */
+	revivedIn(summary: string, set: ScopeSet): MemoryItem[] {
+		const gone: ItemStatus[] = ["outdated", "superseded", "refuted", "ended", "forgotten", "withdrawn"];
+		return this.store.list({ set, statuses: gone }).filter((m) => m.content.length >= 6 && summary.includes(m.content));
+	}
+
+	/** Why [itemId] is or is not in [sessionId]'s snapshot (17.8 「为什么没想起来」). */
+	whyNot(sessionId: string, itemId: string, cwd?: string): { reason: string; snapshotId: string | null; at: number | null } {
+		const item = this.store.get(itemId);
+		const snapshot = this.latestSnapshot(sessionId);
+		const out = (reason: string) => ({ reason, snapshotId: snapshot?.snapshotId ?? null, at: snapshot?.createdAt ?? null });
+		if (!item) return out("not_found");
+		if (snapshot?.itemVersions && itemId in snapshot.itemVersions) return out("included");
+		if (cwd && !visibleIn(item, this.scopesFor(cwd))) return out("out_of_scope");
+		if (!LIVE_STATUSES.includes(item.status)) return out(item.status);
+		if (!snapshot) return out("no_snapshot");
+		if (snapshot.status === "failed") return out("snapshot_failed");
+		const left = snapshot.leftOut.find((l) => l.id === itemId);
+		if (left) return out(left.reason);
+		if (item.createdAt > snapshot.createdAt || item.updatedAt > snapshot.createdAt) return out("newer_than_snapshot");
+		return out("out_of_scope");
+	}
+
+	snapshotsFor(sessionId: string): (SnapshotRow & { memoryIds: string[] })[] {
 		return this.db
-			.all<{ created_at: number; content: string; memory_ids: string }>("SELECT * FROM memory_snapshots WHERE session_id = ? ORDER BY created_at DESC", sessionId)
-			.map((r) => ({ createdAt: r.created_at, content: r.content, memoryIds: parseJson<string[]>(r.memory_ids, []) }));
+			.all<SnapshotDbRow>("SELECT * FROM memory_snapshots WHERE session_id = ? ORDER BY created_at DESC", sessionId)
+			.map((r) => ({ ...toSnapshotRow(r), memoryIds: parseJson<string[]>(r.memory_ids, []) }));
 	}
 
 	// ---- extension ---------------------------------------------------------------------
@@ -219,6 +322,7 @@ export class MemoryModule implements CoreModule {
 			/** A scheduled run: its memory changes wait for the user (nobody asked it to remember). */
 			const unattended = () => current()?.unattended === true;
 
+			// A task starts with a snapshot (§6.3): written into the session, so 「本次用了哪些记忆」 can be told later.
 			pi.on("before_agent_start", (event, ctx) => {
 				if (!module.enabled || incognito() || event.messageType !== "user") return undefined;
 				const sessionId = ctx.sessionManager.getSessionId();
@@ -227,17 +331,52 @@ export class MemoryModule implements CoreModule {
 					.some((e) => e.type === "custom_message" && (e as { customType?: string }).customType === MEMORY_MESSAGE_TYPE);
 				if (inContext && !module.refreshRequested.has(sessionId)) return undefined;
 				module.refreshRequested.delete(sessionId);
-				const snapshot = module.snapshot(event.prompt, ctx.cwd);
-				if (!snapshot.content) return undefined;
-				module.store.markUsed(snapshot.ids);
-				module.db.run(
-					"INSERT OR REPLACE INTO memory_snapshots(session_id, created_at, content, memory_ids) VALUES(?, ?, ?, ?)",
-					sessionId,
-					now(),
-					snapshot.content,
-					json(snapshot.ids),
-				);
-				return { message: { customType: MEMORY_MESSAGE_TYPE, content: snapshot.content, display: false, details: { memoryIds: snapshot.ids } } };
+				const built = module.buildSnapshot(sessionId, event.prompt, ctx.cwd, ctx.model, ctx.getContextUsage()?.tokens ?? 0, inContext ? "refresh" : "task_start");
+				if (!built) return undefined;
+				return { message: { customType: MEMORY_MESSAGE_TYPE, content: built.content, display: false, details: { snapshotId: built.snapshotId, memoryIds: Object.keys(built.itemVersions ?? {}) } } };
+			});
+
+			// Before every model call (§6.3): only the newest snapshot goes out; one the user just
+			// corrected is rebuilt on the spot; after a compaction it comes back; memory turned off
+			// takes it away.
+			pi.on("context", (event, ctx) => {
+				const messages = event.messages as unknown as { role: string; customType?: string; content: unknown }[];
+				const at = messages.flatMap((m, i) => (isSnapshotMessage(m) ? [i] : []));
+				if (!module.enabled || incognito()) return at.length ? { messages: event.messages.filter((m) => !isSnapshotMessage(m)) } : undefined;
+				const sessionId = ctx.sessionManager.getSessionId();
+				const compacted = module.compacted.delete(sessionId);
+				if (!at.length && !compacted) return undefined;
+				let latest = module.latestSnapshot(sessionId);
+				if (latest && latest.status !== "failed") {
+					if (compacted) {
+						// A maintenance boundary (16.2): the snapshot is checked against the store and put together again.
+						latest = module.buildSnapshot(sessionId, latest.prompt ?? "", current()?.cwd ?? ctx.cwd, ctx.model, ctx.getContextUsage()?.tokens ?? 0, "compaction") ?? latest;
+					} else {
+						const ids = module.corrected(latest);
+						if (ids.length) latest = module.correctSnapshot(sessionId, latest, ids);
+					}
+				}
+				if (!latest) return at.length > 1 ? { messages: event.messages.filter((m, i) => !isSnapshotMessage(m) || i === at[at.length - 1]) } : undefined;
+				const snapshot = { role: "custom", customType: MEMORY_MESSAGE_TYPE, content: latest.content, display: false, details: { snapshotId: latest.snapshotId }, timestamp: latest.createdAt };
+				const out = event.messages.filter((m, i) => !isSnapshotMessage(m) || i === at[at.length - 1]).map((m) => (isSnapshotMessage(m) ? ({ ...m, content: latest!.content } as typeof m) : m));
+				if (!at.length) {
+					// After the checkpoint the compaction left (the snapshot itself was kept out of the summary).
+					let insert = 0;
+					while (insert < out.length && isCheckpoint(out[insert])) insert++;
+					out.splice(insert, 0, snapshot as unknown as (typeof out)[number]);
+				}
+				return { messages: out };
+			});
+
+			pi.on("session_compact", (event, ctx) => {
+				if (!module.enabled || incognito()) return;
+				const sessionId = ctx.sessionManager.getSessionId();
+				module.compacted.add(sessionId);
+				const revived = module.revivedIn(event.compactionEntry.summary ?? "", scopes());
+				if (revived.length) {
+					module.core.log.warn(`memory: the compaction summary of ${sessionId} repeats ${revived.length} memory item(s) the user set aside`);
+					module.core.broadcast({ event: "memory.warning", kind: "summary_revived", sessionId, itemIds: revived.map((m) => m.id) });
+				}
 			});
 
 			const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: {} });
@@ -263,13 +402,22 @@ export class MemoryModule implements CoreModule {
 				parameters: { type: "object", properties: { query: { type: "string", description: "What to look for" } }, required: ["query"] } as never,
 				async execute(_id, params: { query: string }) {
 					if (off()) return text("记忆功能已关闭。");
-					const hits = module.store.list({ set: scopes(), query: params.query, limit: 12 });
+					const hits = module.store.list({ set: scopes(), query: params.query, limit: 50 });
 					if (!hits.length) return text("没有找到相关记忆。");
-					return text(
-						hits
-							.map((m) => `- [${KIND_LABEL[m.kind]}·${module.where(m)}·${LEVEL_LABEL[m.level]}${m.status === "review" ? "·待核对" : ""}] ${m.content} (#${m.id}，更新于 ${new Date(m.updatedAt).toLocaleDateString("zh-CN")})`)
-							.join("\n"),
-					);
+					// Within the budget's search share (§6.4): the best few, and how many more there are.
+					const latest = module.latestSnapshot(current()?.session.sessionId ?? "");
+					const room = Math.max(120, Math.floor((latest?.budget ?? module.core.settings.get().memoryBudgetTokens) * SHARES.search));
+					const lines: string[] = [];
+					let used = 0;
+					for (const m of hits) {
+						const line = `- [${KIND_LABEL[m.kind]}·${module.where(m)}·${LEVEL_LABEL[m.level]}${m.status === "review" ? "·待核对" : ""}] ${m.content} (#${m.id}，更新于 ${new Date(m.updatedAt).toLocaleDateString("zh-CN")})`;
+						const cost = estimateTokens(line);
+						if (lines.length && used + cost > room) break;
+						lines.push(line);
+						used += cost;
+					}
+					if (lines.length < hits.length) lines.push(`（还有 ${hits.length - lines.length} 条相关记忆没有列出，可以换个更具体的说法再查。）`);
+					return text(lines.join("\n"));
 				},
 			});
 
@@ -621,6 +769,8 @@ export class MemoryModule implements CoreModule {
 		});
 		core.register("memory.migrationReport", () => migrationDone(this.db) ?? null);
 		core.register("memory.snapshots", (p) => this.snapshotsFor(requireStr(p.sessionId, "sessionId")));
+		core.register("memory.snapshotInfo", (p) => this.latestSnapshot(requireStr(p.sessionId, "sessionId")) ?? null);
+		core.register("memory.whyNot", (p) => this.whyNot(requireStr(p.sessionId, "sessionId"), requireStr(p.itemId, "itemId"), str(p.cwd)));
 		core.register("memory.refresh", (p) => {
 			this.refreshRequested.add(requireStr(p.sessionId, "sessionId"));
 			return { ok: true };
@@ -763,6 +913,80 @@ export class MemoryModule implements CoreModule {
 			why: p.why,
 		};
 	}
+}
+
+/** Why a snapshot was built (§6.3's refresh times). */
+export type SnapshotReason = "task_start" | "refresh" | "correction" | "compaction";
+
+interface Snapshot {
+	plan: SnapshotPlan;
+	content: string;
+	ids: string[];
+	itemVersions: Record<string, number>;
+}
+
+/** One snapshot a session got (memory_snapshots). */
+export interface SnapshotRow {
+	snapshotId: string | null;
+	createdAt: number;
+	content: string;
+	/** The task's first prompt, to build it again after a correction or a compaction. */
+	prompt: string | null;
+	budget: number | null;
+	tokens: number | null;
+	/** Item id → the version shown; null for snapshots from before 0.5. */
+	itemVersions: Record<string, number> | null;
+	leftOut: { id: string; reason: string }[];
+	status: "ok" | "degraded" | "failed";
+	reason: string | null;
+	/** Pinned items took more than their share (the user is asked to trim them). */
+	pinnedOver: boolean;
+}
+
+interface SnapshotDbRow {
+	session_id: string;
+	created_at: number;
+	content: string;
+	memory_ids: string;
+	snapshot_id: string | null;
+	prompt: string | null;
+	budget: number | null;
+	tokens: number | null;
+	item_versions: string | null;
+	left_out: string | null;
+	status: string;
+	reason: string | null;
+	pinned_over: number;
+}
+
+function toSnapshotRow(r: SnapshotDbRow): SnapshotRow {
+	return {
+		snapshotId: r.snapshot_id,
+		createdAt: r.created_at,
+		content: r.content,
+		prompt: r.prompt,
+		budget: r.budget,
+		tokens: r.tokens,
+		itemVersions: r.item_versions ? parseJson<Record<string, number> | null>(r.item_versions, null) : null,
+		leftOut: parseJson<{ id: string; reason: string }[]>(r.left_out, []),
+		status: r.status as SnapshotRow["status"],
+		reason: r.reason,
+		pinnedOver: r.pinned_over === 1,
+	};
+}
+
+/** What the session gets when the snapshot could not be put together (§6.3: said, not hidden). */
+export const FAILED_NOTICE = "<记忆快照 状态=未能加载>\n这次没能加载用户的长期记忆（出了错）。需要时用 memory_search 查找；不要以为自己记得用户的偏好。\n</记忆快照>";
+
+function isSnapshotMessage(message: unknown): boolean {
+	const m = message as { role?: string; customType?: string };
+	return m.role === "custom" && m.customType === MEMORY_MESSAGE_TYPE;
+}
+
+/** A compaction checkpoint as the harness hands it to the model. */
+function isCheckpoint(message: unknown): boolean {
+	const m = message as { role?: string; customType?: string };
+	return m.role === "compactionSummary" || (m.role === "custom" && m.customType === "df.checkpoint");
 }
 
 /** A pinned global item the v0.2 page shows inside a block, not in the list. */

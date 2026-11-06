@@ -59,3 +59,21 @@ export function estimateTokens(text: string): number {
 	const cjk = (text.match(/[　-鿿＀-￯]/g) ?? []).length;
 	return cjk + Math.ceil((text.length - cjk) / 4);
 }
+
+/** Pairs of adjacent CJK characters: Chinese words are mostly two characters, which trigrams miss (「周报」). */
+function cjkBigrams(text: string): Set<string> {
+	const out = new Set<string>();
+	for (const run of text.match(/[㐀-鿿]+/g) ?? []) for (let i = 0; i + 2 <= run.length; i++) out.add(run.slice(i, i + 2));
+	return out;
+}
+
+/** How related [memory] is to a task described by [prompt]: trigrams, plus CJK word pairs. */
+export function taskRelevance(prompt: string, memory: string, promptGrams = trigrams(prompt)): number {
+	const pairs = cjkBigrams(memory);
+	let shared = 0;
+	if (pairs.size) {
+		const promptPairs = cjkBigrams(prompt);
+		for (const p of pairs) if (promptPairs.has(p)) shared++;
+	}
+	return relevance(promptGrams, memory) + (pairs.size ? (0.5 * shared) / Math.sqrt(pairs.size) : 0);
+}

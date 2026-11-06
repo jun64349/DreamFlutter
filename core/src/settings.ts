@@ -56,7 +56,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	fallbackModels: [],
 	memoryEnabled: true,
 	memoryAutoExtract: true,
-	memoryBudgetTokens: 1500,
+	memoryBudgetTokens: 2000,
 	memoryConfirmWrites: false,
 	autoTitle: true,
 	dailyBudgetUsd: 0,

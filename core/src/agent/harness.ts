@@ -31,6 +31,7 @@ import {
 	TOOL_GUIDANCE,
 	workingDirectoryContext,
 } from "./dsh-text.ts";
+import { MEMORY_MESSAGE_TYPE } from "../memory/types.ts";
 import { RICH_OUTPUT_GUIDANCE, SANDBOX_ENVIRONMENT } from "./host-text.ts";
 import { editTool, readImageTool, readTool, workingDirectoryTool, writeTool } from "./fs-tools.ts";
 import { askUserTool, exitPlanModeTool, skillTool, todoTool } from "./interaction-tools.ts";
@@ -428,14 +429,19 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			}
 			const model = ctx.model as Model<never> | undefined;
 			if (!model) return undefined;
-			const messages = convertToLlm([...preparation.messagesToSummarize, ...preparation.turnPrefixMessages].map((message) => prunedView(message)));
+			// The memory snapshot is provided again after the checkpoint: summarizing it would carry
+			// memories the user corrected since into the summary (memory-design 6.3).
+			const all = [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages];
+			const toSummarize = all.filter((message) => !isMemorySnapshot(message));
+			const messages = convertToLlm(toSummarize.map((message) => prunedView(message)));
 			if (preparation.previousSummary) {
 				messages.unshift({ role: "user", content: [{ type: "text", text: frameSummary(preparation.previousSummary) }], timestamp: 0 });
 			}
 			const focus = event.customInstructions?.trim();
-			const instruction = focus ? `${COMPACTION_INSTRUCTION}
+			const base = toSummarize.length < all.length ? `${COMPACTION_INSTRUCTION}\n\n${MEMORY_SUMMARY_NOTE}` : COMPACTION_INSTRUCTION;
+			const instruction = focus ? `${base}
 
-The user asked this checkpoint to focus on: ${focus}` : COMPACTION_INSTRUCTION;
+The user asked this checkpoint to focus on: ${focus}` : base;
 			messages.push({ role: "user", content: [{ type: "text", text: instruction }], timestamp: now() });
 			const toolInfos = pi.getAllTools().filter((t) => activeNames().has(t.name));
 			const answer = await options.complete(
@@ -459,6 +465,15 @@ The user asked this checkpoint to focus on: ${focus}` : COMPACTION_INSTRUCTION;
 		}
 	};
 }
+
+/** DreamFlutter's memory snapshot message (written by the memory module). */
+function isMemorySnapshot(message: unknown): boolean {
+	const m = message as { role?: string; customType?: string };
+	return m.role === "custom" && m.customType === MEMORY_MESSAGE_TYPE;
+}
+
+/** Added to the compaction instruction when a memory snapshot was left out of what is summarized. */
+export const MEMORY_SUMMARY_NOTE = "Do not copy the user's long-term memory (the memory snapshot) into the checkpoint: DreamFlutter provides the current memory again after it, and memories may have been corrected since.";
 
 function codePoints(blocks: { type: string; text?: string }[]): number {
 	let n = 0;

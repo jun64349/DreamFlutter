@@ -4,6 +4,9 @@
  * them (scope, version, the user-only exceptions) and logs them in batches.
  */
 
+/** customType of the snapshot message in a session (written by memory, left out of compaction by the harness). */
+export const MEMORY_MESSAGE_TYPE = "df-memory";
+
 /** 1 近期 / 2 阶段 / 3 长期 (§3). */
 export type Level = 1 | 2 | 3;
 

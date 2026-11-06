@@ -553,5 +553,17 @@ export const MIGRATIONS: string[] = [
 		resolved_at INTEGER
 	);
 	CREATE INDEX memory_pending_status ON memory_pending(status, created_at);
+
+	-- Each snapshot a session got: for 「本次用了哪些记忆」, 「为什么没想起来」 and correcting it in place (§6).
+	ALTER TABLE memory_snapshots ADD COLUMN snapshot_id TEXT;
+	ALTER TABLE memory_snapshots ADD COLUMN prompt TEXT;
+	ALTER TABLE memory_snapshots ADD COLUMN budget INTEGER;
+	ALTER TABLE memory_snapshots ADD COLUMN tokens INTEGER;
+	ALTER TABLE memory_snapshots ADD COLUMN item_versions TEXT;
+	ALTER TABLE memory_snapshots ADD COLUMN left_out TEXT;
+	ALTER TABLE memory_snapshots ADD COLUMN status TEXT NOT NULL DEFAULT 'ok';
+	ALTER TABLE memory_snapshots ADD COLUMN reason TEXT;
+	ALTER TABLE memory_snapshots ADD COLUMN pinned_over INTEGER NOT NULL DEFAULT 0;
+	CREATE INDEX memory_snapshots_session ON memory_snapshots(session_id, created_at);
 	`,
 ];
