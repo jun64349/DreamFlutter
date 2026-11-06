@@ -338,12 +338,35 @@ export class Slot {
 	}
 
 	/** Compacts now (dsh's compactNow: nothing recent kept back), with an optional focus for the summary. */
-	async compactNow(customInstructions?: string): Promise<unknown> {
+	async compactNow(customInstructions?: string, regenerateEntryId?: string): Promise<unknown> {
+		if (this.closing || this.compacting) throw new Error("会话正在关闭或压缩");
+		if (regenerateEntryId && this.running) throw new Error("请等待当前回复结束后重新生成摘要");
+		const manager = this.session.sessionManager;
+		const checkpoint = regenerateEntryId ? manager.getLeafEntry() : undefined;
+		// Pi 1.4.0 cannot compact a branch ending in a compaction. Move to its
+		// exact parent BEFORE invoking the public compaction API. branch() does
+		// not rewrite entries (unlike navigating to a user message, it keeps it).
+		// If later messages exist, retain the existing regeneration path so those
+		// messages are not abandoned when fixing the immediate-regeneration case.
+		const branchFrom = checkpoint?.type === "compaction" && checkpoint.id === regenerateEntryId ? checkpoint.parentId : undefined;
+		if (branchFrom === null) throw new Error("压缩检查点没有可重新生成的原文分支");
+		if (branchFrom !== undefined) manager.branch(branchFrom);
+		this.compacting = true;
 		this.config?.manualCompactions?.add(this.slotId);
 		try {
 			return await this.session.compact(customInstructions);
+		} catch (error) {
+			// A failed/cancelled summary appended nothing: restore the previous
+			// branch and public finalized context, leaving its checkpoint retryable.
+			if (branchFrom !== undefined && manager.getLeafId() === branchFrom) {
+				manager.branch(checkpoint!.id);
+				this.session.refreshContext();
+			}
+			throw error;
 		} finally {
 			this.config?.manualCompactions?.delete(this.slotId);
+			this.compacting = false;
+			this.hooks.changed(this);
 		}
 	}
 

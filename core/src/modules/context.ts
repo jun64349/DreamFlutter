@@ -9,6 +9,7 @@ import type { Db } from "../db.ts";
 import { textOf } from "../runs.ts";
 import type { Slot } from "../slots/slot.ts";
 import type { Llm } from "./llm.ts";
+import { MemoryModule } from "./memory.ts";
 
 /**
  * The context service (roadmap 5.12): a session's compaction threshold (a
@@ -24,7 +25,9 @@ export class ContextModule implements CoreModule {
 	private readonly db: Db;
 	private readonly llm: Llm;
 	/** slot id → the user's note for the next compaction there (「重新生成」). */
-	private readonly regenerate = new Map<string, string>();
+	private readonly regenerate = new Map<string, { note: string; checkpoint?: { summary: string; firstKeptEntryId: string } }>();
+	private readonly regenerationSource = new Map<string, "original" | "previous_summary">();
+	private readonly regenerationErrors = new Map<string, unknown>();
 
 	constructor(core: Core, llm: Llm) {
 		this.core = core;
@@ -78,6 +81,9 @@ export class ContextModule implements CoreModule {
 	private hooks(slot: Slot): CompactionHooks {
 		const sessionId = () => (slot.started ? slot.session.sessionId : undefined);
 		return {
+			invalidatedFacts: () => slot.incognito || slot.isSideConversation ? "" : this.core.module(MemoryModule)?.compactionExclusions(slot.cwd, sessionId()) ?? "",
+			regenerated: source => this.regenerationSource.set(slot.slotId, source),
+			regenerateFailed: error => this.regenerationErrors.set(slot.slotId, error),
 			settings: (model, base) => this.settingsFor(sessionId(), model, base),
 			background: {
 				enabled: () => this.core.settings.get().autoCompaction && this.backgroundOn(slot),
@@ -93,7 +99,7 @@ export class ContextModule implements CoreModule {
 			takeRegenerate: () => {
 				const note = this.regenerate.get(slot.slotId);
 				this.regenerate.delete(slot.slotId);
-				return note ? { note } : undefined;
+				return note;
 			},
 		};
 	}
@@ -114,12 +120,18 @@ export class ContextModule implements CoreModule {
 
 	/** A candidate is paid for whether it is used or not: on the run going on, and in the session file (so the dashboard counts it). */
 	private charge(slot: Slot, usage: Usage, model: Model<never>): void {
-		slot.absorbSubagent({ input: usage.input ?? 0, output: usage.output ?? 0, cacheRead: usage.cacheRead ?? 0, cacheWrite: usage.cacheWrite ?? 0, cost: usage.cost?.total ?? 0 }, []);
+		this.account(slot, usage, "background_compaction", `${model.provider}/${model.id}`);
 		try {
 			if (slot.started) slot.session.sessionManager.appendUsage("background_compaction", model.provider, model.id, usage, "后台压缩候选");
 		} catch (error) {
 			this.core.log.warn("context: could not record the background summary's usage in the session", error);
 		}
+	}
+
+	private account(slot: Slot, usage: Usage, kind: "background_compaction" | "compaction", model: string | null): void {
+		const u = { input:usage.input ?? 0, output:usage.output ?? 0, cacheRead:usage.cacheRead ?? 0, cacheWrite:usage.cacheWrite ?? 0, cost:usage.cost?.total ?? 0 };
+		if (slot.currentRun) slot.absorbSubagent(u, []);
+		else this.core.runs.recordCompaction({slotId:slot.slotId,sessionId:slot.info().sessionId,sessionFile:slot.info().sessionFile,cwd:slot.cwd,model,kind,usage:u});
 	}
 
 	// ---- records --------------------------------------------------------------------------------
@@ -152,7 +164,7 @@ export class ContextModule implements CoreModule {
 	onSlotEvent(slot: Slot, event: AgentSessionEvent): void {
 		if (event.type !== "compaction_end") return;
 		const usage = event.result?.usage;
-		if (usage) slot.absorbSubagent({ input: usage.input ?? 0, output: usage.output ?? 0, cacheRead: usage.cacheRead ?? 0, cacheWrite: usage.cacheWrite ?? 0, cost: usage.cost?.total ?? 0 }, []);
+		if (usage) this.account(slot, usage, "compaction", slot.session.model ? `${slot.session.model.provider}/${slot.session.model.id}` : null);
 		if (event.result && !event.aborted) {
 			this.core.broadcast({ event: "context.available", slotId: slot.slotId, sessionId: slot.started ? slot.session.sessionId : null, reason: event.reason, tokensBefore: event.result.tokensBefore });
 		}
@@ -277,14 +289,24 @@ export class ContextModule implements CoreModule {
 		core.register("context.regenerate", async (p) => {
 			const slot = this.slotOf(p);
 			if (slot.compacting) throw new RpcError("bad_request", "正在压缩");
+			const latest = this.checkpoints(slot).at(-1);
+			if (!latest || (p.entryId !== undefined && p.entryId !== latest.entryId)) throw new RpcError("bad_request", "只能重新生成当前分支最新的压缩检查点");
 			const note = str(p.note) ?? this.db.get<{ note: string | null }>("SELECT note FROM context_reports WHERE session_id = ? AND resolved_at IS NULL ORDER BY at DESC LIMIT 1", slot.session.sessionId)?.note ?? "摘要有误";
-			this.regenerate.set(slot.slotId, note);
+			// Keep the summary for the documented long-original fallback before
+			// the immediate-regeneration path moves to the checkpoint's parent.
+			const atCheckpoint = slot.session.sessionManager.getLeafId() === latest.entryId;
+			this.regenerate.set(slot.slotId, { note, checkpoint: atCheckpoint ? latest : undefined });
 			try {
-				const result = await slot.compactNow(str(p.focus));
-				this.db.run("UPDATE context_reports SET resolved_at = ? WHERE session_id = ? AND resolved_at IS NULL", Date.now(), slot.session.sessionId);
-				return result ?? null;
+				const result = await slot.compactNow(str(p.focus), latest.entryId);
+				if (!result) return null;
+				this.db.run("UPDATE context_reports SET resolved_at = ? WHERE session_id = ? AND entry_id = ? AND resolved_at IS NULL", Date.now(), slot.session.sessionId, latest.entryId);
+				return { ...result, source: this.regenerationSource.get(slot.slotId) };
+			} catch (error) {
+				throw this.regenerationErrors.get(slot.slotId) ?? error;
 			} finally {
 				this.regenerate.delete(slot.slotId);
+				this.regenerationSource.delete(slot.slotId);
+				this.regenerationErrors.delete(slot.slotId);
 			}
 		});
 		core.register("context.compactions", (p) =>

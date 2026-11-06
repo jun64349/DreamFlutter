@@ -156,7 +156,7 @@ describe("tasks and snapshots in a session (16.2–16.6)", () => {
 		await t.core.call("memory.setSessionMode", { sessionId: sessionId(), mode: "readonly" });
 		const results: string[] = [];
 		t.respond(fauxAssistantMessage([fauxToolCall("memory_save", { content: "用户喜欢喝茶", kind: "preference", explicit: true })], { stopReason: "toolUse" }), (context) => {
-			results.push(JSON.stringify(context.messages.at(-1)));
+			results.push(JSON.stringify(context.messages.filter(m => m.role === "toolResult").at(-1)));
 			seen.push(context.messages);
 			return fauxAssistantMessage("好");
 		});
@@ -197,7 +197,7 @@ describe("tasks and snapshots in a session (16.2–16.6)", () => {
 		assert.equal(edited.currentTask, "next_call", "in the running task's snapshot: replaced before the next model call");
 		const results: string[] = [];
 		t.respond(fauxAssistantMessage([fauxToolCall("memory_save", { content: "用户每周五交周报", kind: "agreement", explicit: true })], { stopReason: "toolUse" }), (context) => {
-			results.push(JSON.stringify(context.messages.at(-1)));
+			results.push(JSON.stringify(context.messages.filter(m => m.role === "toolResult").at(-1)));
 			return fauxAssistantMessage("好");
 		});
 		await prompt("记住我每周五交周报");

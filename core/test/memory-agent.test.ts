@@ -100,7 +100,7 @@ describe("memory agent jobs", () => {
 		assert.match(results[0]!, /3\. 被拒绝：这次整理不能把状态改成「archived」/, "an extraction may not archive");
 		assert.match(results[0]!, /4\. 被拒绝：每个操作都要写理由/);
 		assert.match(results[0]!, /5\. 被拒绝：这次整理不能做「combine」/, "an extraction may not combine items");
-		const log = (await t.core.call("memory.log", {})) as LogDay[];
+		const log = ((await t.core.call("memory.log", {})) as {days: LogDay[]}).days;
 		assert.ok(log[0]!.entries.every((e) => e.actor === "memory_agent" && e.batchKind === "extract"));
 		assert.equal(t.core.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM usage_records WHERE path = ?", MEMORY_LEDGER)!.n, 2, "both model calls are in the ledger");
 	});
@@ -231,7 +231,7 @@ describe("memory agent jobs", () => {
 		assert.equal(memory.store.get(d)!.status, "review", "locked: only marked for review");
 		assert.equal(memory.store.get(d)!.content, "锁定的近期约定");
 		assert.match(results[0]!, /3\. 交给用户确认（用户锁定的记忆）/);
-		const log = (await t.core.call("memory.log", {})) as LogDay[];
+		const log = ((await t.core.call("memory.log", {})) as {days: LogDay[]}).days;
 		assert.ok(log[0]!.entries.some((e) => e.batchKind === "tidy"));
 		// The same week again: nothing more.
 		await t.core.call("memory.runJobs", {});

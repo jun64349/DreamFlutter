@@ -321,6 +321,7 @@ export class MemoryStore {
 			if (input.allowed && !writableIn(item, input.allowed)) return { reject: "不在这次允许的范围里" };
 			// Migration brings over what the user locked in v0.2.
 			if (!byUser && actor !== "migration" && item.retention === "locked") return { reject: "只有用户本人能锁定记忆" };
+			if (actor === "main_agent" && item.scope === "global") return { pending: "promote_global" };
 			if (this.mustConfirm(op, input)) return { pending: "confirm" };
 			return { apply: true };
 		}
@@ -334,6 +335,7 @@ export class MemoryStore {
 			const target = { scope: op.patch.scope ?? current.scope, workspaceId: op.patch.workspaceId !== undefined ? op.patch.workspaceId : current.workspaceId, groupId: op.patch.groupId !== undefined ? op.patch.groupId : current.groupId };
 			if (target.scope === "workspace" && !target.workspaceId) return { reject: "工作区记忆要指明工作区" };
 			if (target.scope === "group" && !target.groupId) return { reject: "共享组记忆要指明共享组" };
+			if (actor === "main_agent" && target.scope === "global") return { pending: "promote_global" };
 			const touched = Object.entries(op.patch).filter(([, v]) => v !== undefined).map(([k]) => k);
 			if (!byUser && touched.length && touched.every((k) => REVIEW_ONLY.has(k))) return { apply: true };
 			if (!byUser) {
@@ -353,6 +355,7 @@ export class MemoryStore {
 			if (!ITEM_STATUSES.includes(op.status)) return { reject: `未知的状态：${op.status}` };
 			if (op.status === current.status) return { reject: "状态没有变化" };
 			if (op.status === "withdrawn") return { reject: "撤回只能通过记忆日志的「撤销」" };
+			if (actor === "main_agent" && current.scope === "global") return { pending: "promote_global" };
 			if (!byUser) {
 				if (current.retention === "locked" && op.status !== "review") return { pending: "locked", review: true };
 				if (!current.autoOk && actor !== "main_agent" && op.status !== "review") return { pending: "confirm" };
@@ -449,7 +452,7 @@ export class MemoryStore {
 		if (op.kind !== "edit") for (const link of op.links ?? []) this.db.run("INSERT OR IGNORE INTO memory_links(from_id, to_id, kind, at) VALUES(?, ?, ?, ?)", next.id, link.to, link.kind, at);
 		const inferred = next.confidence === "agent_inferred";
 		this.db.run(
-			"INSERT INTO memory_ops(id, batch_id, actor, kind, item_id, before_version, after_version, reason, inferred, at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO memory_ops(id, batch_id, actor, kind, item_id, before_version, after_version, reason, inferred, explicit_requested, at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			opId,
 			batchId,
 			input.actor,
@@ -459,6 +462,7 @@ export class MemoryStore {
 			next.version,
 			op.reason ?? input.reason ?? null,
 			inferred ? 1 : 0,
+			input.actor === "main_agent" && input.explicit === true ? 1 : 0,
 			at,
 		);
 		return opId;
@@ -588,7 +592,9 @@ export class MemoryStore {
 			this.db.run("DELETE FROM memory_pending WHERE item_id = ? OR instr(op, ?) > 0", id, id);
 			this.db.run("DELETE FROM memory_materials WHERE instr(item_ids, ?) > 0", id);
 			// The log keeps that something was deleted for good, never what.
-			this.db.run("INSERT INTO memory_batches(id, actor, kind, reason, at) VALUES(?, 'user', 'purge', '彻底删除了一条记忆', ?)", `b_${randomUUID().replaceAll("-", "").slice(0, 12)}`, at);
+			const batchId = "b_" + randomUUID();
+			this.db.run("INSERT INTO memory_batches(id, actor, kind, reason, at) VALUES(?, 'user', 'purge', '彻底删除了一条记忆', ?)", batchId, at);
+			this.db.run("INSERT INTO memory_purge_log VALUES(?,?,?,?,?,?,?)", "purge_"+randomUUID(), batchId, id, at, current.scope, current.workspaceId, current.level);
 		});
 		this.changed(null);
 		return { sessions };
@@ -702,12 +708,17 @@ export class MemoryStore {
 	// ---- the memory log and undo ---------------------------------------------------------
 
 	/** Changes from [since] to [until], newest first, grouped by local day. */
-	log(filter: { since?: number; until?: number; itemId?: string; limit?: number } = {}): LogDay[] {
+	log(filter: { since?: number; until?: number; itemId?: string; limit?: number; opIds?: string[] } = {}): LogDay[] {
 		const where = ["o.at >= ?", "o.at < ?"];
 		const params: (string | number)[] = [filter.since ?? 0, filter.until ?? Number.MAX_SAFE_INTEGER];
 		if (filter.itemId) {
 			where.push("o.item_id = ?");
 			params.push(filter.itemId);
+		}
+		if (filter.opIds) {
+			if (!filter.opIds.length) return [];
+			where.push("o.id IN ("+filter.opIds.map(() => "?").join(",")+")");
+			params.push(...filter.opIds);
 		}
 		const rows = this.db.all<OpRow & { batch_kind: string; session_ref: string | null }>(
 			`SELECT o.*, b.kind AS batch_kind, b.session_ref FROM memory_ops o JOIN memory_batches b ON b.id = o.batch_id WHERE ${where.join(" AND ")} ORDER BY o.at DESC, o.rowid DESC LIMIT ?`,
@@ -744,6 +755,31 @@ export class MemoryStore {
 			else days.push({ day, entries: [entry] });
 		}
 		return days;
+	}
+
+	/** Stable keyset pagination, including body-free purge receipts. */
+	logPage(filter: {since?:number;until?:number;itemId?:string;limit?:number;cursor?:string;scope?:string;workspaceId?:string} = {}) {
+		let cursor: {at:number;id:string} | undefined;
+		if (filter.cursor) {
+			try {cursor=JSON.parse(Buffer.from(filter.cursor,"base64url").toString());} catch {throw new RpcError("bad_request","无效的日志游标");}
+			if (!cursor || !Number.isFinite(cursor.at) || typeof cursor.id !== "string") throw new RpcError("bad_request","无效的日志游标");
+		}
+		const limit = Math.max(1,Math.min(500,Math.floor(filter.limit ?? 100)));
+		const rows = this.db.all<{id:string;at:number;batch_id:string;item_id:string;scope:ItemScope;workspace_id:string|null;level:number;purged:number}>(
+			"SELECT * FROM (SELECT o.id,o.at,o.batch_id,o.item_id,json_extract(v.snapshot,'$.scope') AS scope,json_extract(v.snapshot,'$.workspaceId') AS workspace_id,json_extract(v.snapshot,'$.level') AS level,0 AS purged FROM memory_ops o JOIN memory_versions v ON v.item_id=o.item_id AND v.version=o.after_version UNION ALL SELECT id,at,batch_id,item_id,scope,workspace_id,level,1 AS purged FROM memory_purge_log) WHERE at>=? AND at<? AND (? IS NULL OR item_id=?) AND (? IS NULL OR scope=?) AND (? IS NULL OR workspace_id=?) AND (at<? OR (at=? AND id<?)) ORDER BY at DESC,id DESC LIMIT ?",
+			filter.since ?? 0,filter.until ?? Number.MAX_SAFE_INTEGER,filter.itemId ?? null,filter.itemId ?? null,filter.scope ?? null,filter.scope ?? null,filter.workspaceId ?? null,filter.workspaceId ?? null,cursor?.at ?? Number.MAX_SAFE_INTEGER,cursor?.at ?? Number.MAX_SAFE_INTEGER,cursor?.id ?? "",limit+1);
+		const picked=rows.slice(0,limit);
+		const entries=new Map(this.log({opIds:picked.filter(r=>!r.purged).map(r=>r.id),limit}).flatMap(d=>d.entries).map(e=>[e.opId,e]));
+		type PurgeEntry = Omit<LogEntry,"after"|"kind"> & {after:null;kind:"purge";scope:ItemScope;level:number;workspaceId:string|null};
+		const days:{day:string;entries:(LogEntry|PurgeEntry)[]}[]=[];
+		for (const row of picked) {
+			const e:LogEntry|PurgeEntry|undefined = row.purged ? {opId:row.id,batchId:row.batch_id,batchKind:"purge",at:row.at,actor:"user",kind:"purge",itemId:row.item_id,before:null,after:null,changed:[],reason:"彻底删除了一条"+row.scope+"/"+row.level+"级记忆",inferred:false,sessionRef:null,undoOf:null,undone:false,undoable:false,scope:row.scope,level:row.level,workspaceId:row.workspace_id} : entries.get(row.id);
+			if (!e) continue;
+			const day=localDay(row.at);const last=days.at(-1);
+			if (last?.day===day) last.entries.push(e); else days.push({day,entries:[e]});
+		}
+		const last=picked.at(-1); const hasMore=rows.length>limit;
+		return {days,hasMore,cursor:hasMore && last ? Buffer.from(JSON.stringify({at:last.at,id:last.id})).toString("base64url") : null};
 	}
 
 	/** Undoes one change, if nothing changed the item since; recorded as a change of its own. */

@@ -151,7 +151,9 @@ describe("the context service (roadmap 5.12)", () => {
 		assert.equal(((await t.core.call("context.checkpoints", { slotId: "s1" })) as { reported: boolean }[])[0]!.reported, true);
 		t.respond(smart, smart);
 		await prompt("第三件事：参考文献用 GB/T 7714");
-		await t.core.call("context.regenerate", { slotId: "s1" });
+		const regenerated = await t.core.call("context.regenerate", { slotId: "s1", entryId: checkpoint!.entryId }) as {source:string};
+		assert.equal(regenerated.source, "original");
+		await assert.rejects(t.core.call("context.regenerate", {slotId:"s1",entryId:checkpoint!.entryId}), /最新/);
 		const request = JSON.stringify(seen.at(-1));
 		assert.match(request, /第一件事：论文用 LaTeX 写/, "from the original messages, not only the old summary");
 		assert.match(request, /漏了 LaTeX 这件事/, "with what the user said was wrong");

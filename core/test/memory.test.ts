@@ -40,7 +40,7 @@ describe("memory", () => {
 	}
 
 	const items = async (params: Record<string, unknown> = {}) => (await t.core.call("memory.items", params)) as (MemoryItem & { workspacePath: string | null })[];
-	const log = async () => (await t.core.call("memory.log", {})) as LogDay[];
+	const log = async () => ((await t.core.call("memory.log", {})) as {days: LogDay[]}).days;
 
 	it("injects a snapshot of pinned and related memories once per session", async () => {
 		await t.core.call("memory.setBlock", { key: "about_me", content: "我叫小明，是一名产品经理。" });
@@ -71,7 +71,7 @@ describe("memory", () => {
 		t.core.settings.update({ approvalMode: "all" });
 		const results: string[] = [];
 		t.respond(
-			fauxAssistantMessage([fauxToolCall("memory_save", { content: "用户要求回复用中文", kind: "preference", scope: "global", explicit: true })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("memory_save", { content: "用户要求回复用中文", kind: "preference", scope: "workspace", explicit: true })], { stopReason: "toolUse" }),
 			(context) => {
 				results.push(lastToolResult(context));
 				return fauxAssistantMessage([fauxToolCall("memory_save", { content: "这个项目用 pnpm 装依赖", kind: "experience", explicit: false, reason: "安装时报错后改用 pnpm" })], { stopReason: "toolUse" });
@@ -85,11 +85,11 @@ describe("memory", () => {
 		assert.equal(dialogs(t.records("s1")).length, 0, "memory tools are exempt from approval");
 		const saved = await items();
 		const told = saved.find((m) => m.content === "用户要求回复用中文")!;
-		assert.deepEqual([told.scope, told.level, told.confidence, told.status], ["global", 2, "user_explicit", "active"]);
+		assert.deepEqual([told.scope, told.level, told.confidence, told.status], ["workspace", 2, "user_explicit", "active"]);
 		const inferred = saved.find((m) => m.content === "这个项目用 pnpm 装依赖")!;
 		assert.deepEqual([inferred.scope, inferred.level, inferred.confidence], ["workspace", 1, "agent_inferred"], "not said to be global: stays in the workspace");
 		assert.equal(inferred.workspacePath, t.workspace);
-		assert.match(results[0]!, /已保存到全局·阶段记忆/, "the receipt says where it went, after the commit");
+		assert.match(results[0]!, /已保存到本工作区·阶段记忆/, "the receipt says where it went, after the commit");
 		assert.match(results[1]!, /本工作区·近期记忆.*推测/);
 		const entries = (await log())[0]!.entries;
 		assert.deepEqual(entries.map((e) => [e.after.content, e.actor, e.inferred]), [
@@ -122,7 +122,7 @@ describe("memory", () => {
 	});
 
 	it("a locked memory only gets a suggestion; the user accepts it", async () => {
-		const { item } = (await t.core.call("memory.save", { content: "周报每周五发", kind: "agreement", retention: "locked" })) as { item: MemoryItem };
+		const { item } = (await t.core.call("memory.save", { content: "周报每周五发", kind: "agreement", retention: "locked",scope:"workspace",cwd:t.workspace })) as { item: MemoryItem };
 		const results: string[] = [];
 		t.respond(
 			fauxAssistantMessage([fauxToolCall("memory_update", { id: `#${item.id}`, content: "周报每周四发", explicit: true })], { stopReason: "toolUse" }),

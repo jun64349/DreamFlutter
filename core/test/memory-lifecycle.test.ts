@@ -109,7 +109,7 @@ describe("memory lifecycle in the core", () => {
 		time += 3 * DAY;
 		assert.ok(!memory.snapshot("帮我看看论文", t.workspace).ids.includes(id), "swept before the snapshot is put together");
 		assert.equal(get(id).status, "ended");
-		const log = (await t.core.call("memory.log", {})) as LogDay[];
+		const log = ((await t.core.call("memory.log", {})) as {days: LogDay[]}).days;
 		const entry = log[0]!.entries.find((e) => e.itemId === id)!;
 		assert.deepEqual([entry.actor, entry.batchKind, entry.after.status], ["system", "expire", "ended"]);
 		assert.match(entry.reason!, /有效期到了/);
@@ -229,7 +229,7 @@ describe("memory lifecycle in the core", () => {
 		assert.match(seen[0]!, /可以升到 3 级/);
 		assert.match(seen[0]!, /每季/);
 		assert.deepEqual([get(id).level, get(id).retention], [3, "long"]);
-		const log = (await t.core.call("memory.log", {})) as LogDay[];
+		const log = ((await t.core.call("memory.log", {})) as {days: LogDay[]}).days;
 		assert.equal(log[0]!.entries[0]!.batchKind, "review");
 		// Its own change is not a reason for the next review.
 		time += 7 * DAY;

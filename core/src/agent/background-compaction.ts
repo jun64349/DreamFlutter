@@ -17,10 +17,13 @@ export interface CompactionHooks {
 	/** Pi's compaction settings after the session's own threshold (a percentage of the window). */
 	settings?(model: { contextWindow: number; maxTokens: number } | undefined, base: { enabled: boolean; reserveTokens: number; keepRecentTokens: number }): { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
 	background?: BackgroundCompaction;
+	invalidatedFacts?(): string;
+	regenerated?(source: "original" | "previous_summary"): void;
+	regenerateFailed?(error: unknown): void;
 	/** What a compaction did, for the comparison between normal and background compaction. */
 	record?(entry: CompactionRecord): void;
 	/** The user reported the last summary wrong and asked for a new one: their note, taken once. */
-	takeRegenerate?(): { note: string } | undefined;
+	takeRegenerate?(): { note: string; checkpoint?: { summary: string; firstKeptEntryId: string } } | undefined;
 }
 
 export interface BackgroundCompaction {

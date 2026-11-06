@@ -6,6 +6,7 @@ import { json, now, parseJson } from "./db.ts";
 export type RunStatus = "running" | "done" | "failed" | "aborted" | "interrupted";
 
 export interface Run {
+	kind?: "conversation" | "background_compaction" | "compaction";
 	id: string;
 	slotId: string | null;
 	sessionFile: string | null;
@@ -101,8 +102,7 @@ export class RunRecorder {
 				break;
 			case "compaction_end":
 				this.step("compaction", event.reason, event.errorMessage ?? null, event.errorMessage ? "error" : "done");
-				// The summary is a model call of its own: it counts toward the run (and so the budgets).
-				this.addUsage(event.result?.usage as Record<string, unknown> | undefined);
+				// ContextModule owns compaction usage; this listener records only the step.
 				break;
 			case "agent_settled":
 				this.finish(event.aborted ? "aborted" : this.run?.error ? "failed" : "done");
@@ -275,6 +275,15 @@ export class RunStore {
 		this.db = db;
 	}
 
+	/** A completed compaction outside a live run is billed at its own occurrence time. */
+	recordCompaction(input: {slotId:string; sessionId:string|null; sessionFile:string|null; cwd:string; model:string|null; kind:"background_compaction"|"compaction"; usage:{input:number;output:number;cacheRead:number;cacheWrite:number;cost:number}}): string {
+		const id = randomUUID();
+		const at = now();
+		const u = input.usage;
+		this.db.run("INSERT INTO runs(id,slot_id,session_id,session_file,cwd,status,started_at,ended_at,model,input_tokens,output_tokens,cache_read,cache_write,cost,kind) VALUES(?,?,?,?,?,'done',?,?,?,?,?,?,?,?,?)", id,input.slotId,input.sessionId,input.sessionFile,input.cwd,at,at,input.model,u.input,u.output,u.cacheRead,u.cacheWrite,u.cost,input.kind);
+		return id;
+	}
+
 	/** Runs left "running" by a previous core process. */
 	interruptOrphans(): Run[] {
 		const orphans = this.db.all<RunRow>("SELECT * FROM runs WHERE status = 'running'").map(toRun);
@@ -348,6 +357,7 @@ export class RunStore {
 }
 
 interface RunRow {
+	kind: Run["kind"];
 	id: string;
 	slot_id: string | null;
 	session_file: string | null;
@@ -373,6 +383,7 @@ interface RunRow {
 
 function toRun(row: RunRow): Run {
 	return {
+		kind: row.kind,
 		id: row.id,
 		slotId: row.slot_id,
 		sessionFile: row.session_file,

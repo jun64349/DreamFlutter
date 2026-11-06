@@ -33,7 +33,7 @@ describe("memory store (0.5 step 1: the gate, versions, the memory log)", () => 
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	const item = (content: string, extra: Partial<NewItem> = {}): NewItem => ({ content, kind: "preference", level: 2, scope: "global", confidence: "user_explicit", ...extra });
+	const item = (content: string, extra: Partial<NewItem> = {}): NewItem => ({ content, kind: "preference", level: 2, scope: "workspace", workspaceId: workspaces.ensure(join(dir, "default")).id, confidence: "user_explicit", ...extra });
 	const add = (content: string, extra: Partial<NewItem> = {}, actor: "user" | "main_agent" | "memory_agent" = "user") => {
 		const result = store.commit({ actor, ops: [{ kind: "add", item: item(content, extra) }] });
 		assert.equal(result.applied.length, 1, JSON.stringify(result));
@@ -145,7 +145,7 @@ describe("memory store (0.5 step 1: the gate, versions, the memory log)", () => 
 		assert.equal(allowedScopes(workspaces, join(dir, "A"), home).workspaceId, a.workspaceId, "the same folder, whatever the case");
 		const inA = add("A 的事", { scope: "workspace", workspaceId: a.workspaceId });
 		const inBf = add("蝶君的事", { scope: "butterfly" });
-		const global = add("全局的事");
+		const global = add("全局的事", {scope:"global"});
 		assert.deepEqual(store.list({ set: b }).map((m) => m.id), [global.id]);
 		assert.deepEqual(new Set(store.list({ set: a }).map((m) => m.id)), new Set([inA.id, global.id]));
 		assert.deepEqual(new Set(store.list({ set: bf }).map((m) => m.id)), new Set([inBf.id, global.id]), "蝶君 never reads a workspace's memories");
@@ -154,7 +154,7 @@ describe("memory store (0.5 step 1: the gate, versions, the memory log)", () => 
 		assert.match(store.commit({ actor: "main_agent", allowed: b, ops: [{ kind: "edit", id: inA.id, patch: { content: "改 A 的" } }] }).rejected[0]!.reason, /范围/);
 		assert.match(store.commit({ actor: "main_agent", allowed: a, ops: [{ kind: "add", item: item("写到蝶君", { scope: "butterfly" }) }] }).rejected[0]!.reason, /范围/);
 		// A workspace can hide the user's personal background kept globally.
-		const bg = add("用户是产品经理", { kind: "background" });
+		const bg = add("用户是产品经理", { kind: "background",scope:"global" });
 		workspaces.setGlobalBackground(a.workspaceId!, false);
 		const quiet = allowedScopes(workspaces, join(dir, "a"), home);
 		assert.equal(visibleIn(bg, quiet), false);

@@ -185,9 +185,9 @@ describe("snapshot in the session (§6.3)", () => {
 		const checkpoint = { role: "custom", customType: "df.checkpoint", content: "<compacted-summary>…</compacted-summary>", display: false, timestamp: 1 };
 		const tail = { role: "user", content: [{ type: "text", text: "继续" }], timestamp: 2 };
 		const context = handlers.get("context")!;
-		assert.equal(context({ messages: [checkpoint, tail] }, ctx), undefined, "no compaction, no snapshot in the task: nothing added");
+		assert.equal(await context({ messages: [checkpoint, tail] }, ctx), undefined, "no compaction, no snapshot in the task: nothing added");
 		await handlers.get("session_compact")!({ compactionEntry: { summary: "## Primary Request and Intent\n- 写周报" } }, ctx);
-		const result = context({ messages: [checkpoint, tail] }, ctx) as { messages: { content: unknown }[] };
+		const result = await context({ messages: [checkpoint, tail] }, ctx) as { messages: { content: unknown }[] };
 		assert.equal(result.messages.length, 3);
 		assert.match(JSON.stringify(result.messages[1]!.content), /三段式/, "right after the checkpoint");
 		assert.equal(memory.latestSnapshot("mid-run")!.reason, "compaction");

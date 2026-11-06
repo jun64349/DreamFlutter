@@ -46,6 +46,7 @@ type Action = "add" | "update" | "set_status" | "combine" | "keep" | "promote" |
 
 /** What one job may do (§5: 「本次允许的操作种类」). */
 interface Policy {
+	brief?: boolean;
 	actions: Set<Action>;
 	statuses: Set<ItemStatus>;
 	set: ScopeSet;
@@ -222,9 +223,9 @@ export class MemoryWork {
 	// ---- queueing --------------------------------------------------------------------------
 
 	/** After a task: extract from what was said since the last extraction (§7: only when there is something new). */
-	queueExtraction(input: { sessionFile: string; sessionId: string; cwd: string }): MemoryJob {
+	queueExtraction(input: { sessionFile: string; sessionId: string; cwd: string; automatic?: boolean; throughEntryId?: string }): MemoryJob {
 		const set = this.scopesFor(input.cwd);
-		return this.jobs.enqueue({ kind: "extract", scopeKey: set.key, payload: input, priority: PRIORITY.extract, dedupeKey: `extract:${input.sessionId}` });
+		return this.jobs.enqueue({ kind: "extract", scopeKey: set.key, payload: input, priority: PRIORITY.extract, dedupeKey: `extract:${input.sessionId}:${input.automatic ? "auto" : "manual"}:${input.throughEntryId ?? "latest"}` });
 	}
 
 	/** A possible contradiction to look at (17.4, 17.6): queued only after the program's prefilter found one. */
@@ -623,11 +624,20 @@ export class MemoryWork {
 	}
 
 	private async extract(job: MemoryJob): Promise<JobOutcome> {
-		const { sessionFile, sessionId, cwd } = job.payload as { sessionFile: string; sessionId: string; cwd: string };
+		const { sessionFile, sessionId, cwd, throughEntryId, automatic } = job.payload as { sessionFile: string; sessionId: string; cwd: string; throughEntryId?: string; automatic?: boolean };
+		const mode = this.db.get<{mode:string}>("SELECT mode FROM memory_session_modes WHERE session_id=?", sessionId)?.mode;
+		if (mode && mode !== "normal") return {status:"skipped",result:{why:"当前会话不允许提取记忆"}};
 		if (!sessionFile || !existsSync(sessionFile)) return { status: "skipped", result: { why: "会话文件不在了" } };
 		if (isSideFile(sessionFile)) return { status: "skipped", result: { why: "侧边对话不提取记忆" } };
 		const cursor = this.db.get<{ last_entry_id: string | null }>("SELECT last_entry_id FROM memory_extraction WHERE session_id = ?", sessionId)?.last_entry_id ?? null;
-		const entries = readMessages(sessionFile);
+		let entries = readMessages(sessionFile);
+		if (throughEntryId) {
+			const end = entries.findIndex(e => e.id === throughEntryId);
+			if (end < 0) throw new Error("延后提取的消息边界不在会话文件中");
+			const cursorIndex = entries.findIndex(e => e.id === cursor);
+			if (cursorIndex >= end) return {status:"skipped",result:{why:"已提取到此边界"}};
+			entries = entries.slice(0, end + 1);
+		}
 		const start = cursor ? entries.findIndex((e) => e.id === cursor) + 1 : 0;
 		const fresh = entries.slice(start);
 		const last = entries.at(-1)?.id ?? cursor;
@@ -652,7 +662,10 @@ export class MemoryWork {
 			.slice(-8000);
 		const input = `今天是 ${localDay(this.now())}。\n\n已有的记忆（#id v版本）：\n${shown.map(line).join("\n") || "（无）"}\n\n刚结束的对话：\n${transcript}`;
 		const policy: Policy = { actions: new Set(["add", "update", "set_status", "conflict"]), statuses: new Set(["review", "outdated", "refuted"]), set, sessionRef: sessionFile, progressLeft: PROGRESS_PER_TASK, added: [], batches: [] };
-		const run = await this.agent(job, EXTRACT_SYSTEM, input, policy, cwd, "extract", "对话结束后的整理");
+		const detail = automatic ? this.core.settings.get().memoryDetail : "standard";
+		policy.brief = detail === "brief";
+		const instruction = detail === "brief" ? "\n本次简要提取：仅保存用户明确说出的事实和明确决定，add/update 必须 said=true；不存进展或推断偏好。" : detail === "detailed" ? "\n本次详细提取：除稳定事实外，主动整理近期进展和有根据的推断偏好，新增仍为一级；推断标 said=false，遵守确认和数量限制。" : "";
+		const run = await this.agent(job, EXTRACT_SYSTEM + instruction, input, policy, cwd, "extract", "对话结束后的整理");
 		advance();
 		return { status: "done", costUsd: run.usage.cost, result: { turns: run.turns, summary: run.summary, batches: policy.batches } };
 	}
@@ -819,7 +832,7 @@ export class MemoryWork {
 			const signal = AbortSignal.any([this.shutdown.signal, timeout.signal]);
 			// Account for a response even if it arrives after our decision deadline.
 			// stop() waits for these writes before Core closes the database.
-			const request = waitForMemory(() => runtime.completeSimple(model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 60, signal } as never), this.stopWaiting.signal).then((answer) => {
+			const request = waitForMemory(() => runtime.completeSimple(model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 256, signal } as never), this.stopWaiting.signal).then((answer) => {
 				const u = answer.usage ?? {};
 				this.db.run(
 					"INSERT OR REPLACE INTO usage_records(path, entry_id, at, cwd, provider, model, input, output, cache_read, cache_write, cost) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -922,6 +935,7 @@ export class MemoryWork {
 
 	private convert(p: Record<string, unknown>, policy: Policy): { ops: MemoryOp[]; note?: string } | string {
 		const action = p.action as Action;
+		if (policy.brief && (action === "add" || action === "update") && (p.said !== true || p.kind === "progress" || (typeof p.id === "string" && this.store.get(p.id.replace(/^#/, ""))?.kind === "progress"))) return "简要模式只保存用户明确说出的事实和决定，不保存推断或进展";
 		if (!policy.actions.has(action)) return `这次整理不能做「${String(p.action)}」`;
 		const reason = typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : undefined;
 		if (!reason) return "每个操作都要写理由（reason）";

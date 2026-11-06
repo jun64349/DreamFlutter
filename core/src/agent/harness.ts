@@ -329,7 +329,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 
 		/** The system prompt this harness gave the session's last run (Pi's own getter can answer its default one between turns). */
 		let lastSystemPrompt: string | undefined;
-		const instructionsNow = (ctx: ExtensionContext) => lastSystemPrompt ?? ctx.getSystemPrompt();
+		const instructionsNow = (ctx: ExtensionContext) => [lastSystemPrompt ?? ctx.getSystemPrompt(), options.compaction?.()?.invalidatedFacts?.()].filter(Boolean).join("\n\n");
 		pi.on("before_agent_start", (_event, ctx) => {
 			currentModel = (ctx.model as Model<never> | undefined) ?? currentModel;
 			turn += 1;
@@ -454,10 +454,26 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				const cut = branch.findIndex((e) => e.id === preparation.firstKeptEntryId);
 				const originals = (cut < 0 ? branch : branch.slice(0, cut)).filter((e) => e.type !== "compaction").flatMap((e) => sessionEntryToContextMessages(e) as unknown[]);
 				const fits = estimateAll(originals) < (model.contextWindow || 128_000) * 0.7;
+				// After branching before the replaced checkpoint, preparation no
+				// longer contains that summary. For oversized originals use the
+				// saved checkpoint and its retained tail, not the oversized raw text.
+				const kept = regenerate.checkpoint ? branch.findIndex(e => e.id === regenerate.checkpoint!.firstKeptEntryId) : -1;
+				const fallback = regenerate.checkpoint
+					? (kept < 0 ? [] : branch.slice(kept)).filter(e => e.type !== "compaction").flatMap(e => sessionEntryToContextMessages(e) as unknown[])
+					: [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages];
+				hooks?.regenerated?.(fits ? "original" : "previous_summary");
 				const focus = `The user reported the previous checkpoint as wrong: "${regenerate.note}". ${fits ? "Rebuild it from the original conversation above." : "Correct it."}`;
-				const result = await summarize(ctx, model, fits ? originals : [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages], fits ? undefined : preparation.previousSummary, [event.customInstructions?.trim(), focus].filter(Boolean).join("\n"), event.signal);
-				hooks?.record?.({ kind: "regenerate", outcome: "done", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, cost: result.usage?.cost?.total ?? 0, model: `${model.provider}/${model.id}` });
-				return { compaction: { summary: result.summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, usage: result.usage } };
+				try {
+					const result = await summarize(ctx, model, fits ? originals : fallback, fits ? undefined : regenerate.checkpoint?.summary ?? preparation.previousSummary, [event.customInstructions?.trim(), focus].filter(Boolean).join("\n"), event.signal);
+					hooks?.record?.({ kind: "regenerate", outcome: "done", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, cost: result.usage?.cost?.total ?? 0, model: `${model.provider}/${model.id}` });
+					return { compaction: { summary: result.summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, usage: result.usage } };
+				} catch (error) {
+					// Pi catches extension errors and otherwise falls through to its
+					// default summarizer. Cancel explicitly: one user request must not
+					// silently make a second model call without the correction rules.
+					hooks?.regenerateFailed?.(error);
+					return { cancel: true };
+				}
 			}
 			if (event.reason !== "manual" && candidate) {
 				const ready = candidate;
@@ -498,6 +514,8 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			}
 			const running = [...jobs.jobs.values()].filter((j) => j.status === "running").map((j) => `${j.kind}: ${j.label.slice(0, 200)}`);
 			const rules = [COMPACTION_INSTRUCTION, CONTEXT_RULES];
+			const invalidated = options.compaction?.()?.invalidatedFacts?.();
+			if (invalidated) rules.push(invalidated);
 			if (toSummarize.length < all.length) rules.push(MEMORY_SUMMARY_NOTE);
 			if (running.length) rules.push(`These background jobs are still running at this checkpoint (write them under Pending Jobs as running, never as done): ${running.join("; ")}`);
 			const base = rules.join("\n\n");
@@ -558,6 +576,7 @@ The user asked this checkpoint to focus on: ${focus}` : base;
 			void (async () => {
 				const writer = await background.model(model);
 				if (!writer) throw new Error("no model to write the candidate");
+				const instructionFingerprint = fingerprint(instructionsNow(ctx));
 				const result = await summarize(ctx, writer, messages, undefined, undefined, controller.signal);
 				if (result.usage) background.charge(result.usage, writer);
 				const cost = result.usage?.cost?.total ?? 0;
@@ -570,7 +589,7 @@ The user asked this checkpoint to focus on: ${focus}` : base;
 					cycle,
 					cutId: branch[cut]!.id,
 					prefix: prefixFingerprint(branch, cut),
-					instructions: fingerprint(instructionsNow(ctx)),
+					instructions: instructionFingerprint,
 					model: `${model.provider}/${model.id}`,
 					summary: result.summary,
 					covered: estimateAll(messages),

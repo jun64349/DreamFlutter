@@ -94,7 +94,7 @@ describe("forgetting in the core (§9, §12 items 4–8, 17.7)", () => {
 		await t.core.call("memory.setStatus", { id: item.id, status: "forgotten" });
 		await t.core.call("memory.restore", { id: item.id, version: 1 });
 		assert.deepEqual([get(item.id).content, get(item.id).status, get(item.id).version], ["用户喜欢喝茶", "active", 5]);
-		const log = (await t.core.call("memory.log", {})) as LogDay[];
+		const log = ((await t.core.call("memory.log", {})) as {days: LogDay[]}).days;
 		const restore = log[0]!.entries.filter((e) => e.batchKind === "restore");
 		assert.equal(restore.length, 2, "the text and the status");
 		await t.core.call("memory.undoBatch", { batchId: restore[0]!.batchId });
@@ -109,8 +109,8 @@ describe("forgetting in the core (§9, §12 items 4–8, 17.7)", () => {
 		memory.buildSnapshot("sess", "心理医生那边下周怎么安排", t.workspace, undefined, 0, "task_start");
 		assert.ok(t.core.db.get<{ content: string }>("SELECT content FROM memory_snapshots")!.content.includes("心理医生"));
 		await assert.rejects(t.core.call("memory.purge", { id }), /再确认/);
-		const out = (await t.core.call("memory.purge", { id, confirm: true })) as { sessions: string[]; notes: string[] };
-		assert.deepEqual(out.sessions, ["s-1.jsonl"], "the window offers to delete that part of the conversation too");
+		const out = (await t.core.call("memory.purge", { id, confirm: true })) as { sessions: {path:string;title:string;exists:boolean}[]; notes: string[] };
+		assert.deepEqual(out.sessions, [{path:"s-1.jsonl",title:"s-1.jsonl",exists:false}], "the window can identify unavailable source sessions");
 		assert.equal(out.notes.length, 2);
 		assert.equal(memory.store.get(id), undefined);
 		for (const table of ["memory_versions", "memory_sources", "memory_ops"]) assert.equal(t.core.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE item_id = ?`, id)!.n, 0, table);
@@ -198,7 +198,7 @@ describe("forgetting in the core (§9, §12 items 4–8, 17.7)", () => {
 		assert.equal(get(oldProgress).status, "forgotten");
 		assert.equal(get(long).status, "active", "a protected item is refused");
 		assert.equal(get(keep).status, "active");
-		const log = (await t.core.call("memory.log", {})) as LogDay[];
+		const log = ((await t.core.call("memory.log", {})) as {days: LogDay[]}).days;
 		const batch = log[0]!.entries.find((e) => e.batchKind === "soft_forget")!;
 		await t.core.call("memory.undoBatch", { batchId: batch.batchId });
 		assert.equal(get(oldProgress).status, "active", "undone in one go");

@@ -34,6 +34,8 @@ export interface CoreSettings {
 	fallbackModels: string[];
 	memoryEnabled: boolean;
 	memoryAutoExtract: boolean;
+	memoryDetail: "brief" | "standard" | "detailed";
+	memoryWriteFrequency: "standard" | "low";
 	/** Tokens of long-term memory injected at task start. */
 	memoryBudgetTokens: number;
 	/** 「写入前要我确认」: memory changes the agents make wait for the user (docs/memory-design.md §4); off = they take effect and go in the memory log. */
@@ -79,6 +81,8 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	fallbackModels: [],
 	memoryEnabled: true,
 	memoryAutoExtract: true,
+	memoryDetail: "standard",
+	memoryWriteFrequency: "standard",
 	memoryBudgetTokens: 2000,
 	memoryConfirmWrites: false,
 	memoryModel: null,
@@ -160,6 +164,10 @@ function sameType(reference: unknown, value: unknown): boolean {
 
 function valid(key: keyof CoreSettings, value: unknown): boolean {
 	switch (key) {
+		case "memoryDetail":
+			return value === "brief" || value === "standard" || value === "detailed";
+		case "memoryWriteFrequency":
+			return value === "standard" || value === "low";
 		case "approvalMode":
 			return value === "off" || value === "changes" || value === "all";
 		case "agentMode":
