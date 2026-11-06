@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import type { MemoryStore } from "./store.ts";
 import { localDay } from "./store.ts";
 import type { ScopeSet } from "./scopes.ts";
+import { estimateTokens, overlap } from "./text.ts";
 import { LIVE_STATUSES, type Confidence, type Level, type MemoryItem, type MemoryOp, type MemorySource } from "./types.ts";
 
 /**
@@ -249,6 +250,49 @@ export function sentences(text: string): string[] {
 		.split(/[。！？!?\n；;]+|(?<=[a-z])\.\s/i)
 		.map((s) => s.trim())
 		.filter((s) => s.length >= 4);
+}
+
+// ---- active capacity and soft forgetting (§9, §12 items 4–5) --------------------------------
+
+/** Tokens of the text of [items]: the unit of the active capacity (§12 item 4). */
+export function activeTokens(items: readonly MemoryItem[]): number {
+	return items.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+}
+
+/** Never soft-forgotten (§12 item 5): level 3, locked or long-kept, pinned, the agent's persona, a decision the user stated or confirmed. */
+export function forgetProtected(m: MemoryItem): boolean {
+	return m.level === 3 || m.retention !== "normal" || m.pinned || m.kind === "persona" || (m.kind === "decision" && m.confidence.startsWith("user_"));
+}
+
+export type ForgetWhy = "replaced" | "newer_detail" | "finished" | "recoverable";
+export const FORGET_WHY_LABEL: Record<ForgetWhy, string> = {
+	replaced: "有完整的替代条目",
+	newer_detail: "被更新的说法覆盖了的细节",
+	finished: "已结束事项的零碎记录",
+	recoverable: "能从原对话找回",
+};
+
+/**
+ * What may be soft-forgotten when a partition is truly full, in 纪要 §11.5's
+ * order: fully replaced repeats → details a newer version covers → bits of
+ * finished matters → what can be found again in its conversation. Each item
+ * once, under the first reason that fits; protected items never.
+ */
+export function forgetCandidates(store: MemoryStore, items: readonly MemoryItem[], now: number): { item: MemoryItem; why: ForgetWhy }[] {
+	const live = new Map(items.map((m) => [m.id, m]));
+	const out: { item: MemoryItem; why: ForgetWhy }[] = [];
+	const taken = new Set<string>();
+	const take = (m: MemoryItem, why: ForgetWhy) => {
+		if (taken.has(m.id)) return;
+		taken.add(m.id);
+		out.push({ item: m, why });
+	};
+	const open = items.filter((m) => !forgetProtected(m));
+	for (const m of open) if (store.links(m.id).some((l) => l.to === m.id && (l.kind === "supersedes" || l.kind === "derived_from") && live.has(l.from))) take(m, "replaced");
+	for (const m of open) if (items.some((o) => o.id !== m.id && o.createdAt > m.createdAt && overlap(m.content, o.content) >= 0.5)) take(m, "newer_detail");
+	for (const m of open) if (m.kind === "progress" && m.createdAt <= now - 14 * DAY) take(m, "finished");
+	for (const m of open) if (store.sources(m.id).some((s) => s.kind === "session" && s.ref)) take(m, "recoverable");
+	return out;
 }
 
 // ---- review calendar (§12 item 1) ----------------------------------------------------------

@@ -588,5 +588,88 @@ export const MIGRATIONS: string[] = [
 	CREATE INDEX memory_jobs_status ON memory_jobs(status, priority, run_after);
 	CREATE INDEX memory_jobs_dedupe ON memory_jobs(dedupe_key);
 	ALTER TABLE memory_extraction ADD COLUMN last_entry_id TEXT;
+
+	-- Snapshot materials (§2.2, §6.2): short texts the memory agent writes in advance for several
+	-- related items of one partition; usable only while every item is still at the version it was
+	-- written from (checked when used; stale = found out of date).
+	CREATE TABLE memory_materials (
+		id TEXT PRIMARY KEY,
+		scope_key TEXT NOT NULL,
+		item_ids TEXT NOT NULL,
+		item_versions TEXT NOT NULL,
+		text TEXT NOT NULL,
+		tokens INTEGER NOT NULL,
+		job_id TEXT,
+		built_at INTEGER NOT NULL,
+		stale INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX memory_materials_scope ON memory_materials(scope_key, stale);
+
+	-- What the user deleted for good (§12 item 8): a fingerprint of the text, never the text, so the
+	-- background does not extract it again from the conversation it came from.
+	CREATE TABLE memory_suppressions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		pattern_hash TEXT NOT NULL,
+		source_ref TEXT,
+		at INTEGER NOT NULL
+	);
+	CREATE INDEX memory_suppressions_hash ON memory_suppressions(pattern_hash);
+
+	-- The task a session is on (memory-design §16.2): snapshots follow tasks, not messages.
+	CREATE TABLE memory_task_views (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		scope_key TEXT NOT NULL,
+		reason TEXT NOT NULL,
+		status TEXT NOT NULL,
+		prompt TEXT,
+		started_at INTEGER NOT NULL,
+		last_active_at INTEGER NOT NULL,
+		ended_at INTEGER,
+		end_reason TEXT
+	);
+	CREATE INDEX memory_task_views_session ON memory_task_views(session_id, status, started_at);
+	ALTER TABLE memory_snapshots ADD COLUMN task_id TEXT;
+
+	-- A session's own memory mode (§10 「会话可以单独设不记忆」, 16.6 「只读记忆」): normal / readonly / off.
+	CREATE TABLE memory_session_modes (
+		session_id TEXT PRIMARY KEY,
+		mode TEXT NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+
+	-- The context service (roadmap 5.12): a session's own compaction settings, what each compaction
+	-- did (normal or a background candidate used / dropped, for comparing the two), and summaries
+	-- the user reported as wrong.
+	CREATE TABLE context_sessions (
+		session_id TEXT PRIMARY KEY,
+		threshold_percent INTEGER,
+		background INTEGER,
+		updated_at INTEGER NOT NULL
+	);
+	CREATE TABLE context_compactions (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		session_file TEXT,
+		at INTEGER NOT NULL,
+		kind TEXT NOT NULL,
+		outcome TEXT NOT NULL,
+		reason TEXT,
+		wait_ms INTEGER,
+		tokens_before INTEGER,
+		tokens_after INTEGER,
+		cost REAL NOT NULL DEFAULT 0,
+		model TEXT
+	);
+	CREATE INDEX context_compactions_session ON context_compactions(session_id, at);
+	CREATE TABLE context_reports (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		session_file TEXT,
+		entry_id TEXT NOT NULL,
+		note TEXT,
+		at INTEGER NOT NULL,
+		resolved_at INTEGER
+	);
 	`,
 ];

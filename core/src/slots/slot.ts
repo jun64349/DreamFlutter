@@ -303,6 +303,16 @@ export class Slot {
 		if (changed) this.hooks.changed(this);
 	}
 
+	/** Compacts now (dsh's compactNow: nothing recent kept back), with an optional focus for the summary. */
+	async compactNow(customInstructions?: string): Promise<unknown> {
+		this.config?.manualCompactions?.add(this.slotId);
+		try {
+			return await this.session.compact(customInstructions);
+		} finally {
+			this.config?.manualCompactions?.delete(this.slotId);
+		}
+	}
+
 	/** Handles one inbound record: a command or an extension UI response. */
 	async handle(record: Command): Promise<void> {
 		this.lastActivity = now();
@@ -439,14 +449,8 @@ export class Slot {
 			case "set_follow_up_mode":
 				session.setFollowUpMode(command.mode as never);
 				return ok(id, "set_follow_up_mode");
-			case "compact": {
-				this.config?.manualCompactions?.add(this.slotId);
-				try {
-					return ok(id, "compact", await session.compact(str("customInstructions")));
-				} finally {
-					this.config?.manualCompactions?.delete(this.slotId);
-				}
-			}
+			case "compact":
+				return ok(id, "compact", await this.compactNow(str("customInstructions")));
 			case "set_auto_compaction":
 				// Automatic compaction is the core setting autoCompaction (settings.update), not a Pi setting.
 				return ok(id, "set_auto_compaction");

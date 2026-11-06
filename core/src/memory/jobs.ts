@@ -9,7 +9,7 @@ import { json, parseJson } from "../db.ts";
  * memory budget for the day is spent or tidying is paused.
  */
 
-export type JobKind = "extract" | "tidy_l1" | "review" | "conflict";
+export type JobKind = "extract" | "tidy_l1" | "review" | "conflict" | "snapshot" | "capacity";
 export type JobStatus = "queued" | "running" | "done" | "skipped" | "deferred" | "failed";
 
 /**
@@ -17,8 +17,8 @@ export type JobStatus = "queued" | "running" | "done" | "skipped" | "deferred" |
  * contradiction (after extraction, which may already settle it) > periodic tidying.
  */
 export const PRIORITY = { correction: 100, snapshot: 80, extract: 50, conflict: 40, periodic: 10 } as const;
-/** Below this, a job waits while tidying is paused or the budget is spent. */
-const ORDINARY = PRIORITY.snapshot;
+/** Below this, a job waits while tidying is paused or the budget is spent: only the user's own corrections go ahead (snapshot preparation is background spending too, §7). */
+const ORDINARY = PRIORITY.correction;
 export const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 60_000;
 

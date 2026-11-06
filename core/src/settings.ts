@@ -12,6 +12,17 @@ export interface CoreSettings {
 	/** Mode new sessions start in. */
 	agentMode: AgentModeSetting;
 	autoCompaction: boolean;
+	/** Compaction threshold as a percentage of the model's context window (roadmap 5.12); a session can set its own. Never above dsh's safe threshold. */
+	compactionThresholdPercent: number;
+	/**
+	 * Background compaction (roadmap 5.12): auto = on in 蝶君 and scheduled (long-task) sessions, off in 工作台's
+	 * ordinary conversations until measured; on / off for every session. A session can set its own.
+	 */
+	backgroundCompaction: "auto" | "on" | "off";
+	/** Who writes the background summary: the session's own model (summary quality matters; user 2026-11-07) or the cheaper auxiliary one. */
+	backgroundCompactionModel: "session" | "aux";
+	/** Share of the threshold at which the background summary is written, in percent (user 2026-11-07: 85, to be tuned on our own tests). */
+	backgroundCompactionLeadPercent: number;
 	/** provider/id the UI preselects for new sessions; null lets Pi decide. */
 	defaultModel: string | null;
 	defaultThinking: string | null;
@@ -33,6 +44,8 @@ export interface CoreSettings {
 	memoryDailyBudgetUsd: number;
 	/** 「暂停整理」: the memory agent's ordinary work waits; snapshots are still used. */
 	memoryPaused: boolean;
+	/** Active capacity of one partition (global, each workspace, 蝶君): tokens of the text of active and 「待复核」 items (memory-design §12 item 4). */
+	memoryCapacityTokens: number;
 	autoTitle: boolean;
 	/** Daily spending cap for all runs, in USD; 0 = no cap. */
 	dailyBudgetUsd: number;
@@ -55,6 +68,10 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	approvalMode: "changes",
 	agentMode: "standard",
 	autoCompaction: true,
+	compactionThresholdPercent: 80,
+	backgroundCompaction: "auto",
+	backgroundCompactionModel: "session",
+	backgroundCompactionLeadPercent: 85,
 	defaultModel: null,
 	defaultThinking: null,
 	auxModel: null,
@@ -67,6 +84,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	memoryModel: null,
 	memoryDailyBudgetUsd: 0.2,
 	memoryPaused: false,
+	memoryCapacityTokens: 40_000,
 	autoTitle: true,
 	dailyBudgetUsd: 0,
 	monthlyBudgetUsd: 0,
@@ -146,9 +164,18 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 			return value === "off" || value === "changes" || value === "all";
 		case "agentMode":
 			return value === "standard" || value === "minimal";
+		case "compactionThresholdPercent":
+			return Number.isInteger(value) && (value as number) >= 20 && (value as number) <= 95;
+		case "backgroundCompactionLeadPercent":
+			return Number.isInteger(value) && (value as number) >= 50 && (value as number) <= 99;
+		case "backgroundCompaction":
+			return value === "auto" || value === "on" || value === "off";
+		case "backgroundCompactionModel":
+			return value === "session" || value === "aux";
 		case "memoryBudgetTokens":
 		case "maxTurnsUnattended":
 		case "idleSessionMinutes":
+		case "memoryCapacityTokens":
 			return Number.isInteger(value) && (value as number) > 0;
 		case "maxTurnsPerRun":
 		case "askTimeoutSeconds":

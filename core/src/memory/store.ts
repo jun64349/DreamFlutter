@@ -3,6 +3,7 @@ import { RpcError } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, parseJson } from "../db.ts";
 import { defaultValidity, promotionBlock } from "./lifecycle.ts";
+import { hazardReason, scanMemoryText, suppressionHash } from "./safety.ts";
 import { type ScopeSet, visibleIn, writableIn } from "./scopes.ts";
 import { relevance, trigrams } from "./text.ts";
 import {
@@ -152,6 +153,8 @@ export const MAX_CONTENT = 2000;
 
 /** Fields whose change is not a change of the memory itself (left out of the log's 「改了什么」). */
 const BOOKKEEPING = new Set(["version", "updatedAt", "lastUsedAt", "useCount"]);
+/** Fields a restore puts back. */
+const RESTORABLE = ["content", "kind", "level", "conditions", "scope", "workspaceId", "groupId", "confidence", "pinned", "retention", "autoOk", "validFrom", "validUntil", "nextReviewAt"] as const;
 /** A patch of only these says when the item was looked at, not what it says: allowed on locked items too. */
 const REVIEW_ONLY = new Set(["lastVerifiedAt", "nextReviewAt"]);
 
@@ -312,7 +315,7 @@ export class MemoryStore {
 		const byUser = actor === "user";
 		if (op.kind === "add") {
 			const item = op.item;
-			const bad = validateNew(item, actor);
+			const bad = validateNew(item, actor) ?? this.unsafe(item.content, actor);
 			if (bad) return { reject: bad };
 			if (item.id && this.get(item.id)) return { reject: "这条记忆已经存在" };
 			if (input.allowed && !writableIn(item, input.allowed)) return { reject: "不在这次允许的范围里" };
@@ -326,7 +329,7 @@ export class MemoryStore {
 		if (op.baseVersion !== undefined && op.baseVersion !== current.version) return { reject: `这条记忆已经有更新（现在是第 ${current.version} 版），请按最新内容重新判断` };
 		if (actor === "memory_agent" && op.baseVersion === undefined) return { reject: "缺少版本号" };
 		if (op.kind === "edit") {
-			const bad = validatePatch(op.patch, current);
+			const bad = validatePatch(op.patch, current) ?? (op.patch.content !== undefined ? this.unsafe(op.patch.content, actor) : undefined);
 			if (bad) return { reject: bad };
 			const target = { scope: op.patch.scope ?? current.scope, workspaceId: op.patch.workspaceId !== undefined ? op.patch.workspaceId : current.workspaceId, groupId: op.patch.groupId !== undefined ? op.patch.groupId : current.groupId };
 			if (target.scope === "workspace" && !target.workspaceId) return { reject: "工作区记忆要指明工作区" };
@@ -357,6 +360,19 @@ export class MemoryStore {
 		}
 		if (this.mustConfirm(op, input)) return { pending: "confirm" };
 		return { apply: true };
+	}
+
+	/**
+	 * Text memory may not hold (17.2 item 3, §10): secrets, instructions to the
+	 * model, invisible characters — from anyone. And what the user had deleted
+	 * for good does not come back through the background (§12 item 8); the
+	 * user may write it again themselves.
+	 */
+	private unsafe(content: string, actor: Actor): string | undefined {
+		const hazard = scanMemoryText(content);
+		if (hazard) return hazardReason(hazard);
+		if (actor !== "user" && this.db.get("SELECT 1 FROM memory_suppressions WHERE pattern_hash = ? LIMIT 1", suppressionHash(content))) return "用户要求彻底删除过这条内容，不再记";
+		return undefined;
 	}
 
 	/** 「写入前要我确认」 is on: back to §4's table of what may take effect without the user. */
@@ -513,6 +529,69 @@ export class MemoryStore {
 	markUsed(ids: string[]): void {
 		const at = this.clock();
 		for (const id of ids) this.db.run("UPDATE memory_items SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?", at, id);
+	}
+
+	// ---- restoring and deleting for good (§9, §12 item 8) ------------------------------
+
+	/**
+	 * Puts [id] back as it was at [version] (§9 「单条恢复」): one change of its
+	 * own by the user, in the log like any other, so it can be undone too.
+	 */
+	restore(id: string, version: number): CommitResult {
+		const current = this.get(id);
+		if (!current) throw new RpcError("not_found", "没有这条记忆");
+		const old = this.version(id, version);
+		if (!old) throw new RpcError("not_found", `没有第 ${version} 版`);
+		const patch: ItemPatch = {};
+		for (const key of RESTORABLE) if (JSON.stringify(old[key]) !== JSON.stringify(current[key])) (patch as Record<string, unknown>)[key] = old[key];
+		const ops: MemoryOp[] = [];
+		if (Object.keys(patch).length) ops.push({ kind: "edit", id, patch, reason: `恢复到第 ${version} 版` });
+		// A withdrawn add comes back as active: 「withdrawn」 is only for the log's undo.
+		const status = old.status === "withdrawn" ? "active" : old.status;
+		if (status !== current.status) ops.push({ kind: "status", id, status, reason: `恢复到第 ${version} 版` });
+		if (!ops.length) throw new RpcError("bad_request", "和那一版一样，不用恢复");
+		const result = this.commit({ actor: "user", ops, batchKind: "restore", reason: `恢复到第 ${version} 版` });
+		if (!result.applied.length && result.rejected.length) throw new RpcError("bad_request", result.rejected[0]!.reason);
+		return result;
+	}
+
+	/**
+	 * Deletes [id] for good, only for the user (§12 item 8): the item, every
+	 * version, its sources, relations, materials, waiting changes and log
+	 * lines go; its text is taken out of recorded snapshots; what is kept is a
+	 * fingerprint without the text, so the background never extracts it again
+	 * from the same conversation. Cannot be undone. Returns the conversations
+	 * it came from (the window offers to delete that part too).
+	 */
+	purge(id: string): { sessions: string[] } {
+		const current = this.get(id);
+		if (!current) throw new RpcError("not_found", "没有这条记忆");
+		const texts = new Set([current.content, ...this.versions(id).map((v) => v.item.content)]);
+		const sessions = [...new Set(this.sources(id).filter((s) => s.kind === "session" && s.ref).map((s) => s.ref!))];
+		const at = this.clock();
+		this.db.transaction(() => {
+			for (const text of texts) {
+				const hash = suppressionHash(text);
+				if (sessions.length) for (const ref of sessions) this.db.run("INSERT INTO memory_suppressions(pattern_hash, source_ref, at) VALUES(?, ?, ?)", hash, ref, at);
+				else this.db.run("INSERT INTO memory_suppressions(pattern_hash, source_ref, at) VALUES(?, NULL, ?)", hash, at);
+				if (text.length >= 4) this.db.run("UPDATE memory_snapshots SET content = replace(content, ?, '（已彻底删除的记忆）') WHERE instr(content, ?) > 0", text, text);
+				// v0.2's tables, kept read-only after the migration, still hold it.
+				if (text.length >= 4) this.db.run("UPDATE memory_blocks SET content = replace(content, ?, '') WHERE instr(content, ?) > 0", text, text);
+				this.db.run("DELETE FROM memories WHERE content = ?", text);
+			}
+			this.db.run("DELETE FROM memories WHERE id = ?", id);
+			this.db.run("DELETE FROM memory_items WHERE id = ?", id);
+			this.db.run("DELETE FROM memory_versions WHERE item_id = ?", id);
+			this.db.run("DELETE FROM memory_sources WHERE item_id = ?", id);
+			this.db.run("DELETE FROM memory_links WHERE from_id = ? OR to_id = ?", id, id);
+			this.db.run("DELETE FROM memory_ops WHERE item_id = ?", id);
+			this.db.run("DELETE FROM memory_pending WHERE item_id = ? OR instr(op, ?) > 0", id, id);
+			this.db.run("DELETE FROM memory_materials WHERE instr(item_ids, ?) > 0", id);
+			// The log keeps that something was deleted for good, never what.
+			this.db.run("INSERT INTO memory_batches(id, actor, kind, reason, at) VALUES(?, 'user', 'purge', '彻底删除了一条记忆', ?)", `b_${randomUUID().replaceAll("-", "").slice(0, 12)}`, at);
+		});
+		this.changed(null);
+		return { sessions };
 	}
 
 	// ---- waiting for the user ----------------------------------------------------------
@@ -682,16 +761,20 @@ export class MemoryStore {
 	 */
 	undoBatch(batchId: string): { batchId: string | null; undone: string[]; conflicts: { opId: string; itemId: string; reason: string }[] } {
 		const out = { batchId: null as string | null, undone: [] as string[], conflicts: [] as { opId: string; itemId: string; reason: string }[] };
-		const ops = this.db.all<{ id: string }>("SELECT id FROM memory_ops WHERE batch_id = ? AND undone_at IS NULL AND kind <> 'undo' ORDER BY at DESC, rowid DESC", batchId);
+		const ops = this.db.all<OpRow>("SELECT * FROM memory_ops WHERE batch_id = ? AND undone_at IS NULL AND kind <> 'undo' ORDER BY at DESC, rowid DESC", batchId);
+		// Several changes of one item in the batch (a restore sets text and status) go back together, to before the first.
+		const byItem = new Map<string, OpRow[]>();
+		for (const op of ops) byItem.set(op.item_id, [...(byItem.get(op.item_id) ?? []), op]);
 		this.db.transaction(() => {
-			for (const op of ops) this.undoOne(op.id, out);
+			for (const [, group] of byItem) this.undoOne(group[0]!.id, out, group.slice(1));
 			if (!out.conflicts.length && out.undone.length) this.db.run("UPDATE memory_batches SET undone_at = ? WHERE id = ?", this.clock(), batchId);
 		});
 		if (out.undone.length) this.changed(out.batchId);
 		return out;
 	}
 
-	private undoOne(opId: string, out: { batchId: string | null; undone: string[]; conflicts: { opId: string; itemId: string; reason: string }[] }): void {
+	/** Undoes [opId] and, with it, [earlier] changes of the same item (newest first): back to before the oldest of them. */
+	private undoOne(opId: string, out: { batchId: string | null; undone: string[]; conflicts: { opId: string; itemId: string; reason: string }[] }, earlier: OpRow[] = []): void {
 		const op = this.db.get<OpRow>("SELECT * FROM memory_ops WHERE id = ?", opId);
 		if (!op) throw new RpcError("not_found", "没有这条记录");
 		const conflict = (reason: string) => out.conflicts.push({ opId, itemId: op.item_id, reason });
@@ -701,11 +784,12 @@ export class MemoryStore {
 		if (!current) return void conflict("这条记忆已经不存在");
 		if (current.version !== op.after_version) return void conflict("这条记忆之后又改过，没有覆盖");
 		const at = this.clock();
+		const back = earlier.length ? earlier[earlier.length - 1]!.before_version : op.before_version;
 		let next: MemoryItem;
-		if (op.before_version === null) {
+		if (back === null) {
 			next = { ...current, status: "withdrawn" };
 		} else {
-			const previous = this.version(op.item_id, op.before_version);
+			const previous = this.version(op.item_id, back);
 			if (!previous) return void conflict("找不到改动前的版本");
 			next = { ...previous, useCount: current.useCount, lastUsedAt: current.lastUsedAt, createdAt: current.createdAt };
 		}
@@ -729,8 +813,10 @@ export class MemoryStore {
 			opId,
 			at,
 		);
-		this.db.run("UPDATE memory_ops SET undone_at = ? WHERE id = ?", at, opId);
-		out.undone.push(opId);
+		for (const id of [opId, ...earlier.map((e) => e.id)]) {
+			this.db.run("UPDATE memory_ops SET undone_at = ? WHERE id = ?", at, id);
+			out.undone.push(id);
+		}
 	}
 }
 

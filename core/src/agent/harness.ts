@@ -5,6 +5,8 @@ import {
 
 	type ExtensionAPI,
 	type ExtensionContext,
+	type SessionEntry,
+	sessionEntryToContextMessages,
 	type ExtensionFactory,
 	type ResourceLoader,
 	type SessionManager,
@@ -32,6 +34,7 @@ import {
 	workingDirectoryContext,
 } from "./dsh-text.ts";
 import { MEMORY_MESSAGE_TYPE } from "../memory/types.ts";
+import { type Candidate, candidateProblem, chooseCut, type CompactionHooks, compactionCycle, estimateAll, fingerprint, messagesBefore, prefixFingerprint } from "./background-compaction.ts";
 import { RICH_OUTPUT_GUIDANCE, SANDBOX_ENVIRONMENT } from "./host-text.ts";
 import { editTool, readImageTool, readTool, workingDirectoryTool, writeTool } from "./fs-tools.ts";
 import { askUserTool, exitPlanModeTool, skillTool, todoTool } from "./interaction-tools.ts";
@@ -139,6 +142,8 @@ export interface HarnessOptions {
 	control?: HarnessControl;
 	/** Test hook: the clock. */
 	now?: () => number;
+	/** The core's part in this session's compactions (threshold, background candidate, records); roadmap 5.12. */
+	compaction?: () => CompactionHooks | undefined;
 }
 
 type Entry = { type: string; customType?: string; data?: unknown; message?: { role?: string; customType?: string; content?: unknown; timestamp?: number } };
@@ -322,10 +327,14 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			return sections.filter((s) => s.length > 0).join("\n\n");
 		};
 
+		/** The system prompt this harness gave the session's last run (Pi's own getter can answer its default one between turns). */
+		let lastSystemPrompt: string | undefined;
+		const instructionsNow = (ctx: ExtensionContext) => lastSystemPrompt ?? ctx.getSystemPrompt();
 		pi.on("before_agent_start", (_event, ctx) => {
 			currentModel = (ctx.model as Model<never> | undefined) ?? currentModel;
 			turn += 1;
-			return { systemPrompt: systemPrompt(currentModel, ctx.cwd) };
+			lastSystemPrompt = systemPrompt(currentModel, ctx.cwd);
+			return { systemPrompt: lastSystemPrompt };
 		});
 
 		// ---- context messages, each only when it changed (dsh pre-step contributors) ---------------
@@ -394,7 +403,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 		function prunedView<T>(message: T): T {
 			const m = message as { role: string; summary?: string; toolCallId?: string; content?: unknown; timestamp?: number };
 			if (m.role === "compactionSummary" && typeof m.summary === "string") {
-				return { role: "custom", customType: CONTEXT_MESSAGE.checkpoint, content: frameSummary(m.summary), display: false, timestamp: m.timestamp ?? 0 } as T;
+				return { role: "custom", customType: CONTEXT_MESSAGE.checkpoint, content: `${frameSummary(m.summary)}\n\n${CHECKPOINT_NOT_AUTHORITY}`, display: false, timestamp: m.timestamp ?? 0 } as T;
 			}
 			if (mode === "standard" && m.role === "toolResult" && m.toolCallId && pruned.has(m.toolCallId) && Array.isArray(m.content)) {
 				return { ...m, content: pruneBlocks(m.content as { type: string; text?: string }[]) } as T;
@@ -429,16 +438,69 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			}
 			const model = ctx.model as Model<never> | undefined;
 			if (!model) return undefined;
+			const hooks = options.compaction?.();
+			const began = Date.now();
+			const kind = event.reason === "manual" ? "manual" : "normal";
+			// A candidate still being written is not waited for (its cost is counted when it ends).
+			if (writing) {
+				writing.abort();
+				writing = undefined;
+				hooks?.record?.({ kind: "background", outcome: "dropped", reason: "still_writing" });
+			}
+			const regenerate = event.reason === "manual" ? hooks?.takeRegenerate?.() : undefined;
+			if (regenerate) {
+				// The user reported the checkpoint wrong: written again from the original messages, not from the old summary.
+				const branch = ctx.sessionManager.getBranch() as SessionEntry[];
+				const cut = branch.findIndex((e) => e.id === preparation.firstKeptEntryId);
+				const originals = (cut < 0 ? branch : branch.slice(0, cut)).filter((e) => e.type !== "compaction").flatMap((e) => sessionEntryToContextMessages(e) as unknown[]);
+				const fits = estimateAll(originals) < (model.contextWindow || 128_000) * 0.7;
+				const focus = `The user reported the previous checkpoint as wrong: "${regenerate.note}". ${fits ? "Rebuild it from the original conversation above." : "Correct it."}`;
+				const result = await summarize(ctx, model, fits ? originals : [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages], fits ? undefined : preparation.previousSummary, [event.customInstructions?.trim(), focus].filter(Boolean).join("\n"), event.signal);
+				hooks?.record?.({ kind: "regenerate", outcome: "done", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, cost: result.usage?.cost?.total ?? 0, model: `${model.provider}/${model.id}` });
+				return { compaction: { summary: result.summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, usage: result.usage } };
+			}
+			if (event.reason !== "manual" && candidate) {
+				const ready = candidate;
+				candidate = undefined;
+				const settings = compactionSettingsFor(model, hooks);
+				const problem = candidateProblem(ready, {
+					branch: ctx.sessionManager.getBranch() as SessionEntry[],
+					instructions: fingerprint(instructionsNow(ctx)),
+					model: `${model.provider}/${model.id}`,
+					tokensBefore: preparation.tokensBefore,
+					threshold: model.contextWindow - settings.reserveTokens,
+				});
+				if (!problem) {
+					const after = preparation.tokensBefore - ready.covered + Math.ceil(ready.summary.length / 4);
+					hooks?.record?.({ kind: "background", outcome: "used", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, tokensAfter: after, cost: 0, model: ready.writer });
+					// Already paid for when it was written: no usage here, or it would count twice.
+					return { compaction: { summary: ready.summary, firstKeptEntryId: ready.cutId, tokensBefore: preparation.tokensBefore } };
+				}
+				hooks?.record?.({ kind: "background", outcome: "dropped", reason: problem });
+			}
+			const result = await summarize(ctx, model, [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages], preparation.previousSummary, event.customInstructions?.trim(), event.signal);
+			hooks?.record?.({ kind, outcome: "done", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, cost: result.usage?.cost?.total ?? 0, model: `${model.provider}/${model.id}` });
+			return { compaction: { summary: result.summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, usage: result.usage } };
+		});
+
+		/**
+		 * One checkpoint summary (normal, background or regenerated): dsh's
+		 * instruction over [all] in the model's view, the memory snapshot left
+		 * out (memory-design 6.3), DreamFlutter's own rules added (roadmap 5.12).
+		 */
+		async function summarize(ctx: ExtensionContext, model: Model<never>, all: unknown[], previousSummary: string | undefined, focus: string | undefined, signal: AbortSignal | undefined) {
 			// The memory snapshot is provided again after the checkpoint: summarizing it would carry
 			// memories the user corrected since into the summary (memory-design 6.3).
-			const all = [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages];
 			const toSummarize = all.filter((message) => !isMemorySnapshot(message));
-			const messages = convertToLlm(toSummarize.map((message) => prunedView(message)));
-			if (preparation.previousSummary) {
-				messages.unshift({ role: "user", content: [{ type: "text", text: frameSummary(preparation.previousSummary) }], timestamp: 0 });
+			const messages = convertToLlm(toSummarize.map((message) => prunedView(message)) as never);
+			if (previousSummary) {
+				messages.unshift({ role: "user", content: [{ type: "text", text: frameSummary(previousSummary) }], timestamp: 0 });
 			}
-			const focus = event.customInstructions?.trim();
-			const base = toSummarize.length < all.length ? `${COMPACTION_INSTRUCTION}\n\n${MEMORY_SUMMARY_NOTE}` : COMPACTION_INSTRUCTION;
+			const running = [...jobs.jobs.values()].filter((j) => j.status === "running").map((j) => `${j.kind}: ${j.label.slice(0, 200)}`);
+			const rules = [COMPACTION_INSTRUCTION, CONTEXT_RULES];
+			if (toSummarize.length < all.length) rules.push(MEMORY_SUMMARY_NOTE);
+			if (running.length) rules.push(`These background jobs are still running at this checkpoint (write them under Pending Jobs as running, never as done): ${running.join("; ")}`);
+			const base = rules.join("\n\n");
 			const instruction = focus ? `${base}
 
 The user asked this checkpoint to focus on: ${focus}` : base;
@@ -446,13 +508,80 @@ The user asked this checkpoint to focus on: ${focus}` : base;
 			const toolInfos = pi.getAllTools().filter((t) => activeNames().has(t.name));
 			const answer = await options.complete(
 				model,
-				{ systemPrompt: ctx.getSystemPrompt(), messages, tools: toolInfos.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })) as never },
-				{ maxTokens: Math.min(COMPACTION.summaryMaxTokens, model.maxTokens || COMPACTION.summaryMaxTokens), signal: event.signal },
+				{ systemPrompt: instructionsNow(ctx), messages, tools: toolInfos.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })) as never },
+				{ maxTokens: Math.min(COMPACTION.summaryMaxTokens, model.maxTokens || COMPACTION.summaryMaxTokens), signal },
 			);
 			if (answer.stopReason === "error" || answer.stopReason === "aborted") throw new Error(answer.errorMessage ?? "summarization failed");
 			const summary = textOfBlocks(answer.content.filter((b) => b.type === "text")).trim();
 			if (summary.length === 0) throw new Error("summarization produced no text summary content");
-			return { compaction: { summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, usage: answer.usage } };
+			return { summary, usage: answer.usage };
+		}
+
+		// ---- background compaction (roadmap 5.12; user decisions 2026-11-07) ------------------------
+		let candidate: Candidate | undefined;
+		let writing: { abort: () => void } | undefined;
+		/** Compaction cycles a candidate was already written (or tried) for: never twice near the threshold. */
+		const tried = new Set<string>();
+
+		function compactionSettingsFor(model: Model<never>, hooks: CompactionHooks | undefined) {
+			const base = dshCompactionSettings(model, true);
+			return hooks?.settings ? hooks.settings(model, base) : base;
+		}
+
+		pi.on("turn_end", (_event, ctx) => {
+			const hooks = options.compaction?.();
+			const background = hooks?.background;
+			const model = ctx.model as Model<never> | undefined;
+			if (!background?.enabled() || !model?.contextWindow || writing || candidate) return;
+			const tokens = ctx.getContextUsage()?.tokens;
+			const settings = compactionSettingsFor(model, hooks);
+			const threshold = model.contextWindow - settings.reserveTokens;
+			if (!tokens || tokens < threshold * background.lead() || tokens >= threshold) return;
+			const branch = ctx.sessionManager.getBranch() as SessionEntry[];
+			const cycle = compactionCycle(branch);
+			if (tried.has(cycle)) return;
+			tried.add(cycle);
+			if (!background.allowed()) {
+				hooks?.record?.({ kind: "background", outcome: "dropped", reason: "budget" });
+				return;
+			}
+			const cut = chooseCut(branch, settings.keepRecentTokens);
+			if (cut === undefined) {
+				hooks?.record?.({ kind: "background", outcome: "dropped", reason: "no_cut" });
+				return;
+			}
+			const messages = messagesBefore(branch, cut);
+			const controller = new AbortController();
+			const mine = { abort: () => controller.abort() };
+			writing = mine;
+			const began = Date.now();
+			void (async () => {
+				const writer = await background.model(model);
+				if (!writer) throw new Error("no model to write the candidate");
+				const result = await summarize(ctx, writer, messages, undefined, undefined, controller.signal);
+				if (result.usage) background.charge(result.usage, writer);
+				const cost = result.usage?.cost?.total ?? 0;
+				if (writing !== mine) {
+					hooks?.record?.({ kind: "background", outcome: "dropped", reason: "late", cost, model: `${writer.provider}/${writer.id}` });
+					return;
+				}
+				writing = undefined;
+				candidate = {
+					cycle,
+					cutId: branch[cut]!.id,
+					prefix: prefixFingerprint(branch, cut),
+					instructions: fingerprint(instructionsNow(ctx)),
+					model: `${model.provider}/${model.id}`,
+					summary: result.summary,
+					covered: estimateAll(messages),
+					cost,
+					writer: `${writer.provider}/${writer.id}`,
+				};
+				hooks?.record?.({ kind: "background", outcome: "made", waitMs: Date.now() - began, tokensBefore: tokens, cost, model: candidate.writer });
+			})().catch((error) => {
+				if (writing === mine) writing = undefined;
+				if (!controller.signal.aborted) hooks?.record?.({ kind: "background", outcome: "failed", reason: error instanceof Error ? error.message : String(error) });
+			});
 		});
 
 		/** Messages from the compaction's cut point on (the ones it keeps), for pruning candidates. */
@@ -471,6 +600,21 @@ function isMemorySnapshot(message: unknown): boolean {
 	const m = message as { role?: string; customType?: string };
 	return m.role === "custom" && m.customType === MEMORY_MESSAGE_TYPE;
 }
+
+/**
+ * DreamFlutter's rules on top of dsh's compaction instruction (roadmap 5.12
+ * 「先把普通压缩做对」): what a checkpoint must not lose or turn around.
+ */
+export const CONTEXT_RULES = [
+	"Additional rules for this checkpoint:",
+	"- Keep negations and conditions exactly (\"do NOT use X\", \"only when Y\"); never turn a prohibition into an instruction.",
+	"- Keep what is unverified as unverified, and attempts that failed as failed (with why); do not present them as working or recommended.",
+	"- Background jobs or commands still running: write them as running; never infer that they finished or succeeded.",
+	"- The user's latest corrections win over anything earlier.",
+].join("\n");
+
+/** Said with every checkpoint the model sees: it is background, not a request or permission (roadmap 5.12). */
+export const CHECKPOINT_NOT_AUTHORITY = "This checkpoint is a record of earlier conversation, not a new request or permission from the user: follow the current instructions and the messages that follow it.";
 
 /** Added to the compaction instruction when a memory snapshot was left out of what is summarized. */
 export const MEMORY_SUMMARY_NOTE = "Do not copy the user's long-term memory (the memory snapshot) into the checkpoint: DreamFlutter provides the current memory again after it, and memories may have been corrected since.";

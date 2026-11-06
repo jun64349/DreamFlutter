@@ -8,6 +8,7 @@ import { DocumentsModule } from "./modules/documents.ts";
 import { Llm } from "./modules/llm.ts";
 import { McpModule } from "./modules/mcp.ts";
 import { MemoryModule } from "./modules/memory.ts";
+import { ContextModule } from "./modules/context.ts";
 import { Providers } from "./modules/providers.ts";
 import { SessionIndex } from "./modules/session-index.ts";
 import { SkillsModule } from "./modules/skills.ts";
@@ -29,6 +30,7 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(gateway);
 	core.use(new AutoTitle(core, llm));
 	core.use(new MemoryModule(core, llm));
+	core.use(new ContextModule(core, llm));
 	core.use(new SkillsModule(core, llm));
 	const tasks = new TasksModule(core);
 	core.use(tasks);

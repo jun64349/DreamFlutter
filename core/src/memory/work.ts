@@ -6,8 +6,10 @@ import type { Llm } from "../modules/llm.ts";
 import { textOf } from "../runs.ts";
 import { type AgentRun, runMemoryAgent } from "./agent.ts";
 import { type JobOutcome, type MemoryJob, MemoryJobs, PRIORITY } from "./jobs.ts";
-import { CALENDAR, DAY, expire, failedOutput, mentions, PERIOD_LABEL, type Period, periodStart, possibleConflicts, promotable, refutedBy, toolIdentifiers } from "./lifecycle.ts";
-import { homeScope, type ScopeSet, type Workspaces } from "./scopes.ts";
+import { activeTokens, CALENDAR, DAY, expire, FORGET_WHY_LABEL, forgetCandidates, failedOutput, mentions, PERIOD_LABEL, type Period, periodStart, possibleConflicts, promotable, refutedBy, toolIdentifiers } from "./lifecycle.ts";
+import { homeScope, type ScopeSet, visibleIn, type Workspaces } from "./scopes.ts";
+import { scanMemoryText } from "./safety.ts";
+import { lineCost, type Material, materialCost } from "./snapshot.ts";
 import { localDay, type MemoryStore } from "./store.ts";
 import { nearDuplicate, saysMore } from "./text.ts";
 import { ITEM_KINDS, type ItemKind, type ItemScope, type ItemStatus, type Level, LIVE_STATUSES, type MemoryItem, type MemoryOp, type SourceInput } from "./types.ts";
@@ -23,13 +25,21 @@ const PROGRESS_PER_TASK = 3;
 const TIDY_FLAG = "memory_tidy_l1:";
 const REVIEW_FLAG = "memory_review:";
 /** Batches whose changes are a review's own work: not a reason for the next review. */
-const REVIEW_BATCHES = ["tidy", "review"];
+const REVIEW_BATCHES = ["tidy", "review", "capacity", "soft_forget"];
 /** Batches that never start a contradiction check (the check's own, undoing, the program's sweeps, migration). */
 const NO_CONFLICT_CHECK = new Set(["conflict", "undo", "expire", "refute", "migration"]);
 /** At most this many possible contradictions of one item go to one check. */
 const CONFLICTS_PER_ITEM = 3;
+const MATERIAL_FLAG = "memory_materials:";
+const CAPACITY_FLAG = "memory_capacity:";
+/** 「真正满额」 = over the capacity, and still above this share of it after a full consolidation (§12 item 4). */
+const TRULY_FULL = 0.9;
+/** At most this many items go to one consolidation call (oldest first; the rest wait for the next round). */
+const CAPACITY_ITEMS = 250;
+/** Below this many items a partition's snapshot is short anyway: no materials (no model call). */
+const MATERIAL_MIN_ITEMS = 6;
 
-type Action = "add" | "update" | "set_status" | "combine" | "keep" | "promote" | "demote" | "conflict";
+type Action = "add" | "update" | "set_status" | "combine" | "keep" | "promote" | "demote" | "conflict" | "material";
 
 /** What one job may do (§5: 「本次允许的操作种类」). */
 interface Policy {
@@ -42,6 +52,10 @@ interface Policy {
 	progressLeft: number;
 	added: { id: string; content: string; version: number }[];
 	batches: string[];
+	/** Items this job may soft-forget (the program's candidates when a partition is truly full, §12 item 5). */
+	forgettable?: Set<string>;
+	/** A snapshot preparation: the materials it wrote, and the job they belong to. */
+	materials?: { jobId: string; ids: string[]; covered: Set<string> };
 }
 
 const EXTRACT_SYSTEM = [
@@ -81,6 +95,29 @@ function reviewSystem(level: Level, period: Period, light: boolean): string {
 		"没被用到、时间久了都不是改动的理由。一条只写一件事，以「用户」为主语。最后用一两句话说明你做了什么。",
 	].join("\n");
 }
+
+const MATERIAL_SYSTEM = [
+	"你是 DreamFlutter 的记忆整理 Agent，现在做「快照准备」：把下面的记忆按主题合成几段简短的快照素材。以后每个任务开始时，程序会挑和任务相关的素材放进主 Agent 的上下文，代替逐条列出，省 token。你只能读写记忆，没有别的工具；你不改记忆本身。",
+	"规则：",
+	"- 每段素材把 2 条以上说同一主题的记忆合成一两句话，用 action=material 提交，from 列出覆盖的条目和版本；",
+	"- 不能丢任何限定：版本、范围、否定、条件、有效期、「尚未确认」都要保留；不加记忆里没有的内容；以「用户」为主语；",
+	"- 句末用（#id、#id）标出这段覆盖的每一条，不要提别的条目；",
+	"- 一条记忆只放进一段素材；和别的都不相关的单独条目不用写；",
+	"- 素材要比把这些条目分开列出更短，否则不用写。",
+	"写完用一两句话说明你写了几段。",
+].join("\n");
+
+const CAPACITY_SYSTEM = [
+	"你是 DreamFlutter 的记忆整理 Agent。这个分区的活跃记忆超过了容量上限，现在做一次完整的提炼合并，腾出空间。你只能读写记忆，没有别的工具；你提交的改动由程序检查后生效，记入用户的记忆日志，用户可以撤销。",
+	"能做的：几条说同一件事的 combine（retire_as=archived 是提炼：原条目保留、退出日常使用；纯重复用 superseded）；已经结束的安排、做完的事的零碎记录 set_status=ended；错的、过时的 set_status=outdated；啰嗦的 update 成更短的说法（不丢限定）；仍然有用的 keep。",
+	"不要删内容、不要软遗忘（那一步由程序在合并之后另外判断）。一条只写一件事，以「用户」为主语。最后用一两句话说明你做了什么。",
+].join("\n");
+
+const FORGET_SYSTEM = [
+	"你是 DreamFlutter 的记忆整理 Agent。这个分区的活跃记忆在完整的提炼合并之后仍然超过容量，现在要软遗忘一部分（软遗忘的条目退出日常使用，保留来源，用户可以在记忆日志里一键恢复）。你只能读写记忆，没有别的工具。",
+	"程序已经按顺序列出了可以软遗忘的候选（有完整替代的 → 被更新的说法覆盖了的细节 → 已结束事项的零碎记录 → 能从原对话找回的）；三级、锁定、常驻、Agent 设定、用户确认过的决定不在里面，也不能软遗忘。",
+	"按候选的顺序挑，挑到腾出要求的 token 数就停；仍然重要的跳过。用 set_status=forgotten，每条写理由。最后用一两句话说明你做了什么。",
+].join("\n");
 
 const CONFLICT_SYSTEM = [
 	"你是 DreamFlutter 的记忆整理 Agent。程序发现下面的记忆可能和别的内容矛盾（只是字面上的初筛，不一定真矛盾）。你只能读写记忆，没有别的工具；你提交的改动由程序检查后生效，记入用户的记忆日志，用户可以撤销。",
@@ -232,6 +269,210 @@ export class MemoryWork {
 		return result.applied.map((a) => a.itemId);
 	}
 
+	// ---- active capacity (§9, §12 items 4–5) --------------------------------------------------
+
+	/** Every partition with live items. */
+	private partitions(): string[] {
+		const keys = new Set<string>();
+		for (const level of [1, 2, 3] as Level[]) for (const key of this.scopeKeys(level)) keys.add(key);
+		return [...keys];
+	}
+
+	/**
+	 * Partitions over their capacity get one consolidation job; again only
+	 * once something new was written since the last one (it does not run
+	 * every ten minutes on a partition it could not bring down).
+	 */
+	checkCapacity(): string[] {
+		if (!this.background) return [];
+		const cap = this.core.settings.get().memoryCapacityTokens;
+		const out: string[] = [];
+		for (const key of this.partitions()) {
+			const items = this.itemsOf(key);
+			if (activeTokens(items) <= cap) continue;
+			const last = Number(this.db.get<{ value: string }>("SELECT value FROM app_flags WHERE key = ?", CAPACITY_FLAG + key)?.value ?? 0);
+			if (last && !items.some((m) => m.createdAt > last)) continue;
+			this.jobs.enqueue({ kind: "capacity", scopeKey: key, priority: PRIORITY.periodic, dedupeKey: `capacity:${key}` });
+			out.push(`capacity:${key}`);
+		}
+		return out;
+	}
+
+	/**
+	 * A partition over its capacity: first a full consolidation; only if it is
+	 * still above 90% after that (「真正满额」) the agent soft-forgets from the
+	 * program's candidates, in order, until there is room (§12 items 4–5).
+	 * Each step is its own batch in the memory log, undone in one go.
+	 */
+	private async capacity(job: MemoryJob): Promise<JobOutcome> {
+		const key = job.scopeKey;
+		const cap = this.core.settings.get().memoryCapacityTokens;
+		const start = this.now();
+		this.db.run("INSERT OR REPLACE INTO app_flags(key, value, at) VALUES(?, ?, ?)", CAPACITY_FLAG + key, String(start), start);
+		const before = activeTokens(this.itemsOf(key));
+		if (before <= cap) return { status: "skipped", result: { why: "没有超过容量" } };
+		const set = this.setFor(key);
+		const workspace = key.startsWith("workspace:") ? this.workspaces.get(key.slice(10))?.path : undefined;
+		const base = { set, scopeKey: key, sessionRef: null, progressLeft: 0, added: [], batches: [] as string[] };
+		const open = this.itemsOf(key)
+			.filter((m) => m.level < 3 && m.retention === "normal")
+			.sort((a, b) => a.createdAt - b.createdAt)
+			.slice(0, CAPACITY_ITEMS);
+		const consolidate: Policy = { ...base, actions: new Set(["update", "set_status", "combine", "keep"]), statuses: new Set(["ended", "archived", "outdated", "superseded", "review"]) };
+		const first = await this.agent(job, CAPACITY_SYSTEM, [`「${scopeLabel(key)}」的活跃记忆约 ${before} token，上限 ${cap}。下面是可以整理的条目（三级和锁定的不在里面），最早的在前：`, ...open.map(line)].join("\n"), consolidate, workspace ?? null, "capacity", "容量超了，提炼合并");
+		let cost = first.usage.cost;
+		const after = activeTokens(this.itemsOf(key));
+		if (after <= cap * TRULY_FULL) return { status: "done", costUsd: cost, result: { before, after, step: "consolidated", batches: consolidate.batches } };
+		const candidates = forgetCandidates(this.store, this.itemsOf(key), this.now());
+		if (!candidates.length) {
+			this.core.broadcast({ event: "memory.notice", kind: "capacity_full", scopeKey: key, tokens: after, capacity: cap });
+			return { status: "done", costUsd: cost, result: { before, after, step: "nothing_to_forget", batches: consolidate.batches } };
+		}
+		const need = Math.ceil(after - cap * TRULY_FULL);
+		const forget: Policy = { ...base, batches: [], actions: new Set(["set_status"]), statuses: new Set(["forgotten"]), forgettable: new Set(candidates.map((c) => c.item.id)) };
+		const input = [`提炼合并之后「${scopeLabel(key)}」仍有约 ${after} token，上限 ${cap}，要腾出至少 ${need} token。可以软遗忘的候选（按顺序）：`, ...candidates.map((c) => `${line(c.item)}（${FORGET_WHY_LABEL[c.why]}，约 ${activeTokens([c.item])} token）`)].join("\n");
+		const second = await this.agent(job, FORGET_SYSTEM, input, forget, workspace ?? null, "soft_forget", "真正满额，软遗忘");
+		cost += second.usage.cost;
+		const left = activeTokens(this.itemsOf(key));
+		if (left > cap) this.core.broadcast({ event: "memory.notice", kind: "capacity_full", scopeKey: key, tokens: left, capacity: cap });
+		return { status: "done", costUsd: cost, result: { before, after: left, step: "soft_forget", batches: [...consolidate.batches, ...forget.batches] } };
+	}
+
+	// ---- snapshot materials (§2.2, §6.2) -----------------------------------------------------
+
+	/** Partitions a session with [set] reads materials from. */
+	private materialKeys(set: ScopeSet): string[] {
+		return [...new Set(["global", set.key])];
+	}
+
+	/** Items of [key] a material may stand for: active, not pinned (they have their own section), not the agent's persona (its own section too). */
+	private materialItems(key: string): MemoryItem[] {
+		return this.itemsOf(key).filter((m) => m.status === "active" && !m.pinned && m.kind !== "persona");
+	}
+
+	/**
+	 * Fresh materials [set] may use: every item still there, active and at the
+	 * version the text was written from. One found out of date is marked stale
+	 * and never used again (its items are shown one by one until the next
+	 * preparation).
+	 */
+	materialsFor(set: ScopeSet): Material[] {
+		const keys = this.materialKeys(set);
+		const rows = this.db.all<{ id: string; scope_key: string; item_versions: string; text: string }>(
+			`SELECT id, scope_key, item_versions, text FROM memory_materials WHERE stale = 0 AND scope_key IN (${keys.map(() => "?").join(",")}) ORDER BY built_at, rowid`,
+			...keys,
+		);
+		const out: Material[] = [];
+		for (const row of rows) {
+			const versions = parseVersions(row.item_versions);
+			const items = Object.keys(versions).map((id) => this.store.get(id));
+			const fresh = items.every((m) => m && m.status === "active" && !m.pinned && m.kind !== "persona" && m.version === versions[m.id] && keyOf(m) === row.scope_key) && !scanMemoryText(row.text);
+			if (!fresh) {
+				this.db.run("UPDATE memory_materials SET stale = 1 WHERE id = ?", row.id);
+				continue;
+			}
+			const list = items as MemoryItem[];
+			if (list.every((m) => visibleIn(m, set))) out.push({ id: row.id, scopeKey: row.scope_key, text: row.text, items: list });
+		}
+		return out;
+	}
+
+	/**
+	 * Partitions of [set] whose materials should be (re)written: enough items
+	 * to be worth it, and something changed since the last preparation (or a
+	 * material went stale). Reading only; nothing is queued.
+	 */
+	materialNeeds(set: ScopeSet): string[] {
+		const out: string[] = [];
+		for (const key of this.materialKeys(set)) {
+			const items = this.materialItems(key);
+			if (items.length < MATERIAL_MIN_ITEMS) continue;
+			const last = Number(this.db.get<{ value: string }>("SELECT value FROM app_flags WHERE key = ?", MATERIAL_FLAG + key)?.value ?? 0);
+			const stale = this.db.get("SELECT 1 FROM memory_materials WHERE scope_key = ? AND stale = 1 LIMIT 1", key);
+			if (stale || items.some((m) => m.updatedAt > last)) out.push(key);
+		}
+		return out;
+	}
+
+	/** A 「快照准备」 job for each partition in [keys], for the next task (this one does not wait: §6.2, §12 item 9). */
+	queueMaterials(keys: string[]): MemoryJob[] {
+		if (!this.background) return [];
+		return keys.map((key) => this.jobs.enqueue({ kind: "snapshot", scopeKey: key, priority: PRIORITY.snapshot, dedupeKey: `snapshot:${key}` }));
+	}
+
+	/** Writes the snapshot materials of one partition (the memory agent groups related items into short texts). */
+	private async prepare(job: MemoryJob): Promise<JobOutcome> {
+		const key = job.scopeKey;
+		const start = this.now();
+		this.db.run("INSERT OR REPLACE INTO app_flags(key, value, at) VALUES(?, ?, ?)", MATERIAL_FLAG + key, String(start), start);
+		const items = this.materialItems(key);
+		if (items.length < MATERIAL_MIN_ITEMS) {
+			this.db.run("DELETE FROM memory_materials WHERE scope_key = ?", key);
+			return { status: "skipped", result: { why: "条目太少，不用写素材" } };
+		}
+		const input = [`这是「${scopeLabel(key)}」里会进快照的 ${items.length} 条记忆：`, ...items.map(line)].join("\n");
+		const policy: Policy = {
+			actions: new Set(["material"]),
+			statuses: new Set(),
+			set: this.setFor(key),
+			scopeKey: key,
+			sessionRef: null,
+			progressLeft: 0,
+			added: [],
+			batches: [],
+			materials: { jobId: job.id, ids: [], covered: new Set() },
+		};
+		const workspace = key.startsWith("workspace:") ? this.workspaces.get(key.slice(10))?.path : undefined;
+		const run = await this.agent(job, MATERIAL_SYSTEM, input, policy, workspace ?? null, "snapshot", "快照准备");
+		const written = policy.materials!.ids;
+		// The new set replaces the old one; with nothing new, only what went out of date goes.
+		if (written.length) this.db.run(`DELETE FROM memory_materials WHERE scope_key = ? AND id NOT IN (${written.map(() => "?").join(",")})`, key, ...written);
+		else this.materialsFor(this.setFor(key));
+		this.db.run("DELETE FROM memory_materials WHERE scope_key = ? AND stale = 1", key);
+		return { status: "done", costUsd: run.usage.cost, result: { turns: run.turns, summary: run.summary, materials: written.length } };
+	}
+
+	/** The agent's `material` action: checked by the program, then stored (not a change of memory: no version, no log line). */
+	private material(p: Record<string, unknown>, policy: Policy, content: string, target: (id: unknown, version: unknown) => MemoryItem | string): { ops: MemoryOp[]; note?: string } | string {
+		const state = policy.materials;
+		if (!state || !policy.scopeKey) return "这次整理不能写素材";
+		const from = Array.isArray(p.from) ? (p.from as { id?: unknown; version?: unknown }[]) : [];
+		if (from.length < 2) return "一段素材至少覆盖 2 条记忆（只有一条的不用写素材）";
+		if (!content) return "素材内容是空的";
+		const items: MemoryItem[] = [];
+		for (const f of from) {
+			const item = target(f.id, f.version);
+			if (typeof item === "string") return item;
+			if (item.status !== "active" || item.pinned || item.kind === "persona") return `#${item.id} 不进素材（待复核、常驻和 Agent 设定都单独列出）`;
+			if (state.covered.has(item.id) || items.includes(item)) return `#${item.id} 已经写进别的素材了，一条记忆只放进一段素材`;
+			items.push(item);
+		}
+		const missing = items.filter((m) => !content.includes(`#${m.id}`));
+		if (missing.length) return `素材里要用 #id 标出它覆盖的每一条（缺 ${missing.map((m) => `#${m.id}`).join("、")}）`;
+		const strays = [...content.matchAll(/#(m_[0-9a-z]+)/gi)].map((x) => x[1]!).filter((id) => !items.some((m) => m.id === id));
+		if (strays.length) return `素材里提到了没有列在 from 里的条目：${strays.map((id) => `#${id}`).join("、")}`;
+		const hazard = scanMemoryText(content);
+		if (hazard) return `素材不能用：${hazard.detail}`;
+		const tokens = materialCost({ text: content });
+		const separate = items.reduce((sum, m) => sum + lineCost(m), 0);
+		if (tokens >= separate) return `素材（约 ${tokens} token）没有比分开列出（约 ${separate} token）更短，不用写`;
+		const id = `mt_${this.store.newId().slice(2)}`;
+		this.db.run(
+			"INSERT INTO memory_materials(id, scope_key, item_ids, item_versions, text, tokens, job_id, built_at, stale) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0)",
+			id,
+			policy.scopeKey,
+			JSON.stringify(items.map((m) => m.id)),
+			JSON.stringify(Object.fromEntries(items.map((m) => [m.id, m.version]))),
+			content,
+			tokens,
+			state.jobId,
+			this.now(),
+		);
+		state.ids.push(id);
+		for (const m of items) state.covered.add(m.id);
+		return { ops: [], note: `已写成素材（覆盖 ${items.length} 条，约 ${tokens} token，分开列出约 ${separate} token）` };
+	}
+
 	/** The program's sweep (no model): validity that ran out (17.3). */
 	sweep(): ReturnType<typeof expire> {
 		const out = expire(this.store, this.now());
@@ -252,6 +493,7 @@ export class MemoryWork {
 		if (!this.core.settings.get().memoryEnabled) return out;
 		const now = this.now();
 		this.sweep();
+		out.queued.push(...this.checkCapacity());
 		for (const level of [1, 2, 3] as Level[]) {
 			for (const key of this.scopeKeys(level)) {
 				const due = this.due(level, key, now);
@@ -346,6 +588,10 @@ export class MemoryWork {
 				return this.review(job);
 			case "conflict":
 				return this.conflict(job);
+			case "snapshot":
+				return this.prepare(job);
+			case "capacity":
+				return this.capacity(job);
 		}
 	}
 
@@ -504,6 +750,60 @@ export class MemoryWork {
 		return this.llm.auxModel(runtime);
 	}
 
+	/**
+	 * The light check at a possible task boundary (16.2): one short
+	 * classification call, not a memory agent run, paid from the memory
+	 * budget. Anything unclear (no model, budget spent, an error, a slow
+	 * answer) is 「same task」.
+	 */
+	async classifyBoundary(input: { taskPrompt: string; recent: string; prompt: string; cwd: string | null }): Promise<{ newTask: boolean; confidence: number } | undefined> {
+		const settings = this.core.settings.get();
+		if (settings.memoryPaused || settings.memoryDailyBudgetUsd - this.spentToday() <= 0) return undefined;
+		try {
+			const runtime = await this.llm.runtime();
+			const model = await this.model(runtime);
+			if (!model) return undefined;
+			const text = [
+				`这个对话当前的任务从这句话开始：「${input.taskPrompt.slice(0, 600)}」`,
+				input.recent ? `最近的几句：${input.recent.slice(-800)}` : "",
+				`用户刚发来：「${input.prompt.slice(0, 800)}」`,
+				"这条新消息是在继续当前的任务，还是开始了一件新的、无关的事？只回答一行 JSON：{\"new_task\": true 或 false, \"confidence\": 0 到 1}。拿不准就回答 false。",
+			]
+				.filter(Boolean)
+				.join("\n");
+			const answer = (await Promise.race([
+				runtime.completeSimple(model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 60 } as never),
+				new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 8_000).unref()),
+			])) as { content?: { type: string; text?: string }[]; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: { total?: number } }; provider?: string; model?: string; stopReason?: string } | undefined;
+			if (!answer) return undefined;
+			const u = answer.usage ?? {};
+			this.db.run(
+				"INSERT OR REPLACE INTO usage_records(path, entry_id, at, cwd, provider, model, input, output, cache_read, cache_write, cost) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				MEMORY_LEDGER,
+				`boundary:${this.now()}:${Math.random().toString(36).slice(2, 8)}`,
+				this.now(),
+				input.cwd,
+				answer.provider ?? model.provider,
+				answer.model ?? model.id,
+				u.input ?? 0,
+				u.output ?? 0,
+				u.cacheRead ?? 0,
+				u.cacheWrite ?? 0,
+				u.cost?.total ?? 0,
+			);
+			if (answer.stopReason === "error" || answer.stopReason === "aborted") return undefined;
+			const raw = (answer.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
+			const json = raw.match(/\{[^{}]*\}/)?.[0];
+			if (!json) return undefined;
+			const parsed = JSON.parse(json) as { new_task?: unknown; confidence?: unknown };
+			const confidence = typeof parsed.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0;
+			return { newTask: parsed.new_task === true, confidence };
+		} catch (error) {
+			this.core.log.warn("memory: the task boundary check failed", error);
+			return undefined;
+		}
+	}
+
 	/** USD the memory agent spent today. */
 	spentToday(): number {
 		return this.db.get<{ cost: number | null }>("SELECT SUM(cost) AS cost FROM usage_records WHERE path = ? AND at >= ?", MEMORY_LEDGER, startOfDay(this.now()))?.cost ?? 0;
@@ -622,6 +922,8 @@ export class MemoryWork {
 				if (typeof item === "string") return item;
 				return { ops: [{ kind: "edit", id: item.id, baseVersion: p.version as number, patch: { lastVerifiedAt: this.now() }, reason }] };
 			}
+			case "material":
+				return this.material(p, policy, content, target);
 			case "promote":
 			case "demote": {
 				const item = target(p.id, p.version);
@@ -649,6 +951,8 @@ export class MemoryWork {
 				if (!policy.statuses.has(status)) return `这次整理不能把状态改成「${String(p.status)}」`;
 				const item = target(p.id, p.version);
 				if (typeof item === "string") return item;
+				// Soft forgetting only from the program's candidates (§12 item 5).
+				if (status === "forgotten" && !policy.forgettable?.has(item.id)) return `#${item.id} 不在可以软遗忘的候选里（三级、锁定、常驻、Agent 设定、用户确认过的决定不能软遗忘）`;
 				return { ops: [{ kind: "status", id: item.id, baseVersion: p.version as number, status, sources, reason }] };
 			}
 			case "combine": {
@@ -691,6 +995,15 @@ function line(m: MemoryItem): string {
 
 function keyOf(m: Pick<MemoryItem, "scope" | "workspaceId">): string {
 	return m.scope === "workspace" ? `workspace:${m.workspaceId}` : m.scope === "butterfly" ? "butterfly" : m.scope === "global" ? "global" : `group`;
+}
+
+function parseVersions(text: string): Record<string, number> {
+	try {
+		const value = JSON.parse(text) as unknown;
+		return value && typeof value === "object" ? (value as Record<string, number>) : {};
+	} catch {
+		return {};
+	}
 }
 
 function scopeLabel(key: string): string {

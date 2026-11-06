@@ -64,14 +64,14 @@ export const PROPOSE_TOOL: Tool = {
 					properties: {
 						action: {
 							type: "string",
-							enum: ["add", "update", "set_status", "combine", "keep", "promote", "demote", "conflict"],
+							enum: ["add", "update", "set_status", "combine", "keep", "promote", "demote", "conflict", "material"],
 							description:
-								"add a new item; update an item's text or details; set_status of an item; combine several items into one new item (they are retired); keep = still right as it is (records the check); promote / demote = one level up or down (the program checks the evidence for promote); conflict = the item (id) contradicts another (with) and you cannot tell which is right: it is marked for review. Which actions a job allows is said in its instructions.",
+								"add a new item; update an item's text or details; set_status of an item; combine several items into one new item (they are retired); keep = still right as it is (records the check); promote / demote = one level up or down (the program checks the evidence for promote); conflict = the item (id) contradicts another (with) and you cannot tell which is right: it is marked for review; material = a short snapshot text (content) standing for several items (from), marked with their #ids. Which actions a job allows is said in its instructions.",
 						},
 						id: { type: "string", description: "update / set_status / keep / promote / demote / conflict: the item" },
 						version: { type: "integer", description: "the version of [id] you read" },
 						with: { type: "string", description: "conflict: the item it contradicts" },
-						from: { type: "array", items: { type: "object", properties: { id: { type: "string" }, version: { type: "integer" } } }, description: "combine: the items it replaces" },
+						from: { type: "array", items: { type: "object", properties: { id: { type: "string" }, version: { type: "integer" } } }, description: "combine: the items it replaces; material: the items the text stands for" },
 						retire_as: { type: "string", enum: ["archived", "superseded"], description: "combine: archived = distilled into the new item (kept, out of daily use); superseded = plain duplicates" },
 						content: { type: "string" },
 						kind: { type: "string", enum: ["preference", "background", "experience", "decision", "progress", "agreement", "observation", "persona"] },

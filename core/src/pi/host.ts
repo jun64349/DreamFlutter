@@ -15,6 +15,7 @@ import {
 	type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
+import type { CompactionHooks } from "../agent/background-compaction.ts";
 import { type AgentMode, dshCompactionSettings, type HarnessControl, harnessExtension, MINIMAL_TOOLS, MODE_ENTRY, recordedMode, SANDBOX_TOOLS, STANDARD_TOOLS } from "../agent/harness.ts";
 import { RETRY } from "../agent/dsh-text.ts";
 import type { TodoItem } from "../agent/state.ts";
@@ -43,6 +44,8 @@ export interface PiHostConfig {
 	harnessControls?: Map<string, HarnessControl>;
 	/** Slots running a manual compaction (dsh's compactNow keeps no recent history back). */
 	manualCompactions?: Set<string>;
+	/** The context service's part in a session's compactions (roadmap 5.12). */
+	compaction?: (slot: SlotIdentity) => CompactionHooks | undefined;
 	/**
 	 * Trust decisions made during this core run, by lower-cased cwd. "Trust
 	 * once" answers live here, so other sessions in the workspace do not ask again.
@@ -161,7 +164,10 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		settingsManager.getCompactionEnabled = () => config.autoCompaction();
 		settingsManager.setCompactionEnabled = () => {};
 		settingsManager.getCompactionSettings = (model) => {
-			const settings = dshCompactionSettings(fullModel(model), config.autoCompaction());
+			const full = fullModel(model);
+			const base = dshCompactionSettings(full, config.autoCompaction());
+			// The session's own threshold (a percentage of the window), never above dsh's safe one.
+			const settings = config.compaction?.(slot)?.settings?.(full, base) ?? base;
 			return config.manualCompactions?.has(slot.slotId) ? { ...settings, keepRecentTokens: 1 } : settings;
 		};
 		settingsManager.getRetrySettings = () => ({ enabled: true, maxRetries: RETRY.maxRetries, baseDelayMs: RETRY.baseDelayMs, maxAgentDelayMs: RETRY.maxDelayMs });
@@ -172,6 +178,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			resources: () => services?.resourceLoader,
 			complete: (model, context, options) => services!.modelRuntime.completeSimple(model as Model<never>, context, options as never),
 			autoCompaction: config.autoCompaction,
+			compaction: () => config.compaction?.(slot),
 			askTimeoutMs: config.askTimeoutMs,
 			unattended: target.unattended === true,
 			sandbox,

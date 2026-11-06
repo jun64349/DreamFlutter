@@ -1,3 +1,4 @@
+import type { CompactionHooks } from "./agent/background-compaction.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -128,6 +129,8 @@ export class Core {
 	/** Core-owned tools that never need approval (memory, desk bookkeeping...). */
 	private readonly exemptTools = new Set<string>();
 	private readonly hostConfig: PiHostConfig;
+	/** Set by the context module: its part in each session's compactions (roadmap 5.12). */
+	compactionHooks: ((slot: { slotId: string }) => CompactionHooks | undefined) | undefined;
 	/** Slots whose runtime is still starting (possibly waiting on the trust prompt). */
 	private readonly opening = new Map<string, Slot>();
 	/** Session files being opened (normalized path → the open in progress). */
@@ -174,6 +177,7 @@ export class Core {
 			agentStateChanged: (slot, state) => this.slotOrOpening(slot.slotId)?.setAgentState(state),
 			harnessControls: new Map(),
 			manualCompactions: new Set(),
+			compaction: (slot) => this.compactionHooks?.(slot),
 		};
 		this.settings.onChange((settings, changed) => this.broadcast({ event: "settings.changed", settings, changed }));
 		this.declareBackup({

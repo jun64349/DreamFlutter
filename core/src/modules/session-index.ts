@@ -167,6 +167,14 @@ export class SessionIndex implements CoreModule {
 				case "session_info":
 					name = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : name;
 					break;
+				// Model calls outside the replies: compaction summaries and background summaries (roadmap 5.12) are spending too.
+				case "compaction":
+				case "usage":
+					if (entry.usage && typeof entry.usage === "object") {
+						const at = Date.parse(String(entry.timestamp ?? "")) || mtime;
+						usage.push({ entryId: String(entry.id ?? ""), at, provider: typeof entry.provider === "string" ? entry.provider : null, model: typeof entry.model === "string" ? entry.model : null, u: entry.usage as Record<string, unknown> });
+					}
+					break;
 				case "message": {
 					const message = (entry.message ?? {}) as Record<string, unknown>;
 					const role = String(message.role ?? "");

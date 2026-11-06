@@ -3,6 +3,8 @@
 开发前先读这份。每一条都是真实出过的问题，后面写了是哪次发现的。新踩的坑加在对应的节里。
 测试清单见 [testing/scenarios.md](testing/scenarios.md)，交接和历史见 [HANDOFF.md](HANDOFF.md)。
 
+开发前同时读 [v1.0.0 收敛说明](v1.0-convergence.md)：用户已确认现有计划基本满足需求；完成既定范围、必要修复与验收，新增增强项留到 1.x，不擅自扩大或削减 v1.0.0 范围。
+
 ## 一、窗口（Flutter）
 
 ### 1. 被 IndexedStack 留着的页面还活着
@@ -99,7 +101,8 @@
 ## 三、开发环境和工具
 
 - **PowerShell 5.1 读写文件默认用系统编码（GBK）**：`Get-Content` / `Set-Content` 会把 UTF-8 的中文弄乱，`-Encoding utf8` 写出的又带 BOM（v0.3.3 开发时把 `common.dart` 弄坏过一次）。改源文件只用 Edit / Write 工具；必须用 PowerShell 时读写都显式 `-Encoding utf8`，写完检查没有 BOM。
-- Bash 里用 heredoc / `node -e` / `sed` 写含反斜杠或 `${...}` 的代码会被吃掉；写脚本用 Write 工具存文件再运行（放 scratchpad）。
+- Bash 里用 heredoc / `node -e` / `sed` 写含反斜杠或 `${...}` 的代码会被吃掉（连 `<<'EOF'` 也一样：0.5 第 5 步写正则时 `\b`、`\s` 全没了，编译能过、规则却是错的）；写脚本用 Write 工具存文件再运行（放 scratchpad）。
+- **Write / Edit 工具会把 `​` 这类转义直接变成真正的字符**：0.5 第 5 步的不可见字符检查写进源码后，正则里全是看不见的字符（能用，但没人看得出来）。源码里要写这类转义时，写完用脚本把看不见的字符换回 `\uXXXX`（或用 `String.fromCharCode(92)` 拼反斜杠），并用 `od -c` 看一眼。
 - Bash 里没有 `python`；本机唯一的 node 是 Hermes 自带的 v22。要用 Python（比如 `scripts/brand/`）就用 `core\bin\uv.exe` 和 `core\python\` 建个临时 venv（命令在脚本开头）。
 - **升级后后台第一次启动很慢**：刚复制的几千个文件第一次被 Node 读取时 Windows 会扫描，实测 11–22 秒（第二次 1–2 秒）。窗口等后台启动不能用短超时：现在是「进程活着就等，最长 2 分钟；进程退出马上报错」（`CoreLocator.waitForStart`；0.4.0 用户实测 22 秒，原来只等 20 秒）。
 - **不要用 `dart format`**（这个项目不是它的格式，会大面积改旧代码）。照着旁边的代码手写。
