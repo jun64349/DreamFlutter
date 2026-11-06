@@ -1,8 +1,22 @@
 # DreamFlutter 开发交接
 
-更新时间：2026-11-06（v0.4.0 已打 tag；计划改成后端优先；记忆设计全部定稿。**下一个窗口：开发 0.5「记忆与上下文」**）
+更新时间：2026-11-06 晚（0.5 已做完第 1–3 步并提交：`1db3b43`、`2f362b2`、`0f2627e`。**下一个窗口：从 0.5 第 4 步接着做**，先看下面「接着做：0.5 第 4 步」）
 
-## 新窗口从这里开始：0.5 开发
+## 接着做：0.5 第 4 步（2026-11-06 晚写）
+
+- **先读**：下面「一、先读这些」的 1–3（dev-guide、roadmap v0.5、memory-design），再读「0.5 进度」里第 1–3 步做了什么、Claude 自己定了哪些（有异议就改）。代码都在 `core/src/memory/`（`types.ts` 类型、`store.ts` 记忆库和守门、`scopes.ts` 范围、`migrate.ts` 迁移、`snapshot.ts` 快照组装、`agent.ts` 记忆 Agent 循环、`jobs.ts` 任务队列、`work.ts` 提取和每周整理）和 `core/src/modules/memory.ts`（接口、工具、钩子）。
+- **第 4 步要做**（memory-design 第三节、第十二节第 1、3 条、第十七节 17.3–17.6）：
+  1. 层级转化由程序检查：一级→二级（存在 ≥ 7 天且来自 ≥ 2 个不同会话，或一条明确的决定）、二级→三级（≥ 30 天、跨 ≥ 2 个阶段或任务、置信度 user_* 或 verified、适用条件非空），自动执行、记入日志；记忆 Agent 加一个 `promote` / `demote` 操作（现在 `work.ts` 的 `convert` 不允许改层级）。
+  2. 二级每周轻量复查 / 每月整理 / 每季回顾，三级每月轻量 / 每季 / 每年；照 `work.ts` 的 `checkSchedule`（一级每周）的样子加，没有变化不调模型。
+  3. 到期（17.3）：`valid_until` 过了程序标 `ended`、退出快照；对工具 / 环境的判断（kind observation 等）默认 30 天；锁定的和三级只标待复核。
+  4. 反例推翻（17.3）：「某工具用不了」之后同一工具成功执行了 → 标 `refuted`（要在工具执行事件里接，记忆模块的 `onSlotEvent`）。
+  5. 回想时复查（17.4）和矛盾预筛（17.6）：快照里的条目和这次对话矛盾 → 排一个复查任务；预筛靠程序（同对象、内容差异大、否定词和数字加权），命中才调模型。
+  6. 冲突：`memory_links` 的 `conflicts`。
+- **第 2 步留下没做的**：快照素材 `memory_materials` 和「快照准备」任务（第 3 步本来该带上，没做）；做完素材后快照记录才会有 `degraded`；token 估算还没用模型实际计数回校。可以放在第 4 步之后补。
+- 再往后：第 5–8 步见下面「六、建议的开工顺序」。第 6 步（后台压缩）开工前要问用户三个参数（见「四」）。
+- 现在**窗口一行没改**：记忆页还在用旧接口（第 1 步在新库上保留了兼容）。第 8 步才做最简界面。
+
+## 0.5 开发的总说明（2026-11-06 开工前写）
 
 ### 一、先读这些（按顺序）
 
@@ -38,7 +52,7 @@
 
 ### 五、现有代码起点
 
-- `core/src/modules/memory.ts`（736 行）：v0.2 的扁平模型（表 `memories` / `memory_blocks` / `memory_snapshots` / `memory_extraction`）；工具 `memory_search` / `memory_save` / `memory_update` / `memory_forget` / `memory_block_edit` / `session_search`；`before_agent_start` 注入 `df-memory` 快照；运行结束后 `extract`；v0.3.3 的止血 `nearDuplicate` / `saysMore`。窗口接口 `memory.*`（list、add、edit、remove、history、accept、reject、blocks、setBlock、snapshots、extractNow、refresh、clear、export，事件 `memory.changed`）。
+- （这一条是开工前的样子，现在已经改成 `core/src/memory/` 下的新库，见「0.5 进度」。）`core/src/modules/memory.ts`（736 行）：v0.2 的扁平模型（表 `memories` / `memory_blocks` / `memory_snapshots` / `memory_extraction`）；工具 `memory_search` / `memory_save` / `memory_update` / `memory_forget` / `memory_block_edit` / `session_search`；`before_agent_start` 注入 `df-memory` 快照；运行结束后 `extract`；v0.3.3 的止血 `nearDuplicate` / `saysMore`。窗口接口 `memory.*`（list、add、edit、remove、history、accept、reject、blocks、setBlock、snapshots、extractNow、refresh、clear、export，事件 `memory.changed`）。
 - `core/src/schema.ts`：迁移只能往后加。0.4.0 是 8 个（`user_version` 8；原来这里写的 16 是错的）；**0.5 的新表都在第 9 个里**（0.5 发布前还可以往第 9 个里加，发布后就不能再改）；**新表要 `core.declareBackup(...)`**，否则 `backup.test.ts` 失败（dev-guide 第二节）。
 - 窗口：`app/lib/ui/memory_page.dart`；测试 `core/test/memory.test.ts`。
 - 压缩：`core/src/agent/harness.ts`（`session_before_compact`）、`core/src/pi/host.ts`。
@@ -59,7 +73,7 @@
 
 ### 七、仓库和发布状态
 
-- 交接时工作区干净。**从 `aba5e45` 起的所有提交（0.4 全部、计划修订、记忆设计、这份交接）和 tag `v0.4.0` 都没推送**（GitHub 上最新还是 `v0.3.4`；用 `git log origin/main..main` 看）。推送要用户点头，命令见下面「推送」。
+- 交接时工作区干净。**从 `aba5e45` 起的所有提交（0.4 全部、计划修订、记忆设计、0.5 第 1–3 步、这份交接）和 tag `v0.4.0` 都没推送**（GitHub 上最新还是 `v0.3.4`；用 `git log origin/main..main` 看）。推送要用户点头，命令见下面「推送」。
 - 用户的测试版 `E:\DreamFlutter测试版` 是 0.4.0（升级命令见下面「用户的测试版在哪、怎么升级」）。
 - 用户 0.4.0 的测试报告：`C:\Users\21669\Desktop\毕设、agent学习笔记库资料库\DreamFlutter\dfv0.4.0 测试记录.md`（已全部处理进计划）。
 
@@ -73,7 +87,7 @@
 
 ## 0.5 进度
 
-### 第 1 步：新表、迁移、范围函数、操作接口、记忆日志（2026-11-06，**未提交**）
+### 第 1 步：新表、迁移、范围函数、操作接口、记忆日志（2026-11-06，已提交 `1db3b43`）
 
 - 代码在 `core/src/memory/`：`types.ts`（条目、操作、日志的类型）、`store.ts`（记忆库和程序侧守门）、`scopes.ts`（工作区的稳定 id、`allowedScopes`）、`migrate.ts`（v0.2 迁移）、`text.ts`（相似度，从 memory.ts 挪出来）。`modules/memory.ts` 改成接在新库上。
 - 数据库第 9 个迁移：`workspaces`、`workspace_groups`、`workspace_group_members`、`memory_items`、`memory_versions`（每一版都存整条）、`memory_sources`、`memory_links`、`memory_batches`、`memory_ops`（记忆日志就是它）、`memory_pending`（等用户的改动）。旧表留着只读。
@@ -94,7 +108,7 @@
 - 快照（第 2 步要重做）和提取（第 3 步交给记忆 Agent）暂时是在新库上的过渡版本。
 - 已提交：`1db3b43`。
 
-### 第 2 步：快照组装改造（2026-11-06，**未提交**）
+### 第 2 步：快照组装改造（2026-11-06，已提交 `2f362b2`）
 
 - `core/src/memory/snapshot.ts`：预算 = min(用户上限, 窗口 × 3%, (窗口 − 已有内容 − 模型最大输出 − 8000) × 15%)；份额常驻 15% / 相关 70% / 查找 15%；相关部分按层级 40 / 35 / 25 软分配（某层用不完给别层）；估算留 10% 余量；常驻超过份额全部保留并标 `pinnedOver`（以后界面提示精简）；「待复核」排最后；和任务无关的不放（偏好、约定、Agent 设定、决定除外）。预算默认值改成 2000。
 - 中文相关度：原来只按三个字一组比较，「周报」这种两个字的词对不上；加了相邻两个汉字的比较（`text.ts` 的 `taskRelevance`）。
@@ -109,7 +123,7 @@
 
 - 已提交：`2f362b2`。
 
-### 第 3 步：记忆 Agent、任务队列、任务结束提取、每周整理（2026-11-06，**未提交**）
+### 第 3 步：记忆 Agent、任务队列、任务结束提取、每周整理（2026-11-06，已提交 `0f2627e`）
 
 - `core/src/memory/agent.ts`：记忆 Agent 不开 Pi 会话、不挂任何执行环境，在后台进程里跑一个小循环，**只有两个工具**：`memory_query`（只读本次范围内的记忆）和 `memory_propose_ops`（提交操作，全部过第 1 步的守门）；模型要别的工具一律回「没有这个工具」。轮数上限 20。
 - `core/src/memory/jobs.ts`：任务队列 `memory_jobs`（第 9 个迁移里），一次跑一个，按优先级（纠正 100 > 快照准备 80 > 提取 50 > 周期整理 10）；失败最多重试 2 次（1 分钟、2 分钟后），再失败记 `failed` 和原因；普通任务在当天记忆预算用完时推迟到第二天（`deferred`，不丢），「暂停整理」时也等着；同一件事只排一个任务（`dedupe_key`）；进程重启时把跑到一半的放回队列。
