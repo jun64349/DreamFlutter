@@ -173,6 +173,7 @@ export class Gateway implements CoreModule {
 	private readonly clock: () => number;
 	private readonly fetch: typeof fetch;
 	private quotaTimer: NodeJS.Timeout | undefined;
+	private stopped = false;
 	readonly health: HealthBook;
 	/** Channels from Pi's own configuration, refreshed when providers change. */
 	private piChannels: ChannelInfo[] = [];
@@ -216,6 +217,7 @@ export class Gateway implements CoreModule {
 	}
 
 	stop(): void {
+		this.stopped = true;
 		clearInterval(this.quotaTimer);
 	}
 
@@ -251,6 +253,7 @@ export class Gateway implements CoreModule {
 	 * keeps the last good reading (and so the reminders' memory).
 	 */
 	private applyReading(channel: ChannelInfo, keyId: string, reading: QuotaReading): void {
+		if (this.stopped) return;
 		if (reading.type === "error") {
 			this.quotaErrors.set(channel.id, reading);
 			return;
@@ -746,6 +749,7 @@ export class Gateway implements CoreModule {
 
 		try {
 			key = channel?.source === "df" ? await this.pickKey(channel, sessionId) : undefined;
+			if (this.stopped) { out.end(); return; }
 			let request = options;
 			if (key) {
 				// Pi built its auth header from the placeholder key (authHeader channels): put the real one in.
@@ -806,7 +810,7 @@ export class Gateway implements CoreModule {
 		if (cached !== undefined) return cached;
 		const value = await this.providers.secrets.get(`gateway-${keyId}`);
 		// The key may have been deleted while it was being decrypted: then do not keep it.
-		if (this.core.db.get("SELECT id FROM gateway_keys WHERE id = ?", keyId)) this.secrets.set(keyId, value);
+		if (!this.stopped && this.core.db.get("SELECT id FROM gateway_keys WHERE id = ?", keyId)) this.secrets.set(keyId, value);
 		return value;
 	}
 
@@ -821,6 +825,8 @@ export class Gateway implements CoreModule {
 		message: AssistantMessage,
 		failure: FailureKind | undefined,
 	): void {
+		// A transport can ignore abort and finish after the memory shutdown deadline.
+		if (this.stopped) return;
 		const usage = message.usage;
 		try {
 			this.core.db.run(

@@ -1,4 +1,36 @@
-# DreamFlutter v0.1.0
+# DreamFlutter
+
+当前稳定版为 V0.4.0；V0.5 第 1–6 步及审查修复形成 [v0.5.0-dev.6 开发快照](docs/releases/v0.5.0-dev.6.md)。接手先读 [HANDOFF](docs/HANDOFF.md)、[开发规范](docs/dev-guide.md)、[V1.0 收敛说明](docs/v1.0-convergence.md) 和 [roadmap](docs/roadmap.md)。第 7 步会话关系、第 8 步最简界面仍待完成，开发快照不代表 V0.5 功能全部交付。
+
+## 当前入口与运行方式
+
+Flutter 窗口通过本地 WebSocket 连接 Node 后台，后台在进程内托管多个 Pi 会话。工作台工具在 Windows 执行，蝶君工具通过 WSL 沙箱执行。数据默认集中在软件根目录的 `data/`。生产路径不再是「每会话启动一个 Pi 子进程」。
+
+- `core/`：后台、记忆、上下文、任务、网关、沙箱和备份；入口 `src/main.ts`、装配 `src/app.ts`。
+- `app/`：Flutter Windows 窗口；`packages/pi_rpc/`：当前 Core/Slot 通道、消息折叠及旧 RPC 支持。
+- `packages/desktop_drop/`：带 Windows 拖图修补的插件。
+- `runtime/`：旧 RPC 冒烟与 fixtures 仍有测试用途。分发包里的 `runtime/node.exe` 则是后台所需的 Node。
+- `scripts/package-windows.ps1`：打包至 `dist/DreamFlutter`，随附 Node、搜索工具、便携 Python、离线沙箱镜像。所需资产的准备方式见脚本。
+
+在仓库根目录的 PowerShell 中执行：
+
+```powershell
+cd core
+npm ci
+npm test
+npm run typecheck
+cd ../app
+flutter pub get
+flutter test test
+flutter analyze
+flutter run -d windows
+```
+
+协议层：进入 `packages/pi_rpc`，先 `dart pub get`，再 `dart test -x integration`。真实窗口及发布验证见 [testing/scenarios.md](docs/testing/scenarios.md)。SDK 和依赖版本以包清单、lock 文件为准。
+
+本轮候选变更见 [审查记录](docs/REVIEW-2026-11-06.md)，未经 Claude/用户复核不替换正在使用的测试版。
+
+## 历史说明：V0.1.0（以下原文保留，不代表当前架构）
 
 基于 [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 原生运行时的个人 AI Agent 桌面客户端（Flutter Desktop + `pi --mode rpc`）。设计说明见 [docs/architecture.md](docs/architecture.md)。
 

@@ -103,23 +103,41 @@ export async function runMemoryAgent(options: {
 	handlers: MemoryToolHandlers;
 	maxTurns?: number;
 	signal?: AbortSignal;
+	/** Hard shutdown deadline: stop waiting even if the transport ignores signal. */
+	waitSignal?: AbortSignal;
 	now?: () => number;
 }): Promise<AgentRun> {
 	const now = options.now ?? Date.now;
 	const run: AgentRun = { turns: 0, summary: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }, calls: [] };
 	const messages: Message[] = [{ role: "user", content: [{ type: "text", text: options.input }], timestamp: now() } as Message];
 	const maxTurns = options.maxTurns ?? MEMORY_ROLE.maxTurns;
+	const cancelled = () => {
+		if (!options.signal?.aborted) return false;
+		run.stoppedBy = "error";
+		run.error = "记忆整理已停止";
+		return true;
+	};
 	for (;;) {
+		if (cancelled()) return run;
 		if (run.turns >= maxTurns) {
 			run.stoppedBy = "maxTurns";
 			return run;
 		}
-		const answer = (await options.runtime.completeSimple(options.model, { systemPrompt: options.system, messages, tools: [QUERY_TOOL, PROPOSE_TOOL] }, { maxTokens: 4096, signal: options.signal } as never)) as AssistantMessage;
+		let answer: AssistantMessage;
+		try {
+			answer = (await waitForMemory(() => options.runtime.completeSimple(options.model, { systemPrompt: options.system, messages, tools: [QUERY_TOOL, PROPOSE_TOOL] }, { maxTokens: 4096, signal: options.signal } as never), options.waitSignal)) as AssistantMessage;
+		} catch (error) {
+			// Preserve earlier calls so the job can bill them even when transport throws.
+			run.stoppedBy = "error";
+			run.error = error instanceof Error ? error.message : String(error);
+			return run;
+		}
 		run.turns++;
 		const u = answer.usage;
 		const usage = { input: u?.input ?? 0, output: u?.output ?? 0, cacheRead: u?.cacheRead ?? 0, cacheWrite: u?.cacheWrite ?? 0, cost: u?.cost?.total ?? 0 };
 		run.calls.push({ provider: answer.provider ?? options.model.provider, model: answer.model ?? options.model.id, at: now(), usage });
 		for (const key of Object.keys(usage) as (keyof typeof usage)[]) run.usage[key] += usage[key];
+		if (cancelled()) return run;
 		if (answer.stopReason === "error" || answer.stopReason === "aborted") {
 			run.stoppedBy = "error";
 			run.error = answer.errorMessage ?? "模型调用失败";
@@ -136,6 +154,7 @@ export async function runMemoryAgent(options: {
 			return run;
 		}
 		for (const call of calls) {
+			if (cancelled()) return run;
 			const args = (call.arguments ?? {}) as Record<string, unknown>;
 			let text: string;
 			let isError = false;
@@ -154,4 +173,18 @@ export async function runMemoryAgent(options: {
 			messages.push({ role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text }], isError, timestamp: now() } as Message);
 		}
 	}
+}
+
+/** Detaches a stuck asynchronous call at shutdown; late rejection is still handled. */
+export function waitForMemory<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+	if (!signal) return work();
+	if (signal.aborted) return Promise.reject(signal.reason);
+	return new Promise<T>((resolve, reject) => {
+		const abort = () => { signal.removeEventListener("abort", abort); reject(signal.reason); };
+		signal.addEventListener("abort", abort, { once: true });
+		void Promise.resolve().then(() => { signal.throwIfAborted(); return work(); }).then(
+			(value) => { signal.removeEventListener("abort", abort); resolve(value); },
+			(error) => { signal.removeEventListener("abort", abort); reject(error); },
+		);
+	});
 }

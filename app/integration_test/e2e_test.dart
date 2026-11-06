@@ -96,6 +96,8 @@ void main() {
 
   Future<void> waitFor(WidgetTester tester, String what, bool Function() condition, AgentController agent,
       {Duration timeout = const Duration(minutes: 3)}) async {
+    // ignore: avoid_print
+    print('E2E waiting: $what');
     final deadline = DateTime.now().add(timeout);
     while (!condition()) {
       if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime) {
@@ -188,9 +190,9 @@ void main() {
       backend: newBackend(),
     );
 
-    // The template step writes into the user's Pi prompts folder: never leave it behind.
+    // Templates belong to the isolated core's Pi folder, never the user's CLI config.
     addTearDown(() {
-      final leftover = File(p.join(Platform.environment['USERPROFILE'] ?? '', '.pi', 'agent', 'prompts', 'e2e周报.md'));
+      final leftover = File(p.join(temp.path, 'core', 'pi', 'prompts', 'e2e周报.md'));
       if (leftover.existsSync()) leftover.deleteSync();
     });
     // Stop this test's core even when a step fails.
@@ -430,13 +432,15 @@ void main() {
     await tester.tap(find.byTooltip('关闭搜索'));
     await tester.pumpAndSettle();
 
-    // 11. Channels: the DeepSeek provider from Pi's config is listed and answers a test.
+    // 11. The configured channel (app-owned or Pi) is listed and answers a test.
     await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
     await tester.tap(settingsCategory('模型与网关'));
     await tester.pumpAndSettle();
-    await waitFor(tester, 'channels listed', () => find.text('来自 Pi 配置').evaluate().isNotEmpty, agent);
-    await tester.tap(find.widgetWithText(TextButton, '测试').first);
+    final testChannel = find.widgetWithText(TextButton, '测试').first;
+    await waitFor(tester, 'channels listed', () => testChannel.evaluate().isNotEmpty, agent, timeout: const Duration(seconds: 30));
+    await tester.ensureVisible(testChannel);
+    await tester.tap(testChannel);
     await waitFor(tester, 'channel ok', () => find.textContaining('可用 · ').evaluate().isNotEmpty, agent);
     await shot(tester, '17_channels');
     await tester.pageBack();

@@ -22,7 +22,7 @@ export class Llm {
 		this.runtimeOverride = runtimeOverride;
 	}
 
-	async runtime(): Promise<ModelRuntime> {
+	async runtime(signal?: AbortSignal): Promise<ModelRuntime> {
 		const runtime = this.runtimeOverride
 			? this.runtimeOverride()
 			: await ModelRuntime.create({
@@ -30,6 +30,9 @@ export class Llm {
 					modelsPath: join(this.core.agentDir, "models.json"),
 					refreshOnCreate: false,
 				});
+		// A memory shutdown deadline may expire while runtime initialization is pending.
+		// Do not attach gateway handlers (which use the DB) after the caller detached.
+		signal?.throwIfAborted();
 		this.extendRuntime?.(runtime);
 		return runtime;
 	}

@@ -87,21 +87,23 @@ export class TaskViews {
 
 	/** Starts a task; the one going on (if any) becomes [previous] (ended, or suspended when the boundary was only guessed). */
 	start(input: { sessionId: string; scopeKey: string; reason: BoundaryReason; prompt: string | null; previous?: { status: "ended" | "suspended"; reason: string } }): TaskView {
-		const at = this.clock();
-		const old = this.current(input.sessionId);
-		if (old) this.db.run("UPDATE memory_task_views SET status = ?, ended_at = ?, end_reason = ? WHERE id = ?", input.previous?.status ?? "ended", at, input.previous?.reason ?? input.reason, old.id);
-		const id = `t_${randomUUID().replaceAll("-", "").slice(0, 10)}`;
-		this.db.run(
-			"INSERT INTO memory_task_views(id, session_id, scope_key, reason, status, prompt, started_at, last_active_at) VALUES(?, ?, ?, ?, 'active', ?, ?, ?)",
-			id,
-			input.sessionId,
-			input.scopeKey,
-			input.reason,
-			input.prompt?.slice(0, 4000) ?? null,
-			at,
-			at,
-		);
-		return this.get(id)!;
+		return this.db.transaction(() => {
+			const at = this.clock();
+			const old = this.current(input.sessionId);
+			if (old) this.db.run("UPDATE memory_task_views SET status = ?, ended_at = ?, end_reason = ? WHERE id = ?", input.previous?.status ?? "ended", at, input.previous?.reason ?? input.reason, old.id);
+			const id = `t_${randomUUID().replaceAll("-", "").slice(0, 10)}`;
+			this.db.run(
+				"INSERT INTO memory_task_views(id, session_id, scope_key, reason, status, prompt, started_at, last_active_at) VALUES(?, ?, ?, ?, 'active', ?, ?, ?)",
+				id,
+				input.sessionId,
+				input.scopeKey,
+				input.reason,
+				input.prompt?.slice(0, 4000) ?? null,
+				at,
+				at,
+			);
+			return this.get(id)!;
+		});
 	}
 
 	touch(id: string): void {

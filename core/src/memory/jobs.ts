@@ -22,6 +22,15 @@ const ORDINARY = PRIORITY.correction;
 export const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 60_000;
 
+/** A shutdown interrupts work; it is not a provider failure or a retry. */
+export class MemoryJobInterrupted extends Error {
+	readonly costUsd: number;
+	constructor(costUsd = 0) {
+		super("记忆整理被退出中断，下次启动继续");
+		this.costUsd = costUsd;
+	}
+}
+
 export interface MemoryJob {
 	id: string;
 	kind: JobKind;
@@ -98,6 +107,7 @@ export class MemoryJobs {
 	};
 	private draining: Promise<void> | undefined;
 	private again = false;
+	private stopped = false;
 
 	constructor(db: Db, clock: () => number, options: MemoryJobs["options"]) {
 		this.db = db;
@@ -149,6 +159,7 @@ export class MemoryJobs {
 
 	/** Runs every job that is due, one at a time; a call while draining makes it look again at the end. */
 	drain(): Promise<void> {
+		if (this.stopped) return this.draining ?? Promise.resolve();
 		if (this.draining) {
 			this.again = true;
 			return this.draining;
@@ -166,7 +177,15 @@ export class MemoryJobs {
 		return this.draining;
 	}
 
+	/** Stops claiming jobs and waits only for work already in progress. */
+	async stop(): Promise<void> {
+		this.stopped = true;
+		this.again = false;
+		await this.draining;
+	}
+
 	private next(): MemoryJob | undefined {
+		if (this.stopped) return undefined;
 		const paused = this.options.paused();
 		const row = this.db.get<JobRow>(
 			`SELECT * FROM memory_jobs WHERE status IN ('queued', 'deferred') AND run_after <= ? ${paused ? `AND priority >= ${ORDINARY}` : ""} ORDER BY priority DESC, created_at, rowid LIMIT 1`,
@@ -192,7 +211,9 @@ export class MemoryJobs {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const cost = (error as { costUsd?: number }).costUsd ?? 0;
-			if (job.attempts + 1 <= MAX_RETRIES) {
+			if (this.stopped && error instanceof MemoryJobInterrupted) {
+				this.set(job.id, { status: "queued", attempts: job.attempts, run_after: this.clock(), started_at: null, ended_at: null, error: null, cost_usd: job.costUsd + cost });
+			} else if (job.attempts + 1 <= MAX_RETRIES) {
 				this.set(job.id, { status: "queued", run_after: this.clock() + RETRY_BASE_MS * 2 ** job.attempts, error: message, cost_usd: job.costUsd + cost, started_at: null });
 			} else {
 				this.set(job.id, { status: "failed", ended_at: this.clock(), error: message, cost_usd: job.costUsd + cost });

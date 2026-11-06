@@ -59,7 +59,9 @@ New-Item -ItemType Directory -Force "$target\core" | Out-Null
 foreach ($item in "src", "assets", "package.json", "package-lock.json") {
     Copy-Item "$root\core\$item" "$target\core" -Recurse
 }
-robocopy "$root\core\node_modules" "$target\core\node_modules" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+# Local test/bundler caches are not npm packages; npm prune does not remove them.
+# Keep package assets, licenses and platform binaries intact.
+robocopy "$root\core\node_modules" "$target\core\node_modules" /E /XJ /XD .vitest-cache .vite .cache /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "copying node_modules failed" }
 Push-Location "$target\core"
 npm prune --omit=dev --no-audit --no-fund
@@ -135,3 +137,5 @@ DreamFlutter $version（Windows x64 免安装版）
 "@ | Set-Content -Encoding utf8 "$target\使用说明.txt"
 
 Write-Host "Done: $target"
+# Robocopy uses 1 for a successful copy; do not leak that as the script's exit code.
+exit 0

@@ -170,6 +170,7 @@ class AgentController extends ChangeNotifier {
   SessionRuntime? _active;
   String workspace = '';
   List<SessionSummary> _diskSessions = const [];
+  int _sessionRefresh = 0;
   Set<String> _pinned = const {};
 
   /// Archived sessions of the workspace (shown on request).
@@ -1141,14 +1142,18 @@ class AgentController extends ChangeNotifier {
   }
 
   Future<void> refreshSessions() async {
+    final revision = ++_sessionRefresh;
+    final requestedWorkspace = workspace;
+    bool stale() => _disposed || revision != _sessionRefresh || workspace != requestedWorkspace;
     try {
-      final rows = await backend.call('sessions.list', {'cwd': workspace, 'archived': 'include'});
+      final rows = await backend.call('sessions.list', {'cwd': requestedWorkspace, 'archived': 'include'});
+      if (stale()) return;
       if (rows is! List) throw StateError('no index');
       final all = rows.whereType<Map>().map((r) => r.cast<String, dynamic>()).toList();
       SessionSummary summary(Json r) => SessionSummary(
         path: r['path'] as String,
         id: r['sessionId'] as String? ?? '',
-        cwd: r['cwd'] as String? ?? workspace,
+        cwd: r['cwd'] as String? ?? requestedWorkspace,
         title: r['title'] as String? ?? '新会话',
         createdAt: DateTime.fromMillisecondsSinceEpoch((r['createdAt'] as num?)?.toInt() ?? 0),
         modifiedAt: DateTime.fromMillisecondsSinceEpoch((r['modifiedAt'] as num?)?.toInt() ?? 0),
@@ -1158,24 +1163,30 @@ class AgentController extends ChangeNotifier {
       archivedSessions = [for (final r in all) if (r['archived'] == true) summary(r)];
       _pinned = {for (final r in all) if (r['pinned'] == true) _key(r['path'] as String)};
     } catch (_) {
+      if (stale()) return;
       // No core index (older core, tests): read the files directly.
       try {
-        _diskSessions = await sessionStore.list(cwd: workspace);
+        final sessions = await sessionStore.list(cwd: requestedWorkspace);
+        if (stale()) return;
+        _diskSessions = sessions;
       } catch (_) {
+        if (stale()) return;
         _diskSessions = const [];
       }
     }
     if (!sandbox) {
       try {
+        final workspaces = await sessionStore.workspaces();
+        if (stale()) return;
         final seen = <String>{};
         recentWorkspaces = [
           // 蝶君's home has sessions too, but it is not a workspace.
-          for (final w in [...preferences.recentWorkspaces, ...await sessionStore.workspaces()])
+          for (final w in [...preferences.recentWorkspaces, ...workspaces])
             if (seen.add(_key(w)) && !isButterflyCwd(w) && Directory(w).existsSync()) w,
         ].take(Preferences.maxRecentWorkspaces).toList();
       } catch (_) {}
     }
-    _notify();
+    if (!stale()) _notify();
   }
 
   Future<void> forgetWorkspace(String directory) async {

@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import type { Model } from "@earendil-works/pi-ai";
 import type { Core } from "../core.ts";
 import type { Db } from "../db.ts";
 import type { Llm } from "../modules/llm.ts";
 import { textOf } from "../runs.ts";
-import { type AgentRun, runMemoryAgent } from "./agent.ts";
-import { type JobOutcome, type MemoryJob, MemoryJobs, PRIORITY } from "./jobs.ts";
+import { type AgentRun, runMemoryAgent, waitForMemory } from "./agent.ts";
+import { type JobOutcome, type MemoryJob, MemoryJobInterrupted, MemoryJobs, PRIORITY } from "./jobs.ts";
 import { activeTokens, CALENDAR, DAY, expire, FORGET_WHY_LABEL, forgetCandidates, failedOutput, mentions, PERIOD_LABEL, type Period, periodStart, possibleConflicts, promotable, refutedBy, toolIdentifiers } from "./lifecycle.ts";
 import { homeScope, type ScopeSet, visibleIn, type Workspaces } from "./scopes.ts";
 import { scanMemoryText } from "./safety.ts";
@@ -18,6 +19,7 @@ export { lastMonday3am } from "./lifecycle.ts";
 
 /** Where the memory agent's model calls go in the usage records (one ledger, 「一本账」). */
 export const MEMORY_LEDGER = "dreamflutter:memory";
+export const MEMORY_SHUTDOWN_TIMEOUT_MS = 15_000;
 /** §3: level 1 is managed closely for 14 days; after that the weekly tidy decides. */
 const LEVEL1_DAYS = 14;
 /** §12 item 2: at most three progress notes per task. */
@@ -143,6 +145,10 @@ export class MemoryWork {
 	readonly jobs: MemoryJobs;
 	private timer: NodeJS.Timeout | undefined;
 	private stopped = false;
+	private readonly shutdown = new AbortController();
+	private readonly stopWaiting = new AbortController();
+	private stopping: Promise<void> | undefined;
+	private readonly boundaryCalls = new Set<Promise<unknown>>();
 
 	constructor(core: Core, store: MemoryStore, workspaces: Workspaces, llm: Llm, scopesFor: (cwd: string) => ScopeSet, now: () => number) {
 		this.core = core;
@@ -153,7 +159,13 @@ export class MemoryWork {
 		this.scopesFor = scopesFor;
 		this.now = now;
 		this.jobs = new MemoryJobs(core.db, now, {
-			run: (job) => this.run(job),
+			run: async (job) => {
+				try { return await this.run(job); }
+				catch (error) {
+					if (this.shutdown.signal.aborted) throw new MemoryJobInterrupted((error as { costUsd?: number })?.costUsd ?? 0);
+					throw error;
+				}
+			},
 			budgetLeft: () => this.core.settings.get().memoryDailyBudgetUsd - this.spentToday(),
 			paused: () => this.core.settings.get().memoryPaused || this.stopped,
 			nextBudgetAt: () => startOfDay(this.now()) + DAY,
@@ -180,11 +192,25 @@ export class MemoryWork {
 		this.timer.unref();
 	}
 
-	async stop(): Promise<void> {
+	stop(): Promise<void> {
+		return this.stopping ??= this.stopWork();
+	}
+
+	private async stopWork(): Promise<void> {
 		this.stopped = true;
 		if (this.timer) clearInterval(this.timer);
-		// Let a job in progress finish writing before the database closes.
-		await Promise.race([this.jobs.drain(), new Promise((resolve) => setTimeout(resolve, 3_000))]);
+		const stopping = this.jobs.stop();
+		this.shutdown.abort();
+		const timer = setTimeout(() => {
+			this.core.log.warn("memory: shutdown exceeded 15 seconds; detaching model calls, late usage will not be available");
+			this.stopWaiting.abort(new Error("记忆退出等待超时"));
+		}, MEMORY_SHUTDOWN_TIMEOUT_MS);
+		try {
+			// The deadline releases the waits inside jobs, rather than abandoning
+			// their DB writers. Accounting and queue recovery still finish before close.
+			await stopping;
+			await Promise.allSettled(this.boundaryCalls);
+		} finally { clearTimeout(timer); }
 	}
 
 	drain(): Promise<void> {
@@ -708,8 +734,9 @@ export class MemoryWork {
 
 	/** Runs the agent for [job]; its model calls go in the ledger whatever happens. */
 	private async agent(job: MemoryJob, system: string, input: string, policy: Policy, cwd: string | null, batchKind: string, why: string): Promise<AgentRun> {
-		const runtime = await this.llm.runtime();
-		const model = await this.model(runtime);
+		const runtime = await waitForMemory(() => this.llm.runtime(this.stopWaiting.signal), this.stopWaiting.signal);
+		this.shutdown.signal.throwIfAborted();
+		const model = await waitForMemory(() => this.model(runtime), this.stopWaiting.signal);
 		if (!model) throw new Error("没有可用的模型");
 		const run = await runMemoryAgent({
 			runtime,
@@ -717,13 +744,18 @@ export class MemoryWork {
 			system,
 			input,
 			now: this.now,
+			signal: this.shutdown.signal,
+			waitSignal: this.stopWaiting.signal,
 			handlers: { query: (args) => this.query(args, policy), propose: (args) => this.propose(args, policy, batchKind, `${why}（${model.id}）`) },
 		});
+		// Attempts do not increase on shutdown. A separate invocation id prevents
+		// the next interrupted execution from overwriting an earlier usage record.
+		const invocation = randomUUID();
 		run.calls.forEach((call, i) => {
 			this.db.run(
 				"INSERT OR REPLACE INTO usage_records(path, entry_id, at, cwd, provider, model, input, output, cache_read, cache_write, cost) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				MEMORY_LEDGER,
-				`${job.id}:${job.attempts}:${i}`,
+				`${job.id}:${invocation}:${i}`,
 				call.at,
 				cwd,
 				call.provider,
@@ -744,6 +776,7 @@ export class MemoryWork {
 		if (wanted) {
 			const slash = wanted.indexOf("/");
 			const available = (await runtime.getAvailable()) as Model<never>[];
+			this.stopWaiting.signal.throwIfAborted();
 			const model = available.find((m) => m.provider === wanted.slice(0, slash) && m.id === wanted.slice(slash + 1));
 			if (model) return model;
 		}
@@ -756,13 +789,22 @@ export class MemoryWork {
 	 * budget. Anything unclear (no model, budget spent, an error, a slow
 	 * answer) is 「same task」.
 	 */
-	async classifyBoundary(input: { taskPrompt: string; recent: string; prompt: string; cwd: string | null }): Promise<{ newTask: boolean; confidence: number } | undefined> {
+	classifyBoundary(input: { taskPrompt: string; recent: string; prompt: string; cwd: string | null }): Promise<{ newTask: boolean; confidence: number } | undefined> {
+		const pending = this.classifyBoundaryNow(input);
+		this.boundaryCalls.add(pending);
+		void pending.then(() => this.boundaryCalls.delete(pending), () => this.boundaryCalls.delete(pending));
+		return pending;
+	}
+
+	private async classifyBoundaryNow(input: { taskPrompt: string; recent: string; prompt: string; cwd: string | null }): Promise<{ newTask: boolean; confidence: number } | undefined> {
+		if (this.stopped) return undefined;
 		const settings = this.core.settings.get();
 		if (settings.memoryPaused || settings.memoryDailyBudgetUsd - this.spentToday() <= 0) return undefined;
 		try {
-			const runtime = await this.llm.runtime();
-			const model = await this.model(runtime);
-			if (!model) return undefined;
+			const runtime = await waitForMemory(() => this.llm.runtime(this.stopWaiting.signal), this.stopWaiting.signal);
+			if (this.stopped) return undefined;
+			const model = await waitForMemory(() => this.model(runtime), this.stopWaiting.signal);
+			if (!model || this.stopped) return undefined;
 			const text = [
 				`这个对话当前的任务从这句话开始：「${input.taskPrompt.slice(0, 600)}」`,
 				input.recent ? `最近的几句：${input.recent.slice(-800)}` : "",
@@ -771,26 +813,39 @@ export class MemoryWork {
 			]
 				.filter(Boolean)
 				.join("\n");
-			const answer = (await Promise.race([
-				runtime.completeSimple(model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 60 } as never),
-				new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 8_000).unref()),
-			])) as { content?: { type: string; text?: string }[]; usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: { total?: number } }; provider?: string; model?: string; stopReason?: string } | undefined;
-			if (!answer) return undefined;
-			const u = answer.usage ?? {};
-			this.db.run(
-				"INSERT OR REPLACE INTO usage_records(path, entry_id, at, cwd, provider, model, input, output, cache_read, cache_write, cost) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-				MEMORY_LEDGER,
-				`boundary:${this.now()}:${Math.random().toString(36).slice(2, 8)}`,
-				this.now(),
-				input.cwd,
-				answer.provider ?? model.provider,
-				answer.model ?? model.id,
-				u.input ?? 0,
-				u.output ?? 0,
-				u.cacheRead ?? 0,
-				u.cacheWrite ?? 0,
-				u.cost?.total ?? 0,
-			);
+			const timeout = new AbortController();
+			const signal = AbortSignal.any([this.shutdown.signal, timeout.signal]);
+			// Account for a response even if it arrives after our decision deadline.
+			// stop() waits for these writes before Core closes the database.
+			const request = waitForMemory(() => runtime.completeSimple(model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 60, signal } as never), this.stopWaiting.signal).then((answer) => {
+				const u = answer.usage ?? {};
+				this.db.run(
+					"INSERT OR REPLACE INTO usage_records(path, entry_id, at, cwd, provider, model, input, output, cache_read, cache_write, cost) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					MEMORY_LEDGER,
+					`boundary:${this.now()}:${Math.random().toString(36).slice(2, 8)}`,
+					this.now(),
+					input.cwd,
+					answer.provider ?? model.provider,
+					answer.model ?? model.id,
+					u.input ?? 0,
+					u.output ?? 0,
+					u.cacheRead ?? 0,
+					u.cacheWrite ?? 0,
+					u.cost?.total ?? 0,
+				);
+				return answer;
+			});
+			this.boundaryCalls.add(request);
+			void request.then(() => this.boundaryCalls.delete(request), () => this.boundaryCalls.delete(request));
+			let timer: NodeJS.Timeout | undefined;
+			const deadline = new Promise<undefined>((resolve) => {
+				timer = setTimeout(() => { timeout.abort(); resolve(undefined); }, 8_000);
+				timer.unref();
+			});
+			let answer: Awaited<typeof request> | undefined;
+			try { answer = await Promise.race([request, deadline]); }
+			finally { if (timer) clearTimeout(timer); }
+			if (!answer || signal.aborted) return undefined;
 			if (answer.stopReason === "error" || answer.stopReason === "aborted") return undefined;
 			const raw = (answer.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
 			const json = raw.match(/\{[^{}]*\}/)?.[0];

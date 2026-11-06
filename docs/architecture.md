@@ -1,5 +1,29 @@
 # DreamFlutter 架构设计
 
+## 当前架构（2026-11-06 审查候选，V0.5 开发中）
+
+下面的 V0.1.0 章节保留为历史设计，不能作为当前启动、数据目录或进程模型的说明。
+
+```text
+Flutter 窗口（工作台 / 蝶君，共用后台连接）
+  → AgentBackend / CoreClient → 本地带令牌的 WebSocket
+  → Core（模块装配、会话 Slot、运行记录、确认、SQLite）
+  → Pi 1.4.0 进程内会话运行时
+      → 工作台：Windows 工具
+      → 蝶君：WSL 沙箱工具
+```
+
+- 当前入口：`app/lib/main.dart`、`core/src/main.ts`；模块装配：`core/src/app.ts`。
+- 窗口关闭后后台可以继续运行。一个会话不再等于一个 Node/Pi 子进程。
+- 数据默认位于软件根目录的 `data/`，具体位置以 `core/src/paths.ts` 和 `core.hello` 为准。旧 AppData 数据由迁移模块处理，不能当缓存直接删除。
+- Pi JSONL 是会话原文，SQLite 保存索引、任务、记忆、调度与其他平台状态；备份按模块登记表和路径。
+- `packages/pi_rpc` 同时保留消息折叠、Core/Slot 通道与早期 RPC 测试支持。`runtime` 的冒烟和 fixtures 仍有测试用途；分发包的 `runtime/node.exe` 是后台启动所需。
+- 新记忆的存储、队列、作用域、快照在 `core/src/memory/`；`modules/memory.ts` 负责接入，旧窗口接口暂留至 V0.5 第 8 步。
+- 当前技术债：窗口仍直接读/删部分会话文件；AgentController 职责集中；任务预算规则多处实现。第 7 步会话关系和 V0.8 统一调度接入时应检查这些边界，不另造平行调度框架。
+- 本轮候选修改、验证和保留项见 [审查记录](REVIEW-2026-11-06.md)。功能承诺仍以 HANDOFF、roadmap、memory-design、long-task-design 为准。
+
+## 历史设计：V0.1.0（以下原文保留）
+
 > 基于 Pi Agent 原生 Runtime 的个人 Agent 桌面客户端。
 > 状态：**v0.1.0**（M1 + M2）已完成并通过端到端验收。最后更新：2026-10-27
 
