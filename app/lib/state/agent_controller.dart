@@ -550,6 +550,8 @@ class AgentController extends ChangeNotifier {
       final slotId = info['slotId'] as String?;
       final cwd = info['cwd'] as String?;
       if (slotId == null || cwd == null || info['unattended'] == true) continue;
+      // A side conversation belongs to the window that opened it (4.7), never to the list.
+      if (info['forkOf'] != null) continue;
       // 蝶君's sessions belong to its controller, the rest to the workbench.
       if ((info['sandbox'] == true) != sandbox) continue;
       if (_runtimes.any((r) => r.slotId == slotId)) continue;
@@ -925,7 +927,7 @@ class AgentController extends ChangeNotifier {
     backupJob.dispose();
     restoreResult.dispose();
     _butterfly?.dispose();
-    sideChat?.runtime.dispose();
+    if (sideChat case final side?) _endSideChat(side);
     _reaper?.cancel();
     _backendEvents?.cancel();
     for (final runtime in _runtimes) {
@@ -1408,8 +1410,17 @@ class AgentController extends ChangeNotifier {
     final side = sideChat;
     if (side == null) return;
     sideChat = null;
-    side.runtime.dispose();
+    _endSideChat(side);
     _notify();
+  }
+
+  /// A side conversation is never reopened, so its session in the core closes with it rather than
+  /// waiting to be reaped as idle (until then it held a Pi session, and a window opened meanwhile
+  /// took it for a conversation of its own).
+  void _endSideChat(SideChat side) {
+    final slotId = side.runtime.slotId;
+    side.runtime.dispose();
+    if (slotId != null) unawaited(backend.call('slot.close', {'slotId': slotId}).then((_) {}, onError: (_) {}));
   }
 
   /// Puts the side conversation's latest answer into the main input box.

@@ -70,6 +70,20 @@
 - 菜单是键盘（Ctrl O）打开的时候焦点不在菜单里，Esc 不会自动关：顶栏的键盘处理里自己关。
 - 详情（右栏）现在默认关着、可以盖在对话上：窄窗口里它会挡住输入框右边，测试里要发消息先关掉它。
 
+### 9. Flexible 和 Expanded 放在同一行，Flexible 用不完的空间会变成行末空白
+
+一行里同时有 `Flexible`（按内容收缩）和 `Expanded`，剩余空间按 flex 先平分；`Flexible` 用不完的那部分**不会**再分给 `Expanded`，而是留在整行最后。0.4.0 的顶栏就是这样：路径是 `Flexible`、拖动区是 `Expanded`，结果详情按钮和窗口按钮离右边缘空出一大截（用户实测；组件测试不画窗口按钮，视觉检查的截图里详情按钮也没贴边，但当时没看出来）。
+
+- 要「内容在左、空白撑满、按钮在右」：把内容和空白合成一个 `Expanded`，里面用 `Stack`（空白铺底、内容 `Align` 在左），或者只留一个 flex 子项。
+- 看截图时检查一下：靠右的按钮是不是真的贴着右边缘。
+
+### 10. 侧边对话这类「附属会话」要自己收尾（0.4）
+
+窗口里关掉一个对话只是不显示它，后台的会话留着，等空闲一阵才回收（`_close`）；窗口重新连上后台时，还活着的会话会被接回列表（`_attachLiveSlots`）。普通对话这样做是对的，**但侧边对话不会再被打开**：0.4 第一次在真实模型上跑侧边对话，点「结束」后它在后台还开着，窗口重开时被接成了一个没名字的对话（端到端测试 1b 撞出来）。
+
+- 附属于某个窗口、用完就扔的会话（侧边对话）：结束时 `slot.close`（`_endSideChat`），后台的会话信息标明来历（`forkOf`），重连时跳过。
+- 以后再加这类会话（比如子 Agent 的临时会话），照这样做，并在测试里查「结束后后台收到关闭」「重连时不接回」。
+
 ## 二、后台（core）
 
 - 加表要在模块里 `core.declareBackup(...)`，有路径的列写进 `paths`，否则 `backup.test.ts` 失败。数据库迁移只能往后追加（`schema.ts`）。
@@ -86,7 +100,8 @@
 
 - **PowerShell 5.1 读写文件默认用系统编码（GBK）**：`Get-Content` / `Set-Content` 会把 UTF-8 的中文弄乱，`-Encoding utf8` 写出的又带 BOM（v0.3.3 开发时把 `common.dart` 弄坏过一次）。改源文件只用 Edit / Write 工具；必须用 PowerShell 时读写都显式 `-Encoding utf8`，写完检查没有 BOM。
 - Bash 里用 heredoc / `node -e` / `sed` 写含反斜杠或 `${...}` 的代码会被吃掉；写脚本用 Write 工具存文件再运行（放 scratchpad）。
-- Bash 里没有 `python`；本机唯一的 node 是 Hermes 自带的 v22。
+- Bash 里没有 `python`；本机唯一的 node 是 Hermes 自带的 v22。要用 Python（比如 `scripts/brand/`）就用 `core\bin\uv.exe` 和 `core\python\` 建个临时 venv（命令在脚本开头）。
+- **升级后后台第一次启动很慢**：刚复制的几千个文件第一次被 Node 读取时 Windows 会扫描，实测 11–22 秒（第二次 1–2 秒）。窗口等后台启动不能用短超时：现在是「进程活着就等，最长 2 分钟；进程退出马上报错」（`CoreLocator.waitForStart`；0.4.0 用户实测 22 秒，原来只等 20 秒）。
 - **不要用 `dart format`**（这个项目不是它的格式，会大面积改旧代码）。照着旁边的代码手写。
 - Bash 工具的沙箱启动不了 PowerShell：后台测试、`scripts/live-*.ts` 用 PowerShell 工具跑。
 - 跑测试时不要改源文件（测试会读到半改的文件）；真窗口测试一个一个跑。
@@ -94,6 +109,8 @@
 - `git push` 会卡在凭据选择窗口：用 `$env:GCM_INTERACTIVE="never"; git -c credential.helper= -c credential.helper=manager push …`（PowerShell）。
 - 跑过真窗口测试（`flutter test integration_test/... -d windows`）后，`app\build\windows\x64\runner\Debug\dreamflutter.exe` 是测试程序，不能拿给用户试；给用户试的一律是安装包。
 - 不要直接删改用户的安装文件夹（`E:\DreamFlutter测试版`），会被权限拦下；给用户复制命令（HANDOFF 开头有）。
+- **改了界面文字或按钮位置，端到端脚本要一起改**：它按文字和悬停提示找按钮，组件测试不会提醒（0.4 改名「新建对话」、工作区按钮挪到顶栏后，脚本跑到一半找不到）。改完把 `e2e_test.dart` 里用到的所有界面文字在 `lib/` 里搜一遍。
+- 真窗口测试里点刚滑出来的面板（详情）之前，先等动画走完（`pump` 几百毫秒）：动画中算出的按钮位置是错的，点了没反应，测试一直等到超时（0.4 侧边对话）。
 - 测试失败第一步先确认是测试的问题还是代码的问题：例如 finder 默认跳过隐藏组件，看起来像代码没生效。改完的修复要确认「去掉修复测试会失败」。
 
 ## 四、和用户协作

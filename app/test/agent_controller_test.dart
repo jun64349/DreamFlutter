@@ -167,10 +167,12 @@ void main() {
       backend = FakeBackend(liveSlots: [
         {'slotId': 'bg-1', 'cwd': Directory.systemTemp.path, 'running': true},
         {'slotId': 'sched', 'cwd': Directory.systemTemp.path, 'unattended': true},
+        {'slotId': 'side', 'cwd': Directory.systemTemp.path, 'incognito': true, 'forkOf': p.join(sessions.path, 'a.jsonl')},
       ]);
       final agent = await startController();
       expect(pis.first.target.attachSlotId, 'bg-1');
       expect(pis.where((p) => p.target.attachSlotId == 'sched'), isEmpty, reason: 'scheduled runs are not window sessions');
+      expect(pis.where((p) => p.target.attachSlotId == 'side'), isEmpty, reason: 'a side conversation is not a conversation of the list (e2e 1b)');
       expect(agent.runtimes.map((r) => r.slotId), contains('bg-1'));
       agent.dispose();
     });

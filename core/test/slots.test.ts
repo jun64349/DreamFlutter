@@ -260,6 +260,8 @@ describe("session slots", () => {
 		const side = (await t.core.call("slot.open", { slotId: "side", cwd: t.workspace, incognito: true, forkOf: info.sessionFile }, t.client)) as SlotInfo;
 		assert.equal(side.incognito, true);
 		assert.ok(!side.sessionFile, "nothing on disk");
+		assert.equal(side.forkOf, info.sessionFile, "marked as a side conversation, so a window never reattaches it as one of its own");
+		assert.equal(info.forkOf, null);
 		let seen: string[] = [];
 		t.respond((context) => {
 			seen = context.messages.map((m) => JSON.stringify(m.content));

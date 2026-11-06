@@ -65,6 +65,9 @@ void main() {
     expect(inTitleBar(find.text('毕设论文')), findsOneWidget);
     expect(inTitleBar(find.text('新会话')), findsOneWidget, reason: 'the conversation\'s title');
     expect(find.text('毕设论文 的对话'), findsOneWidget, reason: 'the sidebar names the workspace its list belongs to');
+    // The buttons sit at the right edge, whatever the breadcrumb's length (v0.4.0: a gap of a sixth of the window after them).
+    final bar = tester.getRect(find.byType(AppTitleBar));
+    expect(tester.getRect(find.byTooltip(RegExp('^详情')).first).right, greaterThan(bar.right - 16));
 
     // The list of workspaces is read from disk after start.
     for (var i = 0; i < 100 && agent.recentWorkspaces.isEmpty; i++) {

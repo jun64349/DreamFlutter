@@ -125,6 +125,7 @@ void main() {
     await tester.tap(find.text('结束'));
     await settle(tester);
     expect(agent.sideChat, isNull);
+    expect(backend.callsTo('slot.close').map((c) => c['slotId']), [side.slotId], reason: 'its session in the core closes too (e2e 1b)');
     expect(find.byType(SideChatView), findsNothing);
   });
 

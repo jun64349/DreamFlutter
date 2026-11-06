@@ -174,12 +174,19 @@ class CoreLocator {
   /// Connects to the running core, starting it first if needed. The core is
   /// started detached so it outlives this process (closing the window does
   /// not stop background work).
+  ///
+  /// The first start after an update can take half a minute (Windows scans the
+  /// thousands of new files as Node reads them; the next start takes a second),
+  /// so this waits as long as the core is alive, up to [startTimeout], and gives
+  /// up at once when it has exited (v0.4.0: the user's first start took 22 s
+  /// and the window, waiting 20, said the core did not start).
   static Future<CoreClient> ensureRunning({
     required List<String> searchRoots,
     String? dataDir,
     List<String> extraArgs = const [],
     Map<String, String> environment = const {},
-    Duration startTimeout = const Duration(seconds: 20),
+    Duration startTimeout = const Duration(minutes: 2),
+    Future<bool> Function(int pid) isAlive = processAlive,
   }) async {
     final dir = dataDir ?? defaultDataDir(searchRoots);
     final existing = await _tryConnect(dir);
@@ -190,20 +197,65 @@ class CoreLocator {
     if (main == null || node == null) {
       throw CoreException('missing_runtime', main == null ? '找不到后台程序（core/src/main.ts）。' : '找不到 Node.js，请先安装 Node.js 22.19 或更新版本。');
     }
-    await Process.start(
+    final process = await Process.start(
       node,
       ['--disable-warning=ExperimentalWarning', main, '--data-dir', dir, ...extraArgs],
       workingDirectory: p.dirname(p.dirname(main)),
       environment: {...PiRuntimeLocator.environment(), ...environment},
       mode: ProcessStartMode.detached,
     );
+    return waitForStart(dir, process.pid, startTimeout: startTimeout, isAlive: isAlive);
+  }
+
+  /// Waits for the core started as [pid] (or another one that holds the data
+  /// dir's lock) to accept connections.
+  static Future<CoreClient> waitForStart(
+    String dir,
+    int pid, {
+    Duration startTimeout = const Duration(minutes: 2),
+    Future<bool> Function(int pid) isAlive = processAlive,
+    Duration poll = const Duration(milliseconds: 150),
+  }) async {
+    final log = p.join(dir, 'core.log');
     final deadline = DateTime.now().add(startTimeout);
+    var nextCheck = DateTime.now().add(const Duration(seconds: 2));
     while (DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await Future<void>.delayed(poll);
       final client = await _tryConnect(dir);
       if (client != null) return client;
+      if (DateTime.now().isBefore(nextCheck)) continue;
+      nextCheck = DateTime.now().add(const Duration(seconds: 2));
+      if (await isAlive(pid)) continue;
+      // Ours exited. Fine if another core holds the lock (it was starting
+      // already, and ours stepped aside): keep waiting for that one.
+      final holder = _lockHolder(dir);
+      if (holder != null && holder != pid && await isAlive(holder)) continue;
+      final late = await _tryConnect(dir);
+      if (late != null) return late;
+      throw CoreException('start_failed', '后台启动后退出了，详情见 $log');
     }
-    throw CoreException('start_timeout', '后台没有在 ${startTimeout.inSeconds} 秒内启动，详情见 ${p.join(dir, 'core.log')}');
+    throw CoreException('start_timeout', '后台没有在 ${startTimeout.inSeconds} 秒内启动，详情见 $log');
+  }
+
+  static int? _lockHolder(String dataDir) {
+    try {
+      return int.tryParse(File(p.join(dataDir, 'core.lock')).readAsStringSync().trim());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Whether a process with [pid] is running.
+  static Future<bool> processAlive(int pid) async {
+    try {
+      if (Platform.isWindows) {
+        final r = await Process.run('tasklist', ['/FI', 'PID eq $pid', '/NH', '/FO', 'CSV']);
+        return (r.stdout as String).contains('"$pid"');
+      }
+      return (await Process.run('kill', ['-0', '$pid'])).exitCode == 0;
+    } catch (_) {
+      return true; // cannot tell: keep waiting until the timeout
+    }
   }
 
   static Future<CoreClient?> _tryConnect(String dataDir) async {

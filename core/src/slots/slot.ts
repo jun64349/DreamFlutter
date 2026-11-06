@@ -26,6 +26,8 @@ export interface SlotInfo {
 	unattended: boolean;
 	/** Temporary chat: in memory only, no memory read or write. */
 	incognito: boolean;
+	/** A side conversation: the session file it was copied from (read only); never reopened as a conversation of its own. */
+	forkOf: string | null;
 	/** Runs in 蝶君's sandbox. */
 	sandbox: boolean;
 	model: string | null;
@@ -78,6 +80,7 @@ export class Slot {
 	readonly ui: UiBridge;
 	readonly unattended: boolean;
 	readonly incognito: boolean;
+	readonly forkOf: string | null;
 	private readonly sandboxRequested: boolean;
 	taskId: string | null;
 	lastActivity = now();
@@ -102,6 +105,7 @@ export class Slot {
 		this.taskId = options.taskId ?? null;
 		this.unattended = options.unattended ?? false;
 		this.incognito = options.target.inMemory === true;
+		this.forkOf = options.target.forkOf ?? null;
 		this.sandboxRequested = options.target.sandbox === true;
 		this.hooks = hooks;
 		this.fallbackCwd = options.target.cwd;
@@ -207,6 +211,7 @@ export class Slot {
 			taskId: this.taskId,
 			unattended: this.unattended,
 			incognito: this.incognito,
+			forkOf: this.forkOf,
 			sandbox: this.sandboxed,
 			model: model ? `${model.provider}/${model.id}` : null,
 			agentMode: session ? (recordedMode(session.sessionManager) ?? "standard") : null,

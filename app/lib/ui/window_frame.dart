@@ -130,38 +130,48 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
             ),
             Container(width: 1, height: 16, color: colors.border),
             const SizedBox(width: 12),
-            Flexible(
-              child: ValueListenableBuilder<ButterflyTab>(
-                valueListenable: agent.butterflyTab,
-                builder: (context, tab, _) {
-                  final crumbs = <Widget>[];
-                  void sep() => crumbs.add(Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text('/', style: _muted(context))));
-                  switch (agent.section) {
-                    case AppSection.chat:
-                      crumbs.add(Text('工作台', style: _muted(context)));
-                      sep();
-                      crumbs.add(const _WorkspaceButton());
-                      sep();
-                      crumbs.add(Flexible(child: _Title(text: agent.sessionTitle)));
-                    case AppSection.butterfly:
-                      // Its page has 「交流」 and 「工作」 in its own header; here the conversation's title.
-                      crumbs.add(Text('蝶君', style: _muted(context)));
-                      if (tab == ButterflyTab.talk && butterfly != null) {
-                        sep();
-                        crumbs.add(Flexible(child: ListenableBuilder(listenable: butterfly, builder: (context, _) => _Title(text: butterfly.sessionTitle))));
-                      }
-                    case AppSection.tasks:
-                      crumbs.add(const _Title(text: '任务'));
-                    case AppSection.memory:
-                      crumbs.add(const _Title(text: '记忆'));
-                    case AppSection.library:
-                      crumbs.add(const _Title(text: '技能'));
-                  }
-                  return Row(mainAxisSize: MainAxisSize.min, children: crumbs);
-                },
+            // The breadcrumb over the drag area: the blank part moves the window, and the
+            // buttons after it sit at the right edge. (A Flexible breadcrumb beside an Expanded
+            // drag area left its unused share as a gap after the window buttons, v0.4.0.)
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(child: drag(const SizedBox.expand())),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ValueListenableBuilder<ButterflyTab>(
+                      valueListenable: agent.butterflyTab,
+                      builder: (context, tab, _) {
+                        final crumbs = <Widget>[];
+                        void sep() => crumbs.add(Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text('/', style: _muted(context))));
+                        switch (agent.section) {
+                          case AppSection.chat:
+                            crumbs.add(Text('工作台', style: _muted(context)));
+                            sep();
+                            crumbs.add(const _WorkspaceButton());
+                            sep();
+                            crumbs.add(Flexible(child: _Title(text: agent.sessionTitle)));
+                          case AppSection.butterfly:
+                            // Its page has 「交流」 and 「工作」 in its own header; here the conversation's title.
+                            crumbs.add(Text('蝶君', style: _muted(context)));
+                            if (tab == ButterflyTab.talk && butterfly != null) {
+                              sep();
+                              crumbs.add(Flexible(child: ListenableBuilder(listenable: butterfly, builder: (context, _) => _Title(text: butterfly.sessionTitle))));
+                            }
+                          case AppSection.tasks:
+                            crumbs.add(const _Title(text: '任务'));
+                          case AppSection.memory:
+                            crumbs.add(const _Title(text: '记忆'));
+                          case AppSection.library:
+                            crumbs.add(const _Title(text: '技能'));
+                        }
+                        return Row(mainAxisSize: MainAxisSize.min, children: crumbs);
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
-            Expanded(child: drag(const SizedBox.expand())),
             if (talking != null && (!onButterfly || agent.butterflyTab.value == ButterflyTab.talk))
               ListenableBuilder(
                 listenable: talking,

@@ -216,11 +216,44 @@ void main() {
     final runtimeA = agent.active!;
     await shot(tester, '01_read_reply');
 
+    // 1b. A side conversation about part of the reply (0.4, 4.7): answered by the real model in the
+    // details, from an in-memory copy of the session; the main conversation and its file stay as they were.
+    final mainItems = agent.transcript.items.length;
+    final mainFile = File(sessionA).readAsStringSync();
+    await tester.runAsync(() => agent.openSideChat('hello from dreamflutter'));
+    await waitFor(tester, 'side chat ready', () => agent.sideChat?.isReady ?? false, agent);
+    // The details slide in: let them come to rest before clicking in them.
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await shot(tester, '01b_side_chat_open');
+    await tester.enterText(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('问问这段内容')), '这段文字是从哪个文件读出来的？只回答文件名。');
+    await tester.pump();
+    await tester.tap(find.byTooltip('在侧边对话里发送'));
+    await waitFor(tester, 'side question sent', () => agent.sideChat!.items.isNotEmpty, agent, timeout: const Duration(seconds: 20));
+    await waitFor(tester, 'side answer', () => !(agent.sideChat!.runtime.isRunning) && (agent.sideChat!.lastAnswer ?? '').isNotEmpty, agent);
+    expect(agent.sideChat!.lastAnswer, contains('hello.txt'), reason: 'the side conversation sees the main one so far');
+    expect(agent.transcript.items.length, mainItems, reason: 'nothing is added to the main conversation');
+    expect(File(sessionA).readAsStringSync(), mainFile, reason: 'the session file is only read');
+    await shot(tester, '01b_side_chat');
+    await tester.tap(find.text('带回主对话'));
+    await tester.pumpAndSettle();
+    final mainInput = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('说点什么'));
+    expect(tester.widget<TextField>(mainInput).controller!.text, startsWith('侧边对话的结论：'));
+    await tester.tap(find.text('结束'));
+    await tester.pumpAndSettle();
+    expect(agent.sideChat, isNull);
+    if (find.byTooltip('收起详情').evaluate().isNotEmpty) {
+      await tester.tap(find.byTooltip('收起详情').first);
+      await tester.pumpAndSettle();
+    }
+    await tester.enterText(mainInput, '');
+
     // 2. Background run: start a long answer, open a new session meanwhile.
     final turnsBefore = assistants(agent).length;
     await sendMessage(tester, '写一篇 1500 字关于大海的散文。直接在回复里写，不要使用任何工具。');
     await waitFor(tester, 'A running', () => agent.isRunning && assistants(agent).length > turnsBefore, agent);
-    await tester.tap(find.text('新会话'));
+    await tester.tap(find.text('新建对话'));
     await waitFor(tester, 'B active', () => agent.active != runtimeA && agent.isReady, agent);
     expect(runtimeA.isRunning, isTrue, reason: 'A keeps running in the background');
     expect(runtimeA.transcript.items.whereType<AssistantItem>().last.aborted, isFalse);
@@ -316,7 +349,7 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.textContaining('工作区 · ').first);
+    await tester.tap(find.byTooltip(RegExp('^工作区：')));
     await tester.pumpAndSettle();
     expect(find.text(p.basename(otherWorkspace.path)), findsOneWidget);
     await shot(tester, '11_workspace_menu');
