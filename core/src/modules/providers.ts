@@ -2,10 +2,11 @@ import { existsSync, readFileSync, renameSync, writeFileSync, copyFileSync } fro
 import { join } from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Core } from "../core.ts";
-import { type DescribedModel, readModelList } from "../gateway/catalog.ts";
+import { catalogModel, type DescribedModel, readModelList } from "../gateway/catalog.ts";
 import { RpcError, requireStr, str } from "../core.ts";
 import type { Llm } from "./llm.ts";
 import { isSecretReference, SecretStore } from "./secrets.ts";
+import { rememberSecret } from "../security/redaction.ts";
 
 export interface ModelInfo {
 	id: string;
@@ -66,6 +67,9 @@ type Json = Record<string, unknown>;
  * with Pi's "!command" syntax.
  */
 export class Providers {
+	channelsAuthoritative = false;
+	readonly oauthProviders = new Set<string>();
+	private assertLegacyWritable(): void { if (this.channelsAuthoritative) throw new RpcError("migrated", "Pi 配置已迁入渠道，请在渠道页编辑。OAuth 登录仍可在渠道页管理。"); }
 	private readonly core: Core;
 	private readonly llm: Llm;
 	readonly secrets: SecretStore;
@@ -88,23 +92,29 @@ export class Providers {
 	}
 
 	async list(): Promise<ProviderInfo[]> {
-		const runtime = await this.llm.runtime();
+		const runtime = await this.llm.runtime(undefined, false);
 		// The credential snapshot fills in asynchronously: wait for it before reading statuses.
-		await runtime.getAvailable();
+		if (!this.channelsAuthoritative) await runtime.getAvailable();
 		const custom = (readJson(this.modelsPath).providers ?? {}) as Record<string, Json>;
 		const auth = readJson(this.authPath) as Record<string, Json>;
 		const out: ProviderInfo[] = [];
 		for (const provider of runtime.getProviders()) {
+			if (this.channelsAuthoritative && !this.oauthProviders.has(provider.id) && auth[provider.id]?.type !== "oauth") continue;
 			const status = runtime.getProviderAuthStatus(provider.id);
 			const models = runtime.getModels(provider.id).map(toModelInfo);
 			const customEntry = custom[provider.id];
+			// Pi fills omitted windows with 128K. Do not present that fallback as known metadata.
+			const customModels = customEntry?.models as { id: string; contextWindow?: number }[] | undefined;
+			for (const model of models) {
+				if (customModels?.some((m) => m.id === model.id && !m.contextWindow) && !catalogModel(provider.id, model.id)) model.contextWindow = null;
+			}
 			out.push({
 				id: provider.id,
 				name: provider.name,
 				baseUrl: provider.baseUrl ?? null,
 				api: (customEntry?.api as string | undefined) ?? models[0]?.api ?? null,
-				configured: status.configured,
-				authSource: status.label ?? status.source ?? null,
+				configured: this.channelsAuthoritative ? auth[provider.id]?.type === "oauth" : status.configured,
+				authSource: this.channelsAuthoritative || auth[provider.id]?.type === "oauth" ? "oauth" : status.label ?? status.source ?? null,
 				custom: customEntry !== undefined,
 				encryptedKey: isSecretReference(customEntry?.apiKey) || isSecretReference(auth[provider.id]?.key),
 				models,
@@ -119,6 +129,7 @@ export class Providers {
 	}
 
 	async saveCustom(input: CustomProviderInput): Promise<void> {
+		this.assertLegacyWritable();
 		const id = input.id.trim();
 		if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new RpcError("bad_request", "服务商 ID 只能用字母、数字、点、横线和下划线");
 		if (!/^https?:\/\//.test(input.baseUrl.trim())) throw new RpcError("bad_request", "接口地址需要以 http:// 或 https:// 开头");
@@ -159,6 +170,7 @@ export class Providers {
 	}
 
 	removeCustom(id: string): void {
+		this.assertLegacyWritable();
 		const config = readJson(this.modelsPath);
 		const providers = { ...((config.providers ?? {}) as Record<string, Json>) };
 		if (!(id in providers)) return;
@@ -170,6 +182,7 @@ export class Providers {
 
 	/** Stores a key for a built-in provider (auth.json). */
 	async setKey(provider: string, apiKey: string): Promise<void> {
+		this.assertLegacyWritable();
 		if (!apiKey.trim()) throw new RpcError("bad_request", "API Key 不能为空");
 		const auth = readJson(this.authPath);
 		auth[provider] = { ...((auth[provider] as Json | undefined) ?? {}), type: "api_key", key: await this.secrets.put(`auth-${provider}`, apiKey.trim()) };
@@ -178,6 +191,7 @@ export class Providers {
 	}
 
 	removeKey(provider: string): void {
+		this.assertLegacyWritable();
 		const auth = readJson(this.authPath);
 		if (!(provider in auth)) return;
 		if (isSecretReference((auth[provider] as Json).key)) this.secrets.remove(`auth-${provider}`);
@@ -188,8 +202,10 @@ export class Providers {
 
 	/** The API key Pi would send for [provider] (balance queries for channels from Pi's config). */
 	async apiKeyOf(provider: string): Promise<string | undefined> {
-		const runtime = await this.llm.runtime();
-		return (await runtime.getAuth(provider).catch(() => undefined))?.auth.apiKey;
+		const runtime = await this.llm.runtime(undefined, false);
+		const key = (await runtime.getAuth(provider).catch(() => undefined))?.auth.apiKey;
+		if (key) rememberSecret(key);
+		return key;
 	}
 
 	/** Sends a tiny request to check the provider answers with the stored credentials. */

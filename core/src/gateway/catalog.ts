@@ -21,6 +21,12 @@ export interface DescribedModel {
 
 /** Pi's thinking levels above "off", in order. */
 const LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const THINKING_LEVELS = ["off", ...LEVELS] as const;
+
+/** Explicit user capability selection: even "off" may be unsupported. */
+export function selectedLevelMap(levels: string[]): Record<string, string | null> {
+	return Object.fromEntries(THINKING_LEVELS.map((level) => [level, levels.includes(level) ? (level === "off" ? "none" : level) : null]));
+}
 
 /** [id] in Pi's built-in catalog of [provider]. */
 export function catalogModel(provider: string | undefined, id: string): Model<Api> | undefined {

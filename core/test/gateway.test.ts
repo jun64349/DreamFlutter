@@ -355,7 +355,7 @@ describe("gateway: balances and allowances", () => {
 		const glm = await readQuota("glm-quota", "https://open.bigmodel.cn/api/anthropic", "k", reply({ data: { limits: [{ type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: 14.5, nextResetTime: 1782259200000 }] } }));
 		assert.ok(glm.type === "plan");
 		assert.deepEqual(glm.windows, [{ label: "5 小时", usedPercent: 14.5, resetAt: 1782259200000 }]);
-		const minimax = await readQuota("minimax-remains", "https://api.minimaxi.com/anthropic", "k", reply({ data: { current_interval_total_count: 100, current_interval_usage_count: 25, expired_time: 1782259200 } }));
+		const minimax = await readQuota("minimax-remains", "https://api.minimaxi.com/anthropic", "k", reply({ data: { current_interval_total_count: 100, current_interval_usage_count: 25, expired_time: 1782259200 } }), () => 1782000000000);
 		assert.ok(minimax.type === "plan");
 		assert.deepEqual(minimax.windows, [{ label: "当前周期", usedPercent: 25, resetAt: 1782259200000 }]);
 		const broken = await readQuota("deepseek-balance", "https://api.deepseek.com/v1", "k", reply({}, 401));

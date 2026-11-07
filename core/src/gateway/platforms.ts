@@ -5,7 +5,7 @@
  */
 
 export type ChannelKind = "payg" | "plan" | "relay";
-export type ChannelApi = "openai-completions" | "anthropic-messages";
+export type ChannelApi = string;
 
 /** How a channel's remaining money or allowance can be queried. */
 export type QuotaSource = "deepseek-balance" | "glm-quota" | "minimax-remains" | "moonshot-balance";
@@ -34,6 +34,7 @@ export interface Platform {
 export const PLATFORMS: Platform[] = [
 	{
 		id: "deepseek",
+		catalog: "deepseek",
 		name: "DeepSeek",
 		kind: "payg",
 		endpoints: [
@@ -45,6 +46,7 @@ export const PLATFORMS: Platform[] = [
 	},
 	{
 		id: "glm-coding",
+		catalog: "zai-coding-cn",
 		name: "智谱 GLM 编程套餐",
 		kind: "plan",
 		endpoints: [
@@ -57,6 +59,7 @@ export const PLATFORMS: Platform[] = [
 	},
 	{
 		id: "kimi-coding",
+		catalog: "kimi-coding",
 		name: "Kimi Code 会员",
 		kind: "plan",
 		endpoints: [
@@ -68,6 +71,7 @@ export const PLATFORMS: Platform[] = [
 	},
 	{
 		id: "minimax-coding",
+		catalog: "minimax-cn",
 		name: "MiniMax 编程套餐",
 		kind: "plan",
 		endpoints: [
@@ -81,6 +85,7 @@ export const PLATFORMS: Platform[] = [
 	},
 	{
 		id: "moonshot",
+		catalog: "moonshotai-cn",
 		name: "Kimi 开放平台（按量）",
 		kind: "payg",
 		endpoints: [

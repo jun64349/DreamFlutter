@@ -178,6 +178,9 @@ describe("the context service (roadmap 5.12)", () => {
 		}
 		await t.waitFor(() => records().some((r) => r.outcome === "made"));
 		const madeAt = summaries;
+		const candidateRequests = t.core.ledger!.entries({ limit: 1000 }).filter((r) => r.purpose === "compaction");
+		assert.equal(candidateRequests.length, 1, "preparing a background candidate is a billed compaction request");
+		assert.equal(candidateRequests[0]!.session_id, t.core.slots.get("s1")!.session.sessionId);
 		assert.ok(t.core.slots.get("s1")!.session.sessionManager.getEntries().some((e) => e.type === "usage" && (e as { kind?: string }).kind === "background_compaction"), "its cost is on the session's bill");
 		for (let i = 0; i < 20 && !records().some((r) => r.outcome === "used" || r.outcome === "done" || r.outcome === "dropped"); i++) {
 			t.respond(smart, smart);
@@ -192,6 +195,8 @@ describe("the context service (roadmap 5.12)", () => {
 			"one candidate for the cycle, used",
 		);
 		assert.equal(summaries, madeAt, "no summary call at the compaction itself");
+		t.core.ledger!.importHistory();
+		assert.deepEqual(t.core.ledger!.entries({ limit: 1000 }).filter((r) => r.purpose === "compaction").map((r) => r.id), candidateRequests.map((r) => r.id), "using/indexing a prepared candidate never creates another charge");
 		const [checkpoint] = (await t.core.call("context.checkpoints", { slotId: "s1" })) as { summary: string }[];
 		assert.match(checkpoint!.summary, new RegExp(`检查点 ${madeAt}`));
 		const stats = (await t.core.call("context.stats", {})) as { background: { made: number; used: number; useRate: number } };
@@ -259,6 +264,8 @@ describe("the context service (roadmap 5.12)", () => {
 			await prompt(big(i));
 		}
 		await t.waitFor(() => records().some((r) => r.outcome === "made"));
+		const unused = t.core.ledger!.entries({ limit: 1000 }).find((r) => r.purpose === "compaction")!;
+		assert.ok(unused, "an unused candidate must already be in the ledger");
 		const file = t.core.slots.get("s1")!.session.sessionFile!;
 		await t.core.call("slot.close", { slotId: "s1" });
 		await t.core.call("slot.open", { slotId: "s2", cwd: t.workspace, sessionFile: file }, t.client);
@@ -269,5 +276,8 @@ describe("the context service (roadmap 5.12)", () => {
 		}
 		assert.ok(!records().some((r) => r.outcome === "used"), "the candidate written before the restart is never used");
 		assert.ok(records().some((r) => r.kind === "normal" && r.outcome === "done"));
+		t.core.ledger!.importHistory();
+		assert.equal(t.core.ledger!.entries({ limit: 1000 }).filter((r) => r.id === unused.id).length, 1, "discard/reopen preserves the original request exactly once");
+		assert.equal(t.core.ledger!.entries({ limit: 1000 }).filter((r) => r.purpose === "compaction").length, 2, "the subsequent normal compaction has its own request");
 	});
 });

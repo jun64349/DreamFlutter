@@ -1,4 +1,4 @@
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import { mkdirSync, openSync, closeSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { inheritedIds, sideConversation } from "../pi/session-metadata.ts";
@@ -43,6 +43,8 @@ export interface SlotInfo {
 }
 
 export interface SlotHooks {
+	resolveModel?(model: Model<Api>): Model<Api>;
+	modelWindow?(model: Model<Api>): number | null;
 	/** A record in Pi RPC wire format (event, response or extension UI request). */
 	record(slotId: string, record: Record<string, unknown>): void;
 	/** Slot state changed (running, dialogs, session file, name…). */
@@ -339,6 +341,7 @@ export class Slot {
 
 	/** Compacts now (dsh's compactNow: nothing recent kept back), with an optional focus for the summary. */
 	async compactNow(customInstructions?: string, regenerateEntryId?: string): Promise<unknown> {
+		await this.refreshModelConfig();
 		if (this.closing || this.compacting) throw new Error("会话正在关闭或压缩");
 		if (regenerateEntryId && this.running) throw new Error("请等待当前回复结束后重新生成摘要");
 		const manager = this.session.sessionManager;
@@ -409,6 +412,7 @@ export class Slot {
 	}
 
 	private async sendPrompt(message: string, options: Record<string, unknown> = {}): Promise<string> {
+		await this.refreshModelConfig();
 		if (this.closing) throw new Error("会话正在关闭");
 		if (this.firstSend) throw new Error("侧边对话正在保存并发送，请等待结果");
 		this.lastActivity = now();
@@ -488,6 +492,33 @@ export class Slot {
 		for (const key of this.acceptedPrompts.keys()) if (key.startsWith(`${requestScope}:`)) this.acceptedPrompts.delete(key);
 	}
 
+	/** Apply window/metadata edits while idle; keep a running request's model stable. */
+	async refreshModelConfig(): Promise<void> {
+		if (!this.started || this.running || this.compacting) return;
+		const current = this.session.model;
+		if (!current) return;
+		const registered = this.session.modelRuntime.getAvailableSnapshot().find((m) => m.provider === current.provider && m.id === current.id);
+		if (!registered) return;
+		const effective = this.hooks.resolveModel?.(registered) ?? registered;
+		if (current.contextWindow !== effective.contextWindow || current.reasoning !== effective.reasoning || JSON.stringify(current.thinkingLevelMap) !== JSON.stringify(effective.thinkingLevelMap)) {
+			const thinking = this.session.thinkingLevel;
+			await this.session.setModel(effective);
+			this.session.setThinkingLevel(thinking);
+		}
+	}
+
+	private presentModel(model: Model<Api>): Record<string, unknown> {
+		const contextWindow = this.hooks.modelWindow ? this.hooks.modelWindow(model) : model.contextWindow;
+		return { ...model, contextWindow, thinkingLevels: getSupportedThinkingLevels(model) };
+	}
+
+	contextUsage(): ReturnType<AgentSession["getContextUsage"]> | null {
+		const usage = this.session.getContextUsage();
+		if (!usage) return null;
+		if (this.session.model && this.hooks.modelWindow?.(this.session.model) === null) return { ...usage, contextWindow: 0, percent: 0 };
+		return usage;
+	}
+
 	private async command(command: Command, requestScope: string): Promise<Record<string, unknown> | undefined> {
 		if (this.firstSend && command.type !== "prompt" && !command.type.startsWith("get_")) throw new Error("侧边对话正在保存并发送，请等待结果");
 		const id = command.id;
@@ -522,8 +553,9 @@ export class Slot {
 				return ok(id, "new_session", result);
 			}
 			case "get_state":
+				await this.refreshModelConfig();
 				return ok(id, "get_state", {
-					model: session.model,
+					model: session.model ? this.presentModel(session.model) : undefined,
 					thinkingLevel: session.thinkingLevel,
 					isStreaming: session.isStreaming,
 					isCompacting: session.isCompacting,
@@ -539,17 +571,25 @@ export class Slot {
 			case "set_model": {
 				const model = session.modelRuntime.getAvailableSnapshot().find((m) => m.provider === command.provider && m.id === command.modelId);
 				if (!model) return failure(id, "set_model", `Model not found: ${String(command.provider)}/${String(command.modelId)}`);
-				await session.setModel(model);
+				await session.setModel(this.hooks.resolveModel?.(model) ?? model);
 				this.hooks.changed(this);
-				return ok(id, "set_model", model);
+				return ok(id, "set_model", this.presentModel(session.model!));
 			}
-			case "cycle_model":
-				return ok(id, "cycle_model", (await session.cycleModel()) ?? null);
-			case "get_available_models":
+			case "cycle_model": {
+				const result = await session.cycleModel();
+				await this.refreshModelConfig();
+				return ok(id, "cycle_model", result ? { ...result, model: this.presentModel(session.model!) } : null);
+			}
+			case "get_available_models": {
+				const order = new Map(this.db.all<{id: string}>("SELECT id FROM gateway_groups ORDER BY sort, created_at").map((g, i) => [g.id, i]));
+				const models = session.modelRuntime.getAvailableSnapshot().map((m) => this.hooks.resolveModel?.(m) ?? m);
+				const groups = models.filter((m) => m.provider === "dreamflutter").sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+				let groupIndex = 0;
 				// Each model carries its own thinking levels, so the window can list them for a model that is not the session's (settings' default model).
 				return ok(id, "get_available_models", {
-					models: session.modelRuntime.getAvailableSnapshot().map((m) => ({ ...m, thinkingLevels: getSupportedThinkingLevels(m) })),
+					models: models.map((m) => this.presentModel(m.provider === "dreamflutter" ? groups[groupIndex++]! : m)),
 				});
+			}
 			case "set_thinking_level":
 				session.setThinkingLevel(command.level as never);
 				return ok(id, "set_thinking_level");
@@ -703,7 +743,8 @@ export class Slot {
 				return ok(id, "df_set_plan_mode", this.agentState);
 			}
 			case "df_context_usage":
-				return ok(id, "df_context_usage", session.getContextUsage() ?? null);
+				await this.refreshModelConfig();
+				return ok(id, "df_context_usage", this.contextUsage());
 			default:
 				return failure(id, command.type, `Unknown command: ${command.type}`);
 		}

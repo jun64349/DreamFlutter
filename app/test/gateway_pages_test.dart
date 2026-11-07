@@ -165,6 +165,10 @@ void main() {
     expect(find.textContaining('额度用完'), findsOneWidget, reason: 'a resting channel says why and until when');
     expect(find.text('来自 Pi 配置'), findsOneWidget);
 
+    final settingsScroll = find.descendant(of: find.byKey(const ValueKey('settings-模型与网关')), matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(find.text('新建模型组'), 250, scrollable: settingsScroll);
+    await tester.ensureVisible(find.text('新建模型组'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('新建模型组'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, '名称'), '主力');
@@ -198,9 +202,11 @@ void main() {
     expect(find.byType(DashboardPage), findsOneWidget);
     expect(find.text('5 小时'), findsOneWidget);
     expect(find.text('100%'), findsOneWidget);
-    expect(find.text('余额 5.27 CNY'), findsOneWidget);
+    expect(find.text('账户余额 5.27 CNY'), findsOneWidget);
     expect(find.textContaining('今天 30 次请求'), findsOneWidget);
     expect(find.text('\$0.50'), findsWidgets);
+    await tester.ensureVisible(find.text('模型').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('模型').last);
     await tester.pumpAndSettle();
     expect(find.text('deepseek-flash · DeepSeek'), findsOneWidget, reason: 'models carry their channel name');

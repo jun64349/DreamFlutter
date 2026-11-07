@@ -4,13 +4,15 @@ import 'package:pi_rpc/pi_rpc.dart';
 import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'gateway_pages.dart' show ChannelManagementPage;
 
 /// One model of a provider, as the core reports it.
 class ModelEntry {
+  Json metadata = {};
   ModelEntry({
     required this.id,
     this.name = '',
-    this.contextWindow = 128000,
+    this.contextWindow = 0,
     this.maxTokens = 16384,
     this.images = false,
     this.reasoning = false,
@@ -18,6 +20,7 @@ class ModelEntry {
     this.outputPrice = 0,
     this.cacheReadPrice = 0,
     this.efforts = const [],
+    this.thinkingLevels,
   });
 
   factory ModelEntry.fromJson(Json json) {
@@ -25,7 +28,7 @@ class ModelEntry {
     return ModelEntry(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
-      contextWindow: (json['contextWindow'] as num?)?.toInt() ?? 128000,
+      contextWindow: (json['contextWindow'] as num?)?.toInt() ?? 0,
       maxTokens: (json['maxTokens'] as num?)?.toInt() ?? 16384,
       images: (json['input'] as List? ?? const []).contains('image'),
       reasoning: json['reasoning'] == true,
@@ -33,7 +36,8 @@ class ModelEntry {
       outputPrice: (cost['output'] as num?)?.toDouble() ?? 0,
       cacheReadPrice: (cost['cacheRead'] as num?)?.toDouble() ?? 0,
       efforts: [for (final e in json['efforts'] as List? ?? const []) e as String],
-    );
+      thinkingLevels: (json['thinkingLevels'] as List?)?.cast<String>().toList(),
+    )..metadata = Map.of(json);
   }
 
   String id;
@@ -48,16 +52,19 @@ class ModelEntry {
 
   /// The model's own thinking values from the model list (kept, not edited here).
   final List<String> efforts;
+  List<String>? thinkingLevels;
 
   Json toJson() => {
+    ...metadata,
     'id': id.trim(),
     'name': name.trim().isEmpty ? id.trim() : name.trim(),
-    'contextWindow': contextWindow,
+    if (contextWindow > 0) 'contextWindow': contextWindow,
     'maxTokens': maxTokens,
     'input': ['text', if (images) 'image'],
     'reasoning': reasoning,
-    'cost': {'input': inputPrice, 'output': outputPrice, 'cacheRead': cacheReadPrice, 'cacheWrite': 0},
+    'cost': {'input': inputPrice, 'output': outputPrice, 'cacheRead': cacheReadPrice, 'cacheWrite': (metadata['cost'] as Map?)?['cacheWrite'] ?? 0},
     if (efforts.isNotEmpty) 'efforts': efforts,
+    if (thinkingLevels != null) 'thinkingLevels': thinkingLevels,
   };
 }
 
@@ -95,7 +102,8 @@ const apiLabels = {
 /// compatible) endpoints, connection tests. Edits Pi's own models.json /
 /// auth.json through the core, with keys stored encrypted.
 class ProvidersPage extends StatefulWidget {
-  const ProvidersPage({super.key});
+  const ProvidersPage({super.key, this.legacyOnly = false});
+  final bool legacyOnly;
 
   @override
   State<ProvidersPage> createState() => _ProvidersPageState();
@@ -118,6 +126,13 @@ class _ProvidersPageState extends State<ProvidersPage> {
 
   Future<void> _load() async {
     try {
+      if (!widget.legacyOnly) {
+        final status = asJsonMap(await _agent.backend.call('piMigration.status'));
+        if (status['status'] == 'done' && mounted) {
+          await Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder: (_) => const ChannelManagementPage()));
+          return;
+        }
+      }
       final list = await _agent.backend.call('providers.list');
       setState(() {
         _providers = (list as List).whereType<Map>().map((p) => ProviderEntry.fromJson(p.cast<String, dynamic>())).toList();
@@ -542,10 +557,11 @@ class _CustomProviderPageState extends State<CustomProviderPage> {
 }
 
 class ModelRow extends StatelessWidget {
-  const ModelRow({super.key, required this.model, required this.onRemove});
+  const ModelRow({super.key, required this.model, required this.onRemove, this.editThinkingLevels = false});
 
   final ModelEntry model;
   final VoidCallback onRemove;
+  final bool editThinkingLevels;
 
   Widget _number(String label, num value, ValueChanged<String> onChanged, {double width = 96}) => SizedBox(
     width: width,
@@ -572,16 +588,63 @@ class ModelRow extends StatelessWidget {
               width: 220,
               child: TextFormField(initialValue: model.id, decoration: const InputDecoration(labelText: '模型 ID', isDense: true), onChanged: (v) => model.id = v),
             ),
-            _number('上下文', model.contextWindow, (v) => model.contextWindow = int.tryParse(v) ?? model.contextWindow, width: 110),
+            SizedBox(
+              width: 140,
+              child: TextFormField(
+                initialValue: model.contextWindow > 0 ? '${model.contextWindow}' : '',
+                decoration: const InputDecoration(labelText: '上下文', hintText: '未知', isDense: true),
+                keyboardType: TextInputType.number,
+                onChanged: (v) => model.contextWindow = int.tryParse(v) ?? 0,
+              ),
+            ),
             _number('最大输出', model.maxTokens, (v) => model.maxTokens = int.tryParse(v) ?? model.maxTokens),
             _number('输入 \$/M', model.inputPrice, (v) => model.inputPrice = double.tryParse(v) ?? model.inputPrice, width: 80),
             _number('输出 \$/M', model.outputPrice, (v) => model.outputPrice = double.tryParse(v) ?? model.outputPrice, width: 80),
             ModelFlag(label: '图片', value: model.images, onChanged: (v) => model.images = v),
-            ModelFlag(label: '思考', value: model.reasoning, onChanged: (v) => model.reasoning = v),
+            if (!editThinkingLevels) ModelFlag(label: '思考', value: model.reasoning, onChanged: (v) => model.reasoning = v),
             IconButton(tooltip: '移除', onPressed: onRemove, icon: const Icon(Icons.close, size: 18)),
+            if (editThinkingLevels) ModelThinkingLevels(model: model),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Unknown relay capabilities are explicitly confirmed against the provider's documentation.
+class ModelThinkingLevels extends StatefulWidget {
+  const ModelThinkingLevels({super.key, required this.model});
+  final ModelEntry model;
+  @override
+  State<ModelThinkingLevels> createState() => _ModelThinkingLevelsState();
+}
+
+class _ModelThinkingLevelsState extends State<ModelThinkingLevels> {
+  static const levels = {'off': '关闭', 'minimal': '最低', 'low': '低', 'medium': '中', 'high': '高', 'xhigh': '极高', 'max': '最高'};
+  @override
+  Widget build(BuildContext context) {
+    final model = widget.model;
+    final selected = model.thinkingLevels ?? (model.reasoning ? ['off', if (model.efforts.isEmpty) ...['minimal', 'low', 'medium', 'high'] else ...model.efforts.where(levels.containsKey)] : ['off']);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('支持的思考档位（按服务商说明勾选）', style: context.text.bodySmall),
+        Wrap(spacing: 8, runSpacing: 4, children: [
+          for (final entry in levels.entries)
+            FilterChip(
+              label: Text(entry.value),
+              selected: selected.contains(entry.key),
+              onSelected: (on) => setState(() {
+                final next = (model.thinkingLevels ?? selected).toSet();
+                if (on) { next.add(entry.key); } else { next.remove(entry.key); }
+                model.thinkingLevels = levels.keys.where(next.contains).toList();
+                model.reasoning = next.any((l) => l != 'off');
+              }),
+            ),
+        ]),
+        if (model.thinkingLevels?.isEmpty == true) Text('请至少选择一个档位', style: TextStyle(color: context.colors.danger)),
+      ],
     );
   }
 }

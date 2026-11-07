@@ -109,12 +109,11 @@ export class ContextModule implements CoreModule {
 	/** The main task's daily and monthly budgets are not spent (user 2026-11-07: the candidate is the main task's spending). */
 	budgetLeft(): boolean {
 		const settings = this.core.settings.get();
-		const running = [...this.core.slots.values()].reduce((sum, s) => sum + (s.currentRun?.cost ?? 0), 0);
 		const day = new Date();
 		day.setHours(0, 0, 0, 0);
-		if (settings.dailyBudgetUsd > 0 && this.core.runs.costSince(day.getTime()) + running >= settings.dailyBudgetUsd) return false;
+		if (settings.dailyBudgetUsd > 0 && this.core.runs.costSince(day.getTime()) >= settings.dailyBudgetUsd) return false;
 		const month = new Date(day.getFullYear(), day.getMonth(), 1).getTime();
-		if (settings.monthlyBudgetUsd > 0 && this.core.runs.costSince(month) + running >= settings.monthlyBudgetUsd) return false;
+		if (settings.monthlyBudgetUsd > 0 && this.core.runs.costSince(month) >= settings.monthlyBudgetUsd) return false;
 		return true;
 	}
 
@@ -233,12 +232,13 @@ export class ContextModule implements CoreModule {
 
 	private register(): void {
 		const core = this.core;
-		core.register("context.info", (p) => {
+		core.register("context.info", async (p) => {
 			const slot = this.slotOf(p);
+			await slot.refreshModelConfig();
 			const session = slot.session;
 			const model = session.model as { contextWindow?: number; maxTokens?: number; provider?: string; id?: string } | undefined;
-			const usage = session.getContextUsage() ?? null;
-			const window = model?.contextWindow ?? null;
+			const usage = slot.contextUsage();
+			const window = session.model ? core.modelWindow(session.model) : null;
 			const settings = window ? this.settingsFor(session.sessionId, { contextWindow: window, maxTokens: model?.maxTokens ?? 0 }, dshCompactionSettings({ contextWindow: window, maxTokens: model?.maxTokens ?? 0 }, true)) : null;
 			const last = this.db.get<{ kind: string; outcome: string; reason: string | null; at: number }>("SELECT kind, outcome, reason, at FROM context_compactions WHERE session_id = ? AND kind = 'background' ORDER BY at DESC, rowid DESC LIMIT 1", session.sessionId);
 			return {

@@ -6,6 +6,13 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
 import 'providers_page.dart';
+import 'pi_compatibility_panel.dart';
+
+class ChannelManagementPage extends StatelessWidget {
+  const ChannelManagementPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('渠道管理')), body: ListView(padding: const EdgeInsets.all(16), children: const [PiCompatibilityPanel(), ChannelList()]));
+}
 
 /// Channels and model groups of the model gateway (docs/v0.2-gateway.md):
 /// the lists shown under 设置 › 模型与网关, and their editors.
@@ -58,7 +65,7 @@ class _ChannelListState extends State<ChannelList> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (channels.isEmpty) const EmptyNote('还没有渠道。添加一个，例如 DeepSeek 或智谱编程套餐。'),
-        for (final channel in channels)
+        for (final channel in channels.where((c) => !c.oauth))
           _ChannelCard(
             channel: channel,
             test: _tests[channel.id],
@@ -68,6 +75,14 @@ class _ChannelListState extends State<ChannelList> {
                 : () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ChannelEditorPage(existing: channel))),
             onRemove: channel.fromPi ? null : () => _remove(agent, channel),
           ),
+        for (final channel in channels.where((c) => c.oauth && (c.enabled || canLoginPiOAuth(c.provider)))) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(canLoginPiOAuth(channel.provider) ? 'ChatGPT' : channel.name, style: Theme.of(context).textTheme.titleSmall),
+          const Text('Pi 登录（暂不支持迁移）· 只读服务商'),
+          Text(channel.enabled ? '已登录' : '未登录'),
+          if (!canLoginPiOAuth(channel.provider)) const Text('保留现有登录，不再提供重新登录。'),
+          TextButton(onPressed: () => showDialog<void>(context: context, builder: (_) => PiOAuthDialog(provider: channel.provider, configured: channel.enabled)), child: Text(canLoginPiOAuth(channel.provider) ? (channel.enabled ? '管理 ChatGPT 登录' : '登录 ChatGPT') : '查看登录与退出')),
+        ])),
+        if (!channels.any((c) => c.oauth && canLoginPiOAuth(c.provider))) Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () => showDialog<void>(context: context, builder: (_) => const PiOAuthDialog(provider: chatGptPiProviderId, configured: false)), child: const Text('登录 ChatGPT'))),
         const SizedBox(height: AppTokens.gap),
         Align(
           alignment: Alignment.centerLeft,
@@ -108,7 +123,6 @@ class _ChannelCard extends StatelessWidget {
               Flexible(child: Text(channel.name, style: context.text.titleSmall, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: AppTokens.gap),
               TagChip(channelKindNames[channel.kind] ?? channel.kind, color: channel.kind == 'plan' ? colors.accent : colors.ochre),
-              if (channel.fromPi) ...[const SizedBox(width: 6), const TagChip('来自 Pi 配置')],
               const Spacer(),
               TextButton(onPressed: onTest, child: const Text('测试')),
               TextButton(onPressed: onEdit, child: Text(channel.fromPi ? 'Pi 配置' : '编辑')),
@@ -116,6 +130,7 @@ class _ChannelCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
+          if (channel.fromPi || channel.origin != null) Padding(padding: const EdgeInsets.only(bottom: 4), child: TagChip(channel.origin == 'cc-switch' ? '来自 cc-switch' : '来自 Pi 配置')),
           Text(
             [
               state.$1,
@@ -212,6 +227,13 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
     });
   }
 
+  Future<void> _choosePi(GatewayPlatform platform) async {
+    final chosen = await showDialog<List<String>>(context: context, builder: (_) => PickModelsDialog(ids: platform.models, existing: const {}));
+    if (chosen == null || chosen.isEmpty || !mounted) return;
+    _choose(platform);
+    setState(() { _models.clear(); _models.addAll(platform.modelDetails.where((m) => chosen.contains(m['id'])).map(ModelEntry.fromJson)); });
+  }
+
   void _setApi(String api) {
     setState(() {
       _api = api;
@@ -290,7 +312,7 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final preset = _preset;
-    final apis = preset != null && preset.endpoints.isNotEmpty ? [for (final e in preset.endpoints) e.api] : ['openai-completions', 'anthropic-messages'];
+    final apis = <String>{_api, if (preset != null) ...preset.endpoints.map((e) => e.api), 'openai-completions', 'anthropic-messages', 'openai-responses', 'google-generative-ai'}.toList();
     return Scaffold(
       appBar: AppBar(
         title: Text(_editing ? '编辑渠道' : '添加渠道'),
@@ -311,10 +333,14 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
             spacing: 6,
             runSpacing: 6,
             children: [
-              for (final p in _platforms)
+              for (final p in _platforms.where((p) => !p.id.startsWith('pi-builtin:')))
                 ChoiceChip(label: Text(p.name), selected: p.id == _platform, onSelected: (_) => _choose(p)),
             ],
           ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(isExpanded: true, decoration: const InputDecoration(labelText: 'Pi 内置服务商（来自公开目录）'),
+            items: [for (final p in _platforms.where((p) => p.id.startsWith('pi-builtin:'))) DropdownMenuItem(value: p.id, child: Text(p.name, overflow: TextOverflow.ellipsis))],
+            onChanged: _busy ? null : (id) { final preset = _platforms.where((p) => p.id == id).firstOrNull; if (preset != null) _choosePi(preset); }),
           if (preset != null) ...[
             const SizedBox(height: 6),
             Text(
@@ -407,7 +433,11 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
           const SizedBox(height: 4),
           Text('价格按每百万 token 的美元填写，用于花费统计；不知道可以留 0。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
           const SizedBox(height: AppTokens.gap),
-          for (final (index, model) in _models.indexed) ModelRow(key: ObjectKey(model), model: model, onRemove: () => setState(() => _models.removeAt(index))),
+          for (final (index, model) in _models.indexed) ModelRow(
+            key: ObjectKey(model), model: model,
+            editThinkingLevels: model.thinkingLevels != null || !(_preset?.modelDetails.any((m) => m['id'] == model.id && m['contextWindow'] != null) ?? false),
+            onRemove: () => setState(() => _models.removeAt(index)),
+          ),
           const SizedBox(height: AppTokens.pad),
           if (_kind != 'plan')
             Row(
@@ -457,10 +487,29 @@ class GroupList extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (agent.modelGroups.isEmpty) const EmptyNote('还没有模型组。模型组把几个渠道的模型排好顺序：前面的用不了时自动换下一个。'),
-        for (final group in agent.modelGroups)
+        ReorderableListView(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          buildDefaultDragHandles: false,
+          onReorderItem: (oldIndex, newIndex) async {
+            final ids = agent.modelGroups.map((g) => g.id).toList();
+            ids.insert(newIndex, ids.removeAt(oldIndex));
+            try {
+              await agent.backend.call('gateway.reorderGroups', {'ids': ids});
+              await agent.refreshGateway(models: true);
+            } catch (e) {
+              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(SessionRuntime.describeError(e))));
+            }
+          },
+          children: [for (final (index, group) in agent.modelGroups.indexed)
           OutlinedCard(
+            key: ValueKey(group.id),
             child: Row(
               children: [
+                ReorderableDragStartListener(
+                  index: index,
+                  child: const Tooltip(message: '拖动排序', child: Padding(padding: EdgeInsets.all(8), child: Icon(Icons.drag_handle, size: 20))),
+                ),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -491,6 +540,8 @@ class GroupList extends StatelessWidget {
               ],
             ),
           ),
+          ],
+        ),
         const SizedBox(height: AppTokens.gap),
         Align(
           alignment: Alignment.centerLeft,
@@ -694,12 +745,12 @@ class _GroupEditorDialogState extends State<GroupEditorDialog> {
 String describeQuota(ChannelStatus status) {
   final quota = status.quota;
   if (quota == null) {
-    if (status.remaining != null) return '剩余约 ${_money(status.remaining!)}（按花费估算）';
-    return status.kind == 'plan' ? '近 5 小时 ${status.requests5h} 次请求（平台没有额度查询接口）' : '';
+    if (status.remaining != null && status.kind != 'plan') return '剩余约 ${_money(status.remaining!)}（按花费估算）';
+    return status.kind == 'plan' ? '本机近 5 小时 ${status.requests5h} 次请求（供应商套餐用量未知）' : '';
   }
   return switch (quota.type) {
-    'balance' => '余额 ${_money(quota.amount ?? 0)} ${quota.currency}',
-    'plan' => quota.windows.map((w) => '${w.label}已用 ${w.usedPercent.round()}%').join(' · '),
+    'balance' => quota.balances.isEmpty ? '账户余额 ${quota.amount == null ? '未知' : _money(quota.amount!)} ${quota.currency}' : quota.balances.map((b) => '账户余额 ${b['amount'] is num && (b['amount'] as num).isFinite ? _money((b['amount'] as num).toDouble()) : '未知'} ${b['currency']}').join(' · '),
+    'plan' => '供应商套餐用量：${quota.windows.map((w) => '${w.label} ${w.usedPercent == null ? '未知' : '已用 ${w.usedPercent!.round()}%'}').join(' · ')}',
     _ => '查询失败：${quota.message}',
   };
 }
