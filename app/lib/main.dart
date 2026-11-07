@@ -18,7 +18,7 @@ import 'ui/zoom.dart';
 import 'update_bootstrap.dart';
 
 /// Shown in the settings page.
-const appVersion = String.fromEnvironment('DREAMFLUTTER_VERSION', defaultValue: '0.5.0');
+const appVersion = String.fromEnvironment('DREAMFLUTTER_VERSION', defaultValue: '0.6.0');
 const appBuild = String.fromEnvironment('DREAMFLUTTER_BUILD', defaultValue: '11');
 
 Future<void> main([List<String> args = const []]) async {

@@ -1,6 +1,6 @@
 # DreamFlutter
 
-当前稳定版为 V0.4.0；V0.5 第 1–6 步及审查修复形成 [v0.5.0-dev.6 开发快照](docs/releases/v0.5.0-dev.6.md)。接手先读 [HANDOFF](docs/HANDOFF.md)、[开发规范](docs/dev-guide.md)、[V1.0 收敛说明](docs/v1.0-convergence.md) 和 [roadmap](docs/roadmap.md)。第 7 步会话关系、第 8 步最简界面仍待完成，开发快照不代表 V0.5 功能全部交付。
+当前最新为 [v0.6.0 源码里程碑](docs/releases/v0.6.0.md)：v0.6 功能和隔离验证已完成；正式安装包等 V1.0 发布，部分需要真实账号或亲自操作的测试延后到正式版前。接手先读 [HANDOFF](docs/HANDOFF.md)、[开发规范](docs/dev-guide.md)、[V1.0 收敛说明](docs/v1.0-convergence.md) 和 [roadmap](docs/roadmap.md)。
 
 ## 当前入口与运行方式
 

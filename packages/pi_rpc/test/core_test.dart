@@ -36,7 +36,7 @@ void main() {
 
   test('hello reports the core version and no slots', () async {
     final hello = asJsonForTest(await core.call('core.hello'));
-    expect(hello['version'], '0.5.0');
+    expect(hello['version'], '0.6.0');
     expect(hello['slots'], isEmpty);
   });
 
@@ -114,7 +114,7 @@ void main() {
       // The running core "comes up" in this data dir after 3 s.
       Future<void>.delayed(const Duration(seconds: 3), () => File(p.join(temp.path, 'data', 'core.json')).copySync(p.join(dir.path, 'core.json')));
       final client = await CoreLocator.waitForStart(dir.path, 1234, isAlive: (_) async => true, startTimeout: const Duration(seconds: 30));
-      expect(asJsonForTest(await client.call('core.hello'))['version'], '0.5.0');
+      expect(asJsonForTest(await client.call('core.hello'))['version'], '0.6.0');
       await client.close();
     });
 

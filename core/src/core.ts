@@ -24,7 +24,7 @@ import type { WebTools } from "./web/types.ts";
 import { currentToolEnvironment, withToolEnvironment, type ToolEnvironmentProvider } from "./agent/tool-environment.ts";
 import type { Ledger } from "./ledger/ledger.ts";
 
-export const CORE_VERSION = "0.5.0";
+export const CORE_VERSION = "0.6.0";
 
 export interface CoreOptions {
 	updates?: import("./update/module.ts").UpdateOptions;

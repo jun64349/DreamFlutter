@@ -33,6 +33,10 @@ test("security S1: unattended subagent inherits refusal for confirm paths even w
 		t.core.settings.update({ approvalMode: "off" }); writeFileSync(join(t.workspace, ".npmrc"), "SYNTHETIC_NEVER_READ");
 		const parent = await t.core.openSlot({ slotId: "parent", cwd: t.workspace, unattended: true });
 		runtime = await t.core.openSubagentRuntime("parent", "child", t.workspace, parent.ui);
+		// Pin the parent's faux model as SubagentsModule.run does; otherwise provider credentials in the process environment pick a real default model.
+		assert.ok(parent.session.model);
+		await runtime.session.setModel(parent.session.model);
+		assert.equal(runtime.session.model?.provider, "faux");
 		await runtime.session.bindExtensions({ mode: "rpc", uiContext: parent.ui.context() });
 		let seen = "";
 		t.respond(fauxAssistantMessage([fauxToolCall("read", { file_path: ".npmrc" })], { stopReason: "toolUse" }), (context: Context) => { seen = JSON.stringify(context.messages.filter((m) => m.role === "toolResult")); return fauxAssistantMessage("done"); });
