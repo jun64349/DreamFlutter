@@ -9,6 +9,7 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
+  "update_bridge.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
@@ -38,3 +39,18 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# Optional packaging SDK, supplied from an isolated build-tool directory.
+if(DEFINED ENV{DREAMFLUTTER_VELOPACK_SDK})
+  set(DF_VELOPACK "$ENV{DREAMFLUTTER_VELOPACK_SDK}")
+  target_compile_definitions(${BINARY_NAME} PRIVATE DREAMFLUTTER_VELOPACK)
+  target_include_directories(${BINARY_NAME} PRIVATE "${DF_VELOPACK}/include")
+  target_link_libraries(${BINARY_NAME} PRIVATE "${DF_VELOPACK}/lib/velopack_libc_win_x64_msvc.dll.lib")
+  add_executable(dreamflutter_update "velopack_helper.cpp")
+  target_compile_features(dreamflutter_update PRIVATE cxx_std_17)
+  target_compile_definitions(dreamflutter_update PRIVATE NOMINMAX)
+  target_include_directories(dreamflutter_update PRIVATE "${DF_VELOPACK}/include")
+  target_link_libraries(dreamflutter_update PRIVATE "${DF_VELOPACK}/lib/velopack_libc_win_x64_msvc.dll.lib" advapi32)
+  install(TARGETS dreamflutter_update RUNTIME DESTINATION "$<TARGET_FILE_DIR:${BINARY_NAME}>" COMPONENT Runtime)
+  install(FILES "${DF_VELOPACK}/lib/velopack_libc_win_x64_msvc.dll" DESTINATION "$<TARGET_FILE_DIR:${BINARY_NAME}>" RENAME "velopack_libc.dll" COMPONENT Runtime)
+endif()

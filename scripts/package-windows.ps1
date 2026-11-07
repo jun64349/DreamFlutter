@@ -21,13 +21,26 @@ param(
     [string]$OutDir = "dist",
     [switch]$SkipBuild,
     # Leave 蝶君's sandbox image out (then the app builds it online when the sandbox is set up).
-    [switch]$NoSandboxImage
+    [switch]$NoSandboxImage,
+    [switch]$UpdatePackage,
+    [string]$PackageVersion,
+    [string]$VelopackSdkDir,
+    [string]$VelopackToolsDir,
+    [switch]$FailStartupForTest
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $version = ((Select-String -Path "$root\app\pubspec.yaml" -Pattern '^version:\s*([^+\s]+)').Matches[0].Groups[1].Value)
-$target = [System.IO.Path]::GetFullPath((Join-Path $root "$OutDir\DreamFlutter"))
+$buildNumber = ((Select-String -Path "$root\app\pubspec.yaml" -Pattern '^version:.*\+(\d+)').Matches | Select-Object -First 1).Groups[1].Value
+if ($PackageVersion) { $version = $PackageVersion.TrimStart('v') }
+if ($FailStartupForTest -and (-not $UpdatePackage -or $version -notmatch '^\d+\.\d+\.\d+-test\.\d+$')) { throw 'A deliberately failing build is permitted only for an explicit test update package.' }
+if ($UpdatePackage) {
+    if (-not (Test-Path -LiteralPath (Join-Path $VelopackSdkDir 'include/Velopack.hpp')) -or -not (Test-Path -LiteralPath (Join-Path $VelopackToolsDir 'dotnet/dotnet.exe'))) { throw 'Pass isolated -VelopackSdkDir and -VelopackToolsDir; no SDK is installed globally or shipped.' }
+    $env:DREAMFLUTTER_VELOPACK_SDK = [IO.Path]::GetFullPath($VelopackSdkDir)
+}
+$outputRoot = if ([IO.Path]::IsPathRooted($OutDir)) { [IO.Path]::GetFullPath($OutDir) } else { [IO.Path]::GetFullPath((Join-Path $root $OutDir)) }
+$target = [System.IO.Path]::GetFullPath((Join-Path $outputRoot 'DreamFlutter'))
 # The cleanup below empties $target: never let it be the repository or a folder holding it.
 if (($root.TrimEnd('\') + '\').StartsWith($target.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "The package folder $target would contain the repository; choose another -OutDir"
@@ -35,12 +48,15 @@ if (($root.TrimEnd('\') + '\').StartsWith($target.TrimEnd('\') + '\', [System.St
 Write-Host "Packaging DreamFlutter $version -> $target"
 
 # A new version replaces the program; the data\ folder (the user's data) is never touched.
-if (Test-Path $target) { Get-ChildItem $target | Where-Object { $_.Name -ne "data" } | Remove-Item -Recurse -Force }
+if (Test-Path $target) {
+    if (-not $target.StartsWith($outputRoot.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Package cleanup escaped the selected output directory' }
+    Get-ChildItem -LiteralPath $target | Where-Object { $_.Name -ne "data" } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+}
 
 # 1. The window.
 if (-not $SkipBuild) {
     Push-Location "$root\app"
-    flutter build windows --release
+    flutter build windows --release "--build-name=$version" "--build-number=$buildNumber" "--dart-define=DREAMFLUTTER_VERSION=$version" "--dart-define=DREAMFLUTTER_BUILD=$buildNumber"
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "flutter build failed" }
     Pop-Location
 }
@@ -81,6 +97,7 @@ foreach ($tool in "uv.exe", "uvx.exe", "uvw.exe") {
     if (-not (Test-Path "$root\core\bin\$tool")) { throw "core\bin\$tool is missing: run (cd core) node --disable-warning=ExperimentalWarning scripts\fetch-toolchain.ts" }
     Copy-Item "$root\core\bin\$tool" "$target\core\bin"
 }
+if (Test-Path -LiteralPath (Join-Path $root 'core/bin/secret.mjs')) { Copy-Item -LiteralPath (Join-Path $root 'core/bin/secret.mjs') -Destination (Join-Path $target 'core/bin/secret.mjs') }
 $python = Get-ChildItem "$root\core\python" -Directory -Filter "cpython-*" | Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | Select-Object -First 1
 if (-not $python) { throw "core\python has no Python: run scripts\fetch-toolchain.ts" }
 # /XJ: uv's version-alias junction would copy Python twice.
@@ -137,5 +154,30 @@ DreamFlutter $version（Windows x64 免安装版）
 "@ | Set-Content -Encoding utf8 "$target\使用说明.txt"
 
 Write-Host "Done: $target"
+[IO.File]::WriteAllText((Join-Path $target 'build-info.json'), (@{version=$version;build=[string]$buildNumber;platform='win32';arch='x64';signed=$false;failStartup=[bool]$FailStartupForTest} | ConvertTo-Json))
+if (Test-Path -LiteralPath (Join-Path $root 'docs/releases')) { New-Item -ItemType Directory -Force -Path (Join-Path $target 'docs') | Out-Null; Copy-Item -LiteralPath (Join-Path $root 'docs/releases') -Destination (Join-Path $target 'docs/releases') -Recurse -Force }
+$flutterSdk = Split-Path -Parent (Split-Path -Parent (Get-Command flutter).Source)
+node --disable-warning=ExperimentalWarning (Join-Path $PSScriptRoot 'generate-third-party.mjs') $target $root $flutterSdk
+if ($LASTEXITCODE -ne 0) { throw 'Generating the third-party license manifest failed' }
+# Only audited production-only artifacts: retain runtime modules, source maps,
+# Pi self-help resources, all licenses/diagnostics and every bundled runtime/image.
+node (Join-Path $PSScriptRoot 'package-trim.mjs') $target (Join-Path $outputRoot 'packaging-trim.json') --apply
+if ($LASTEXITCODE -ne 0) { throw 'Audited package trimming failed' }
+if ($UpdatePackage) {
+    @"
+DreamFlutter $version（Windows x64 可更新免安装版，测试版未签名）
+从解压后的根目录 DreamFlutter.exe 启动；current 是可替换的程序目录，数据位于根目录 data，不在 current 内。
+已保留 Node.js、rg/fd、uv、便携 Python 和原有沙箱镜像。通过设置的“关于”检查、下载、校验并确认安装。
+安装前等待现有任务结束并自动备份，启动验证失败时由 Velopack 回到旧程序，并用更新前备份恢复数据。
+新版本已经接受用户写入后，不再自动恢复旧备份。请保留更新记录与诊断，按提示处理。
+"@ | Set-Content -LiteralPath (Join-Path $target '使用说明.txt') -Encoding utf8
+    $env:DOTNET_CLI_HOME = Join-Path $VelopackToolsDir 'dotnet-home'
+    $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+    $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
+    $releases = Join-Path $outputRoot 'Velopack'
+    & (Join-Path $VelopackToolsDir 'dotnet/dotnet.exe') (Join-Path $VelopackToolsDir 'vpk/tools/net8.0/any/vpk.dll') pack --packId DreamFlutter --packVersion $version --channel win-x64 --runtime win-x64 --packDir $target --mainExe 'app/dreamflutter.exe' --delta None --outputDir $releases
+    if ($LASTEXITCODE -ne 0) { throw 'Velopack packaging failed' }
+    Write-Host "Update package and self-updating portable output: $releases"
+}
 # Robocopy uses 1 for a successful copy; do not leak that as the script's exit code.
 exit 0

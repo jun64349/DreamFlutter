@@ -15,12 +15,19 @@ import 'ui/home_page.dart';
 import 'ui/web_surface.dart';
 import 'ui/window_frame.dart';
 import 'ui/zoom.dart';
+import 'update_bootstrap.dart';
 
 /// Shown in the settings page.
-const appVersion = '0.5.0';
+const appVersion = String.fromEnvironment('DREAMFLUTTER_VERSION', defaultValue: '0.5.0');
+const appBuild = String.fromEnvironment('DREAMFLUTTER_BUILD', defaultValue: '11');
 
-Future<void> main() async {
+Future<void> main([List<String> args = const []]) async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (await bootstrapUpdate(CoreLocator.defaultDataDir(), appVersion, () => startApplication(args))) return;
+  await startApplication(args);
+}
+
+Future<void> startApplication(List<String> args) async {
   // Everything the window keeps goes to the app's data folder too (v0.3.2), next to the core's.
   final dataDir = CoreLocator.defaultDataDir();
   final appData = Platform.environment['APPDATA'];
@@ -30,14 +37,24 @@ Future<void> main() async {
   );
   WebSurfaces.userDataFolder = p.join(dataDir, 'webview2');
   final controller = AgentController(preferences: await Preferences.load());
-  await DesktopShell(controller).init();
-  runApp(DreamFlutterApp(controller: controller, ownTitleBar: true));
+  final navigatorKey = GlobalKey<NavigatorState>();
+  await DesktopShell(controller, confirmExit: () async {
+    final context = navigatorKey.currentContext;
+    if (context == null) return false;
+    return await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+      title: const Text('退出并停止后台？'), content: const Text('还有对话或记忆任务正在进行。退出会停止这些任务。'),
+      actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('继续运行')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('退出程序'))],
+    )) ?? false;
+  }).init(startHidden: args.contains('--start-hidden'));
+  runApp(DreamFlutterApp(controller: controller, ownTitleBar: true, navigatorKey: navigatorKey));
   // Connect after the first frame, so the UI can answer a trust prompt.
   WidgetsBinding.instance.addPostFrameCallback((_) => controller.init());
 }
 
 class DreamFlutterApp extends StatelessWidget {
-  const DreamFlutterApp({super.key, required this.controller, this.ownTitleBar = false});
+  const DreamFlutterApp({super.key, required this.controller, this.ownTitleBar = false, this.navigatorKey});
+
+  final GlobalKey<NavigatorState>? navigatorKey;
 
   final AgentController controller;
 
@@ -52,6 +69,7 @@ class DreamFlutterApp extends StatelessWidget {
         valueListenable: controller.appearance,
         builder: (context, appearance, _) {
           return MaterialApp(
+            navigatorKey: navigatorKey,
             title: 'DreamFlutter',
             debugShowCheckedModeBanner: false,
             theme: buildTheme(Brightness.light, painting: PaintingTheme.byId(appearance.lightTheme, Brightness.light)),
