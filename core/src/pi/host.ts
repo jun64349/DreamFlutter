@@ -15,6 +15,8 @@ import {
 	type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { CompactionHooks } from "../agent/background-compaction.ts";
 import { type AgentMode, dshCompactionSettings, type HarnessControl, harnessExtension, MINIMAL_TOOLS, MODE_ENTRY, recordedMode, SANDBOX_TOOLS, STANDARD_TOOLS } from "../agent/harness.ts";
 import { RETRY } from "../agent/dsh-text.ts";
@@ -23,9 +25,24 @@ import { DISTRUST_ONCE, DISTRUST_REMEMBER, TRUST_ONCE, TRUST_REMEMBER, TRUST_TIT
 import type { UiBridge } from "./ui-bridge.ts";
 import { dropSharedAgentSkills } from "../paths.ts";
 import { HISTORY_ENTRY, SIDE_ENTRY, sideConversation } from "./session-metadata.ts";
+import type { SecurityService } from "../security/service.ts";
+import type { AuditContext } from "../security/audit.ts";
+import { secureMcpFactory } from "../security/mcp.ts";
+import { loadSecurityMcpConfig } from "../security/mcp-config.ts";
+import type { WebTools } from "../web/types.ts";
+import { withToolEnvironment, type ToolEnvironmentProvider } from "../agent/tool-environment.ts";
+import type { Ledger } from "../ledger/ledger.ts";
+import { withLedgerContext, type LedgerContext } from "../ledger/types.ts";
 
 /** Fixed inputs shared by every session the core hosts. */
 export interface PiHostConfig {
+	ledger?: () => Ledger | undefined;
+	ledgerContext?: (slot: SlotIdentity) => LedgerContext;
+	restoreSessionModel?: (ref: string, runtime: import("@earendil-works/pi-coding-agent").ModelRuntime, recordedAt?: number) => Model<never> | Model<any> | undefined;
+	webTools?: () => WebTools | undefined;
+	toolEnvironment?: () => ToolEnvironmentProvider | undefined;
+	security?: SecurityService;
+	securityContext?: (slot: SlotIdentity) => AuditContext;
 	pendingSessionFiles?: Set<string>;
 	agentDir: string;
 	/** Overrides Pi's session directory (tests); undefined = Pi's default. */
@@ -63,7 +80,7 @@ export interface SlotIdentity {
 }
 
 /** DreamFlutter tools a standard session keeps beside dsh's (patterns as Pi's tool lists accept them). */
-export const STANDARD_EXTRA_TOOLS = ["memory_*", "session_search", "skill_propose", "schedule_*", "tool_search", "show_card", "read_card", "read_document", "agent"];
+export const STANDARD_EXTRA_TOOLS = ["memory_*", "session_search", "skill_propose", "schedule_*", "tool_search", "mcp__*", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource", "show_card", "read_card", "read_document", "agent", "web_search"];
 
 /** The mode a runtime for [sessionManager] runs in: recorded, else standard for an old session, else the new-session mode. */
 export function modeFor(sessionManager: SessionManager, newSessionMode: AgentMode): AgentMode {
@@ -73,6 +90,17 @@ export function modeFor(sessionManager: SessionManager, newSessionMode: AgentMod
 	return hasHistory ? "standard" : newSessionMode;
 }
 
+/** Match Pi's model selection on the active branch, including assistant records without model_change. */
+export function recordedSessionModel(sessionManager: Pick<SessionManager, "getBranch">): { ref: string; recordedAt?: number } | undefined {
+	const entry = sessionManager.getBranch().findLast((e) => e.type === "model_change" || (e.type === "message" && e.message.role === "assistant"));
+	if (!entry) return undefined;
+	const ref = entry.type === "model_change" ? `${entry.provider}/${entry.modelId}`
+		: entry.type === "message" && entry.message.role === "assistant" ? `${entry.message.provider}/${entry.message.model}` : undefined;
+	if (!ref) return undefined;
+	const at = Date.parse(entry.timestamp);
+	return { ref, recordedAt: Number.isFinite(at) ? at : undefined };
+}
+
 /** Whether [cwd]'s project resources may load: nothing needing trust, or trusted now or before. */
 export function isProjectTrusted(cwd: string, agentDir: string, decisions: Map<string, boolean>): boolean {
 	if (!hasTrustRequiringProjectResources(cwd)) return true;
@@ -80,11 +108,11 @@ export function isProjectTrusted(cwd: string, agentDir: string, decisions: Map<s
 }
 
 /** The CLI's built-in extensions (not exported as a list by the package). */
-function builtInExtensions(): InlineExtension[] {
+function builtInExtensions(agentDir: string, security?: SecurityService, context?: () => AuditContext): InlineExtension[] {
 	return [
 		{ name: "codemode", factory: createCodemodeExtension(), replaceable: true, builtin: true },
 		{ name: "tool-search", factory: createToolSearchExtension(), replaceable: true, builtin: true },
-		{ name: "mcp", factory: createMcpExtension(), replaceable: true, builtin: true },
+		{ name: "mcp", factory: createMcpExtension({ logPath: join(agentDir, "mcp.log"), loadConfig: (ctx) => loadSecurityMcpConfig(agentDir, ctx.cwd, ctx.isProjectTrusted()), createTransport: secureMcpFactory(security?.audit, undefined, context) }), replaceable: true, builtin: true },
 	] as InlineExtension[];
 }
 
@@ -161,8 +189,6 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		// 蝶君's sessions run in the sandbox, in standard mode; the session file remembers it.
 		const sandboxed = target.sandbox === true || recordedSandbox(sessionManager);
 		const mode = sandboxed ? "standard" : modeFor(sessionManager, config.newSessionMode(slot));
-		if (!recordedMode(sessionManager)) sessionManager.appendCustomEntry(MODE_ENTRY, { mode });
-		if (sandboxed && !recordedSandbox(sessionManager)) sessionManager.appendCustomEntry(SANDBOX_ENTRY, { sandbox: true });
 		const sandbox = sandboxed ? config.sandbox?.() : undefined;
 		if (sandboxed && !sandbox) throw new Error("蝶君的沙箱还没有准备好");
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: mustAsk ? false : projectTrusted });
@@ -187,11 +213,18 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		};
 		settingsManager.getRetrySettings = () => ({ enabled: true, maxRetries: RETRY.maxRetries, baseDelayMs: RETRY.baseDelayMs, maxAgentDelayMs: RETRY.maxDelayMs });
 		settingsManager.getHttpIdleTimeoutMs = () => 300_000;
+		const requestId = randomUUID();
+		const securityContext = () => ({ requestId, ...config.securityContext?.(slot), slotId: slot.slotId });
+		const security = config.security?.scope(cwd, target.unattended === true, securityContext);
+		if (security) security.sandboxed = sandboxed;
 		const harness = harnessExtension({
+			webTools: config.webTools?.(),
+			webContext: () => ({ ...securityContext(), sessionId: sessionManager.getSessionId() }),
+			security,
 			mode,
 			agentDir,
 			resources: () => services?.resourceLoader,
-			complete: (model, context, options) => services!.modelRuntime.completeSimple(model as Model<never>, context, options as never),
+			complete: (model, context, options) => withLedgerContext({ ...config.ledgerContext?.(slot), sessionId: sessionManager.getSessionId(), purpose: "compaction" }, () => services!.modelRuntime.completeSimple(model as Model<never>, context, options as never)),
 			autoCompaction: config.autoCompaction,
 			compaction: () => config.compaction?.(slot),
 			askTimeoutMs: config.askTimeoutMs,
@@ -205,8 +238,13 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			})(),
 		});
 		// dsh compositions own the tool catalog: no code mode, and the minimal mode no MCP either.
+		// Resource reloads and child runtimes invoke the factory outside Core.openSlot's async scope.
+		const sourceHarness: ExtensionFactory = (api) => {
+			const provider = config.toolEnvironment?.();
+			return provider ? withToolEnvironment({ provider, workspace: cwd }, () => harness(api)) : harness(api);
+		};
 		// 蝶君 has no MCP: its servers run on this machine, outside the sandbox.
-		const builtIns = mode === "minimal" ? [] : builtInExtensions().filter((e) => (e.name === "mcp" && !sandbox) || e.name === "tool-search");
+		const builtIns = mode === "minimal" ? [] : builtInExtensions(agentDir, config.security, securityContext).filter((e) => (e.name === "mcp" && !sandbox) || e.name === "tool-search");
 		services = await createAgentSessionServices({
 			cwd,
 			agentDir,
@@ -223,11 +261,19 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 					}
 				: undefined,
 			resourceLoaderOptions: {
-				extensionFactories: [...builtIns, harness, ...config.extensions({ ...slot, sideConversation: side }, mode)],
+				extensionFactories: [...(security ? [security.extension()] : []), ...builtIns, sourceHarness, ...config.extensions({ ...slot, sideConversation: side }, mode)],
 				skillsOverride: dropSharedAgentSkills,
 			},
 		});
+		const requestContext = () => ({ ...config.ledgerContext?.(slot), sessionId: sessionManager.getSessionId(), workspace: cwd });
+		config.ledger?.()?.bindSession(sessionManager.getSessionId(), requestContext);
+		config.ledger?.()?.install(services.modelRuntime, requestContext);
+		const recorded = recordedSessionModel(sessionManager);
+		const restoredModel = recorded ? config.restoreSessionModel?.(recorded.ref, services.modelRuntime, recorded.recordedAt) : undefined;
+		if (!recordedMode(sessionManager)) sessionManager.appendCustomEntry(MODE_ENTRY, { mode });
+		if (sandboxed && !recordedSandbox(sessionManager)) sessionManager.appendCustomEntry(SANDBOX_ENTRY, { sandbox: true });
 		const created = await createAgentSessionFromServices({
+			...(restoredModel ? { model: restoredModel } : {}),
 			services,
 			sessionManager,
 			sessionStartEvent,

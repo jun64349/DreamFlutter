@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { isAbsolute, posix, resolve } from "node:path";
+import type { SecurityFileAccess } from "../security/service.ts";
 
 /** A file version as dsh's observation policy compares it. */
 export type FileVersion = string;
@@ -55,6 +56,7 @@ export function sandboxEnv(distro: string): ExecEnv {
 }
 
 export class HarnessState {
+	security?: SecurityFileAccess;
 	cwd: string;
 	readonly env: ExecEnv;
 	readonly observations = new Map<string, Observation>();

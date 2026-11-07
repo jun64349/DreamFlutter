@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Core } from "../core.ts";
 import { RpcError, requireStr, str } from "../core.ts";
 import { isSecretReference, SecretStore } from "./secrets.ts";
+import { checkMcpServers } from "../security/mcp.ts";
 
 type Json = Record<string, unknown>;
 
@@ -31,13 +30,6 @@ export interface McpServerForm {
 
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const EXPOSURES = ["codemode", "deferred", "direct", "hidden"];
-
-/** The Pi CLI next to the embedded package (for `pi mcp list --json`). */
-function piCli(): string {
-	const entry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
-	for (const candidate of [join(dirname(entry), "bundle", "cli.js"), join(dirname(entry), "cli.js")]) if (existsSync(candidate)) return candidate;
-	throw new RpcError("missing_runtime", "找不到 Pi 命令行程序");
-}
 
 /**
  * MCP servers (Pi's built-in MCP support): edits the user-level
@@ -202,33 +194,11 @@ export class McpModule {
 	}
 
 	/** Connects to every enabled server (as Pi would) and reports state, tools and errors. */
-	status(cwd: string): Promise<{ servers: Json[]; errors: unknown[] }> {
-		return new Promise((resolve, reject) => {
-			const child = spawn(process.execPath, [piCli(), "mcp", "list", "--json"], {
-				cwd,
-				env: { ...process.env, PI_CODING_AGENT_DIR: this.core.agentDir },
-				windowsHide: true,
-			});
-			let out = "";
-			let err = "";
-			const timer = setTimeout(() => child.kill(), 120_000);
-			child.stdout.on("data", (d) => (out += d));
-			child.stderr.on("data", (d) => (err += d));
-			child.on("error", (e) => {
-				clearTimeout(timer);
-				reject(e);
-			});
-			child.on("close", () => {
-				clearTimeout(timer);
-				const start = out.indexOf("{");
-				try {
-					const parsed = JSON.parse(out.slice(start)) as { servers?: Json[]; errors?: unknown[] };
-					resolve({ servers: parsed.servers ?? [], errors: parsed.errors ?? [] });
-				} catch {
-					reject(new RpcError("mcp", `检查失败：${(err || out).trim().slice(0, 500) || "没有输出"}`));
-				}
-			});
-		});
+	async status(cwd: string): Promise<{ servers: Json[]; errors: unknown[] }> {
+		await this.core.security.loadKnownSecrets();
+		const trusted = this.core.isProjectTrusted(cwd);
+		const reports = [...new Map(this.list(trusted ? cwd : undefined).map((form) => [form.name, { name: form.name, scope: form.scope, source: form.source, enabled: form.enabled, exposure: form.exposure }])).values()];
+		return checkMcpServers(this.core.agentDir, cwd, this.core.security.audit, reports, trusted);
 	}
 
 	private register(): void {

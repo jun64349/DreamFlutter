@@ -1,4 +1,5 @@
 import { appendFileSync, renameSync, statSync } from "node:fs";
+import { redact } from "./security/redaction.ts";
 
 type Level = "info" | "warn" | "error";
 
@@ -29,7 +30,7 @@ export class Logger {
 
 	private write(level: Level, message: string, detail?: unknown): void {
 		const suffix = detail === undefined ? "" : ` ${formatDetail(detail)}`;
-		const line = `${new Date().toISOString()} ${level.toUpperCase()} ${message}${suffix}\n`;
+		const line = redact(`${new Date().toISOString()} ${level.toUpperCase()} ${message}${suffix}\n`, true);
 		if (this.echo) process.stderr.write(line);
 		if (!this.file) return;
 		try {

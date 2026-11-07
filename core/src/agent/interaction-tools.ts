@@ -226,7 +226,7 @@ export function exitPlanModeTool(state: HarnessState, planModeChanged: (on: bool
 	};
 }
 
-export function skillTool(skills: () => Skill[]): ToolDefinition {
+export function skillTool(skills: () => Skill[], state?: HarnessState): ToolDefinition {
 	return {
 		name: "skill",
 		label: "技能",
@@ -243,7 +243,9 @@ export function skillTool(skills: () => Skill[]): ToolDefinition {
 			const skill = skills().find((s) => s.name === params.name);
 			if (!skill) throw new Error(`skill "${params.name}" is unknown or no longer available`);
 			if (skill.disableModelInvocation) throw new Error(`skill "${params.name}" is not available for model invocation`);
-			const content = stripFrontmatter(await readFile(skill.filePath, "utf8")).trim();
+			await state?.security?.authorize(skill.filePath, "skill");
+			const raw = await readFile(skill.filePath, "utf8");
+			const content = stripFrontmatter(state?.security ? await state.security.read(skill.filePath, raw) : raw).trim();
 			return { content: [{ type: "text", text: skillContent(skill.name, skill.baseDir, content) }], details: { name: skill.name, path: skill.filePath } };
 		},
 	};

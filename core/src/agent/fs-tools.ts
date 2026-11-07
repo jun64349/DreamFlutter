@@ -85,10 +85,12 @@ export function readTool(state: HarnessState): Tool {
 			const limit = params.limit === undefined ? READ_LIMIT : positiveInteger(params.limit, "limit");
 			if (limit > READ_LIMIT) throw new Error(`limit must be less than or equal to ${READ_LIMIT}`);
 			const path = state.resolve(params.file_path);
+			await state.security?.authorize(state.local(path), "read");
 			const info = await versionOf(state.local(path));
 			if (!info) throw new FsError(`cannot read "${path}": not found`, "FS_NOT_FOUND");
 			if (!info.isFile) throw new FsError(`cannot read "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
-			const content = stripBom(await readFile(state.local(path), "utf8"));
+			const raw = stripBom(await readFile(state.local(path), "utf8"));
+			const content = state.security ? await state.security.read(state.local(path), raw) : raw;
 			const window = readWindow(content, offset, limit, path);
 			state.observe(path, { kind: "present", version: info.version });
 			const result = text(formatRead(path, offset, window.lines, window.totalLines, window.truncatedByBytes));
@@ -122,6 +124,8 @@ export function writeTool(state: HarnessState): Tool {
 			if (params.file_path.trim().length === 0) throw new Error("file_path must be a non-empty string");
 			const path = state.resolve(params.file_path);
 			return state.withLock(path, async () => {
+			await state.security?.authorize(state.local(path), "write");
+			await state.security?.assertWritable(state.local(path), params.content);
 			try {
 				const existing = await versionOf(state.local(path));
 				if (existing && !existing.isFile) throw new FsError(`cannot write "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
@@ -195,6 +199,8 @@ export function editTool(state: HarnessState): Tool {
 			const replaceAll = params.replace_all ?? false;
 			const path = state.resolve(params.file_path);
 			return state.withLock(path, async () => {
+			await state.security?.authorize(state.local(path), "edit");
+			await state.security?.assertWritable(state.local(path), params.old_string + params.new_string);
 			try {
 				const seen = state.observed(path);
 				if (seen === undefined) throw new FsError(`edit requires reading "${path}" first`, "FS_NOT_OBSERVED");
@@ -300,6 +306,7 @@ export function readImageTool(state: HarnessState, modelAcceptsImages: () => { o
 				);
 			}
 			const path = state.resolve(params.file_path);
+			await state.security?.authorize(state.local(path), "read_image");
 			const info = await versionOf(state.local(path));
 			if (!info) throw new FsError(`cannot read "${path}": not found`, "FS_NOT_FOUND");
 			if (!info.isFile) throw new FsError(`cannot read "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
@@ -335,6 +342,7 @@ export function workingDirectoryTool(state: HarnessState, changed: (cwd: string)
 			if (params.cd !== undefined) {
 				if (params.cd.length === 0) throw new Error("working-directory: cd must not be empty");
 				const target = state.resolve(params.cd);
+				await state.security?.authorize(state.local(target), "working_directory");
 				const info = await versionOf(state.local(target));
 				if (!info || info.isFile) throw new Error(`working-directory: directory does not exist: ${JSON.stringify(params.cd)}`);
 				if (target !== state.cwd) {

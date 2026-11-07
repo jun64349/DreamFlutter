@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ExecEnv, HarnessState } from "./state.ts";
+import { MASK, redact } from "../security/redaction.ts";
 
 /**
  * dsh's glob and grep (packages/fs/tool-fs-search): ripgrep with dsh's fixed
@@ -118,14 +119,20 @@ export function globTool(state: HarnessState, rg: string): ToolDefinition {
 		} as never,
 		async execute(_id, params: { pattern: string; path?: string }, signal) {
 			if (params.pattern.trim().length === 0) throw new Error("pattern must be a non-empty string");
+			await state.security?.authorize(state.local(state.resolve(params.path ?? ".")), "glob");
 			const run = await runRg(state.env, rg, globArgs(params.pattern, params.path), state.cwd, signal);
 			const failure = rgFailure(run);
 			if (failure) throw failure;
-			const paths = run.stdout
+			let paths = run.stdout
 				.split("\n")
 				.map((line) => line.replace(/\r$/, ""))
 				.filter((line) => line.length > 0)
 				.map((line) => state.resolve(line));
+			if (state.security) {
+				const permitted: string[] = [];
+				for (const path of paths) if (await state.security.authorize(state.local(path), "glob", true)) permitted.push(path);
+				paths = permitted;
+			}
 			let body: string;
 			if (paths.length === 0) body = "No files found";
 			else if (paths.length <= GLOB_MAX_RESULTS) body = paths.join("\n");
@@ -210,6 +217,42 @@ export function grepTool(state: HarnessState, rg: string): ToolDefinition {
 		} as never,
 		async execute(_id, params: { pattern: string; path?: string; include?: string }, signal) {
 			if (params.pattern.length === 0) throw new Error("pattern must be a non-empty string");
+			await state.security?.authorize(state.local(state.resolve(params.path ?? ".")), "grep");
+			if (state.security) {
+				// Enumerate names first. Never let rg recursively open unchecked descendants.
+				const listing = await runRg(state.env, rg, ["--files", ...(params.include === undefined ? [] : [`--glob=${params.include}`]), "--", params.path ?? "."], state.cwd, signal);
+				const listingError = rgFailure(listing);
+				if (listingError) throw listingError;
+				let candidates = listing.stdout.split(/\r?\n/).filter(Boolean);
+				// rg --files given a single file does not list it on all supported versions.
+				const { stat } = await import("node:fs/promises");
+				if (params.path !== undefined && (await stat(state.local(state.resolve(params.path)))).isFile()) candidates = [params.path];
+				const matches: GrepMatch[] = [];
+				const permitted: string[] = [];
+				const safeLines = new Map<string, string[]>();
+				for (const candidate of candidates) {
+					if (signal?.aborted) throw new Error("搜索已取消");
+					const path = state.resolve(candidate);
+					if (params.path === undefined || path !== state.resolve(params.path)) {
+						if (!await state.security.authorize(state.local(path), "grep", true)) continue;
+					}
+					const { readFile } = await import("node:fs/promises");
+					const raw = await readFile(state.local(path), "utf8");
+					if (await state.security.read(state.local(path), raw) !== raw) safeLines.set(path, redact(raw, false, true).split(/\r?\n/));
+					permitted.push(path);
+				}
+				// Keep native regex behavior, while batching only previously checked files within Windows' argument limit.
+				for (let offset = 0; offset < permitted.length;) {
+					const batch: string[] = []; let chars = params.pattern.length + 100;
+					while (offset < permitted.length && (batch.length === 0 || chars + permitted[offset]!.length < 16000)) { const path = permitted[offset++]!; batch.push(path); chars += path.length + 3; }
+					const run = await runRg(state.env, rg, ["--json", `--regexp=${params.pattern}`, "--", ...batch], state.cwd, signal);
+					const failure = rgFailure(run); if (failure) throw failure;
+					// Scrub the whole stream before line/window truncation can split a private-key block.
+					const parsed = parseGrep(run.stdout, (p) => state.resolve(p));
+					matches.push(...parsed.map((match) => ({ ...match, line: safeLines.get(match.path)?.[match.lineNumber - 1] || (safeLines.has(match.path) ? MASK : match.line) })));
+				}
+				return { content: [{ type: "text", text: formatGrep(matches) }], details: { count: matches.length } };
+			}
 			const args = ["--json", `--regexp=${params.pattern}`];
 			if (params.include !== undefined) args.push(`--glob=${params.include}`);
 			if (params.path !== undefined) args.push("--", params.path);

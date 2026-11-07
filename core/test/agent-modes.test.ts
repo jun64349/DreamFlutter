@@ -269,10 +269,10 @@ describe("dsh formats", () => {
 	});
 
 	it("classifies read-only shell commands", () => {
-		for (const command of ["Get-ChildItem", "git status", "git log --oneline -5 | Select-Object -First 3", "Get-Content a.txt | Select-String foo", "node --version", "ls; pwd"]) {
+		for (const command of ["Get-ChildItem", "git status", "Get-Content -LiteralPath a.txt", "Test-Path -LiteralPath a.txt"]) {
 			assert.equal(isReadOnlyCommand(command), true, command);
 		}
-		for (const command of ["Remove-Item x", "git commit -m x", "echo hi > a.txt", "Get-Content a | Set-Content b", "Invoke-WebRequest x", "& ./run.ps1", "$(rm x)", "npm install"]) {
+		for (const command of ["Remove-Item x", "git commit -m x", "echo hi > a.txt", "Get-Content a | Set-Content b", "Invoke-WebRequest x", "& ./run.ps1", "$(rm x)", "npm install", "git log --oneline -5 | Select-Object -First 3", "Get-Content a.txt | Select-String foo", "node --version", "ls; pwd"]) {
 			assert.equal(isReadOnlyCommand(command), false, command);
 		}
 	});
@@ -310,8 +310,8 @@ describe("review fixes (stage 3a)", () => {
 		]) {
 			assert.equal(isReadOnlyCommand(command), false, command);
 		}
-		assert.equal(isReadOnlyCommand("git branch -a"), true);
-		assert.equal(isReadOnlyCommand("git remote -v"), true);
+		assert.equal(isReadOnlyCommand("git branch -a"), false, "S2 only permits reviewed subcommands");
+		assert.equal(isReadOnlyCommand("git remote -v"), false);
 	});
 
 	it("v0.2 review: a lone & and git options that start programs need approval", () => {
@@ -337,7 +337,7 @@ describe("review fixes (stage 3a)", () => {
 			// A lone string between outputs, as models like to print (seen with deepseek-v4.1-flash in plan mode).
 			'Get-ChildItem -Force | Select-Object Mode,Length,Name; "---"; Test-Path .\\plan-demo.txt',
 		]) {
-			assert.equal(isReadOnlyCommand(command), true, command);
+			assert.equal(isReadOnlyCommand(command), false, `S2 compound/unreviewed command: ${command}`);
 		}
 	});
 
