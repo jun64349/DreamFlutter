@@ -11,6 +11,16 @@ void main() {
   setUp(() => root = Directory.systemTemp.createTempSync('pi_sessions_'));
   tearDown(() => root.deleteSync(recursive: true));
 
+  test('configured defaults respect category locations and leave legacy defaults unchanged', () {
+    expect(SessionStore.defaultSessionsDir(root.path), p.join(root.path, 'pi', 'sessions'));
+    final config = p.join(root.path, 'application-data', 'pi');
+    final sessions = p.join(root.path, 'user-content', 'sessions');
+    File(p.join(root.path, 'storage-locations.json')).writeAsStringSync(jsonEncode({'version': 1, 'paths': {'configuration': config, 'sessions': sessions}}));
+    expect(SessionStore.defaultAgentDir(root.path), config);
+    expect(SessionStore.defaultSessionsDir(root.path), sessions);
+    expect(Directory(sessions).existsSync(), isFalse, reason: 'discovery does not move or create data');
+  });
+
   File writeSession(String dir, String name, List<Map<String, Object?>> entries, {DateTime? modified}) {
     final file = File(p.join(root.path, dir, name))..createSync(recursive: true);
     file.writeAsStringSync(entries.map(jsonEncode).join('\n'));

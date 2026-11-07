@@ -7,6 +7,7 @@ import { RpcError, requireStr, samePath, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, now, parseJson } from "../db.ts";
 import { dropSharedAgentSkills } from "../paths.ts";
+import { storageLocations } from "../storage/locations.ts";
 import { textOf } from "../runs.ts";
 import { parseJsonAnswer, type Llm } from "./llm.ts";
 
@@ -144,11 +145,11 @@ export class SkillsModule implements CoreModule {
 	}
 
 	private get userSkillsDir(): string {
-		return join(this.core.agentDir, "skills");
+		return storageLocations(this.core.paths.dataDir, this.core.agentDir).skills;
 	}
 
 	private get promptsDir(): string {
-		return join(this.core.agentDir, "prompts");
+		return storageLocations(this.core.paths.dataDir, this.core.agentDir).templates;
 	}
 
 	private get settingsPath(): string {

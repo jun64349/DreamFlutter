@@ -135,7 +135,11 @@ class CoreLocator {
     final override = Platform.environment['DREAMFLUTTER_DATA'];
     if (override != null && override.isNotEmpty) return override;
     final main = findMain(searchRoots ?? [p.dirname(Platform.resolvedExecutable), Directory.current.path]);
-    if (main != null) return p.join(p.dirname(p.dirname(p.dirname(main))), 'data');
+    if (main != null) {
+      final root = p.dirname(p.dirname(p.dirname(main)));
+      if (File(p.join(root, 'sq.version')).existsSync() && File(p.join(p.dirname(root), 'Update.exe')).existsSync()) return p.join(p.dirname(root), 'data');
+      return p.join(root, 'data');
+    }
     return legacyDataDir();
   }
 
@@ -217,7 +221,11 @@ class CoreLocator {
     Duration poll = const Duration(milliseconds: 150),
   }) async {
     final log = p.join(dir, 'core.log');
-    final deadline = DateTime.now().add(startTimeout);
+    // A verified copy / official WSL move can outlast an ordinary cold start.
+    // Process liveness checks still report a failed start immediately.
+    final moving = File(p.join(dir, 'storage-move.json')).existsSync();
+    final timeout = moving && startTimeout == const Duration(minutes: 2) ? const Duration(minutes: 30) : startTimeout;
+    final deadline = DateTime.now().add(timeout);
     var nextCheck = DateTime.now().add(const Duration(seconds: 2));
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(poll);
@@ -234,7 +242,7 @@ class CoreLocator {
       if (late != null) return late;
       throw CoreException('start_failed', '后台启动后退出了，详情见 $log');
     }
-    throw CoreException('start_timeout', '后台没有在 ${startTimeout.inSeconds} 秒内启动，详情见 $log');
+    throw CoreException('start_timeout', '后台没有在 ${timeout.inSeconds} 秒内启动，详情见 $log');
   }
 
   static int? _lockHolder(String dataDir) {

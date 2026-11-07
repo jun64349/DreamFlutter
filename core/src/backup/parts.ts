@@ -30,7 +30,7 @@ export interface BackupPart {
 }
 
 /** Rewrites the path columns [parts] declare in [db]. */
-export function remapColumns(db: Db, parts: BackupPart[], context: StageContext): void {
+export function remapColumns(db: Db, parts: BackupPart[], context: StageContext, strict = false): void {
 	const { map } = context;
 	if (map.empty && !parts.some((p) => Object.values(p.paths ?? {}).some((c) => Object.values(c).includes("secretRef")))) return;
 	for (const part of parts) {
@@ -43,7 +43,8 @@ export function remapColumns(db: Db, parts: BackupPart[], context: StageContext)
 					if (next === row.value) continue;
 					try {
 						db.run(`UPDATE "${table}" SET "${column}" = ? WHERE rowid = ?`, next, row.id);
-					} catch {
+					} catch (error) {
+						if (strict) throw error;
 						// Two rows mapped onto one key (the same folder twice): keep the one already there.
 					}
 				}

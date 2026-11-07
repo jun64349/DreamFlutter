@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { proxyEnvironment, readSystemProxy } from "./system-proxy.ts";
+import { applyToolEnvironment, type ToolEnvironment } from "./tool-environment.ts";
 
 /**
  * The workbench's runtime environment (roadmap 3.6): tools the app ships for
@@ -42,8 +44,8 @@ export function bundledPython(pythonDir = PYTHON_DIR): string | undefined {
  * Without shipped tools (a development checkout before fetch-toolchain) it is
  * the plain environment plus UTF-8.
  */
-export function toolchainEnv(base: NodeJS.ProcessEnv = process.env, toolsDir = TOOLS_DIR, pythonDir = PYTHON_DIR): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...base, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+export function toolchainEnv(base: NodeJS.ProcessEnv = process.env, toolsDir = TOOLS_DIR, pythonDir = PYTHON_DIR, source?: ToolEnvironment): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...applyToolEnvironment(proxyEnvironment(readSystemProxy(), base), source), PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
 	// Downloads and caches stay in the app's data folder instead of the user's profile on C:.
 	const cache = base.DREAMFLUTTER_CACHE;
 	if (cache) {

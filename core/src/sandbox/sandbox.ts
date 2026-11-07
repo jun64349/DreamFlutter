@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
 import { buildImage, bundledImage, IMAGE_FILE, verifyImage } from "./image.ts";
+import { storageLocations } from "../storage/locations.ts";
 
 /**
  * 蝶君's sandbox: a WSL2 distro of its own (roadmap 3.3, docs/v0.3-design.md).
@@ -243,7 +244,7 @@ export class Sandbox implements CoreModule {
 
 	constructor(core: Core, options: SandboxOptions = {}) {
 		this.core = core;
-		this.dir = options.dir ?? join(core.paths.dataDir, "sandbox");
+		this.dir = options.dir ?? storageLocations(core.paths.dataDir).sandbox;
 		this.distro = options.distro ?? distroFor(this.dir);
 		this.wsl = options.wsl ?? runWsl;
 		this.mirrors = options.mirrors ?? MIRRORS;

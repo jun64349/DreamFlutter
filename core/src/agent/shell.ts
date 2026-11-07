@@ -7,6 +7,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { HarnessState } from "./state.ts";
 import { toolchainEnv } from "./toolchain.ts";
+import { currentToolEnvironment, type ToolEnvironment } from "./tool-environment.ts";
 
 /**
  * dsh's shell tools for Windows: the standard preset's one-process-per-call
@@ -324,6 +325,7 @@ function renderResult(stdout: string, stderr: string, exitCode: number | null, t
 }
 
 export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition {
+	const sources = currentToolEnvironment();
 	return {
 		name: "pwsh",
 		label: "运行命令",
@@ -363,7 +365,7 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 				cwd: workdir,
 				windowsHide: true,
 				stdio: ["ignore", "pipe", "pipe"],
-				env: toolchainEnv(),
+				env: toolchainEnv(process.env, undefined, undefined, sources?.provider.host(workdir, sources.workspace, params.command)),
 			});
 			const stdout = new OutputStream("stdout");
 			const stderr = new OutputStream("stderr");
@@ -462,19 +464,23 @@ export class PersistentShell {
 	private output = "";
 	private queue: Promise<unknown> = Promise.resolve();
 	private readonly cwd: () => string;
+	private readonly sources = currentToolEnvironment();
+	private sourceFingerprint: string | undefined;
+	private directory: string | undefined;
+	private requestedDirectory: string | undefined;
 
 	constructor(cwd: () => string) {
 		this.cwd = cwd;
 	}
 
-	private ensure(): ChildProcess {
+	private ensure(source?: ToolEnvironment, cwd = this.cwd()): ChildProcess {
 		if (this.child && this.child.exitCode === null) return this.child;
 		this.output = "";
 		const child = spawn(pwshPath(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"], {
-			cwd: this.cwd(),
+			cwd,
 			windowsHide: true,
 			stdio: ["pipe", "pipe", "pipe"],
-			env: toolchainEnv(),
+			env: toolchainEnv(process.env, undefined, undefined, source),
 		});
 		// Decoders keep a character split across chunks whole; a runaway command keeps its head and tail only.
 		const append = (decoder: StringDecoder) => (chunk: Buffer) => {
@@ -489,6 +495,7 @@ export class PersistentShell {
 		child.stdin!.on("error", () => {});
 		child.stdin!.write(`${ENCODING_PREAMBLE}$ProgressPreference = 'SilentlyContinue'\n`);
 		this.child = child;
+		this.sourceFingerprint = source?.fingerprint;
 		return child;
 	}
 
@@ -496,6 +503,9 @@ export class PersistentShell {
 		if (this.child) killTree(this.child);
 		this.child = undefined;
 		this.output = "";
+		this.sourceFingerprint = undefined;
+		this.directory = undefined;
+		this.requestedDirectory = undefined;
 	}
 
 	run(command: string, signal: AbortSignal | undefined): Promise<string> {
@@ -509,12 +519,19 @@ export class PersistentShell {
 
 	private async execute(command: string, signal: AbortSignal | undefined): Promise<string> {
 		if (signal?.aborted) return "";
-		const child = this.ensure();
+		const requested = this.cwd();
+		const cwd = this.requestedDirectory === requested ? this.directory ?? requested : requested;
+		const source = this.sources?.provider.host(cwd, this.sources.workspace, command);
+		if (this.child && (source?.fingerprint !== this.sourceFingerprint || this.requestedDirectory !== requested)) this.reset();
+		this.directory = cwd;
+		this.requestedDirectory = requested;
+		const child = this.ensure(source, cwd);
 		const nonce = randomUUID();
 		const start = `__DSH_PERSISTENT_PWSH_START_${nonce}__`;
 		const end = `__DSH_PERSISTENT_PWSH_END_${nonce}:`;
+		const cwdMarker = `__DSH_PERSISTENT_CWD_${nonce}:`;
 		const body = encodeForPwsh(command);
-		const wrapper = `Write-Output '${start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ${body}; $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${end}' + $__s)`;
+		const wrapper = `Write-Output '${start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ${body}; $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${cwdMarker}' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Location).ProviderPath))); Write-Output ('${end}' + $__s)`;
 		// Anything left from earlier commands is stray output: drop it so the buffer never grows across calls.
 		this.output = "";
 		const from = 0;
@@ -531,7 +548,10 @@ export class PersistentShell {
 				const settled = this.output.slice(from);
 				const startAt = settled.indexOf(start);
 				const endIndex = settled.lastIndexOf(end);
-				const captured = settled.slice(startAt < 0 ? 0 : startAt + start.length, endIndex) + settled.slice(endIndex + end.length).replace(/^-?\d+ *\r?\n/, "");
+				let captured = settled.slice(startAt < 0 ? 0 : startAt + start.length, endIndex) + settled.slice(endIndex + end.length).replace(/^-?\d+ *\r?\n/, "");
+				const location = new RegExp(`^${cwdMarker}([A-Za-z0-9+/=]+)\\r?$`, "m").exec(captured);
+				if (location) { const decoded = Buffer.from(location[1]!, "base64").toString("utf8"); if (isAbsolute(decoded)) this.directory = decoded; }
+				captured = captured.replace(new RegExp(`^${cwdMarker}[^\\r\\n]*\\r?\\n?`, "m"), "");
 				const clean = captured.replace(/^\r?\n/, "").replace(/\r?\n$/, "").replaceAll("\r\n", "\n");
 				return withExitCode(maybeTruncate(clean), Number(status));
 			}

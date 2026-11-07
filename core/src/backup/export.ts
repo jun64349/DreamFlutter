@@ -11,6 +11,7 @@ import { dpapiMany } from "../modules/secrets.ts";
 import { writeArchive, type ArchiveFile } from "./archive.ts";
 import { seal } from "./crypto.ts";
 import { isInside } from "./path-map.ts";
+import { storageLocations, type StorageLocations } from "../storage/locations.ts";
 
 /**
  * Making a backup package (docs/v0.3.1-backup-design.md §三–四): take a
@@ -31,6 +32,8 @@ export function excludedFromData(name: string): boolean {
 	return (
 		["webview2", "core.json", "core.lock", "core.db", "core.db-wal", "core.db-shm", "sandbox", "backups", "trash", "secrets", "pi", "window", "cache", "migration.json"].includes(n) ||
 		n.startsWith("core.log") ||
+		["application-data", "user-content"].includes(n) || n.startsWith("storage-") ||
+		n === "updates" ||
 		n.startsWith("restore-")
 	);
 }
@@ -73,6 +76,7 @@ export interface Manifest {
 		dataDir: string;
 		agentDir: string;
 		sessionsDir: string;
+		locations?: StorageLocations;
 		butterflyDir: string;
 		workspaces: string[];
 	};
@@ -153,8 +157,12 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 
 		step("复制数据文件");
 		for (const name of readdirSync(source.paths.dataDir)) {
-			if (excludedFromData(name)) continue;
+			if (excludedFromData(name) || ["cards", "butterfly"].includes(name)) continue;
 			await cp(join(source.paths.dataDir, name), join(data, "appdata", name), { recursive: true, force: true, errorOnExist: false });
+		}
+		const locations = storageLocations(source.paths.dataDir, source.agentDir, source.sessionsDir);
+		for (const [name, from] of [["cards", locations.cards], ["butterfly", source.paths.butterflyDir]]) {
+			if (existsSync(from!)) await cp(from!, join(data, "appdata", name!), { recursive: true, force: true });
 		}
 
 		step("复制会话");
@@ -178,14 +186,14 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 		step("复制 Pi 的设置");
 		const pi: string[] = [];
 		for (const name of PI_FILES) {
-			const from = join(source.agentDir, name);
+			const from = name === "skills" ? locations.skills : name === "prompts" ? locations.templates : join(source.agentDir, name);
 			if (!existsSync(from)) continue;
 			await cp(from, join(data, "pi", name), { recursive: true, force: true });
 			pi.push(name);
 		}
 
 		step("整理 API Key");
-		const secretsDir = join(source.paths.dataDir, "secrets");
+		const secretsDir = locations.secrets;
 		const secretFiles = existsSync(secretsDir) ? readdirSync(secretsDir).filter((f) => f.endsWith(".dpapi")) : [];
 		const authFile = join(source.agentDir, "auth.json");
 		let sealed: Buffer | undefined;
@@ -255,6 +263,7 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 				user: userInfo().username,
 				home: homedir(),
 				dataDir: source.paths.dataDir,
+				locations,
 				agentDir: source.agentDir,
 				sessionsDir: source.sessionsDir,
 				butterflyDir: source.paths.butterflyDir,
@@ -294,8 +303,10 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 /** Bytes a backup would take before compression (preflight). */
 export function estimateSize(source: Omit<ExportSource, "db">, sessionFiles: string[], materialPaths: string[]): { data: number; sessions: number; materials: number } {
 	let dataBytes = sizeOf(source.paths.dbFile);
-	for (const name of safeReaddir(source.paths.dataDir)) if (!excludedFromData(name)) dataBytes += sizeOf(join(source.paths.dataDir, name));
-	for (const name of PI_FILES) dataBytes += sizeOf(join(source.agentDir, name));
+	const locations = storageLocations(source.paths.dataDir, source.agentDir, source.sessionsDir);
+	for (const name of safeReaddir(source.paths.dataDir)) if (!excludedFromData(name) && !["cards", "butterfly"].includes(name)) dataBytes += sizeOf(join(source.paths.dataDir, name));
+	dataBytes += sizeOf(locations.cards) + sizeOf(source.paths.butterflyDir);
+	for (const name of PI_FILES) dataBytes += sizeOf(name === "skills" ? locations.skills : name === "prompts" ? locations.templates : join(source.agentDir, name));
 	let sessions = 0;
 	for (const file of sessionFiles) sessions += sizeOf(file);
 	let materials = 0;

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import type { CorePaths } from "../paths.ts";
 import { excludedFromData, PI_FILES } from "./export.ts";
 import type { Staged } from "./restore.ts";
+import { storageLocations } from "../storage/locations.ts";
 
 /**
  * The live data cannot be replaced while the core uses it, so a restore
@@ -52,7 +53,7 @@ export function resultFile(paths: CorePaths): string {
 
 /** The pending restore of the sandbox's files (Sandbox puts them back on its next start). */
 export function sandboxRestoreFile(paths: CorePaths): string {
-	return join(paths.dataDir, "sandbox", "pending-restore.tar.gz");
+	return join(storageLocations(paths.dataDir).sandbox, "pending-restore.tar.gz");
 }
 
 /** Builds the record for [staged] (made by stageBackup) and writes it. */
@@ -60,14 +61,19 @@ export function writeSwitchRecord(paths: CorePaths, agentDir: string, staged: St
 	const oldDir = join(paths.dataDir, "restore-old");
 	const appdata = join(staged.dir, "raw", "data", "appdata");
 	const items: SwitchItem[] = [];
+	const locations = storageLocations(paths.dataDir, agentDir);
+	const dataTarget = (name: string) => name === "core.db" ? paths.dbFile : name === "cards" ? locations.cards : name === "secrets" ? locations.secrets : name === "butterfly" ? paths.butterflyDir : join(paths.dataDir, name);
 	const add = (label: string, target: string, source?: string) => items.push({ label, source, target, old: join(oldDir, String(items.length)) });
 
 	// The data folder: the backup's entries replace the current ones, current ones it lacks move aside.
 	const stagedNames = new Set(existsSync(appdata) ? readdirSync(appdata) : []);
-	for (const name of stagedNames) add(`数据 ${name}`, join(paths.dataDir, name), join(appdata, name));
+	for (const name of stagedNames) add(`数据 ${name}`, dataTarget(name), join(appdata, name));
+	for (const name of ["cards", "butterfly"]) if (!stagedNames.has(name) && existsSync(dataTarget(name))) add(`数据 ${name}`, dataTarget(name));
+	for (const suffix of ["-wal", "-shm"]) if (existsSync(paths.dbFile + suffix)) add(`数据库 ${suffix}`, paths.dbFile + suffix);
 	for (const name of existsSync(paths.dataDir) ? readdirSync(paths.dataDir) : []) {
 		// Keys stay when the backup brings none (excludedFromData covers them too).
 		if (stagedNames.has(name)) continue;
+		if (["cards", "butterfly", "core.db-wal", "core.db-shm"].includes(name)) continue;
 		// The WAL files belong to the database being replaced: left in place they would corrupt the restored one.
 		if (name === "core.db-wal" || name === "core.db-shm" || !excludedFromData(name)) add(`数据 ${name}`, join(paths.dataDir, name));
 	}
@@ -75,9 +81,10 @@ export function writeSwitchRecord(paths: CorePaths, agentDir: string, staged: St
 	const pi = join(staged.dir, "raw", "data", "pi");
 	const piNames = new Set(staged.piFiles);
 	for (const name of [...PI_FILES, "auth.json"]) {
-		if (piNames.has(name)) add(`Pi ${name}`, join(agentDir, name), join(pi, name));
+		const target = name === "skills" ? locations.skills : name === "prompts" ? locations.templates : join(agentDir, name);
+		if (piNames.has(name)) add(`Pi ${name}`, target, join(pi, name));
 		// auth.json holds keys: without keys in the backup, this machine's stay.
-		else if (name !== "auth.json" && existsSync(join(agentDir, name))) add(`Pi ${name}`, join(agentDir, name));
+		else if (name !== "auth.json" && existsSync(target)) add(`Pi ${name}`, target);
 	}
 
 	for (const s of staged.sessionTargets) add("会话", s.target, join(staged.dir, "sessions", s.staged));

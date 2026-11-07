@@ -1,6 +1,8 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { materialLocation, storageLocations } from "./storage/locations.ts";
 
 /** Where the core keeps its own state (not Pi's). */
 export interface CorePaths {
@@ -26,18 +28,20 @@ export const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "
  * (tests, and later a location picked in Settings).
  */
 export function defaultDataDir(): string {
+	if (!process.env.DREAMFLUTTER_DATA && existsSync(join(APP_ROOT, "sq.version")) && existsSync(join(dirname(APP_ROOT), "Update.exe"))) return join(dirname(APP_ROOT), "data");
 	return process.env.DREAMFLUTTER_DATA || join(APP_ROOT, "data");
 }
 
 export function corePaths(dataDir = defaultDataDir()): CorePaths {
+	const locations = storageLocations(dataDir);
 	return {
 		dataDir,
-		dbFile: join(dataDir, "core.db"),
+		dbFile: join(locations.database, "core.db"),
 		infoFile: join(dataDir, "core.json"),
 		lockFile: join(dataDir, "core.lock"),
-		logFile: join(dataDir, "core.log"),
-		butterflyDir: join(dataDir, "butterfly"),
-		cacheDir: join(dataDir, "cache"),
+		logFile: join(locations.logs, "core.log"),
+		butterflyDir: materialLocation(dataDir),
+		cacheDir: locations.cache,
 	};
 }
 
@@ -47,7 +51,7 @@ export function corePaths(dataDir = defaultDataDir()): CorePaths {
  * other agent tool.
  */
 export function defaultAgentDir(dataDir: string): string {
-	return join(dataDir, "pi");
+	return storageLocations(dataDir).configuration;
 }
 
 /** Where versions up to v0.3.1 kept the core's data. */

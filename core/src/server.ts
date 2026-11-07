@@ -62,6 +62,9 @@ export function startServer(core: Core, options: ServerOptions): Promise<{ port:
 		maxPayload: 64 * 1024 * 1024,
 		verifyClient: (info: { req: IncomingMessage }) => !info.req.headers.origin && tokenMatches(options.token, info.req.headers.authorization),
 	});
+	// ws forwards the HTTP bind error before our startup Promise sees it.
+	// A listener prevents that forwarding from throwing and bypassing rollback.
+	server.on("error", (error) => core.log.error("websocket server error", error));
 
 	server.on("connection", (socket: WebSocket) => {
 		const client = core.addClient((message) => {

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:pi_rpc/pi_rpc.dart';
+import 'package:path/path.dart' as p;
 
 enum ConnectionStatus {
   /// Opening the session in the core (or waiting on its trust prompt).
@@ -103,7 +104,7 @@ class SessionRuntime extends ChangeNotifier {
   final String? requestedAgentMode;
 
   /// A side conversation (0.4): an in-memory copy of this session file's current branch.
-  final String? forkOf;
+  String? forkOf;
   final String? sideQuote;
   final String? parentSlotId;
   /// Side panels own their prompts; closing one must not leave approvals running.
@@ -328,8 +329,12 @@ class SessionRuntime extends ChangeNotifier {
 
   /// Reopens the same session (after a crash or a core restart). A session
   /// that was never written to disk starts fresh.
-  Future<void> restart() {
-    final path = sessionPath;
+  Future<void> restart({String? sessionsFrom, String? sessionsTo}) {
+    String? relocate(String? path) => path != null && sessionsFrom != null && sessionsTo != null &&
+      !SessionStore.samePath(sessionsFrom, sessionsTo) && p.isWithin(sessionsFrom, path)
+      ? p.join(sessionsTo, p.relative(path, from: sessionsFrom)) : path;
+    final path = relocate(sessionPath);
+    forkOf = relocate(forkOf);
     return start(sessionPath: path != null && File(path).existsSync() ? path : null);
   }
 

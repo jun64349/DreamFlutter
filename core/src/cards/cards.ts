@@ -6,6 +6,7 @@ import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-a
 import type { Core, CoreModule } from "../core.ts";
 import { RpcError, requireStr, samePath, str } from "../core.ts";
 import { json, now, parseJson } from "../db.ts";
+import { storageLocations } from "../storage/locations.ts";
 import { AVAILABLE_TOOLS, BindingError, declaredUnits, knownTool, prepareCall, readsLocal, sendsOut, toolLabel, type GrantKind, type Unit } from "./bindings.ts";
 import {
 	bindingsDigest,
@@ -193,7 +194,7 @@ export class CardsModule implements CoreModule {
 
 	constructor(core: Core) {
 		this.core = core;
-		this.dir = join(core.paths.dataDir, "cards");
+		this.dir = storageLocations(core.paths.dataDir).cards;
 		mkdirSync(this.dir, { recursive: true });
 		core.declareBackup({
 			id: "cards",

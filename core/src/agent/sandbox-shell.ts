@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { killTree } from "./shell.ts";
+import { currentToolEnvironment, type ToolEnvironment } from "./tool-environment.ts";
 
 /**
  * The bash of 蝶君's sandbox: one persistent shell per session, as the agent
@@ -27,12 +28,22 @@ function truncate(content: string): string {
 	return content.length <= MAX_OUTPUT_CHARS ? content : `${content.slice(0, MAX_OUTPUT_CHARS)}\n<output clipped: use head, tail or grep to see the part you need>`;
 }
 
+const bashQuote = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
+export function linuxSourceEnvironment(source: ToolEnvironment): string {
+	const keys = [...new Set([...source.unset, ...Object.keys(source.variables)])];
+	if (keys.some((key) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) throw new Error("Invalid package environment key");
+	return [source.unset.length ? `unset ${source.unset.join(" ")}` : "", ...Object.entries(source.variables).map(([key, value]) => `export ${key}=${bashQuote(value)}`)].filter(Boolean).join("; ");
+}
+
 export class SandboxShell {
 	private child: ChildProcess | undefined;
 	private output = "";
 	private queue: Promise<unknown> = Promise.resolve();
 	private readonly distro: string;
 	private readonly ready: () => Promise<void>;
+	private readonly sources = currentToolEnvironment();
+	private sourceFingerprint: string | undefined;
+	private directory = "/workspace";
 
 	/** [ready] boots the sandbox (mounts cut, firewall rules) before the shell starts. */
 	constructor(distro: string, ready: () => Promise<void>) {
@@ -73,6 +84,8 @@ export class SandboxShell {
 		if (this.child) killTree(this.child);
 		this.child = undefined;
 		this.output = "";
+		this.sourceFingerprint = undefined;
+		this.directory = "/workspace";
 	}
 
 	run(command: string, signal: AbortSignal | undefined): Promise<string> {
@@ -86,13 +99,25 @@ export class SandboxShell {
 
 	private async execute(command: string, signal: AbortSignal | undefined): Promise<string> {
 		if (signal?.aborted) return "";
-		const child = await this.ensure();
+		let child = await this.ensure();
+		const cwd = this.directory;
+		const source = await this.sources?.provider.sandbox(this.distro, cwd, "/workspace", command);
+		if (signal?.aborted) { this.reset(); return ""; }
+		if (source && this.sourceFingerprint !== undefined && source.fingerprint !== this.sourceFingerprint) {
+			this.reset(); child = await this.ensure();
+		}
+		if (source && source.fingerprint !== this.sourceFingerprint) {
+			child.stdin!.write([linuxSourceEnvironment(source), `cd ${bashQuote(cwd)}`].filter(Boolean).join("; ") + "\n");
+			this.sourceFingerprint = source.fingerprint;
+			this.directory = cwd;
+		}
 		const nonce = randomUUID();
 		const start = `__DF_SANDBOX_START_${nonce}__`;
 		const end = `__DF_SANDBOX_END_${nonce}:`;
+		const cwdMarker = `__DF_SANDBOX_CWD_${nonce}:`;
 		const body = Buffer.from(command.replaceAll("\r", ""), "utf8").toString("base64");
 		// The command never reads the shell's own stdin (that is where the next commands come from).
-		const wrapper = `printf '%s\\n' '${start}'; { eval "$(printf %s '${body}' | base64 -d)"; } </dev/null 2>&1; printf '\\n%s%d\\n' '${end}' "$?"\n`;
+		const wrapper = `printf '%s\\n' '${start}'; { eval "$(printf %s '${body}' | base64 -d)"; } </dev/null 2>&1; __df_status=$?; printf '\\n%s%s\\n' '${cwdMarker}' "$(pwd | base64 -w0)"; printf '%s%d\\n' '${end}' "$__df_status"\n`;
 		this.output = "";
 		child.stdin!.write(wrapper);
 		const startedAt = Date.now();
@@ -103,7 +128,10 @@ export class SandboxShell {
 			const status = endAt >= 0 ? /^(-?\d+)\n/.exec(text.slice(endAt + end.length))?.[1] : undefined;
 			if (status !== undefined) {
 				const startAt = text.indexOf(start);
-				const captured = text.slice(startAt < 0 ? 0 : startAt + start.length + 1, endAt).replace(/\n$/, "");
+				let captured = text.slice(startAt < 0 ? 0 : startAt + start.length + 1, endAt);
+				const location = new RegExp(`^${cwdMarker}([A-Za-z0-9+/=]+)$`, "m").exec(captured);
+				if (location) { const decoded = Buffer.from(location[1]!, "base64").toString("utf8").trimEnd(); if (decoded.startsWith("/")) this.directory = decoded; }
+				captured = captured.replace(new RegExp(`^${cwdMarker}[^\\n]*\\n?`, "m"), "").replace(/\n$/, "");
 				const content = truncate(captured);
 				const code = Number(status);
 				return code === 0 ? content : content.length === 0 ? `[exit code: ${code}]` : `${content}\n[exit code: ${code}]`;

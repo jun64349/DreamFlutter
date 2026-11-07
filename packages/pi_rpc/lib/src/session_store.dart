@@ -41,12 +41,20 @@ class SessionSummary {
 class SessionStore {
   SessionStore({String? sessionsDir}) : sessionsDir = sessionsDir ?? defaultSessionsDir();
 
-  final String sessionsDir;
+  String sessionsDir;
 
   /// DreamFlutter's own Pi folder in its data folder (v0.3.2), not the Pi command line's ~/.pi/agent.
-  static String defaultAgentDir() => p.join(CoreLocator.defaultDataDir(), 'pi');
+  static String defaultAgentDir([String? dataDir]) => _configuredLocation(dataDir, 'configuration') ?? p.join(dataDir ?? CoreLocator.defaultDataDir(), 'pi');
 
-  static String defaultSessionsDir() => p.join(defaultAgentDir(), 'sessions');
+  static String defaultSessionsDir([String? dataDir]) => _configuredLocation(dataDir, 'sessions') ?? p.join(defaultAgentDir(dataDir), 'sessions');
+
+  static String? _configuredLocation(String? dataDir, String key) {
+    try {
+      final config = jsonDecode(File(p.join(dataDir ?? CoreLocator.defaultDataDir(), 'storage-locations.json')).readAsStringSync()) as Map;
+      final value = (config['paths'] as Map)[key];
+      return value is String && p.isAbsolute(value) ? value : null;
+    } catch (_) { return null; }
+  }
 
   /// Sessions newest first, optionally only those whose workspace is [cwd].
   Future<List<SessionSummary>> list({String? cwd}) async {

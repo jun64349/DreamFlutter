@@ -11,6 +11,7 @@ import { open as openSealed, type SealedBox } from "./crypto.ts";
 import { FORMAT, FORMAT_VERSION, MIN_DB_VERSION, PI_FILES, tableCounts, type Manifest } from "./export.ts";
 import { remapColumns, type BackupPart } from "./parts.ts";
 import { PathMap, piSessionFolder, type PathRule } from "./path-map.ts";
+import { storageLocations, type StorageKind } from "../storage/locations.ts";
 
 /**
  * Restoring a package, up to the point where it can replace the live data
@@ -231,12 +232,15 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 			}
 		}
 		const secrets = existsSync(secretsDir);
-		const liveSecrets = join(target.paths.dataDir, "secrets");
+		const locations = storageLocations(target.paths.dataDir, target.agentDir, target.sessionsDir);
+		const liveSecrets = locations.secrets;
 		const secretsAfter = secrets ? secretsDir : liveSecrets;
 
 		step("对照路径");
 		const rules: PathRule[] = [
+			...Object.entries(manifest.source.locations ?? {}).filter(([kind]) => !["database", "logs"].includes(kind)).map(([kind, from]) => ({ from, to: locations[kind as StorageKind] })),
 			{ from: manifest.source.dataDir, to: target.paths.dataDir },
+			{ from: manifest.source.butterflyDir, to: target.paths.butterflyDir },
 			{ from: manifest.source.agentDir, to: target.agentDir },
 			{ from: manifest.source.sessionsDir, to: target.sessionsDir },
 			...(options.workspaces ?? preview.paths.filter((p) => p.kind === "workspace")).map((r) => ({ from: r.from, to: r.to })),
@@ -287,7 +291,7 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 		let materialsRestored = 0;
 		const missingKeys = new Set<string>();
 		try {
-			const context = { map, secretRef: (ref: string) => relocateSecretRef(ref, join(target.paths.dataDir, "secrets")) };
+			const context = { map, secretRef: (ref: string) => relocateSecretRef(ref, locations.secrets) };
 			db.transaction(() => {
 				remapColumns(db, options.parts, context);
 				for (const part of options.parts) part.onStage?.(db, context);
@@ -330,7 +334,7 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 				} catch {
 					continue;
 				}
-				const fixed = fixPiJson(data, name, map, join(target.paths.dataDir, "secrets"), (ref) => {
+				const fixed = fixPiJson(data, name, map, locations.secrets, (ref) => {
 					const keyFile = secretFileOf(ref);
 					if (keyFile && !existsSync(join(secretsAfter, basename(keyFile)))) missingKeys.add(`Pi 配置 ${name} 里的 Key（${basename(keyFile, ".dpapi")}）`);
 				});
