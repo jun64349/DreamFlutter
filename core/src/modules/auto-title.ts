@@ -37,6 +37,7 @@ export class AutoTitle implements CoreModule {
 		this.pending.add(slot.slotId);
 		try {
 			const raw = await this.llm.complete(`用户：${textOf(user.content).slice(0, 1500)}\n\n助手：${textOf(answer.content).slice(0, 1500)}`, {
+				context: { purpose: "auto_title", workspace: slot.info().cwd, sessionId: session.sessionManager.getSessionId(), runId: slot.currentRun?.id, slotId: slot.slotId },
 				system: SYSTEM,
 				maxTokens: 64,
 				sessionModel: slot.info().model,

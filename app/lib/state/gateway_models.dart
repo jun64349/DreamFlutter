@@ -67,6 +67,8 @@ class ChannelKey {
 class GatewayChannel {
   GatewayChannel.fromJson(Json json)
     : id = json['id'] as String,
+      origin = json['origin'] as String?,
+      oauth = json['oauth'] == true,
       source = json['source'] as String? ?? 'df',
       provider = json['provider'] as String? ?? '',
       name = json['name'] as String? ?? '',
@@ -85,6 +87,8 @@ class GatewayChannel {
   final String id;
 
   /// "df": added in DreamFlutter; "pi": a provider from Pi's own configuration.
+  final String? origin;
+  final bool oauth;
   final String source;
   final String provider;
   final String name;
@@ -160,11 +164,11 @@ class GatewayPlatform {
 class QuotaWindow {
   QuotaWindow.fromJson(Json json)
     : label = json['label'] as String? ?? '',
-      usedPercent = (json['usedPercent'] as num?)?.toDouble() ?? 0,
+      usedPercent = json['usedPercent'] is num && (json['usedPercent'] as num).isFinite && (json['usedPercent'] as num) >= 0 && (json['usedPercent'] as num) <= 100 ? (json['usedPercent'] as num).toDouble() : null,
       resetAt = (json['resetAt'] as num?) == null ? null : DateTime.fromMillisecondsSinceEpoch((json['resetAt'] as num).toInt());
 
   final String label;
-  final double usedPercent;
+  final double? usedPercent;
   final DateTime? resetAt;
 }
 
@@ -172,7 +176,8 @@ class QuotaWindow {
 class QuotaReading {
   QuotaReading.fromJson(Json json)
     : type = json['type'] as String? ?? 'error',
-      amount = (json['amount'] as num?)?.toDouble(),
+      amount = json['amount'] is num && (json['amount'] as num).isFinite ? (json['amount'] as num).toDouble() : null,
+      balances = jsonRows(json['balances']),
       currency = json['currency'] as String? ?? 'CNY',
       windows = jsonRows(json['windows']).map(QuotaWindow.fromJson).toList(),
       message = json['message'] as String? ?? '',
@@ -180,6 +185,7 @@ class QuotaReading {
 
   final String type;
   final double? amount;
+  final List<Json> balances;
   final String currency;
   final List<QuotaWindow> windows;
   final String message;
@@ -189,6 +195,8 @@ class QuotaReading {
 class ChannelStatus {
   ChannelStatus.fromJson(Json json)
     : id = json['id'] as String,
+      quotaError = json['quotaError'] is Map ? asJsonMap(json['quotaError']) : null,
+      localUsage = json['localUsage'] is Map ? asJsonMap(json['localUsage']) : null,
       name = json['name'] as String? ?? '',
       kind = json['kind'] as String? ?? 'relay',
       source = json['source'] as String? ?? 'df',
@@ -210,6 +218,8 @@ class ChannelStatus {
   final String source;
   final Unavailable? unavailable;
   final QuotaReading? quota;
+  final Json? quotaError;
+  final Json? localUsage;
   final bool canQuery;
   final int requestsToday;
   final int failuresToday;

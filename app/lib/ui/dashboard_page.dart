@@ -6,6 +6,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
 import 'gateway_pages.dart' show describeQuota;
+import 'ledger_table.dart';
 
 /// One group of the usage summary (a day, a model, a workspace, a session).
 class UsageRow {
@@ -213,6 +214,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   runSpacing: AppTokens.gap,
                   children: [for (final c in _channels) SizedBox(width: 340, child: _ChannelTile(status: c))],
                 ),
+                const SectionTitle('逐请求核对'),
+                const LedgerTable(),
                 const SectionTitle('最近 30 天的花费'),
                 _DailyBars(days: last30),
                 SectionTitle(
@@ -234,7 +237,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   },
                 ),
                 const SizedBox(height: AppTokens.pad),
-                Text('花费按模型价格计算；没有填写价格的模型算 \$0，可以在渠道里补上价格。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+                Text('上方旧摘要仅合计已知 USD 金额，不含缺失金额与其他币种；完整币种、估算、套餐占用和历史导入见逐请求账本。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
               ],
             ),
     );
@@ -344,13 +347,26 @@ class _ChannelTile extends StatelessWidget {
                 child: Row(
                   children: [
                     SizedBox(width: 64, child: Text(w.label, style: context.text.bodySmall)),
-                    Expanded(child: _Meter(value: w.usedPercent / 100, color: w.usedPercent >= 100 ? colors.danger : w.usedPercent >= 80 ? colors.warning : colors.accent)),
-                    SizedBox(width: 44, child: Text('${w.usedPercent.round()}%', textAlign: TextAlign.right, style: context.text.bodySmall)),
+                    Expanded(child: w.usedPercent == null ? const Text('未知') : _Meter(value: w.usedPercent! / 100, color: w.usedPercent! >= 100 ? colors.danger : w.usedPercent! >= 80 ? colors.warning : colors.accent)),
+                    SizedBox(width: 54, child: Text(w.usedPercent == null ? '未知' : '${w.usedPercent!.round()}%', textAlign: TextAlign.right, style: context.text.bodySmall)),
                   ],
                 ),
               )
           else if (describeQuota(status).isNotEmpty)
             Padding(padding: const EdgeInsets.only(top: 4), child: Text(describeQuota(status), style: context.text.bodySmall)),
+          if (quota?.type == 'plan') const Text('供应商套餐用量读数'),
+          if (status.quotaError != null) ...[
+            Text('当前查询：${status.quotaError!['message'] ?? '未知'}', style: TextStyle(color: colors.danger)),
+            if (quota?.type != 'error' && quota != null) Text('保留上次有效读数：${quota.checkedAt.toLocal()}'),
+            for (final b in jsonRows(asJsonMap(status.quotaError!['observed'])['balances'])) Text('本次 ${b['currency']}：${b['amount'] is num ? b['amount'] : '未知'}'),
+            for (final w in jsonRows(asJsonMap(status.quotaError!['observed'])['windows'])) Text('本次 ${w['label']}：${w['usedPercent'] is num ? '${w['usedPercent']}%' : '未知'}'),
+          ],
+          if (status.localUsage != null) ...[
+            const SizedBox(height: 6),
+            const Text('本机累计用量（估算）'),
+            for (final e in asJsonMap(status.localUsage!['allowance']).entries) Text('${e.key.split(':').first} ${e.value} · ${e.key.endsWith(':provider') ? '供应商逐笔计量累计' : '按官方规则估算'}'),
+            if (asJsonMap(status.localUsage!['allowance']).isEmpty) const Text('套餐占用计量未知；不推算剩余'),
+          ],
           const SizedBox(height: 6),
           Text(
             [

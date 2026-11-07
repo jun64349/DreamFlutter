@@ -254,6 +254,7 @@ export class SessionIndex implements CoreModule {
 			for (const record of usage) {
 				if (inherited.has(record.entryId)) continue;
 				const u = record.u;
+				this.core.ledger?.linkIndex(record.entryId, record.at, record.provider, record.model, u);
 				const cost = (u.cost ?? {}) as Record<string, unknown>;
 				this.db.run(
 					"INSERT OR REPLACE INTO usage_records(path, entry_id, at, cwd, provider, model, input, output, cache_read, cache_write, cost) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -392,6 +393,10 @@ export class SessionIndex implements CoreModule {
 	}
 
 	usage(options: { since?: number; until?: number; groupBy: "day" | "model" | "workspace" | "session" }): UsageRow[] {
+		if (this.core.ledger) {
+			this.core.ledger.importHistory();
+			return this.core.ledger.summary({ ...options, period: options.groupBy === "day" ? "day" : "all", groupBy: options.groupBy === "day" ? "all" : options.groupBy }).rows.map((r) => ({ key: options.groupBy === "day" ? r.period : r.key, label: r.key, input: r.input, output: r.output, cacheRead: r.cacheRead, cacheWrite: r.cacheWrite, cost: r.amounts.USD ?? 0, responses: r.requests }));
+		}
 		const since = options.since ?? 0;
 		const until = options.until ?? Number.MAX_SAFE_INTEGER;
 		const rows = this.db.all<{ at: number; cwd: string | null; provider: string | null; model: string | null; path: string; input: number; output: number; cache_read: number; cache_write: number; cost: number }>(

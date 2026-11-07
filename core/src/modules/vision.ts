@@ -84,7 +84,7 @@ export class VisionModule implements CoreModule {
 						{ type: "image", data, mimeType },
 						{ type: "text", text: DESCRIBE_PROMPT },
 					],
-					{ model, maxTokens: 2048, timeoutMs: 120_000 },
+					{ model, maxTokens: 2048, timeoutMs: 120_000, context: { purpose: "vision" } },
 				);
 				if (signal?.aborted || !text.trim()) return null;
 				const label = model.name ?? `${model.provider}/${model.id}`;

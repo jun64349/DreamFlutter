@@ -343,11 +343,11 @@ export class RunStore {
 		this.db.run("UPDATE runs SET acknowledged = 1 WHERE id = ?", id);
 	}
 
-	/** Cost of runs started since [since] (epoch ms). */
+	/** Request-time USD amounts only; run summaries never participate in money statistics. */
 	costSince(since: number, filter: { unattendedOnly?: boolean } = {}): number {
 		const sql = filter.unattendedOnly
-			? "SELECT COALESCE(SUM(runs.cost), 0) AS total FROM runs JOIN tasks ON tasks.id = runs.task_id WHERE runs.started_at >= ? AND tasks.source = 'schedule'"
-			: "SELECT COALESCE(SUM(cost), 0) AS total FROM runs WHERE started_at >= ?";
+			? "SELECT COALESCE(SUM(l.amount),0) total FROM request_ledger l JOIN runs r ON r.id=l.run_id JOIN tasks t ON t.id=r.task_id WHERE l.requested_at>=? AND l.currency='USD' AND t.source='schedule'"
+			: "SELECT COALESCE(SUM(amount),0) total FROM request_ledger WHERE requested_at>=? AND currency='USD'";
 		try {
 			return Number(this.db.get<{ total: number }>(sql, since)?.total ?? 0);
 		} catch {
