@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-a
 import type { Core, CoreModule } from "../core.ts";
 import { requireStr } from "../core.ts";
 import { readZip } from "../cards/zip.ts";
+import { redact } from "../security/redaction.ts";
 
 /**
  * Documents dropped into a chat (plan §C3): PDF, Word, Excel, PowerPoint and
@@ -299,13 +300,14 @@ export class DocumentsModule implements CoreModule {
 						const { resolve } = await import("node:path");
 						const path = resolve(ctx?.cwd ?? process.cwd(), params.path);
 						const doc = await module.convert(path);
+						const safeText = redact(doc.text);
 						const start = Math.max(0, Math.round(params.start_index ?? 0));
 						const max = Math.min(60_000, Math.max(1000, Math.round(params.max_chars ?? 20_000)));
-						const slice = doc.text.slice(start, start + max);
-						const rest = doc.text.length - start - slice.length;
+						const slice = safeText.slice(start, start + max);
+						const rest = safeText.length - start - slice.length;
 						const header = `${doc.name}（${KIND_LABEL[doc.kind]}${doc.parts ? `，${doc.parts} ${doc.kind === "pdf" ? "页" : doc.kind === "xlsx" ? "个工作表" : "页幻灯片"}` : ""}，共 ${doc.chars} 字${start ? `，从第 ${start} 字开始` : ""}）`;
 						const footer = rest > 0 ? `\n\n…还有 ${rest} 字，继续读取用 start_index=${start + slice.length}。` : "";
-						return { content: [{ type: "text", text: `${header}\n\n${slice}${footer}` }], details: { path, chars: doc.chars, start } };
+						return { content: [{ type: "text", text: `${header}\n\n${slice}${footer}` }], details: { path, chars: doc.chars, start, securityRedacted: safeText !== doc.text } };
 					},
 				});
 			},

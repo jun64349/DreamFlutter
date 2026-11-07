@@ -4,6 +4,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Core } from "../core.ts";
 import { classifyFailure, isChannelFailure } from "../gateway/classify.ts";
 import { textOf } from "../runs.ts";
+import { withLedgerContext, type LedgerContext } from "../ledger/types.ts";
 
 /**
  * One-off model calls the core makes for itself (titles, memory extraction,
@@ -22,7 +23,7 @@ export class Llm {
 		this.runtimeOverride = runtimeOverride;
 	}
 
-	async runtime(signal?: AbortSignal): Promise<ModelRuntime> {
+	async runtime(signal?: AbortSignal, withGateway = true): Promise<ModelRuntime> {
 		const runtime = this.runtimeOverride
 			? this.runtimeOverride()
 			: await ModelRuntime.create({
@@ -33,7 +34,8 @@ export class Llm {
 		// A memory shutdown deadline may expire while runtime initialization is pending.
 		// Do not attach gateway handlers (which use the DB) after the caller detached.
 		signal?.throwIfAborted();
-		this.extendRuntime?.(runtime);
+		if (withGateway) this.extendRuntime?.(runtime);
+		this.core.ledger?.install(runtime, () => ({ purpose: "auxiliary" }));
 		return runtime;
 	}
 
@@ -45,7 +47,7 @@ export class Llm {
 	async auxModel(runtime?: ModelRuntime, sessionModel?: string | null): Promise<Model<never> | undefined> {
 		const rt = runtime ?? (await this.runtime());
 		const { auxModel, defaultModel } = this.core.settings.get();
-		const available = (await rt.getAvailable()) as Model<never>[];
+		const available = (await rt.getAvailable()).map((m) => this.core.resolveModel(m)) as Model<never>[];
 		for (const key of [auxModel, sessionModel, defaultModel]) {
 			if (!key) continue;
 			const slash = key.indexOf("/");
@@ -58,18 +60,19 @@ export class Llm {
 	/** Sends one user message and returns the text answer. */
 	async complete(
 		prompt: string | ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[],
-		options: { system?: string; model?: Model<never>; sessionModel?: string | null; maxTokens?: number; timeoutMs?: number; runtime?: ModelRuntime } = {},
+		options: { system?: string; model?: Model<never>; sessionModel?: string | null; maxTokens?: number; timeoutMs?: number; runtime?: ModelRuntime; context?: LedgerContext } = {},
 	): Promise<string> {
 		const runtime = options.runtime ?? (await this.runtime());
-		const model = options.model ?? (await this.auxModel(runtime, options.sessionModel));
+		const model = options.model ? this.core.resolveModel(options.model) as Model<never> : (await this.auxModel(runtime, options.sessionModel));
 		if (!model) throw new Error("没有可用的模型");
 		const signal = AbortSignal.timeout(options.timeoutMs ?? 60_000);
-		const ask = () =>
+		this.core.ledger?.install(runtime, () => ({ purpose: "auxiliary" }));
+		const ask = () => withLedgerContext({ purpose: "auxiliary", workspace: null, sessionId: null, runId: null, slotId: null, ...options.context }, () =>
 			runtime.completeSimple(
 				model,
 				{ systemPrompt: options.system, messages: [{ role: "user", content: prompt as never, timestamp: Date.now() }] },
 				{ maxTokens: options.maxTokens ?? 1024, signal } as never,
-			);
+			));
 		let message = await ask();
 		// A model group: when a channel failed before answering anything, it is resting
 		// now, so asking again goes to the next one.

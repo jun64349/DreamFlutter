@@ -163,6 +163,30 @@ void main() {
       agent.dispose();
     });
 
+    test('session relocation updates local discovery and reopens the existing tab from the new root', () async {
+      final before = p.join(sessions.path, 'before');
+      final after = p.join(sessions.path, 'after');
+      Directory(before).createSync(); Directory(after).createSync();
+      final oldPath = p.join(before, 'kept.jsonl');
+      final newPath = p.join(after, 'kept.jsonl');
+      File(oldPath).writeAsStringSync('{}');
+      backend.sessionsDir = before;
+      backend.onLaunch = (pi) => pi.sessionFile = oldPath;
+      final agent = await startController();
+      expect(agent.sessionStore.sessionsDir, before);
+      expect(agent.currentSessionPath, oldPath);
+      File(oldPath).renameSync(newPath);
+      backend.sessionsDir = after;
+      backend.onLaunch = (pi) => pi.sessionFile = pi.target.sessionPath ?? newPath;
+      backend.dropConnection();
+      await pumpEventQueue(times: 50);
+      expect(agent.sessionStore.sessionsDir, after);
+      expect(pis.last.target.sessionPath, newPath);
+      expect(agent.currentSessionPath, newPath);
+      expect(agent.status, ConnectionStatus.ready);
+      agent.dispose();
+    });
+
     test('sessions still running in the core are attached on startup', () async {
       backend = FakeBackend(liveSlots: [
         {'slotId': 'bg-1', 'cwd': Directory.systemTemp.path, 'running': true},

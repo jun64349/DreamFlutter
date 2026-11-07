@@ -433,7 +433,6 @@ export class TasksModule implements CoreModule {
 		if (budget > 0 && this.budgetOverrideDay !== startOfToday()) {
 			// Finished runs are in the database; runs still going only know their cost in memory.
 			let spent = this.core.runs.costSince(startOfToday());
-			for (const s of this.core.slots.values()) spent += s.currentRun?.cost ?? 0;
 			if (spent >= budget) {
 				this.pauseRun(slot, run, "limit_budget", `今天的花费已达到上限（$${spent.toFixed(2)} / $${budget.toFixed(2)}）`, "任务已暂停。可以今天内不再限制并继续，或者到此为止。");
 				return;
@@ -442,7 +441,6 @@ export class TasksModule implements CoreModule {
 		const monthly = settings.monthlyBudgetUsd;
 		if (monthly > 0 && this.budgetOverrideMonth !== startOfMonth()) {
 			let spent = this.core.runs.costSince(startOfMonth());
-			for (const s of this.core.slots.values()) spent += s.currentRun?.cost ?? 0;
 			if (spent >= monthly) {
 				this.pauseRun(slot, run, "limit_budget_month", `本月的花费已达到上限（$${spent.toFixed(2)} / $${monthly.toFixed(2)}）`, "任务已暂停。可以本月内不再限制并继续，或者到此为止。");
 			}

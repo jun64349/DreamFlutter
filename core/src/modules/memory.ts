@@ -1,4 +1,6 @@
 import { existsSync } from "node:fs";
+import { dirname } from "node:path";
+import { DEFAULT_MIN_FREE_BYTES, MemorySpaceGuard } from "../storage/memory-maintenance.ts";
 import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
@@ -96,6 +98,9 @@ export class MemoryModule implements CoreModule {
 	private readonly db: Db;
 	private readonly llm: Llm;
 	readonly store: MemoryStore;
+	readonly space: MemorySpaceGuard;
+	private spaceTimer: NodeJS.Timeout | undefined;
+	private spacePaused: boolean | undefined;
 	readonly workspaces: Workspaces;
 	/** Session id → refresh the snapshot at the next prompt. */
 	private readonly refreshRequested = new Set<string>();
@@ -123,6 +128,9 @@ export class MemoryModule implements CoreModule {
 		this.llm = llm;
 		const clock = () => this.clock();
 		this.store = new MemoryStore(core.db, { clock, confirmWrites: () => core.settings.get().memoryConfirmWrites });
+		this.space = new MemorySpaceGuard(dirname(core.paths.dbFile), () =>
+			core.settings.get().memoryMinFreeBytes ?? DEFAULT_MIN_FREE_BYTES);
+		this.store.writeBlocked = () => this.space.status().reason;
 		this.workspaces = new Workspaces(core.db, clock);
 		this.calibration = new TokenCalibration(core.db, clock);
 		this.tasks = new TaskViews(core.db, clock);
@@ -172,6 +180,9 @@ export class MemoryModule implements CoreModule {
 	}
 
 	start(): void {
+		this.checkSpace();
+		this.spaceTimer = setInterval(() => this.checkSpace(), 30_000);
+		this.spaceTimer.unref();
 		this.core.module(TasksModule)?.addInboxSource(() =>
 			this.store.pending().map((p) => ({ kind: "memory", id: p.id, title: pendingText(p), createdAt: p.createdAt, cwd: p.workspaceId ? (this.workspaces.get(p.workspaceId)?.path ?? null) : null })),
 		);
@@ -180,7 +191,18 @@ export class MemoryModule implements CoreModule {
 	}
 
 	async stop(): Promise<void> {
+		if (this.spaceTimer) clearInterval(this.spaceTimer);
 		await this.work.stop();
+	}
+
+	private checkSpace(): void {
+		const status = this.space.status();
+		if (status.paused === this.spacePaused) return;
+		const recovered = this.spacePaused === true && !status.paused;
+		this.spacePaused = status.paused;
+		this.core.broadcast({ event: "memory.storage", ...status });
+		if (status.paused || recovered) this.core.notifier.notify("记忆存储", status.reason ?? "磁盘空间已恢复，记忆写入已继续。");
+		if (recovered) { this.flushDeferred(); this.work.checkSchedule(); void this.work.drain(); }
 	}
 
 	/** Time for everything memory does; tests move it (two weeks, a month, a year: §13). */
@@ -403,7 +425,7 @@ export class MemoryModule implements CoreModule {
 
 	private get background(): boolean {
 		const settings = this.core.settings.get();
-		return settings.memoryEnabled && settings.memoryAutoExtract;
+		return settings.memoryEnabled && settings.memoryAutoExtract && !this.store.writeBlocked() && !this.core.maintenance;
 	}
 
 	/** Whether [itemId] is in a snapshot a live session uses now (16.5's second receipt: 「当前任务已采用」 or not). */
@@ -471,6 +493,7 @@ export class MemoryModule implements CoreModule {
 
 	/** A persisted user entry, rather than an RPC request or model-call count, owns preparation. */
 	async prepareMessage(slot: Slot, model?: { contextWindow: number; maxTokens: number; provider?: string; id?: string }, nonMemory = 0): Promise<void> {
+		if (this.store.writeBlocked() || this.core.maintenance) return;
 		const sessionId = slot.session.sessionId;
 		const branch = slot.session.sessionManager.getBranch();
 		const user = [...branch].reverse().find(e => e.type === "message" && e.message.role === "user");
@@ -791,6 +814,7 @@ export class MemoryModule implements CoreModule {
 	 * incognito (it touches no memory at all).
 	 */
 	onSlotEvent(slot: Slot, event: AgentSessionEvent): void {
+		if (this.store.writeBlocked()) return;
 		if (slot.isSideConversation) return;
 		if (event.type === "message_end") {
 			const message = event.message as { role?: string; provider?: string; model?: string; usage?: { input?: number; cacheRead?: number; cacheWrite?: number } };
@@ -855,7 +879,7 @@ export class MemoryModule implements CoreModule {
 		const settings = this.core.settings.get();
 		if (settings.memoryEnabled && !slot.incognito && !slot.unattended) this.checkClaim(slot, run);
 		else this.runSaves.delete(slot.slotId);
-		if (!settings.memoryEnabled || !settings.memoryAutoExtract || slot.incognito || slot.unattended) return;
+		if (!settings.memoryEnabled || !settings.memoryAutoExtract || slot.incognito || slot.unattended || this.store.writeBlocked() || this.core.maintenance) return;
 		// 16.6: a 「只读记忆」 or 「不记忆」 session is never extracted from.
 		if (this.sessionMode(slot.session.sessionId) !== "normal") return;
 		const sessionFile = slot.info().sessionFile;

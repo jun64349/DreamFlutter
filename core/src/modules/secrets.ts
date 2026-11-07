@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rememberSecret } from "../security/redaction.ts";
+import { storageLocations } from "../storage/locations.ts";
 
 /**
  * API keys encrypted with Windows DPAPI (bound to the current Windows user),
@@ -13,6 +15,7 @@ export class SecretStore {
 
 	constructor(dataDir: string) {
 		this.dir = join(dataDir, "secrets");
+		this.dir = storageLocations(dataDir).secrets;
 	}
 
 	fileFor(name: string): string {
@@ -24,6 +27,7 @@ export class SecretStore {
 		mkdirSync(this.dir, { recursive: true });
 		const file = this.fileFor(name);
 		writeFileSync(file, await dpapi("protect", secret), "utf8");
+		rememberSecret(secret);
 		return keyCommand(file);
 	}
 
@@ -33,7 +37,9 @@ export class SecretStore {
 
 	async get(name: string): Promise<string> {
 		const { readFileSync } = await import("node:fs");
-		return dpapi("unprotect", readFileSync(this.fileFor(name), "utf8").trim());
+		const secret = await dpapi("unprotect", readFileSync(this.fileFor(name), "utf8").trim());
+		rememberSecret(secret);
+		return secret;
 	}
 }
 

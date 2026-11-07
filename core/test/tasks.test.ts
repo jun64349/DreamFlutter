@@ -146,6 +146,8 @@ describe("tasks and the desk", () => {
 	it("the daily budget stops runs until the user overrides it for the day", async () => {
 		t.core.settings.update({ dailyBudgetUsd: 0.01 });
 		t.core.db.run("INSERT INTO runs(id, cwd, status, started_at, cost) VALUES('old', ?, 'done', ?, 1)", t.workspace, Date.now());
+		const charged = t.core.ledger!.begin(t.core.slots.get("s1")!.session.model!);
+		t.core.ledger!.finish(charged, t.core.slots.get("s1")!.session.model!, { ...fauxAssistantMessage("synthetic prior request"), usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }, { actual: 1, currency: "USD" });
 		t.respond(fauxAssistantMessage("不该出现"));
 		await prompt("花钱的任务");
 		const [notice] = (await t.core.call("notices.list", {})) as Notice[];
@@ -157,6 +159,8 @@ describe("tasks and the desk", () => {
 	it("the monthly budget stops runs on its own notice, which lifts only the monthly cap", async () => {
 		t.core.settings.update({ dailyBudgetUsd: 100, monthlyBudgetUsd: 0.5 });
 		t.core.db.run("INSERT INTO runs(id, cwd, status, started_at, cost) VALUES('old', ?, 'done', ?, 1)", t.workspace, Date.now());
+		const charged = t.core.ledger!.begin(t.core.slots.get("s1")!.session.model!);
+		t.core.ledger!.finish(charged, t.core.slots.get("s1")!.session.model!, { ...fauxAssistantMessage("synthetic prior request"), usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }, { actual: 1, currency: "USD" });
 		t.respond(fauxAssistantMessage("不该出现"));
 		await prompt("花钱的任务");
 		const [notice] = (await t.core.call("notices.list", {})) as Notice[];

@@ -10,13 +10,20 @@ import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'memory_settings.dart';
+import 'model_settings.dart';
 import 'composer.dart' show agentModeHints, agentModeNames;
 import 'dashboard_page.dart';
 import 'gateway_pages.dart';
 import 'mcp_page.dart';
 import 'backup_panel.dart';
+import 'data_storage_panel.dart';
 import 'sandbox_panel.dart';
+import 'security_panel.dart';
+import 'web_search_panel.dart';
+import 'package_sources_panel.dart';
+import 'about_panel.dart';
 import 'providers_page.dart';
+import 'pi_compatibility_panel.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 import 'zoom.dart';
 
@@ -150,15 +157,15 @@ class _SettingsPageState extends State<SettingsPage> {
             '新会话默认思考级别 思考',
             _Row(
               title: '新会话默认思考级别',
-              subtitle: '越高越仔细，但更慢、更贵',
+              subtitle: '默认使用中等，按模型支持范围自动调整；也可指定档位',
               trailing: PopupMenuButton<String>(
                 tooltip: '选择默认思考级别',
-                enabled: defaultLevels.isNotEmpty,
                 onSelected: agent.setDefaultThinkingLevel,
                 itemBuilder: (_) => [
+                  CheckedPopupMenuItem(value: '', checked: agent.defaultThinkingLevel == null, child: const Text('默认（中等，按模型支持范围自动调整）')),
                   for (final level in defaultLevels) CheckedPopupMenuItem(value: level, checked: level == agent.defaultThinkingLevel, child: Text(_levelNames[level] ?? level)),
                 ],
-                child: _ValueChip(text: _levelNames[agent.defaultThinkingLevel] ?? '跟随 Pi'),
+                child: _ValueChip(text: _levelNames[agent.defaultThinkingLevel] ?? '默认（中等）'),
               ),
             ),
           ),
@@ -191,11 +198,12 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ]),
+        _Group([const _Entry('上下文 窗口 tokens 模型 覆盖', ModelWindowSetting())]),
         _Group(title: '渠道', [
           _Entry('渠道 服务商 api key 接口 deepseek 智谱 kimi minimax 中转 编程套餐', const Padding(padding: EdgeInsets.symmetric(horizontal: AppTokens.padLg, vertical: AppTokens.gap), child: ChannelList())),
           _Entry(
             'Pi 配置 服务商 凭证',
-            _Hint('「来自 Pi 配置」的渠道是你在 Pi 里配好的服务商，Key 留在 Pi 的配置文件里（${p.join(core['agentDir'] as String? ?? SessionStore.defaultAgentDir(), 'models.json')}）。在这里新加的渠道存在 DreamFlutter 里，Key 用你的 Windows 账户加密保存。'),
+            const PiCompatibilityPanel(),
           ),
         ]),
         _Group(title: '模型组', [
@@ -329,6 +337,9 @@ class _SettingsPageState extends State<SettingsPage> {
           const _Entry('审批', _Hint('审批在后台完成，修改后立即生效；关掉窗口后，后台任务的确认请求会以系统通知提醒你。')),
           const _Entry('总是允许 工具 工作区', _ToolRules()),
         ]),
+        _Group([const _Entry('路径例外 敏感路径 安全审计 查询 导出 90天', SecurityPanel())]),
+        _Group([const _Entry('安全 免审批 命令 限制', _Hint('免审批模式仍会对命令中直接出现的拒绝类路径请求批准。其他模式只自动允许已证明安全的 PowerShell 字面量命令；未知命令、别名、动态表达式和嵌套 cmd/bash 需要批准。应用层路径过滤管不住已获批准的任意 shell 命令，不承诺绝对安全。'))]),
+        _Group(title: '蝶君沙箱', [const _Entry('安全 沙箱 WSL 联网 离线 重置 自检 逃逸', SandboxPanel())]),
       ]),
       _Category('运行上限', Icons.speed_outlined, [
         _Group([
@@ -382,6 +393,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const _Entry('网页读取 web_fetch', _Row(title: '网页读取', subtitle: 'Agent 可以用 web_fetch 读取网页内容。只读，不需要审批。')),
         ]),
+        _Group([const _Entry('联网搜索 DeepSeek 官方密钥 网页抓取 web_search web_fetch 费用估算', WebSearchPanel())]),
+        _Group([const _Entry('软件源 镜像 Python pip uv PyPI TUNA USTC npm npmmirror 项目配置', PackageSourcesPanel())]),
       ]),
       _Category('数据与迁移', Icons.folder_outlined, [
         _Group([
@@ -396,9 +409,11 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           _Entry('后台数据 数据库', _InfoRow('后台数据', core['dataDir'] as String? ?? '未知')),
         ], title: '存放位置'),
+        _Group([const _Entry('数据位置 搬迁 修改位置 会话 数据库 配置 密钥 日志 技能 模板 卡片 缓存 沙箱 产物 记忆占用 压缩历史 磁盘空间 暂停写入 阈值', DataStoragePanel())], title: '数据与存储'),
         _Group([const _Entry('备份 迁移 恢复 导出 导入 撤销 换电脑 升级', BackupPanel())], title: '备份与恢复'),
       ]),
       _Category('关于', Icons.info_outline, [
+        _Group([_Entry('版本更新 检查更新 更新日志 诊断 反馈 许可证 第三方 开机启动 关闭窗口', AboutPanel(openData: () => setState(() => _selected = '数据与迁移')))]),
         _Group([
           _Entry('版本 关于', _InfoRow('DreamFlutter', 'v$appVersion')),
           _Entry('后台服务 版本', _InfoRow('后台服务', core.isEmpty ? '未连接' : 'v${core['version']}（进程 ${core['pid']}）')),

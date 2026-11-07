@@ -1,4 +1,5 @@
 import type { CompactionHooks } from "./agent/background-compaction.ts";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -17,11 +18,19 @@ import { createSessionRuntime, isProjectTrusted, recordedSandbox, type PiHostCon
 import { isSideFile } from "./pi/session-metadata.ts";
 import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
+import { SecurityService } from "./security/service.ts";
 import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
+import type { WebTools } from "./web/types.ts";
+import { currentToolEnvironment, withToolEnvironment, type ToolEnvironmentProvider } from "./agent/tool-environment.ts";
+import type { Ledger } from "./ledger/ledger.ts";
 
 export const CORE_VERSION = "0.5.0";
 
 export interface CoreOptions {
+	updates?: import("./update/module.ts").UpdateOptions;
+	piMigration?: import("./gateway/pi-migration.ts").PiMigrationOptions;
+	/** Test-only transport/limits for the independent official web tools. */
+	webSearch?: import("./web/deepseek.ts").DeepSeekWebOptions;
 	paths: CorePaths;
 	agentDir: string;
 	sessionDir?: string;
@@ -116,6 +125,7 @@ export class Core {
 	readonly log: Logger;
 	readonly notifier: Notifier;
 	readonly settings: SettingsStore;
+	readonly security: SecurityService;
 	readonly confirmations: ConfirmationStore;
 	readonly runs: RunStore;
 	readonly paths: CorePaths;
@@ -142,8 +152,18 @@ export class Core {
 	/** Core-owned tools that never need approval (memory, desk bookkeeping...). */
 	private readonly exemptTools = new Set<string>();
 	private readonly hostConfig: PiHostConfig;
+	/** Independent Search/Fetch adapter, supplied by the web-search module. */
+	webTools?: WebTools;
+	ledger?: Ledger;
+	/** Captured by tool shells at session creation; no harness or search policy changes. */
+	toolEnvironment?: ToolEnvironmentProvider;
 	/** Set by the context module: its part in each session's compactions (roadmap 5.12). */
 	compactionHooks: ((slot: { slotId: string }) => CompactionHooks | undefined) | undefined;
+	/** Gateway supplies effective model metadata without rewriting Pi's source files. */
+	resolveModel: (model: Model<Api>) => Model<Api> = (model) => model;
+	/** Historical model recovery uses the model entry's time, never the session file's creation time. */
+	restoreSessionModel?: (ref: string, runtime: ModelRuntime, recordedAt?: number) => Model<Api> | undefined;
+	modelWindow: (model: Model<Api>) => number | null = (model) => model.contextWindow || null;
 	/** Slots whose runtime is still starting (possibly waiting on the trust prompt). */
 	private readonly opening = new Map<string, Slot>();
 	/** Session files being opened (normalized path → the open in progress). */
@@ -156,6 +176,10 @@ export class Core {
 	readonly backupParts: BackupPart[] = [];
 	/** Set while a backup copies the data: no new runs start (schedules wait, prompts are refused). */
 	maintenance: string | undefined;
+	/** Update-only admission/validation hooks, installed by the independent update module. */
+	beforeRpc?: (method: string) => void;
+	beforeOpenSlot?: () => void;
+	beforeModuleStart?: () => void;
 	private readonly shutdownListeners: (() => void)[] = [];
 
 	constructor(options: CoreOptions) {
@@ -167,6 +191,7 @@ export class Core {
 		mkdirSync(options.paths.dataDir, { recursive: true });
 		this.db = new Db(options.paths.dbFile);
 		this.settings = new SettingsStore(this.db);
+		this.security = new SecurityService(this);
 		this.confirmations = new ConfirmationStore(this.db);
 		this.runs = new RunStore(this.db);
 		this.interruptedAtStartup = this.runs.interruptOrphans();
@@ -175,6 +200,13 @@ export class Core {
 			this.log.info(`recovered: ${this.interruptedAtStartup.length} interrupted run(s), ${expired} expired dialog(s)`);
 		}
 		this.hostConfig = {
+			ledger: () => this.ledger,
+			ledgerContext: (slot) => ({ purpose: "conversation", slotId: slot.slotId, runId: this.slotOrOpening(slot.slotId)?.currentRun?.id, workspace: this.slotOrOpening(slot.slotId)?.info().cwd }),
+			restoreSessionModel: (ref, runtime, recordedAt) => this.restoreSessionModel?.(ref, runtime, recordedAt),
+			webTools: () => this.webTools,
+			toolEnvironment: () => this.toolEnvironment,
+			security: this.security,
+			securityContext: (slot) => ({ slotId: slot.slotId, runId: this.slotOrOpening(slot.slotId)?.currentRun?.id }),
 			pendingSessionFiles: this.pendingSessionFiles,
 			agentDir: options.agentDir,
 			sessionDir: options.sessionDir,
@@ -221,6 +253,8 @@ export class Core {
 	openSubagentRuntime(parentSlotId: string, childId: string, cwd: string, ui: Slot["ui"], sandbox = false): Promise<AgentSessionRuntime> {
 		const config: PiHostConfig = {
 			...this.hostConfig,
+			ledgerContext: () => ({ purpose: "subagent", slotId: childId, runId: this.slotOrOpening(parentSlotId)?.currentRun?.id, workspace: cwd }),
+			securityContext: () => ({ slotId: childId, runId: this.slotOrOpening(parentSlotId)?.currentRun?.id }),
 			extensions: () => [
 				this.approval(parentSlotId),
 				...this.modules.filter((m) => m.forSubagents).flatMap((m) => m.extensions?.({ slotId: parentSlotId, sideConversation: this.slots.get(parentSlotId)?.isSideConversation }) ?? []),
@@ -229,7 +263,7 @@ export class Core {
 			agentStateChanged: undefined,
 			harnessControls: undefined,
 		};
-		return createSessionRuntime(config, { slotId: childId }, ui, { cwd, inMemory: true, sandbox });
+		return createSessionRuntime(config, { slotId: childId }, ui, { cwd, inMemory: true, sandbox, unattended: this.slotOrOpening(parentSlotId)?.unattended });
 	}
 
 	/** Set by the sandbox module once 蝶君's sandbox is set up. */
@@ -258,7 +292,7 @@ export class Core {
 	}
 
 	async start(): Promise<void> {
-		for (const module of this.modules) await module.start?.();
+		for (const module of this.modules) { this.beforeModuleStart?.(); await module.start?.(); this.beforeModuleStart?.(); }
 		this.reaper = setInterval(() => void this.reapIdle(), 60_000);
 		this.reaper.unref();
 	}
@@ -281,6 +315,7 @@ export class Core {
 	}
 
 	async call(method: string, params: Params, client?: Client): Promise<unknown> {
+		this.beforeRpc?.(method);
 		const handler = this.methods.get(method);
 		if (!handler) throw new RpcError("unknown_method", `Unknown method: ${method}`);
 		return handler(params ?? {}, client);
@@ -328,6 +363,9 @@ export class Core {
 	 * [sessionFile] open (two runtimes on one file would corrupt it).
 	 */
 	async openSlot(options: OpenSlotOptions): Promise<Slot> {
+		this.beforeOpenSlot?.();
+		if (this.toolEnvironment && (currentToolEnvironment()?.provider !== this.toolEnvironment || currentToolEnvironment()?.workspace !== options.cwd))
+			return withToolEnvironment({ provider: this.toolEnvironment, workspace: options.cwd }, () => this.openSlot(options));
 		if (this.stopped) throw new RpcError("unavailable", "后台正在退出");
 		if (options.slotId && this.isSlotClosing(options.slotId)) throw new RpcError("conflict", "会话正在关闭，请稍后重试");
 		if (options.taskId && options.sessionFile) this.assertTaskSession(options.sessionFile);
@@ -423,11 +461,12 @@ export class Core {
 			const model = session.modelRuntime
 				.getAvailableSnapshot()
 				.find((m) => m.provider === defaultModel.slice(0, slash) && m.id === defaultModel.slice(slash + 1));
-			if (model) await session.setModel(model);
+			if (model) await session.setModel(this.resolveModel(model));
 			else this.log.warn(`default model ${defaultModel} is not available`);
 		}
 		// Pi clamps a level the model lacks to the nearest one it has (deepseek-v4.1-flash cannot turn thinking off).
-		if (defaultThinking) session.setThinkingLevel(defaultThinking as never);
+		// Pi's default recommendation is medium, clamped to the model's supported levels.
+		session.setThinkingLevel((defaultThinking ?? "medium") as never);
 	}
 
 	private slotOrOpening(slotId: string): Slot | undefined {
@@ -484,6 +523,8 @@ export class Core {
 
 	private slotHooks(): SlotHooks {
 		return {
+			resolveModel: (model) => this.resolveModel(model),
+			modelWindow: (model) => this.modelWindow(model),
 			record: (slotId, record) => {
 				const message = { event: "slot.record", slotId, record };
 				for (const client of this.clients) if (client.attached.has(slotId)) client.send(message);
@@ -539,6 +580,7 @@ export class Core {
 
 	private approval(slotId: string): ExtensionFactory {
 		return approvalExtension({
+			audit: (tool, decision, reason, requestId) => this.security.audit.record("approval", tool, decision, reason, { slotId, runId: this.slotOrOpening(slotId)?.currentRun?.id, requestId }),
 			// Modules decide first (a scheduled run restricts even core-exempt tools).
 			override: (tool, input) => {
 				const slot = this.slots.get(slotId) ?? this.opening.get(slotId);
@@ -571,6 +613,7 @@ export class Core {
 			dataDir: this.paths.dataDir,
 			butterflyHome: this.paths.butterflyDir,
 			agentDir: this.agentDir,
+			sessionDir: this.sessionDir ?? join(this.agentDir, "sessions"),
 			slots: [...this.slots.values()].map((s) => s.info()),
 			settings: this.settings.get(),
 			interruptedRuns: this.runs.unacknowledgedInterrupted(),

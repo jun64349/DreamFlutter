@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { type Api, type AssistantMessage, type AssistantMessageEvent, type AssistantMessageEventStream, createAssistantMessageEventStream, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { existsSync } from "node:fs";
+import { basename, resolve } from "node:path";
+import { secretFileOf } from "../modules/secrets.ts";
+import { piApi, piPresets } from "./pi-presets.ts";
+import { REQUEST_LEDGER_ID } from "../ledger/types.ts";
+import { type Api, type AssistantMessage, type AssistantMessageEvent, type AssistantMessageEventStream, clampThinkingLevel, createAssistantMessageEventStream, getSupportedThinkingLevels, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -8,7 +13,7 @@ import { num, RpcError, requireStr, str } from "../core.ts";
 import { json, now, parseJson } from "../db.ts";
 import type { Providers } from "../modules/providers.ts";
 import { classifyFailure, FAILURE_LABEL, type FailureKind, isChannelFailure } from "./classify.ts";
-import { catalogModel, describeCatalogModel, levelMap } from "./catalog.ts";
+import { catalogModel, describeCatalogModel, levelMap, selectedLevelMap, THINKING_LEVELS } from "./catalog.ts";
 import { HealthBook } from "./health.ts";
 import { type QuotaReading, readQuota } from "./quota.ts";
 import { type ChannelApi, type ChannelKind, hostOf, PLATFORMS, platform, platformForUrl } from "./platforms.ts";
@@ -27,6 +32,8 @@ const QUOTA_INTERVAL_MS = 10 * 60_000;
 const OPENCODE_SESSION = "x-opencode-session";
 
 export interface ChannelModel {
+	/** Complete Pi model metadata retained through import and editing. */
+	[key: string]: unknown;
 	id: string;
 	name?: string;
 	reasoning?: boolean;
@@ -36,6 +43,8 @@ export interface ChannelModel {
 	cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
 	/** The model's own thinking values, from the model list (e.g. low/high/max). */
 	efforts?: string[];
+	/** User-confirmed capabilities for models absent from the catalog. */
+	thinkingLevels?: string[];
 }
 
 export interface ChannelKeyInfo {
@@ -48,6 +57,8 @@ export interface ChannelKeyInfo {
 }
 
 export interface ChannelInfo {
+	origin?: string;
+	oauth?: boolean;
 	id: string;
 	/** "df": stored here; "pi": a provider configured in Pi (keys stay in Pi's files). */
 	source: "df" | "pi";
@@ -93,6 +104,8 @@ export interface GroupInput {
 }
 
 export interface ChannelStatus {
+	quotaError?: Extract<QuotaReading, { type: "error" }> | null;
+	localUsage?: { label: string; allowance: Record<string, number>; amounts: Record<string, number>; amountSources: Record<string, number> };
 	id: string;
 	name: string;
 	kind: ChannelKind;
@@ -165,6 +178,8 @@ interface Registered {
  * groups are Pi virtual models routed by [pickEntry].
  */
 export class Gateway implements CoreModule {
+	configChanged?: () => Promise<unknown>;
+	async refreshConfiguration(): Promise<void> { await this.refreshPiChannels(); }
 	/** Subagents pick channel models and model groups like any session. */
 	readonly forSubagents = true;
 	private readonly core: Core;
@@ -177,6 +192,7 @@ export class Gateway implements CoreModule {
 	readonly health: HealthBook;
 	/** Channels from Pi's own configuration, refreshed when providers change. */
 	private piChannels: ChannelInfo[] = [];
+	private readonly piWindows = new Map<string, number | null>();
 	/** What each session's extension API has registered (kept current on changes). */
 	private readonly targets = new Map<Target, Registered>();
 	/** What a model runtime used outside sessions has registered. */
@@ -206,6 +222,11 @@ export class Gateway implements CoreModule {
 		this.fetch = options.fetch ?? fetch;
 		this.health = new HealthBook(this.clock);
 		providers.onChanged(() => void this.refreshPiChannels());
+		core.resolveModel = (model) => this.resolveModel(model);
+		core.modelWindow = (model) => this.window(model.provider, model.id, model.contextWindow) === null ? null : model.contextWindow;
+		core.settings.onChange((_settings, keys) => {
+			if (keys.includes("modelContextWindows")) this.changed();
+		});
 		this.register();
 	}
 
@@ -283,11 +304,12 @@ export class Gateway implements CoreModule {
 				}
 			}
 		} else if (reading.type === "balance") {
-			if (reading.amount <= 0) for (const key of keys) this.health.fail(key, "balance", "余额为 0");
+			const balances = reading.balances ?? [reading];
+			if (balances.every((b) => b.amount !== null && b.amount <= 0)) for (const key of keys) this.health.fail(key, "balance", "所有货币余额均为 0");
 			else this.health.clearQuota(keys[0]!);
 			const low = channel.lowBalance;
 			const wasAbove = previous?.type !== "balance" || low === null || previous.amount >= low;
-			if (low !== null && reading.amount < low && wasAbove) this.alert(`${channel.name} 余额不足`, `剩余 ${reading.amount.toFixed(2)} ${reading.currency}，低于你设的 ${low}`);
+			if (balances.length === 1 && low !== null && reading.amount < low && wasAbove) this.alert(`${channel.name} 余额不足`, `剩余 ${reading.amount.toFixed(2)} ${reading.currency}，低于你设的 ${low}`);
 		}
 	}
 
@@ -298,25 +320,30 @@ export class Gateway implements CoreModule {
 
 	private reading(channelId: string): QuotaReading | undefined {
 		const row = this.core.db.get<{ data: string }>("SELECT data FROM gateway_quota WHERE channel = ?", channelId);
-		return row ? parseJson<QuotaReading | undefined>(row.data, undefined) : undefined;
+		const value = row ? parseJson<QuotaReading | undefined>(row.data, undefined) : undefined;
+		if (value?.type === "balance" && (!Number.isFinite(value.amount) || value.amount < 0)) return undefined;
+		if (value?.type === "plan" && value.windows.some((w) => typeof w.usedPercent !== "number" || !Number.isFinite(w.usedPercent) || w.usedPercent < 0 || w.usedPercent > 100)) return undefined;
+		return value;
 	}
 
 	/** What the dashboard shows per channel: state, allowance or balance, today's traffic, last error. */
 	status(): ChannelStatus[] {
 		const time = this.clock();
 		const dayStart = new Date(time).setHours(0, 0, 0, 0);
+		const locals = new Map((this.core.ledger?.summary({ period: "all", groupBy: "channel" }).rows ?? []).map((row) => [row.key, row]));
 		return this.channels().map((channel) => {
 			const today = this.core.db.get<{ requests: number; failures: number; cost: number; ttft: number | null }>(
-				"SELECT COUNT(*) AS requests, SUM(ok = 0 AND error_kind IS NOT NULL) AS failures, COALESCE(SUM(cost), 0) AS cost, AVG(ttft_ms) AS ttft FROM gateway_requests WHERE channel = ? AND at >= ?",
+				"SELECT COUNT(*) AS requests, SUM(success = 0) AS failures, COALESCE(SUM(CASE WHEN currency='USD' THEN amount END),0) AS cost, AVG(ttft_ms) AS ttft FROM request_ledger WHERE channel = ? AND requested_at >= ?",
 				channel.id,
 				dayStart,
 			)!;
 			const recent = this.core.db.get<{ requests: number; tokens: number }>(
-				"SELECT COUNT(*) AS requests, COALESCE(SUM(input + output + cache_read + cache_write), 0) AS tokens FROM gateway_requests WHERE channel = ? AND at >= ?",
+				"SELECT COUNT(*) AS requests, COALESCE(SUM(input + output + cache_read + cache_write), 0) AS tokens FROM request_ledger WHERE channel = ? AND requested_at >= ?",
 				channel.id,
 				time - 5 * 3_600_000,
 			)!;
-			const spent = this.core.db.get<{ cost: number }>("SELECT COALESCE(SUM(cost), 0) AS cost FROM gateway_requests WHERE channel = ?", channel.id)!.cost;
+			const spent = this.core.db.get<{ cost: number }>("SELECT COALESCE(SUM(amount),0) AS cost FROM request_ledger WHERE channel=? AND currency='USD'", channel.id)!.cost;
+			const local = locals.get(channel.id);
 			const lastError = this.core.db.get<{ at: number; kind: string; message: string }>(
 				"SELECT at, error_kind AS kind, error AS message FROM gateway_requests WHERE channel = ? AND ok = 0 AND error_kind IS NOT NULL ORDER BY at DESC LIMIT 1",
 				channel.id,
@@ -329,11 +356,13 @@ export class Gateway implements CoreModule {
 				source: channel.source,
 				unavailable: channel.unavailable,
 				quota: this.reading(channel.id) ?? this.quotaErrors.get(channel.id) ?? null,
+				quotaError: this.quotaErrors.get(channel.id) as Extract<QuotaReading, { type: "error" }> | undefined ?? null,
+				localUsage: { label: "本机累计用量（估算）", allowance: local?.allowance ?? {}, amounts: local?.amounts ?? {}, amountSources: local?.amountSources ?? {} },
 				canQuery: platform(channel.platform)?.quota !== undefined,
 				today: { requests: Number(today.requests), failures: Number(today.failures ?? 0), cost: today.cost, avgFirstTokenMs: today.ttft === null ? null : Math.round(today.ttft) },
 				last5h: { requests: Number(recent.requests), tokens: Number(recent.tokens) },
 				spent,
-				remaining: channel.topUp === null ? null : channel.topUp - spent,
+				remaining: channel.kind === "plan" || channel.topUp === null ? null : channel.topUp - spent,
 				lastError: lastError ? { at: lastError.at, kind: lastError.kind, message: lastError.message } : null,
 			};
 		});
@@ -345,6 +374,7 @@ export class Gateway implements CoreModule {
 		const rows = this.core.db.all<ChannelRow>("SELECT * FROM gateway_channels ORDER BY sort, created_at");
 		const keys = this.core.db.all<KeyRow>("SELECT * FROM gateway_keys ORDER BY sort, created_at");
 		const own = rows.map((row): ChannelInfo => {
+			const imported = this.core.db.raw.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pi_channel_map'").get() ? this.core.db.get<{ source: string }>("SELECT source FROM pi_channel_map WHERE channel_id=?", row.id) : undefined;
 			const channelKeys = keys
 				.filter((k) => k.channel_id === row.id)
 				.map((k) => ({
@@ -356,6 +386,7 @@ export class Gateway implements CoreModule {
 				}));
 			const channel: ChannelInfo = {
 				id: row.id,
+				origin: imported?.source,
 				source: "df",
 				provider: channelProvider(row.id),
 				name: row.name,
@@ -384,13 +415,23 @@ export class Gateway implements CoreModule {
 	}
 
 	async saveChannel(input: ChannelInput): Promise<string> {
+		if (this.core.maintenance === "正在迁移 Pi 服务商") throw new RpcError("busy", "Pi 迁移正在进行，请完成后再修改渠道。");
 		const name = input.name?.trim();
 		if (!name) throw new RpcError("bad_request", "请填写渠道名称");
 		const baseUrl = input.baseUrl?.trim().replace(/\/+$/, "");
 		if (!baseUrl || !/^https?:\/\//.test(baseUrl)) throw new RpcError("bad_request", "接口地址需要以 http:// 或 https:// 开头");
-		if (input.api !== "openai-completions" && input.api !== "anthropic-messages") throw new RpcError("bad_request", `不支持的接口类型：${input.api}`);
-		const models = (input.models ?? []).filter((m) => m.id?.trim()).map((m) => ({ ...m, id: m.id.trim() }));
+		if (!piApi(input.api)) throw new RpcError("bad_request", `不支持的接口类型：${input.api}`);
+		const previousModels = input.id ? this.channel(input.id)?.models ?? [] : [];
+		const models = (input.models ?? []).filter((m) => m.id?.trim()).map((m) => ({ ...previousModels.find((old) => old.id === m.id), ...m, id: m.id.trim() }));
 		if (!models.length) throw new RpcError("bad_request", "至少需要一个模型");
+		for (const model of models) {
+			if (model.contextWindow !== undefined && (!Number.isSafeInteger(model.contextWindow) || model.contextWindow <= 0)) throw new RpcError("bad_request", "上下文窗口需要是正整数");
+			const levels = model.thinkingLevels;
+			if (levels !== undefined) {
+				if (!Array.isArray(levels) || !levels.length || new Set(levels).size !== levels.length || levels.some((l) => !THINKING_LEVELS.includes(l as never))) throw new RpcError("bad_request", "请至少选择一个有效的思考档位");
+				model.reasoning = levels.some((l) => l !== "off");
+			}
+		}
 		const id = input.id ?? `c${randomUUID().slice(0, 8)}`;
 		if (input.id && !this.core.db.get("SELECT id FROM gateway_channels WHERE id = ?", input.id)) throw new RpcError("not_found", "找不到这个渠道");
 		const kind = input.kind ?? platform(input.platform)?.kind ?? "relay";
@@ -443,11 +484,13 @@ export class Gateway implements CoreModule {
 		});
 		for (const key of fresh) this.secrets.set(key.id, key.secret);
 		this.health.reset(id);
+		await this.configChanged?.();
 		this.changed();
 		return id;
 	}
 
-	removeChannel(id: string): void {
+	async removeChannel(id: string): Promise<void> {
+		if (this.core.maintenance === "正在迁移 Pi 服务商") throw new RpcError("busy", "Pi 迁移正在进行，请完成后再修改渠道。");
 		if (id.startsWith(PI_PREFIX)) throw new RpcError("bad_request", "来自 Pi 配置的渠道请在「Pi 配置」里删除");
 		for (const key of this.core.db.all<KeyRow>("SELECT * FROM gateway_keys WHERE channel_id = ?", id)) {
 			this.providers.secrets.remove(`gateway-${key.id}`);
@@ -455,6 +498,7 @@ export class Gateway implements CoreModule {
 		}
 		this.core.db.run("DELETE FROM gateway_channels WHERE id = ?", id);
 		this.health.reset(id);
+		await this.configChanged?.();
 		this.changed();
 	}
 
@@ -472,12 +516,15 @@ export class Gateway implements CoreModule {
 	private async refreshPiChannels(): Promise<void> {
 		try {
 			const list = await this.providers.list();
+			this.piWindows.clear();
+			for (const provider of list) for (const model of provider.models) this.piWindows.set(`${provider.id}/${model.id}`, model.contextWindow);
 			this.piChannels = list
-				.filter((p) => p.configured && p.id !== GROUP_PROVIDER && !p.id.startsWith("df-") && p.authSource !== "oauth" && (p.api === "openai-completions" || p.api === "anthropic-messages"))
+				.filter((p) => (p.configured || p.authSource === "oauth") && p.id !== GROUP_PROVIDER && !p.id.startsWith("df-") && !!p.api)
 				.map((p) => {
 					const known = platformForUrl(p.baseUrl);
 					return {
 						id: `${PI_PREFIX}${p.id}`,
+						oauth: p.authSource === "oauth",
 						source: "pi" as const,
 						provider: p.id,
 						name: p.name,
@@ -487,7 +534,7 @@ export class Gateway implements CoreModule {
 						baseUrl: p.baseUrl ?? "",
 						models: p.models.map((m) => ({ id: m.id, name: m.name, reasoning: m.reasoning, input: m.input, contextWindow: m.contextWindow ?? undefined, maxTokens: m.maxTokens ?? undefined, cost: m.cost ?? undefined })),
 						authHeader: false,
-						enabled: true,
+						enabled: p.authSource === "oauth" ? p.configured : true,
 						topUp: null,
 						lowBalance: null,
 						keys: [{ id: "pi", label: p.authSource ?? "Pi 配置", enabled: true, hint: "", unavailable: null }],
@@ -512,6 +559,7 @@ export class Gateway implements CoreModule {
 	}
 
 	saveGroup(input: GroupInput): string {
+		if (this.core.maintenance === "正在迁移 Pi 服务商") throw new RpcError("busy", "Pi 迁移正在进行，请完成后再修改模型组。");
 		const name = input.name?.trim();
 		if (!name) throw new RpcError("bad_request", "请填写模型组名称");
 		const id = input.id ?? `g${randomUUID().slice(0, 8)}`;
@@ -523,7 +571,7 @@ export class Gateway implements CoreModule {
 			weight: Number.isFinite(e.weight) && e.weight > 0 ? e.weight : 0,
 		}));
 		this.core.db.run(
-			`INSERT INTO gateway_groups(id, name, entries, allow_paid_overflow, created_at) VALUES(?, ?, ?, ?, ?)
+			`INSERT INTO gateway_groups(id, name, entries, allow_paid_overflow, created_at, sort) VALUES(?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort), -1) + 1 FROM gateway_groups))
 			 ON CONFLICT(id) DO UPDATE SET name = excluded.name, entries = excluded.entries, allow_paid_overflow = excluded.allow_paid_overflow`,
 			id,
 			name,
@@ -536,8 +584,56 @@ export class Gateway implements CoreModule {
 	}
 
 	removeGroup(id: string): void {
+		if (this.core.maintenance === "正在迁移 Pi 服务商") throw new RpcError("busy", "Pi 迁移正在进行，请完成后再修改模型组。");
 		this.core.db.run("DELETE FROM gateway_groups WHERE id = ?", id);
 		this.changed();
+	}
+
+	reorderGroups(ids: unknown): void {
+		if (this.core.maintenance === "正在迁移 Pi 服务商") throw new RpcError("busy", "Pi 迁移正在进行，请完成后再修改模型组。");
+		const current = this.groups().map((g) => g.id);
+		if (!Array.isArray(ids) || ids.length !== current.length || new Set(ids).size !== current.length || ids.some((id) => typeof id !== "string" || !current.includes(id))) throw new RpcError("bad_request", "模型组列表已变化，请刷新后重试");
+		this.core.db.transaction(() => ids.forEach((id, index) => this.core.db.run("UPDATE gateway_groups SET sort = ? WHERE id = ?", index, id)));
+		this.changed();
+	}
+
+	/** null means unknown. The SDK's existing 128K fallback is only for execution. */
+	window(provider: string, id: string, fallback?: number, sourceOnly = false): number | null {
+		const key = `${provider}/${id}`;
+		const override = this.core.settings.get().modelContextWindows[key];
+		if (!sourceOnly && override !== undefined) return override;
+		if (provider === GROUP_PROVIDER) {
+			const group = this.groups().find((g) => g.id === id);
+			const windows = group?.entries.map((e) => {
+				const channel = this.channel(e.channel);
+				return channel ? this.window(channel.provider, e.model) : null;
+			}) ?? [];
+			return windows.length && windows.every((w) => w !== null) ? Math.min(...windows as number[]) : null;
+		}
+		if (provider.startsWith("df-")) {
+			const channel = this.channel(provider.slice(3));
+			const model = channel?.models.find((m) => m.id === id);
+			return model?.contextWindow ?? catalogModel(platform(channel?.platform)?.catalog, id)?.contextWindow ?? null;
+		}
+		return this.piWindows.has(key) ? this.piWindows.get(key)! : (fallback || null);
+	}
+
+	resolveModel(model: Model<Api>): Model<Api> {
+		const contextWindow = this.executionWindow(model.provider, model.id, model.contextWindow);
+		return contextWindow === model.contextWindow ? model : { ...model, contextWindow };
+	}
+
+	private executionWindow(provider: string, id: string, fallback?: number): number {
+		const known = this.window(provider, id, fallback);
+		if (known !== null) return known;
+		if (provider === GROUP_PROVIDER) {
+			const windows = this.groups().find((g) => g.id === id)?.entries.map((e) => {
+				const channel = this.channel(e.channel);
+				return channel ? this.executionWindow(channel.provider, e.model) : 128_000;
+			}) ?? [];
+			if (windows.length) return Math.min(...windows);
+		}
+		return 128_000;
 	}
 
 	/** The old "自动（主模型 + 备用链）" becomes the group "auto" (same model key, so old sessions keep working). */
@@ -581,6 +677,7 @@ export class Gateway implements CoreModule {
 
 	/** Registers channels and groups on a model runtime used outside sessions (titles, memory, tests). */
 	installRuntime(runtime: ModelRuntime): void {
+		this.core.ledger?.install(runtime, () => ({ purpose: "auxiliary" }));
 		// One-off runtimes (a title, a connection test) are not kept for later
 		// changes; registering again on a reused one replaces what it had.
 		const target: Target = {
@@ -613,7 +710,7 @@ export class Gateway implements CoreModule {
 						headers: channel.headers ?? {},
 						authHeader: channel.authHeader,
 						streamSimple: this.wrap(channel.id),
-						models: channel.models.map((m) => modelConfig(channel, m)),
+						models: channel.models.map((m) => ({ ...modelConfig(channel, m), contextWindow: this.window(channel.provider, m.id) ?? 128_000 })),
 					}),
 				);
 			} else if (inGroups.has(channel.id) && !registered.providers.has(channel.provider)) {
@@ -632,16 +729,21 @@ export class Gateway implements CoreModule {
 		const ids = new Set(groups.map((g) => g.id));
 		for (const group of groups) {
 			const models = group.entries.map((e) => channels.find((c) => c.id === e.channel)?.models.find((m) => m.id === e.model)).filter((m) => m !== undefined);
+			const levels = new Set(group.entries.flatMap((e) => {
+				const channel = channels.find((c) => c.id === e.channel);
+				const model = channel?.models.find((m) => m.id === e.model);
+				return channel && model ? getSupportedThinkingLevels(modelConfig(channel, model) as unknown as Model<Api>) : [];
+			}));
 			this.safely(() =>
 				target.registerVirtualModel({
 					provider: GROUP_PROVIDER,
 					id: group.id,
 					name: group.name,
-					thinkingLevels: models.some((m) => m.reasoning) ? ["off", "minimal", "low", "medium", "high"] : ["off"],
+					thinkingLevels: levels.size ? THINKING_LEVELS.filter((l) => levels.has(l)) : ["off"],
 					input: models.length && models.every((m) => m.input?.includes("image")) ? ["text", "image"] : ["text"],
-					contextWindow: models.length ? Math.min(...models.map((m) => m.contextWindow ?? 128_000)) : undefined,
+					contextWindow: this.executionWindow(GROUP_PROVIDER, group.id),
 					maxTokens: models.length ? Math.min(...models.map((m) => m.maxTokens ?? 16_384)) : undefined,
-					route: (request: Parameters<typeof this.route>[1], ctx?: ExtensionContext) => this.route(group.id, request, registered.find, ctx),
+					route: (request: Parameters<typeof this.route>[1], ctx?: ExtensionContext) => this.route(group.id, request, registered.find, ctx, target.registerProvider),
 				}),
 			);
 		}
@@ -669,6 +771,7 @@ export class Gateway implements CoreModule {
 		request: { reason: string; thinkingLevel: string; state?: unknown; failed?: { model: Model<Api>; message: AssistantMessage } },
 		find: Registered["find"],
 		ctx?: ExtensionContext,
+		register?: Target["registerProvider"],
 	): { model: Model<Api>; thinkingLevel: string; state: RouteState } {
 		const group = this.groups().find((g) => g.id === groupId);
 		if (!group) throw new Error("这个模型组已被删除");
@@ -699,7 +802,19 @@ export class Gateway implements CoreModule {
 				toPaid: decision.toPaid,
 			});
 		}
-		return { model, thinkingLevel: request.thinkingLevel, state: decision.state };
+		// Pi 1.4 resolves the returned provider/id back to its physical catalog.
+		// Register the request's window through the public API so that resolution
+		// and Pi's subsequent compression use the same budget as the selected group.
+		const window = this.executionWindow(GROUP_PROVIDER, group.id);
+		if (model.contextWindow !== window) register?.(channel.provider, {
+			models: channel.models.map((m) => ({
+				...(ctx ? ctx.modelRegistry.find(channel.provider, m.id) : find(channel.provider, m.id)),
+				id: m.id,
+				contextWindow: m.id === model.id ? window : this.executionWindow(channel.provider, m.id),
+			})),
+		});
+		const effective = { ...this.resolveModel(model), contextWindow: this.executionWindow(GROUP_PROVIDER, group.id) };
+		return { model: effective, thinkingLevel: clampThinkingLevel(effective, request.thinkingLevel as never), state: decision.state };
 	}
 
 	private entryOf(model: { provider: string; id: string }, channels: ChannelInfo[]): { channel: string; model: string } | undefined {
@@ -730,6 +845,7 @@ export class Gateway implements CoreModule {
 		let streamed = false;
 
 		const fail = (failure: AssistantMessage, reason: "aborted" | "error") => {
+			this.core.ledger?.timing((options as (SimpleStreamOptions & { [REQUEST_LEDGER_ID]?: string }) | undefined)?.[REQUEST_LEDGER_ID], firstToken === undefined ? undefined : started + firstToken);
 			failure = { ...failure, errorMessage: failure.errorMessage === undefined ? undefined : redact(failure.errorMessage, [key?.secret, options?.apiKey]) };
 			const kind = reason === "aborted" ? "other" : classifyFailure(failure.errorMessage);
 			this.record(channelId, key?.id, model.id, group, sessionId, started, firstToken, failure, reason === "aborted" ? undefined : kind);
@@ -765,6 +881,7 @@ export class Gateway implements CoreModule {
 			const inner = this.transport(model, context, request);
 			for await (const event of inner as AsyncIterable<AssistantMessageEvent>) {
 				if (event.type === "done") {
+					this.core.ledger?.timing((options as (SimpleStreamOptions & { [REQUEST_LEDGER_ID]?: string }) | undefined)?.[REQUEST_LEDGER_ID], firstToken === undefined ? undefined : started + firstToken);
 					this.health.succeed(`${channelId}#${key?.id ?? "pi"}`);
 					this.record(channelId, key?.id, model.id, group, sessionId, started, firstToken, event.message, undefined);
 					out.push(event);
@@ -808,6 +925,14 @@ export class Gateway implements CoreModule {
 	private async secret(keyId: string): Promise<string> {
 		const cached = this.secrets.get(keyId);
 		if (cached !== undefined) return cached;
+		const stored = this.core.db.get<{ secret: string; channel_id: string }>("SELECT secret,channel_id FROM gateway_keys WHERE id=?", keyId);
+		const file = stored && secretFileOf(stored.secret);
+		if (stored && (!file || !existsSync(file) || resolve(file).toLowerCase() !== resolve(this.providers.secrets.fileFor(basename(file).replace(/\.dpapi$/, ""))).toLowerCase())) {
+			const resolved = await this.providers.apiKeyOf(channelProvider(stored.channel_id));
+			if (!resolved) throw new RpcError("missing_credential", "渠道凭据引用当前不可用，请检查对应命令或环境变量。");
+			return resolved;
+		}
+		if (file) return this.providers.secrets.get(basename(file).replace(/\.dpapi$/, ""));
 		const value = await this.providers.secrets.get(`gateway-${keyId}`);
 		// The key may have been deleted while it was being decrypted: then do not keep it.
 		if (!this.stopped && this.core.db.get("SELECT id FROM gateway_keys WHERE id = ?", keyId)) this.secrets.set(keyId, value);
@@ -860,15 +985,25 @@ export class Gateway implements CoreModule {
 		const core = this.core;
 		// Suggested models come with what the catalog knows (limits, prices, thinking levels).
 		core.register("gateway.platforms", () =>
-			PLATFORMS.map((p) => ({ ...p, modelDetails: (p.models ?? []).map((id) => mapOr(catalogModel(p.catalog, id), describeCatalogModel, { id, name: id })) })),
+			[...PLATFORMS.map((p) => ({ ...p, modelDetails: (p.models ?? []).map((id) => mapOr(catalogModel(p.catalog, id), describeCatalogModel, { id, name: id })) })), ...piPresets()],
 		);
 		core.register("gateway.channels", () => this.channels());
+		core.register("gateway.modelWindow", (params) => {
+			const provider = requireStr(params.provider, "provider");
+			const id = requireStr(params.model, "model");
+			const configured = provider.startsWith("df-") && this.channel(provider.slice(3))?.models.find((m) => m.id === id)?.contextWindow;
+			return { value: this.window(provider, id, undefined, true), source: provider === GROUP_PROVIDER ? "group" : configured ? "channel" : "catalog" };
+		});
 		core.register("gateway.saveChannel", async (params) => ({ id: await this.saveChannel(params as unknown as ChannelInput) }));
-		core.register("gateway.removeChannel", (params) => {
-			this.removeChannel(requireStr(params.id, "id"));
+		core.register("gateway.removeChannel", async (params) => {
+			await this.removeChannel(requireStr(params.id, "id"));
 			return { ok: true };
 		});
 		core.register("gateway.groups", () => this.groups());
+		core.register("gateway.reorderGroups", (params) => {
+			this.reorderGroups(params.ids);
+			return { ok: true };
+		});
 		core.register("gateway.saveGroup", (params) => ({ id: this.saveGroup(params as unknown as GroupInput) }));
 		core.register("gateway.removeGroup", (params) => {
 			this.removeGroup(requireStr(params.id, "id"));
@@ -924,13 +1059,14 @@ export function redact(text: string, secrets: (string | undefined)[]): string {
  * (served by the same API), else from the model list's efforts and the
  * platform's defaults; Pi guesses the rest from the address.
  */
-function modelConfig(channel: ChannelInfo, m: ChannelModel): Record<string, unknown> {
-	const preset = platform(channel.platform);
+export function modelConfig(channel: ChannelInfo, m: ChannelModel): Record<string, unknown> {
+	const preset = platform(channel.platform) ?? piPresets().find((p) => p.id === channel.platform);
 	const known = catalogModel(preset?.catalog, m.id);
 	const sameApi = known?.api === channel.api;
-	const thinkingLevelMap = (sameApi ? known?.thinkingLevelMap : undefined) ?? levelMap(m.efforts);
-	const compat = channel.api === "openai-completions" && (preset?.compat || (sameApi && known?.compat)) ? { ...preset?.compat, ...(sameApi ? known?.compat : {}) } : undefined;
+	const thinkingLevelMap = m.thinkingLevels ? selectedLevelMap(m.thinkingLevels) : m.thinkingLevelMap ?? (sameApi ? known?.thinkingLevelMap : undefined) ?? levelMap(m.efforts);
+	const compat = m.compat ?? (channel.api === "openai-completions" && (preset?.compat || (sameApi && known?.compat)) ? { ...preset?.compat, ...(sameApi ? known?.compat : {}) } : undefined);
 	return {
+		...m,
 		id: m.id,
 		name: m.name || m.id,
 		reasoning: m.reasoning ?? known?.reasoning ?? false,

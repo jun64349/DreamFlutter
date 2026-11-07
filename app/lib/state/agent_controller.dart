@@ -325,11 +325,11 @@ class AgentController extends ChangeNotifier {
   }
 
   /// The main controller reconnected to a (possibly new) core.
-  Future<void> _reattach(Json hello) async {
+  Future<void> _reattach(Json hello, {String? previousSessionsDir}) async {
     coreInfo = hello;
     coreSettings = asJsonMap(hello['settings']);
     for (final runtime in List.of(_runtimes)) {
-      if (runtime.status == ConnectionStatus.crashed || !runtime.isReady) await runtime.restart();
+      if (runtime.status == ConnectionStatus.crashed || !runtime.isReady) await runtime.restart(sessionsFrom: previousSessionsDir, sessionsTo: sessionStore.sessionsDir);
     }
     await _attachLiveSlots(hello);
     _notify();
@@ -509,6 +509,8 @@ class AgentController extends ChangeNotifier {
 
   void _applyHello(Json hello) {
     coreInfo = hello;
+    final sessionsDir = hello['sessionDir'];
+    if (sessionsDir is String && sessionsDir.isNotEmpty) sessionStore.sessionsDir = sessionsDir;
     coreSettings = asJsonMap(hello['settings']);
     interruptedRuns = [
       for (final run in (hello['interruptedRuns'] as List? ?? const []))
@@ -584,14 +586,15 @@ class AgentController extends ChangeNotifier {
     _notify();
     for (var attempt = 1; !_disposed; attempt++) {
       _lostAgain = false;
+      final previousSessionsDir = sessionStore.sessionsDir;
       final hello = await _connect();
       if (hello != null) {
         // A new core has none of the old sessions: reopen them from disk.
         for (final runtime in List.of(_runtimes)) {
-          if (runtime.status == ConnectionStatus.crashed || !runtime.isReady) await runtime.restart();
+          if (runtime.status == ConnectionStatus.crashed || !runtime.isReady) await runtime.restart(sessionsFrom: previousSessionsDir, sessionsTo: sessionStore.sessionsDir);
         }
         await _attachLiveSlots(hello);
-        await _butterfly?._reattach(hello);
+        await _butterfly?._reattach(hello, previousSessionsDir: previousSessionsDir);
         if (_lostAgain) continue;
         // The new core may hold other data (after a restore or the first-start move): read the lists again.
         unawaited(refreshSessions());
@@ -1018,7 +1021,7 @@ class AgentController extends ChangeNotifier {
       onSettled: _onRuntimeSettled,
       onAttention: _onRuntimeAttention,
       onModelChosen: (model) => unawaited(updateCoreSettings({'defaultModel': model.key}).catchError((_) {})),
-      onThinkingChosen: (level) => unawaited(updateCoreSettings({'defaultThinking': level}).catchError((_) {})),
+      // Current-session thinking is separate from the default for new sessions.
       clock: _clock,
     );
     runtime.addListener(() => _onRuntimeChanged(runtime));
@@ -1700,7 +1703,7 @@ class AgentController extends ChangeNotifier {
 
   Future<void> setDefaultModel(PiModel model) => _setting({'defaultModel': model.key});
 
-  Future<void> setDefaultThinkingLevel(String level) => _setting({'defaultThinking': level});
+  Future<void> setDefaultThinkingLevel(String level) => _setting({'defaultThinking': level.isEmpty ? null : level});
 
   Future<void> _setting(Json patch) async {
     try {

@@ -94,14 +94,14 @@ describe("T-09 backend contracts",()=>{
   const sid=t.core.slot("s").session.sessionId;m.setSessionMode(sid,"off");
   assert.equal(m.compactionExclusions(t.workspace,sid),"");
  });
- it("bills compaction once during a run and as a separate row after it",async()=>{
+ it("keeps compaction run summaries without adding them to request-ledger statistics",async()=>{
   const slot=t.core.slot("s"),context=t.core.module(ContextModule)!;
   const usage={input:10,output:5,cacheRead:0,cacheWrite:0,totalTokens:15,cost:{input:0.1,output:0.2,cacheRead:0,cacheWrite:0,total:0.3}};
   const hooks=t.core.compactionHooks!({slotId:"s"} as never)!;
   t.respond(()=>{assert.ok(slot.currentRun);context.onSlotEvent(slot,{type:"compaction_end",reason:"manual",result:{usage,tokensBefore:100},aborted:false} as never);return fauxAssistantMessage("收到");});await prompt();
   assert.equal(t.core.runs.list()[0]?.cost,0.3);
   hooks.background!.charge(usage,slot.session.model as never);
-  const rows=t.core.runs.list();assert.equal(rows.length,2);assert.equal(rows.find(r=>r.kind==="background_compaction")?.cost,0.3);assert.equal(t.core.runs.costSince(0),0.6);
+  const rows=t.core.runs.list();assert.equal(rows.length,2);assert.equal(rows.find(r=>r.kind==="background_compaction")?.cost,0.3);assert.equal(t.core.runs.costSince(0),0,"run summaries do not create request charges; actual candidates are recorded by the public runtime");
  });
  it("rejects regeneration for an absent or stale checkpoint",async()=>{
   await assert.rejects(t.core.call("context.regenerate",{slotId:"s",entryId:"old"}),/最新/);

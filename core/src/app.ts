@@ -2,6 +2,7 @@ import { BackupModule } from "./backup/backup.ts";
 import { CardsModule } from "./cards/cards.ts";
 import { Core, type CoreOptions } from "./core.ts";
 import { Gateway } from "./gateway/gateway.ts";
+import { PiMigration } from "./gateway/pi-migration.ts";
 import { AutoTitle } from "./modules/auto-title.ts";
 import { ButterflyModule } from "./modules/butterfly.ts";
 import { DocumentsModule } from "./modules/documents.ts";
@@ -18,14 +19,22 @@ import { SubagentsModule } from "./modules/subagents.ts";
 import { Sandbox } from "./sandbox/sandbox.ts";
 import { VisionModule } from "./modules/vision.ts";
 import { registerRenderer } from "./render/renderer.ts";
+import { StorageModule } from "./storage/storage.ts";
+import { WebSearchModule } from "./modules/search.ts";
+import { PackageSourcesModule } from "./modules/package-sources.ts";
+import { Ledger } from "./ledger/ledger.ts";
+import { UpdateModule } from "./update/module.ts";
 
 /** Builds the core with every feature module wired in. */
 export function buildCore(options: CoreOptions): Core {
 	const core = new Core(options);
+	core.use(new Ledger(core));
+	core.use(new PackageSourcesModule(core));
 	const llm = new Llm(core, options.modelRuntime);
 	core.use(new SessionIndex(core));
 	const providers = new Providers(core, llm);
 	const gateway = new Gateway(core, providers, { transport: options.gatewayTransport });
+	core.use(new PiMigration(core, providers, gateway, options.piMigration));
 	llm.extendRuntime = (runtime) => gateway.installRuntime(runtime);
 	core.use(gateway);
 	core.use(new AutoTitle(core, llm));
@@ -42,6 +51,9 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new SubagentsModule(core));
 	if (process.platform === "win32") core.use(new Sandbox(core, options.sandbox));
 	core.use(new BackupModule(core, options.legacyData));
+	core.use(new StorageModule(core));
+	core.use(new WebSearchModule(core, options.webSearch));
+	core.use(new UpdateModule(core, options.updates));
 	registerRenderer(core);
 	new McpModule(core);
 	return core;

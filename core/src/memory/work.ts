@@ -1,6 +1,7 @@
 import { isSideFile } from "../pi/session-metadata.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { withLedgerContext } from "../ledger/types.ts";
 import type { Model } from "@earendil-works/pi-ai";
 import type { Core } from "../core.ts";
 import type { Db } from "../db.ts";
@@ -170,6 +171,7 @@ export class MemoryWork {
 			},
 			budgetLeft: () => this.core.settings.get().memoryDailyBudgetUsd - this.spentToday(),
 			paused: () => this.core.settings.get().memoryPaused || this.stopped,
+			blocked: () => !!this.store.writeBlocked() || !!this.core.maintenance,
 			nextBudgetAt: () => startOfDay(this.now()) + DAY,
 			onChange: (job) => core.broadcast({ event: "memory.jobs.changed", job }),
 		});
@@ -180,7 +182,7 @@ export class MemoryWork {
 
 	private get background(): boolean {
 		const settings = this.core.settings.get();
-		return settings.memoryEnabled && settings.memoryAutoExtract;
+		return settings.memoryEnabled && settings.memoryAutoExtract && !this.store.writeBlocked() && !this.core.maintenance;
 	}
 
 	start(): void {
@@ -219,6 +221,14 @@ export class MemoryWork {
 		if (this.stopped) return Promise.resolve();
 		return this.jobs.drain().catch((error) => this.core.log.warn("memory jobs failed", error));
 	}
+
+	/** Update/backup admission is already paused; wait for existing DB writers without stopping this worker. */
+	async waitForIdle(): Promise<void> {
+		await this.jobs.drain();
+		while (this.boundaryCalls.size) await Promise.allSettled([...this.boundaryCalls]);
+	}
+
+	get busy(): boolean { return this.boundaryCalls.size > 0 || this.jobs.list({ status: ["running"], limit: 1 }).length > 0; }
 
 	// ---- queueing --------------------------------------------------------------------------
 
@@ -396,7 +406,7 @@ export class MemoryWork {
 			const items = Object.keys(versions).map((id) => this.store.get(id));
 			const fresh = items.every((m) => m && m.status === "active" && !m.pinned && m.kind !== "persona" && m.version === versions[m.id] && keyOf(m) === row.scope_key) && !scanMemoryText(row.text);
 			if (!fresh) {
-				this.db.run("UPDATE memory_materials SET stale = 1 WHERE id = ?", row.id);
+				if (!this.store.writeBlocked()) this.db.run("UPDATE memory_materials SET stale = 1 WHERE id = ?", row.id);
 				continue;
 			}
 			const list = items as MemoryItem[];
@@ -462,6 +472,8 @@ export class MemoryWork {
 
 	/** The agent's `material` action: checked by the program, then stored (not a change of memory: no version, no log line). */
 	private material(p: Record<string, unknown>, policy: Policy, content: string, target: (id: unknown, version: unknown) => MemoryItem | string): { ops: MemoryOp[]; note?: string } | string {
+		const blocked = this.store.writeBlocked();
+		if (blocked) return blocked;
 		const state = policy.materials;
 		if (!state || !policy.scopeKey) return "这次整理不能写素材";
 		const from = Array.isArray(p.from) ? (p.from as { id?: unknown; version?: unknown }[]) : [];
@@ -503,6 +515,7 @@ export class MemoryWork {
 
 	/** The program's sweep (no model): validity that ran out (17.3). */
 	sweep(): ReturnType<typeof expire> {
+		if (this.store.writeBlocked() || this.core.maintenance) return { ended: [], review: [], batchId: null };
 		const out = expire(this.store, this.now());
 		if (out.review.length) this.core.broadcast({ event: "memory.notice", kind: "expired_protected", itemIds: out.review });
 		return out;
@@ -518,7 +531,7 @@ export class MemoryWork {
 	 */
 	checkSchedule(): { queued: string[]; skipped: string[] } {
 		const out = { queued: [] as string[], skipped: [] as string[] };
-		if (!this.core.settings.get().memoryEnabled) return out;
+		if (!this.core.settings.get().memoryEnabled || this.store.writeBlocked() || this.core.maintenance) return out;
 		const now = this.now();
 		this.sweep();
 		out.queued.push(...this.checkCapacity());
@@ -753,7 +766,7 @@ export class MemoryWork {
 		this.shutdown.signal.throwIfAborted();
 		const model = await waitForMemory(() => this.model(runtime), this.stopWaiting.signal);
 		if (!model) throw new Error("没有可用的模型");
-		const run = await runMemoryAgent({
+		const run = await withLedgerContext({ purpose: "memory", workspace: cwd, runId: job.id, sessionId: null, slotId: null }, () => runMemoryAgent({
 			runtime,
 			model,
 			system,
@@ -761,12 +774,14 @@ export class MemoryWork {
 			now: this.now,
 			signal: this.shutdown.signal,
 			waitSignal: this.stopWaiting.signal,
+			pauseReason: () => this.store.writeBlocked(),
 			handlers: { query: (args) => this.query(args, policy), propose: (args) => this.propose(args, policy, batchKind, `${why}（${model.id}）`) },
-		});
+		}));
 		// Attempts do not increase on shutdown. A separate invocation id prevents
 		// the next interrupted execution from overwriting an earlier usage record.
 		const invocation = randomUUID();
 		run.calls.forEach((call, i) => {
+			this.core.ledger?.linkIndex(`${job.id}:${invocation}:${i}`, call.at, call.provider, call.model, call.usage);
 			this.db.run(
 				"INSERT OR REPLACE INTO usage_records(path, entry_id, at, cwd, provider, model, input, output, cache_read, cache_write, cost) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				MEMORY_LEDGER,
@@ -812,7 +827,7 @@ export class MemoryWork {
 	}
 
 	private async classifyBoundaryNow(input: { taskPrompt: string; recent: string; prompt: string; cwd: string | null }): Promise<{ newTask: boolean; confidence: number } | undefined> {
-		if (this.stopped) return undefined;
+		if (this.stopped || this.store.writeBlocked() || this.core.maintenance) return undefined;
 		const settings = this.core.settings.get();
 		if (settings.memoryPaused || settings.memoryDailyBudgetUsd - this.spentToday() <= 0) return undefined;
 		try {
@@ -832,13 +847,15 @@ export class MemoryWork {
 			const signal = AbortSignal.any([this.shutdown.signal, timeout.signal]);
 			// Account for a response even if it arrives after our decision deadline.
 			// stop() waits for these writes before Core closes the database.
-			const request = waitForMemory(() => runtime.completeSimple(model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 256, signal } as never), this.stopWaiting.signal).then((answer) => {
+			const request = waitForMemory(() => withLedgerContext({ purpose: "memory", workspace: input.cwd, sessionId: null, slotId: null, runId: null }, () => runtime.completeSimple(model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 256, signal } as never)), this.stopWaiting.signal).then((answer) => {
 				const u = answer.usage ?? {};
+				const boundaryEntry = `boundary:${this.now()}:${Math.random().toString(36).slice(2, 8)}`, boundaryAt = this.now();
+				this.core.ledger?.linkIndex(boundaryEntry, boundaryAt, answer.provider ?? model.provider, answer.model ?? model.id, u);
 				this.db.run(
 					"INSERT OR REPLACE INTO usage_records(path, entry_id, at, cwd, provider, model, input, output, cache_read, cache_write, cost) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 					MEMORY_LEDGER,
-					`boundary:${this.now()}:${Math.random().toString(36).slice(2, 8)}`,
-					this.now(),
+					boundaryEntry,
+					boundaryAt,
 					input.cwd,
 					answer.provider ?? model.provider,
 					answer.model ?? model.id,
@@ -876,7 +893,8 @@ export class MemoryWork {
 
 	/** USD the memory agent spent today. */
 	spentToday(): number {
-		return this.db.get<{ cost: number | null }>("SELECT SUM(cost) AS cost FROM usage_records WHERE path = ? AND at >= ?", MEMORY_LEDGER, startOfDay(this.now()))?.cost ?? 0;
+		this.core.ledger?.importHistory();
+		return this.db.get<{ cost: number | null }>("SELECT SUM(amount) AS cost FROM request_ledger WHERE purpose='memory' AND currency='USD' AND requested_at>=?", startOfDay(this.now()))?.cost ?? 0;
 	}
 
 	// ---- the agent's two tools ------------------------------------------------------------------

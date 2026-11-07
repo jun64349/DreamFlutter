@@ -105,6 +105,8 @@ export async function runMemoryAgent(options: {
 	signal?: AbortSignal;
 	/** Hard shutdown deadline: stop waiting even if the transport ignores signal. */
 	waitSignal?: AbortSignal;
+	/** Rechecked before requests and before applying a completed response. */
+	pauseReason?: () => string | null;
 	now?: () => number;
 }): Promise<AgentRun> {
 	const now = options.now ?? Date.now;
@@ -112,9 +114,10 @@ export async function runMemoryAgent(options: {
 	const messages: Message[] = [{ role: "user", content: [{ type: "text", text: options.input }], timestamp: now() } as Message];
 	const maxTurns = options.maxTurns ?? MEMORY_ROLE.maxTurns;
 	const cancelled = () => {
-		if (!options.signal?.aborted) return false;
+		const paused = options.pauseReason?.();
+		if (!options.signal?.aborted && !paused) return false;
 		run.stoppedBy = "error";
-		run.error = "记忆整理已停止";
+		run.error = paused || "记忆整理已停止";
 		return true;
 	};
 	for (;;) {
@@ -134,9 +137,9 @@ export async function runMemoryAgent(options: {
 		}
 		run.turns++;
 		const u = answer.usage;
-		const usage = { input: u?.input ?? 0, output: u?.output ?? 0, cacheRead: u?.cacheRead ?? 0, cacheWrite: u?.cacheWrite ?? 0, cost: u?.cost?.total ?? 0 };
+		const usage = { input: u?.input ?? 0, output: u?.output ?? 0, cacheRead: u?.cacheRead ?? 0, cacheWrite: u?.cacheWrite ?? 0, cost: u?.cost?.total ?? 0, dreamflutterRequestId: (u as unknown as { dreamflutterRequestId?: string })?.dreamflutterRequestId };
 		run.calls.push({ provider: answer.provider ?? options.model.provider, model: answer.model ?? options.model.id, at: now(), usage });
-		for (const key of Object.keys(usage) as (keyof typeof usage)[]) run.usage[key] += usage[key];
+		for (const key of ["input", "output", "cacheRead", "cacheWrite", "cost"] as const) run.usage[key] += usage[key];
 		if (cancelled()) return run;
 		if (answer.stopReason === "error" || answer.stopReason === "aborted") {
 			run.stoppedBy = "error";

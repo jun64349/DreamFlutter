@@ -701,4 +701,21 @@ export const MIGRATIONS: string[] = [
 	);
 	UPDATE session_meta SET indexed_mtime = -1;
 	`,
+	// 13: immutable request facts, independent of rebuildable session indexes and run-level summaries.
+	`
+	CREATE TABLE request_ledger (
+		id TEXT PRIMARY KEY, requested_at INTEGER NOT NULL, completed_at INTEGER, state TEXT NOT NULL,
+		channel TEXT, provider TEXT NOT NULL, model TEXT NOT NULL, purpose TEXT NOT NULL,
+		workspace TEXT, session_id TEXT, run_id TEXT, slot_id TEXT, success INTEGER,
+		input INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER, reasoning INTEGER,
+		amount REAL, currency TEXT, amount_source TEXT NOT NULL, price_version TEXT NOT NULL, price_snapshot TEXT,
+		allowance REAL, allowance_unit TEXT, allowance_source TEXT, billing_source TEXT,
+		ttft_ms INTEGER, duration_ms INTEGER, origin TEXT NOT NULL, message_key TEXT, error_code TEXT
+	);
+	CREATE INDEX request_ledger_time ON request_ledger(requested_at);
+	CREATE INDEX request_ledger_message ON request_ledger(message_key);
+	CREATE INDEX request_ledger_run ON request_ledger(run_id);
+	CREATE TABLE request_ledger_sources(source_key TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES request_ledger(id));
+	CREATE TABLE ledger_price_rules(version TEXT PRIMARY KEY, definition TEXT NOT NULL);
+	`,
 ];

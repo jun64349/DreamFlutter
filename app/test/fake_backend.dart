@@ -19,6 +19,7 @@ class FakeBackend implements AgentBackend {
 
   /// 蝶君's home as core.hello gives it (null: an older core without 蝶君).
   String? butterflyHome;
+  String? sessionsDir;
 
   /// Rows for `sessions.list` (null = no index, the app falls back to files).
   List<Json>? sessionRows;
@@ -51,6 +52,7 @@ class FakeBackend implements AgentBackend {
       'interruptedRuns': interruptedRuns,
       'pendingConfirmations': const [],
       'butterflyHome': ?butterflyHome,
+      'sessionDir': ?sessionsDir,
     };
   }
 

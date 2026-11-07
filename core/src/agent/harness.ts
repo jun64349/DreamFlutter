@@ -43,6 +43,11 @@ import { globTool, grepTool, ripgrepPath } from "./search-tools.ts";
 import { JobRegistry, jobTools, PersistentShell, persistentPwshTool, pwshTool } from "./shell.ts";
 import { HarnessState, sandboxEnv, type TodoItem } from "./state.ts";
 import { prepareWorkspace, workspaceGuidance } from "./toolchain.ts";
+import type { SecurityScope } from "../security/service.ts";
+import { redactValue } from "../security/redaction.ts";
+import { protectJobOutput } from "../security/shell-output.ts";
+import type { WebCallContext, WebTools } from "../web/types.ts";
+import { WEB_SEARCH_GUIDANCE } from "./dsh-text.ts";
 
 /**
  * The two agent modes, reproducing DeepSeek Harness's presets on Pi:
@@ -120,6 +125,9 @@ export interface HarnessControl {
 }
 
 export interface HarnessOptions {
+	webTools?: WebTools;
+	webContext?: () => WebCallContext;
+	security?: SecurityScope;
 	mode: AgentMode;
 	agentDir: string;
 	/** The session's resource loader (skills, AGENTS.md files), once it exists. */
@@ -189,7 +197,7 @@ function zone(): string {
 }
 
 /** dsh web_fetch (packages/web/tool-web/src/fetch.ts) over the core's page fetcher. */
-function webFetchTool(sandbox?: HarnessOptions["sandbox"]): ToolDefinition {
+function webFetchTool(sandbox?: HarnessOptions["sandbox"], web?: WebTools, context?: () => WebCallContext): ToolDefinition {
 	const maxChars = 200_000;
 	const footer = "\n\n(Content truncated. Fetch a more specific URL or section for the full text.)";
 	return {
@@ -198,6 +206,7 @@ function webFetchTool(sandbox?: HarnessOptions["sandbox"]): ToolDefinition {
 		description: "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
 		parameters: { type: "object", properties: { url: { type: "string", description: "The HTTP(S) URL to fetch." } }, required: ["url"] } as never,
 		async execute(_id, params: { url: string }, signal) {
+			if (web) return web.fetchTool(params.url, signal, { ...context?.(), requestId: _id }, sandbox);
 			// The fetch runs on this machine: a sandboxed session gets the sandbox's network rules.
 			let checkRedirect: ((next: URL) => Promise<void>) | undefined;
 			if (sandbox) {
@@ -227,8 +236,16 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 		const now = options.now ?? Date.now;
 		const sandbox = mode === "standard" ? options.sandbox : undefined;
 		const state = sandbox ? new HarnessState(SANDBOX_HOME, sandboxEnv(sandbox.distro)) : new HarnessState(process.cwd());
-		const jobs = new JobRegistry();
+		const jobs = protectJobOutput(new JobRegistry(), () => options.security?.service.audit.record("redaction", "shell-output", "masked", "命令输出在缓存前遮盖", options.security.context()));
 		const shell = new PersistentShell(() => state.cwd);
+		state.security = options.security;
+		options.security?.bindCwd(() => state.cwd);
+		if (options.security && mode === "minimal") options.security.commandCwd = async () => {
+			const output = await shell.run("(Get-Location).ProviderPath", undefined);
+			const path = output.split(/\r?\n/)[0]?.trim();
+			if (!path) throw new Error("无法确定持久 PowerShell 当前目录，拒绝执行命令");
+			return path;
+		};
 		const sandboxShell = sandbox ? new SandboxShell(sandbox.distro, sandbox.ready) : undefined;
 		let currentModel: Model<never> | undefined;
 		let running = false;
@@ -250,6 +267,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 		}
 		const persistCwd = (cwd: string) => pi.appendEntry(CWD_ENTRY, { cwd });
 		const imageRoute = () => ({ ok: currentModel?.input?.includes("image") === true, model: currentModel?.id ?? "unknown" });
+		const webSearch = options.webTools?.searchTool(options.webContext ?? (() => ({})), sandbox);
 
 		const tools: ToolDefinition[] =
 			mode === "minimal"
@@ -267,19 +285,29 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 						...(sandboxShell ? [sandboxBashTool(sandboxShell)] : [...jobTools(jobs).sort((a, b) => (a.name < b.name ? -1 : 1)), pwshTool(state, jobs)]),
 						readTool(state),
 						readImageTool(state, imageRoute),
-						skillTool(() => options.resources()?.getSkills().skills ?? []),
+						skillTool(() => options.resources()?.getSkills().skills ?? [], state),
 						todoTool(state, (todos) => {
 							pi.appendEntry(TODO_ENTRY, { todos });
 							notifyState();
 						}),
-						webFetchTool(sandbox),
+						webFetchTool(sandbox, options.webTools, options.webContext),
+						...(webSearch ? [webSearch] : []),
 						workingDirectoryTool(state, persistCwd),
 						writeTool(state),
 					];
-		for (const tool of tools) pi.registerTool(tool);
+		for (const tool of tools) {
+			const execute = tool.execute;
+			pi.registerTool({ ...tool, async execute(id, params, signal, onUpdate, ctx) {
+				const safeUpdate = onUpdate ? (value: Parameters<NonNullable<typeof onUpdate>>[0]) => onUpdate(redactValue(value)) : undefined;
+				const result = await execute(id, params, signal, safeUpdate, ctx);
+				const safe = redactValue(result);
+				if (JSON.stringify(safe) !== JSON.stringify(result)) options.security?.service.audit.record("redaction", tool.name, "masked", "工具输出已遮盖（不记录内容）", { ...options.security.context(), requestId: id });
+				return safe;
+			} });
+		}
 
 		jobs.onSettled = (_job, notice) => {
-			const message = { customType: CONTEXT_MESSAGE.job, content: notice, display: true };
+			const message = { customType: CONTEXT_MESSAGE.job, content: redactValue(notice), display: true };
 			if (running) pi.sendMessage(message, { deliverAs: "steer" });
 			// dsh wakes the agent; an unattended run must not continue outside its schedule's policy.
 			else if (options.unattended) pi.sendMessage(message, { deliverAs: "nextTurn" });
@@ -320,6 +348,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				STANDARD_PERSONA.replace("{{model}}", model?.id ?? "unknown"),
 				state.planMode ? PLAN_POLICY : "",
 				...TOOL_GUIDANCE.filter((g) => active.has(g.tool)).map((g) => g.text),
+				active.has("web_search") ? WEB_SEARCH_GUIDANCE : "",
 				active.has("show_card") ? RICH_OUTPUT_GUIDANCE : "",
 				// The workbench: shipped tools, and .dreamflutter with the workspace notes (read fresh every run).
 				sandbox ? SANDBOX_ENVIRONMENT : workspaceGuidance(prepareWorkspace(cwd).notes),

@@ -101,6 +101,8 @@ export class MemoryJobs {
 		/** USD the memory agent may still spend today; Infinity = no limit. */
 		budgetLeft: () => number;
 		paused: () => boolean;
+		/** Physical space/maintenance blocks every priority, including urgent corrections. */
+		blocked?: () => boolean;
 		/** When the budget is spent: the next time it is worth trying (the next local midnight). */
 		nextBudgetAt: () => number;
 		onChange?: (job: MemoryJob) => void;
@@ -185,7 +187,7 @@ export class MemoryJobs {
 	}
 
 	private next(): MemoryJob | undefined {
-		if (this.stopped) return undefined;
+		if (this.stopped || this.options.blocked?.()) return undefined;
 		const paused = this.options.paused();
 		const row = this.db.get<JobRow>(
 			`SELECT * FROM memory_jobs WHERE status IN ('queued', 'deferred') AND run_after <= ? ${paused ? `AND priority >= ${ORDINARY}` : ""} ORDER BY priority DESC, created_at, rowid LIMIT 1`,
@@ -211,7 +213,7 @@ export class MemoryJobs {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const cost = (error as { costUsd?: number }).costUsd ?? 0;
-			if (this.stopped && error instanceof MemoryJobInterrupted) {
+			if ((this.stopped && error instanceof MemoryJobInterrupted) || this.options.blocked?.()) {
 				this.set(job.id, { status: "queued", attempts: job.attempts, run_after: this.clock(), started_at: null, ended_at: null, error: null, cost_usd: job.costUsd + cost });
 			} else if (job.attempts + 1 <= MAX_RETRIES) {
 				this.set(job.id, { status: "queued", run_after: this.clock() + RETRY_BASE_MS * 2 ** job.attempts, error: message, cost_usd: job.costUsd + cost, started_at: null });

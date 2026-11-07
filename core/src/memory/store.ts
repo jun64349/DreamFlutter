@@ -172,6 +172,8 @@ export class MemoryStore {
 	readonly clock: () => number;
 	private readonly confirmWrites: () => boolean;
 	private readonly listeners = new Set<(batchId: string | null) => void>();
+	/** Physical disk guard, separate from the user's optional background pause. */
+	writeBlocked: () => string | null = () => null;
 
 	constructor(db: Db, options: { clock?: () => number; confirmWrites?: () => boolean } = {}) {
 		this.db = db;
@@ -270,6 +272,8 @@ export class MemoryStore {
 	 */
 	commit(input: CommitInput): CommitResult {
 		const result: CommitResult = { batchId: null, applied: [], pending: [], rejected: [] };
+		const blocked = this.writeBlocked();
+		if (blocked) return { ...result, rejected: input.ops.map((_, index) => ({ index, reason: blocked })) };
 		const at = this.clock();
 		this.db.transaction(() => {
 			const batch = () => {
@@ -531,6 +535,7 @@ export class MemoryStore {
 
 	/** Bookkeeping only (§2.1: hints for reviews, never evidence); no version, no log line. */
 	markUsed(ids: string[]): void {
+		if (this.writeBlocked()) return;
 		const at = this.clock();
 		for (const id of ids) this.db.run("UPDATE memory_items SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?", at, id);
 	}
@@ -625,6 +630,8 @@ export class MemoryStore {
 
 	/** Puts [op] straight into the waiting list (v0.2's candidates, brought over as they were). */
 	propose(op: MemoryOp, input: { actor: Actor; why: PendingWhy; reason?: string | null; sessionRef?: string | null }): string {
+		const blocked = this.writeBlocked();
+		if (blocked) throw new RpcError("storage_paused", blocked);
 		const current = op.kind === "add" ? undefined : this.get(op.id);
 		if (op.kind !== "add" && !current) throw new RpcError("not_found", "没有这条记忆");
 		const id = this.addPending(op, current, { actor: input.actor, ops: [], reason: input.reason, sessionRef: input.sessionRef }, input.why, this.clock());
@@ -784,6 +791,8 @@ export class MemoryStore {
 
 	/** Undoes one change, if nothing changed the item since; recorded as a change of its own. */
 	undo(opId: string): { batchId: string | null; undone: string[]; conflicts: { opId: string; itemId: string; reason: string }[] } {
+		const blocked = this.writeBlocked();
+		if (blocked) throw new RpcError("storage_paused", blocked);
 		const out = { batchId: null as string | null, undone: [] as string[], conflicts: [] as { opId: string; itemId: string; reason: string }[] };
 		this.db.transaction(() => this.undoOne(opId, out));
 		if (out.undone.length) this.changed(out.batchId);
@@ -796,6 +805,8 @@ export class MemoryStore {
 	 * conflicts (§9: 「之后被用户改过的条目不覆盖」).
 	 */
 	undoBatch(batchId: string): { batchId: string | null; undone: string[]; conflicts: { opId: string; itemId: string; reason: string }[] } {
+		const blocked = this.writeBlocked();
+		if (blocked) throw new RpcError("storage_paused", blocked);
 		const out = { batchId: null as string | null, undone: [] as string[], conflicts: [] as { opId: string; itemId: string; reason: string }[] };
 		const ops = this.db.all<OpRow>("SELECT * FROM memory_ops WHERE batch_id = ? AND undone_at IS NULL AND kind <> 'undo' ORDER BY at DESC, rowid DESC", batchId);
 		// Several changes of one item in the batch (a restore sets text and status) go back together, to before the first.

@@ -8,7 +8,17 @@ export type AgentModeSetting = "standard" | "minimal";
 
 /** Agent-behaviour settings owned by the core so they also apply without a UI. */
 export interface CoreSettings {
+	autoCheckUpdates: boolean;
+	startOnLogin: boolean;
+	closeBehavior: "tray" | "quit";
+	/** Package indexes apply only to tool child processes; inherit changes nothing. */
+	pythonPackageSource: "inherit" | "pypi" | "tuna" | "ustc";
+	npmPackageSource: "inherit" | "npm" | "npmmirror";
+	/** Separate web-tool setting, unrelated to model channels. */
+	webFetchBackend: "local" | "deepseek";
 	approvalMode: ApprovalMode;
+	/** Canonical path exceptions explicitly chosen by the user, per workspace. */
+	securityPathExceptions: Record<string, string[]>;
 	/** Mode new sessions start in. */
 	agentMode: AgentModeSetting;
 	autoCompaction: boolean;
@@ -26,6 +36,8 @@ export interface CoreSettings {
 	/** provider/id the UI preselects for new sessions; null lets Pi decide. */
 	defaultModel: string | null;
 	defaultThinking: string | null;
+	/** Per-model context window overrides, keyed by provider/id. */
+	modelContextWindows: Record<string, number>;
 	/** Cheap model for titles, memory extraction and summaries; null = session model. */
 	auxModel: string | null;
 	/** Model (or model group) that describes images for models without vision; null = pick one that can see. */
@@ -48,6 +60,8 @@ export interface CoreSettings {
 	memoryPaused: boolean;
 	/** Active capacity of one partition (global, each workspace, 蝶君): tokens of the text of active and 「待复核」 items (memory-design §12 item 4). */
 	memoryCapacityTokens: number;
+	/** G-07: physical free-space threshold; memory writes resume automatically above it. */
+	memoryMinFreeBytes: number;
 	autoTitle: boolean;
 	/** Daily spending cap for all runs, in USD; 0 = no cap. */
 	dailyBudgetUsd: number;
@@ -67,7 +81,14 @@ export interface CoreSettings {
 }
 
 export const DEFAULT_SETTINGS: CoreSettings = {
+	autoCheckUpdates: true,
+	startOnLogin: false,
+	closeBehavior: "tray",
+	pythonPackageSource: "inherit",
+	npmPackageSource: "inherit",
+	webFetchBackend: "local",
 	approvalMode: "changes",
+	securityPathExceptions: {},
 	agentMode: "standard",
 	autoCompaction: true,
 	compactionThresholdPercent: 80,
@@ -76,6 +97,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	backgroundCompactionLeadPercent: 85,
 	defaultModel: null,
 	defaultThinking: null,
+	modelContextWindows: {},
 	auxModel: null,
 	visionModel: null,
 	fallbackModels: [],
@@ -89,6 +111,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	memoryDailyBudgetUsd: 0.2,
 	memoryPaused: false,
 	memoryCapacityTokens: 40_000,
+	memoryMinFreeBytes: 1024 ** 3,
 	autoTitle: true,
 	dailyBudgetUsd: 0,
 	monthlyBudgetUsd: 0,
@@ -144,6 +167,14 @@ export class SettingsStore {
 		return () => this.listeners.delete(listener);
 	}
 
+	/** Refresh only after a larger owner transaction has committed its setting references. */
+	reloadFromDb(): void {
+		const previous = this.cache;
+		this.cache = this.load();
+		const changed = (Object.keys(DEFAULT_SETTINGS) as (keyof CoreSettings)[]).filter((key) => JSON.stringify(previous[key]) !== JSON.stringify(this.cache[key]));
+		if (changed.length) for (const listener of this.listeners) listener(this.cache, changed);
+	}
+
 	private load(): CoreSettings {
 		const settings = { ...DEFAULT_SETTINGS } as Record<string, unknown>;
 		for (const row of this.db.all<{ key: string; value: string }>("SELECT key, value FROM settings")) {
@@ -164,6 +195,18 @@ function sameType(reference: unknown, value: unknown): boolean {
 
 function valid(key: keyof CoreSettings, value: unknown): boolean {
 	switch (key) {
+		case "closeBehavior":
+			return value === "tray" || value === "quit";
+		case "pythonPackageSource":
+			return value === "inherit" || value === "pypi" || value === "tuna" || value === "ustc";
+		case "npmPackageSource":
+			return value === "inherit" || value === "npm" || value === "npmmirror";
+		case "webFetchBackend":
+			return value === "local" || value === "deepseek";
+		case "securityPathExceptions":
+			return value !== null && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([cwd, paths]) => cwd.trim().length > 0 && Array.isArray(paths) && paths.every((path) => typeof path === "string" && path.trim().length > 0));
+		case "modelContextWindows":
+			return value !== null && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([id, window]) => id.indexOf("/") > 0 && !id.endsWith("/") && Number.isSafeInteger(window) && window > 0);
 		case "memoryDetail":
 			return value === "brief" || value === "standard" || value === "detailed";
 		case "memoryWriteFrequency":
@@ -185,6 +228,8 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 		case "idleSessionMinutes":
 		case "memoryCapacityTokens":
 			return Number.isInteger(value) && (value as number) > 0;
+		case "memoryMinFreeBytes":
+			return Number.isSafeInteger(value) && (value as number) >= 0;
 		case "maxTurnsPerRun":
 		case "askTimeoutSeconds":
 			return Number.isInteger(value) && (value as number) >= 0;
