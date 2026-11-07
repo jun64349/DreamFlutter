@@ -291,3 +291,33 @@ export class WebModule implements CoreModule {
 		];
 	}
 }
+
+/** Existing harness policy, shared by the configurable fetch adapter without changing fetchPage. */
+export async function fetchToolPage(url: string, signal?: AbortSignal, sandbox?: { online(): boolean }) {
+	let checkRedirect: ((next: URL) => Promise<void>) | undefined;
+	if (sandbox) {
+		if (!sandbox.online()) throw new Error("沙箱现在是离线的，不能读取网页（可以在设置 › 蝶君沙箱里允许联网）");
+		let first: URL;
+		try { first = new URL(url); } catch { throw new Error("网址格式不对"); }
+		await requirePublicHost(first);
+		checkRedirect = requirePublicHost;
+	}
+	return fetchPage(url, { signal, allowHttpErrors: true, timeoutMs: 60_000, checkRedirect, publicOnly: sandbox !== undefined });
+}
+
+/** Check before sending any target URL to a third party, including cancellable DNS resolution. */
+export async function requireRemoteWebUrl(raw: string, userSignal?: AbortSignal): Promise<URL> {
+	let url: URL;
+	try { url = new URL(raw); } catch { throw new Error("网址格式不对"); }
+	if (!["http:", "https:"].includes(url.protocol) || !url.hostname) throw new Error("只允许 http 或 https 网页地址");
+	if (url.username || url.password) throw new Error("不允许在网址中携带用户名或密码");
+	if (raw.length > 8192 || url.href.length > 8192) throw new Error("网页地址不能超过 8192 个字符");
+	const signal = AbortSignal.any([AbortSignal.timeout(30_000), ...(userSignal ? [userSignal] : [])]);
+	signal.throwIfAborted();
+	await new Promise<void>((resolve, reject) => {
+		const abort = () => reject(signal.reason);
+		signal.addEventListener("abort", abort, { once: true });
+		requirePublicHost(url).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+	});
+	return url;
+}

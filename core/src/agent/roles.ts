@@ -43,7 +43,7 @@ export const BUILT_IN_ROLES: RoleCard[] = [
 		name: "调研员",
 		description: "Read-only: searches and reads files, documents and web pages to answer a question. Changes nothing. Use it to look things up without filling your own context.",
 		instructions: `${HAND_BACK} You only read: do not change files or run commands that change anything.`,
-		tools: ["read", "glob", "grep", "web_fetch", "read_document", "read_image", "working_directory", "skill"],
+		tools: ["read", "glob", "grep", "web_fetch", "web_search", "read_document", "read_image", "working_directory", "skill"],
 		model: null,
 		maxTurns: 30,
 	},
