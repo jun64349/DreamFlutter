@@ -1,4 +1,5 @@
 #include "flutter_window.h"
+#include "single_instance.h"
 
 #include <optional>
 
@@ -59,6 +60,13 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     if (result) {
       return *result;
     }
+  }
+
+  if (message == SingleInstance::ActivateMessage()) {
+    // A second launch for the same data: show this window instead (also when hidden in the tray).
+    ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+    SetForegroundWindow(hwnd);
+    return 0;
   }
 
   switch (message) {
