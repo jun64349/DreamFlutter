@@ -1,0 +1,30 @@
+/** Run via the formal payload's node.exe in a clean profile/PATH. No development dependencies or API channels. */
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import { execFileSync, spawnSync } from 'node:child_process';
+const [payload,evidence]=process.argv.slice(2);assert.ok(payload&&evidence);
+const imported=async path=>import(pathToFileURL(join(payload,path)).href);
+const {toolchainEnv}=await imported('core/src/agent/toolchain.ts');
+const {findGit}=await imported('core/src/git/process.ts');
+const {gitTools}=await imported('core/src/git/tools.ts');
+const {HarnessState}=await imported('core/src/agent/state.ts');
+const git=await findGit();assert.equal(resolve(git),resolve(payload,'core/bin/git/cmd/git.exe'));
+const cwd=mkdtempSync(join(tmpdir(),'df-t75-package-')),state=new HarnessState(cwd),tools=gitTools(state),proof={payload,git,tools:[],modelRequests:0};
+proof.systemGitAbsent=spawnSync('where.exe',['git'],{windowsHide:true,stdio:'ignore'}).status!==0;assert.equal(proof.systemGitAbsent,true,'Run only in a clean PATH without host Git');
+const native=(...args)=>execFileSync(git,args,{cwd,encoding:'utf8',windowsHide:true}).trim();
+native('init','-b','main');native('config','user.name','T75 isolated fixture');native('config','user.email','fixture@example.invalid');native('config','core.autocrlf','false');
+async function call(name,input={}){const result=await tools.find(t=>t.name===name).execute('t75',input,undefined,undefined,{});assert.equal(result.isError,false,JSON.stringify(result));proof.tools.push({name,details:result.details});return result.details;}
+writeFileSync(join(cwd,'中文.txt'),'base\n');await call('git_status');await call('git_stage',{paths:['中文.txt']});await call('git_commit',{message:'临时基线'});
+writeFileSync(join(cwd,'中文.txt'),'changed\n');await call('git_diff');await call('git_stage',{paths:['中文.txt']});const change=await call('git_commit',{message:'临时改动'});
+await call('git_branch_create',{name:'feature'});await call('git_branches');await call('git_switch',{name:'feature'});await call('git_history');
+const reverted=await call('git_revert',{commit:change.head});await call('git_recovery_points');await call('git_recover',{id:reverted.recoveryPoint.id});
+assert.equal(readFileSync(join(cwd,'中文.txt'),'utf8'),'changed\n');assert.equal(native('rev-list','--count','feature'),'3');
+assert.equal(new Set(proof.tools.map(t=>t.name)).size,11);
+const env=toolchainEnv(process.env),office=join(cwd,'office');mkdirSync(office);
+const text=execFileSync('python',['-I','-B',join(import.meta.dirname,'t75-office-smoke.py'),office],{env,encoding:'utf8',windowsHide:true,maxBuffer:8e6});
+proof.office=JSON.parse(text.trim().split('\n').at(-1));assert.ok(resolve(proof.office.python).startsWith(resolve(payload,'core/python')));
+const manifest=JSON.parse(readFileSync(join(payload,'licenses/third-party.json')));proof.licenses=manifest.entries.filter(e=>['MinGit','WenQuanYi Micro Hei','pandas','python-docx','python-pptx','pypdf','matplotlib','openpyxl'].includes(e.name));assert.equal(proof.licenses.length,8);for(const entry of proof.licenses)assert.ok(entry.path&&readFileSync(join(payload,entry.path),'utf8').length>100);
+proof.pass=true;proof.temporary=cwd;writeFileSync(evidence,JSON.stringify(proof,null,2));console.log(JSON.stringify({pass:true,uniqueGitTools:11,python:proof.office.python,font:proof.office.font,chart:join(office,'chinese-chart.png'),evidence}));

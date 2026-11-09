@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { measure } from './package-footprint.mjs';
+const [baselineRoot,deliveryRoot,releaseDir,evidence]=process.argv.slice(2);assert.ok(evidence);
+const baselineRecord=JSON.parse(readFileSync(new URL('../Claude Codex Bridge/Freeze06-final.json',import.meta.url))).packages[0];
+const before=measure(baselineRoot,baselineRecord.artifacts.map(a=>a.path));
+assert.equal(before.bytes,baselineRecord.bytes,'Baseline ZIP extraction must equal the accepted v0.6.0 cohort');
+const names=['DreamFlutter-0.7.0-test.1-win-x64-full.nupkg','DreamFlutter-win-x64-Portable.zip','DreamFlutter-win-x64-Setup.exe'];
+const after=measure(deliveryRoot,names.map(n=>join(releaseDir,n)));
+const categories={};for(const key of new Set([...Object.keys(before.categories),...Object.keys(after.categories)]))categories[key]={before:before.categories[key]?.bytes??0,after:after.categories[key]?.bytes??0,delta:(after.categories[key]?.bytes??0)-(before.categories[key]?.bytes??0)};
+const downloads=names.map((name,index)=>({name,before:baselineRecord.artifacts[index].bytes,after:statSync(join(releaseDir,name)).size,delta:statSync(join(releaseDir,name)).size-baselineRecord.artifacts[index].bytes}));
+const expected={unpacked:96237338+150231893+1228208,compressed:39846926+49137615+1228208};
+const proof={at:new Date().toISOString(),unit:'MiB=1048576 bytes; logical bytes, excludes data/cache/history; archives are separate download forms',baseline:{root:resolve(baselineRoot),version:baselineRecord.version,bytes:before.bytes,files:before.fileCount},delivery:{root:resolve(deliveryRoot),version:'0.7.0-test.1',bytes:after.bytes,files:after.fileCount},delta:after.bytes-before.bytes,categories,downloads,researchExpected:expected,over20Percent:{unpacked:after.bytes-before.bytes>expected.unpacked*1.2,compressed:downloads.some(d=>d.delta>expected.compressed*1.2)}};
+writeFileSync(evidence,JSON.stringify(proof,null,2));
+writeFileSync(evidence.replace('.json','-baseline-inventory.json'),JSON.stringify(before,null,2));writeFileSync(evidence.replace('.json','-delivery-inventory.json'),JSON.stringify(after,null,2));
+console.log(JSON.stringify(proof,null,2));
+if(Object.values(proof.over20Percent).some(Boolean))throw Error('T75 PAUSE: final package growth exceeds research by more than 20%; report before continuing');
