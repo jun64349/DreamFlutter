@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, lstatS
 import { dirname, join, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { toolchainEnv } from '../core/src/agent/toolchain.ts';
+import { createHash } from 'node:crypto';
 const [target, repository, flutterRoot] = process.argv.slice(2);
 if (!target || !repository || !flutterRoot) throw Error('usage: generate-third-party.mjs <package> <repo> <flutter-sdk>');
 const folder = join(target, 'licenses'), texts = join(folder, 'texts'); mkdirSync(texts, { recursive: true });
@@ -55,7 +56,35 @@ modules(join(target, 'core', 'node_modules'));
 const nodeLicense = join(folder, 'Node-LICENSE.txt'); add('Node.js', execFileSync(join(target, 'runtime', 'node.exe'), ['--version'], { encoding: 'utf8', windowsHide: true }).trim(), '见 Node.js LICENSE', existsSync(nodeLicense) ? readFileSync(nodeLicense, 'utf8') : licenseText(dirname(process.execPath)));
 const pythonRoot = join(target, 'core', 'python'); if (existsSync(pythonRoot)) for (const dir of readdirSync(pythonRoot, { withFileTypes: true })) if (dir.isDirectory() && dir.name.startsWith('cpython-')) add('Python', dir.name, '见 Python 随包许可证', licenseText(join(pythonRoot, dir.name)));
 const env = toolchainEnv();
-const raw = (repo, tag, name) => execFileSync('curl.exe', ['-fL', '--silent', '--show-error', '--max-time', '20', `https://raw.githubusercontent.com/${repo}/${tag}/${name}`], { env, windowsHide: true, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
+const offline=process.argv.includes('--offline'), cacheAt=process.argv.indexOf('--cache'), cache=cacheAt>=0?process.argv[cacheAt+1]:process.env.DREAMFLUTTER_BUNDLE_CACHE;
+const bundleLock=JSON.parse(readFileSync(join(repository,'core/bundled-runtime.lock.json')));
+const raw = (repo, tag, name) => {
+  const url=`https://raw.githubusercontent.com/${repo}/${tag}/${name}`, entry=bundleLock.licenses.find(e=>e.url===url);
+  if(cache&&entry&&existsSync(join(cache,entry.file))){const data=readFileSync(join(cache,entry.file));if(createHash('sha256').update(data).digest('hex')!==entry.sha256)throw Error('Upstream license hash mismatch');return data.toString('utf8');}
+  if(offline)throw Error(`Pinned offline license unavailable: ${url}`);
+  return execFileSync('curl.exe', ['-fL', '--silent', '--show-error', '--max-time', '20', url], { env, windowsHide: true, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
+};
+const gitRoot=join(target,'core/bin/git');
+if(existsSync(gitRoot))add('MinGit',bundleLock.git.version,bundleLock.git.license,licenseText(gitRoot),`Unmodified official archive: ${bundleLock.git.url}; corresponding source: ${bundleLock.git.source}. Component notices remain inside core/bin/git.`);
+if(existsSync(pythonRoot))for(const dir of readdirSync(pythonRoot,{withFileTypes:true}))if(dir.isDirectory()&&dir.name.startsWith('cpython-')){
+  const home=join(pythonRoot,dir.name),python=join(home,'python.exe');
+  const script=`import importlib.metadata as m,json,pathlib
+out=[]
+for d in m.distributions():
+ texts=[]
+ for f in d.files or []:
+  p=pathlib.Path(d.locate_file(f))
+  if ('licenses' in str(f).lower() or any(s in p.name.lower() for s in ['license','licence','copying','notice','authors'])) and p.is_file() and p.stat().st_size<16000000:
+   texts.append(str(f)+'\\n'+p.read_text(encoding='utf8',errors='replace'))
+ out.append({'name':d.metadata['Name'],'version':d.version,'license':d.metadata.get('License-Expression') or d.metadata.get('License') or 'See included license','text':'\\n\\n'.join(texts)})
+print(json.dumps(out))`;
+  for(const entry of JSON.parse(execFileSync(python,['-I','-B','-c',script],{encoding:'utf8',windowsHide:true,maxBuffer:16e6})))if(bundleLock.windows.some(e=>e.name===entry.name.toLowerCase().replaceAll('_','-'))) {
+    if(!entry.text)throw Error(`Missing Python wheel license text: ${entry.name}`);
+    add(entry.name,entry.version,entry.license.length>200?'See included license':entry.license,entry.text);
+  }
+  const font=join(home,'Lib/site-packages/matplotlib/mpl-data/fonts/ttf');
+  if(existsSync(join(font,'wqy-microhei-COPYRIGHT.txt')))add('WenQuanYi Micro Hei',bundleLock.font.version,'Apache-2.0',readFileSync(join(font,'wqy-microhei-COPYRIGHT.txt'),'utf8')+'\n\n'+readFileSync(join(font,'wqy-microhei-Apache-2.0.txt'),'utf8'));
+}
 for (const [tool, repo, prefix, names] of [
   ['rg', 'BurntSushi/ripgrep', '', ['LICENSE-MIT', 'UNLICENSE']], ['fd', 'sharkdp/fd', 'v', ['LICENSE-MIT', 'LICENSE-APACHE']], ['uv', 'astral-sh/uv', '', ['LICENSE-MIT', 'LICENSE-APACHE']],
 ]) {
@@ -66,5 +95,10 @@ for (const [tool, repo, prefix, names] of [
 }
 if (existsSync(join(target, 'app', 'velopack_libc.dll'))) add('Velopack', '1.2.161', '见对应版本上游许可证', raw('velopack/velopack', '1.2.161', 'LICENSE'));
 for (const name of ['Debian-packages.txt', 'THIRD-PARTY.txt']) if (existsSync(join(folder, name))) add(name, '', '随包声明', readFileSync(join(folder, name), 'utf8'));
+// T-81: license entries for the self-contained showcard-pro skill and its offline renderer.
+const showcardSkill = join(target, 'core/assets/skills/showcard-pro');
+if (existsSync(join(showcardSkill, 'THIRD-PARTY.json'))) for (const entry of JSON.parse(readFileSync(join(showcardSkill, 'THIRD-PARTY.json'), 'utf8')).entries) {
+  add(entry.name, entry.version, entry.license, readFileSync(join(showcardSkill, entry.licenseFile), 'utf8'), entry.notice);
+}
 writeFileSync(join(folder, 'third-party.json'), JSON.stringify({ generatedAt: new Date().toISOString(), entries }, null, 2));
 console.log(`Generated third-party manifest: ${entries.length} entries from actual package/SDK/license files`);

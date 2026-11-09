@@ -1,0 +1,106 @@
+{
+  "task": "T-72",
+  "date": "2026-11-08 Asia/Taipei",
+  "files": [
+    {
+      "file": "exact-image-driver.txt",
+      "bytes": 3028,
+      "sha256": "a1fd88e096d06a370b9f95020c0cc3177ab2d40f9bba210ad49d744ff0e6e108"
+    },
+    {
+      "file": "exact-measure-script.txt",
+      "bytes": 7865,
+      "sha256": "ab0ee4935fa79c62fb696752de9eb0f8c00f0396facbe96958282e05e3d589e2"
+    },
+    {
+      "file": "image-overlay-script.txt",
+      "bytes": 4602,
+      "sha256": "ed7790a40cb8d21fcd06f1f7177df873b1bcb905e949f6dd783f58cbe6c3361a"
+    },
+    {
+      "file": "linux-added-requirements.txt",
+      "bytes": 277,
+      "sha256": "6d404b6dfa2fa3b65b28b1d1e7db57ac694104bd0de2dddfb2127f075f69cfd9"
+    },
+    {
+      "file": "linux-exact-dpkg.txt",
+      "bytes": 19144,
+      "sha256": "e582f4c52aaf356e01a62be352afd198d75d4b884e7e22ecbdf5f29bc1b623ff"
+    },
+    {
+      "file": "linux-exact-install-smoke.txt",
+      "bytes": 13338,
+      "sha256": "564b4ae36a318257edd269d53f66ce2591e02b439b601aa11ab20635794a0f20"
+    },
+    {
+      "file": "linux-exact-results.json",
+      "bytes": 32220,
+      "sha256": "64499776a90e524709b4957c018a580301c85437e3cb0716bb9066807c684839"
+    },
+    {
+      "file": "linux-preliminary-results.json",
+      "bytes": 15633,
+      "sha256": "8cb4312326ee6f9bd1a1a7328924338cb3a8722d2ff29cd03db89a232de5234b"
+    },
+    {
+      "file": "measure-script.txt",
+      "bytes": 7632,
+      "sha256": "68184be408d7ab378a4832458e8ccd5cb99c5ff8a039b1e877104a5bb8d141ec"
+    },
+    {
+      "file": "mingit-results.json",
+      "bytes": 3586,
+      "sha256": "5d7c272dc0055a60dedb97dc95046a43ca79c67a35526cabad98933584f923b3"
+    },
+    {
+      "file": "mingit-script.txt",
+      "bytes": 2262,
+      "sha256": "d4eaf2ef8ef66bbfbc3c1727c88907372f896419fffe9fedf2ff6c5158ce7cca"
+    },
+    {
+      "file": "README.md",
+      "bytes": 5066,
+      "sha256": "ceaec23fdc4abac1aaaea72321ad6dddb3e84626d95dd3db3cc8c2e2af189df6"
+    },
+    {
+      "file": "registry-probe.json",
+      "bytes": 9989,
+      "sha256": "21bc38e6a61bba0c326c38507e1c27adbca53a99819f295d16e39a38aa613e68"
+    },
+    {
+      "file": "run-context.json",
+      "bytes": 1785,
+      "sha256": "b85962751a27f53a4371eebad588d5431a96873d8ded38d1efa1f0bb241c95b9"
+    },
+    {
+      "file": "sandbox-image-results.json",
+      "bytes": 2432,
+      "sha256": "49d2d6dcc71ca9e59f274b0241cadbf9f3c28fc66f83d20e0092496da9b63bc0"
+    },
+    {
+      "file": "validation-script.txt",
+      "bytes": 4703,
+      "sha256": "fc1d4c57aa5e1968c7567703bb7058feb6a488c1aeb839cba6554b14c33bb4e2"
+    },
+    {
+      "file": "validation.json",
+      "bytes": 10146,
+      "sha256": "9015a9b5025b7b08aa48f72c89eff8786a1bc9e998d10735b345e352ef6341b4"
+    },
+    {
+      "file": "windows-full-requirements.txt",
+      "bytes": 522,
+      "sha256": "8189fc117a4fcca8772ea894bd5101a025314488764d2459e9ca80b2ae85c4f8"
+    },
+    {
+      "file": "windows-install-smoke.txt",
+      "bytes": 12885,
+      "sha256": "e063102afc754fa69a9c80d2ed17ddb73a774f0237dba8c460fc45a6538765b3"
+    },
+    {
+      "file": "windows-results.json",
+      "bytes": 17484,
+      "sha256": "33b186514c60546e201d551a06464ed59329487c993d44bfc7fd68c7150ae201"
+    }
+  ]
+}

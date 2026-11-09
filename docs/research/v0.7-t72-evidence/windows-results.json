@@ -1,0 +1,774 @@
+{
+  "python": "3.13.18 (main, Oct 26 2026, 14:10:48) [MSC v.1944 64 bit (AMD64)]",
+  "executable": "E:\\claude\\DreamFlutter\\core\\python\\cpython-3.13.18-windows-x86_64-none\\python.exe",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "reuseSystemSitePackages": false,
+  "baseline": {
+    "pip": "26.2.2"
+  },
+  "versions": {
+    "python-docx": "1.2.0",
+    "openpyxl": "3.1.5",
+    "python-pptx": "1.0.2",
+    "pypdf": "7.0.0",
+    "pdfplumber": "0.11.10",
+    "pandas": "3.1.1",
+    "matplotlib": "3.11.2",
+    "reportlab": "5.1.0"
+  },
+  "cases": [
+    {
+      "case": "python-docx",
+      "roots": [
+        "python-docx"
+      ],
+      "venvOverheadBytes": 6515011,
+      "addedBytes": 10680406,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 311,
+      "zipPayloadBytes": 4294791,
+      "zipSha256": "abbddb13bc1c1ce60c9f5376f67d19c9a26db3c6290c0e3e1229818a5c85fe01",
+      "installed": [
+        [
+          "lxml",
+          "6.1.3"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "python-docx",
+          "1.2.0"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 11.35
+    },
+    {
+      "case": "openpyxl",
+      "roots": [
+        "openpyxl"
+      ],
+      "venvOverheadBytes": 6514969,
+      "addedBytes": 923525,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 208,
+      "zipPayloadBytes": 276408,
+      "zipSha256": "6f20e6a5ff01c1f5076a507d14f3c92d4263d9354751eb673347f4fa76c7b2fc",
+      "installed": [
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 8.8
+    },
+    {
+      "case": "python-pptx",
+      "roots": [
+        "python-pptx"
+      ],
+      "venvOverheadBytes": 6515011,
+      "addedBytes": 26176454,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 472,
+      "zipPayloadBytes": 11824194,
+      "zipSha256": "08e36153ce5db5d1ca72adcaa676f5feb1726997a08f8006238fcba782d8ca86",
+      "installed": [
+        [
+          "lxml",
+          "6.1.3"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "python-pptx",
+          "1.0.2"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "xlsxwriter",
+          "3.3.1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 15.04
+    },
+    {
+      "case": "pypdf",
+      "roots": [
+        "pypdf"
+      ],
+      "venvOverheadBytes": 6514927,
+      "addedBytes": 1795149,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 66,
+      "zipPayloadBytes": 412958,
+      "zipSha256": "760580389d79975a73b3402bfd90a997377e08b9b2eb3beff5b9b71e56a1ae2d",
+      "installed": [
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "pypdf",
+          "7.0.0"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 9.7
+    },
+    {
+      "case": "pdfplumber",
+      "roots": [
+        "pdfplumber"
+      ],
+      "venvOverheadBytes": 6514997,
+      "addedBytes": 44415158,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 624,
+      "zipPayloadBytes": 22232495,
+      "zipSha256": "5766271f46db27f27246ce42c9efe3e259773bfade0942e04f1aedc35ee8ce5c",
+      "installed": [
+        [
+          "cffi",
+          "2.1.1"
+        ],
+        [
+          "charset-normalizer",
+          "3.5.2"
+        ],
+        [
+          "cryptography",
+          "50.0.2"
+        ],
+        [
+          "pdfminer.six",
+          "20260107"
+        ],
+        [
+          "pdfplumber",
+          "0.11.10"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "pycparser",
+          "3.12"
+        ],
+        [
+          "pypdfium2",
+          "5.15.1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 16.83
+    },
+    {
+      "case": "pandas",
+      "roots": [
+        "pandas"
+      ],
+      "venvOverheadBytes": 6514941,
+      "addedBytes": 82129128,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 3216,
+      "zipPayloadBytes": 23728430,
+      "zipSha256": "37c1e07f8035de5aaa358dd905d4eb29ff5a4a7491d033ec0a3993c478f86296",
+      "installed": [
+        [
+          "numpy",
+          "2.5.4"
+        ],
+        [
+          "pandas",
+          "3.1.1"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "python-dateutil",
+          "4.0.0"
+        ],
+        [
+          "tzdata",
+          "2026.6"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 42.62
+    },
+    {
+      "case": "matplotlib",
+      "roots": [
+        "matplotlib"
+      ],
+      "venvOverheadBytes": 6514997,
+      "addedBytes": 95593877,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 2811,
+      "zipPayloadBytes": 32798838,
+      "zipSha256": "7c8db505de4c5a4393b262d4bd8c7b3198493a7ce1a3d90b41b9d453572c10e5",
+      "installed": [
+        [
+          "contourpy",
+          "1.4.0"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "fonttools",
+          "4.68.0"
+        ],
+        [
+          "kiwisolver",
+          "1.5.1"
+        ],
+        [
+          "matplotlib",
+          "3.11.2"
+        ],
+        [
+          "numpy",
+          "2.5.4"
+        ],
+        [
+          "packaging",
+          "26.3"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "pyparsing",
+          "3.3.3"
+        ],
+        [
+          "python-dateutil",
+          "4.0.0"
+        ],
+        [
+          "tzdata",
+          "2026.6"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 35.89
+    },
+    {
+      "case": "reportlab",
+      "roots": [
+        "reportlab"
+      ],
+      "venvOverheadBytes": 6514983,
+      "addedBytes": 20430530,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 360,
+      "zipPayloadBytes": 9402326,
+      "zipSha256": "c4093d820cd3c58964eec9489abaf5cc906c0906a211add36a1f841adfa9da0a",
+      "installed": [
+        [
+          "charset-normalizer",
+          "3.5.2"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "reportlab",
+          "5.1.0"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 12.13
+    },
+    {
+      "case": "lean",
+      "roots": [
+        "python-docx",
+        "openpyxl",
+        "python-pptx",
+        "pypdf"
+      ],
+      "venvOverheadBytes": 6514913,
+      "addedBytes": 30446727,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 872,
+      "zipPayloadBytes": 12768458,
+      "zipSha256": "7c1d990c988459a969d258ca4f5cb98d03a1a43a095ff6e4459a7fddd6aba575",
+      "installed": [
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "lxml",
+          "6.1.3"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "pypdf",
+          "7.0.0"
+        ],
+        [
+          "python-docx",
+          "1.2.0"
+        ],
+        [
+          "python-pptx",
+          "1.0.2"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "xlsxwriter",
+          "3.3.1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 15.76
+    },
+    {
+      "case": "recommended",
+      "roots": [
+        "python-docx",
+        "openpyxl",
+        "python-pptx",
+        "pypdf",
+        "pandas",
+        "matplotlib"
+      ],
+      "venvOverheadBytes": 6515011,
+      "addedBytes": 150231893,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 5169,
+      "zipPayloadBytes": 49137615,
+      "zipSha256": "bc3f40ed947c56280d026851b15388c720d4c162c5d9163d929219d1f889cd9e",
+      "installed": [
+        [
+          "contourpy",
+          "1.4.0"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.68.0"
+        ],
+        [
+          "kiwisolver",
+          "1.5.1"
+        ],
+        [
+          "lxml",
+          "6.1.3"
+        ],
+        [
+          "matplotlib",
+          "3.11.2"
+        ],
+        [
+          "numpy",
+          "2.5.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "26.3"
+        ],
+        [
+          "pandas",
+          "3.1.1"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "pyparsing",
+          "3.3.3"
+        ],
+        [
+          "pypdf",
+          "7.0.0"
+        ],
+        [
+          "python-dateutil",
+          "4.0.0"
+        ],
+        [
+          "python-docx",
+          "1.2.0"
+        ],
+        [
+          "python-pptx",
+          "1.0.2"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "tzdata",
+          "2026.6"
+        ],
+        [
+          "xlsxwriter",
+          "3.3.1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 58.6
+    },
+    {
+      "case": "full",
+      "roots": [
+        "python-docx",
+        "openpyxl",
+        "python-pptx",
+        "pypdf",
+        "pandas",
+        "matplotlib",
+        "pdfplumber",
+        "reportlab"
+      ],
+      "venvOverheadBytes": 6514913,
+      "addedBytes": 184633666,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 5888,
+      "zipPayloadBytes": 66259485,
+      "zipSha256": "ea164e0c8c801c7ec29cbe247d701fe0481916f1b6139e97f6553fbcde1655ab",
+      "installed": [
+        [
+          "cffi",
+          "2.1.1"
+        ],
+        [
+          "charset-normalizer",
+          "3.5.2"
+        ],
+        [
+          "contourpy",
+          "1.4.0"
+        ],
+        [
+          "cryptography",
+          "50.0.2"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.68.0"
+        ],
+        [
+          "kiwisolver",
+          "1.5.1"
+        ],
+        [
+          "lxml",
+          "6.1.3"
+        ],
+        [
+          "matplotlib",
+          "3.11.2"
+        ],
+        [
+          "numpy",
+          "2.5.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "26.3"
+        ],
+        [
+          "pandas",
+          "3.1.1"
+        ],
+        [
+          "pdfminer.six",
+          "20260107"
+        ],
+        [
+          "pdfplumber",
+          "0.11.10"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "26.2.2"
+        ],
+        [
+          "pycparser",
+          "3.12"
+        ],
+        [
+          "pyparsing",
+          "3.3.3"
+        ],
+        [
+          "pypdf",
+          "7.0.0"
+        ],
+        [
+          "pypdfium2",
+          "5.15.1"
+        ],
+        [
+          "python-dateutil",
+          "4.0.0"
+        ],
+        [
+          "python-docx",
+          "1.2.0"
+        ],
+        [
+          "python-pptx",
+          "1.0.2"
+        ],
+        [
+          "reportlab",
+          "5.1.0"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "tzdata",
+          "2026.6"
+        ],
+        [
+          "xlsxwriter",
+          "3.3.1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 84.19
+    }
+  ],
+  "wheelhouse": [
+    {
+      "file": "cffi-2.1.1-cp313-cp313-win_amd64.whl",
+      "bytes": 185688,
+      "sha256": "1aa5645c30469b09530c4ebca77ebf8f17618293c58f8549cb1a543a50236e7d"
+    },
+    {
+      "file": "charset_normalizer-3.5.2-cp313-cp313-win_amd64.whl",
+      "bytes": 206489,
+      "sha256": "78456a747de8dc58360ffa581f30a002baf5aa28cb262536545e91f113ed7639"
+    },
+    {
+      "file": "contourpy-1.4.0-cp313-cp313-win_amd64.whl",
+      "bytes": 234084,
+      "sha256": "6507a016976a75a15aee47809a34605de6244ccc056e6164bf9fb14b27eecad4"
+    },
+    {
+      "file": "cryptography-50.0.2-cp311-abi3-win_amd64.whl",
+      "bytes": 3824692,
+      "sha256": "7afa5a6602a9f29af1f3a2965f831bae7c9d5d597b7cbb716d41ab3b7d89879c"
+    },
+    {
+      "file": "cycler-0.12.1-py3-none-any.whl",
+      "bytes": 8321,
+      "sha256": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30"
+    },
+    {
+      "file": "et_xmlfile-2.0.0-py3-none-any.whl",
+      "bytes": 18059,
+      "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa"
+    },
+    {
+      "file": "fonttools-4.68.0-cp313-cp313-win_amd64.whl",
+      "bytes": 2531658,
+      "sha256": "6ed796b220654b4d37ad20af73419ec7969b669dd678cab88afb602c5683a331"
+    },
+    {
+      "file": "kiwisolver-1.5.1-cp313-cp313-win_amd64.whl",
+      "bytes": 70758,
+      "sha256": "dc23390afe9f4ef9ac3bcc72a03a56eebbde03f4c571a32cb38f859cff9a6524"
+    },
+    {
+      "file": "lxml-6.1.3-cp313-cp313-win_amd64.whl",
+      "bytes": 4004091,
+      "sha256": "e477aca0bc0d19f3b4ae9e4f2a1cfd687c31bf772d78734910658186b40b2477"
+    },
+    {
+      "file": "matplotlib-3.11.2-cp313-cp313-win_amd64.whl",
+      "bytes": 9349539,
+      "sha256": "bc067c462a86f0e57bf52fc6e058d90171a5420007dac00c46e90153050c69a7"
+    },
+    {
+      "file": "numpy-2.5.4-cp313-cp313-win_amd64.whl",
+      "bytes": 12566113,
+      "sha256": "8b4d2fd2d34e5f8c9235ee787de5631a37a28402b15cb80814df973d2be54129"
+    },
+    {
+      "file": "openpyxl-3.1.5-py2.py3-none-any.whl",
+      "bytes": 250910,
+      "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2"
+    },
+    {
+      "file": "packaging-26.3-py3-none-any.whl",
+      "bytes": 129956,
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"
+    },
+    {
+      "file": "pandas-3.1.1-cp313-cp313-win_amd64.whl",
+      "bytes": 10732758,
+      "sha256": "6d84760cc1bd799440a66b4df2ceb7a508870f3b8b4d8dda21befd62779cd3b4"
+    },
+    {
+      "file": "pdfminer_six-20260107-py3-none-any.whl",
+      "bytes": 6592252,
+      "sha256": "366585ba97e80dffa8f00cebe303d2f381884d8637af4ce422f1df3ef38111a9"
+    },
+    {
+      "file": "pdfplumber-0.11.10-py3-none-any.whl",
+      "bytes": 60047,
+      "sha256": "7741ea81bf165b474b153e6789d10d18e06b6ddcf3ec84289c3ef2fed6802580"
+    },
+    {
+      "file": "pillow-13.0.0-cp313-cp313-win_amd64.whl",
+      "bytes": 7284777,
+      "sha256": "9dda0788a9932776a75d8bcc020076edc308ce2508b51f6739a45e3158b3fc42"
+    },
+    {
+      "file": "pycparser-3.12-py3-none-any.whl",
+      "bytes": 62600,
+      "sha256": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e"
+    },
+    {
+      "file": "pyparsing-3.3.3-py3-none-any.whl",
+      "bytes": 126420,
+      "sha256": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4"
+    },
+    {
+      "file": "pypdf-7.0.0-py3-none-any.whl",
+      "bytes": 413949,
+      "sha256": "112a2c7cbabefd8dfe498f7a13977e575e762d58cdb0d832acb8886922602c6f"
+    },
+    {
+      "file": "pypdfium2-5.15.1-py3-none-win_amd64.whl",
+      "bytes": 4187358,
+      "sha256": "9cf0fda610da25ef9c1e1234a85020a3275645ab95f7f74f67840bb5f8de10f7"
+    },
+    {
+      "file": "python_dateutil-4.0.0-py3-none-any.whl",
+      "bytes": 92853,
+      "sha256": "a5e246f79eb80475e691bf93862cead98decd8a498cf53ba0516fcdc0f50dc1c"
+    },
+    {
+      "file": "python_docx-1.2.0-py3-none-any.whl",
+      "bytes": 252987,
+      "sha256": "3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7"
+    },
+    {
+      "file": "python_pptx-1.0.2-py3-none-any.whl",
+      "bytes": 472788,
+      "sha256": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba"
+    },
+    {
+      "file": "reportlab-5.1.0-py3-none-any.whl",
+      "bytes": 2018647,
+      "sha256": "59fdbaec5efe437095ad1d7292ec9a271c8ca2d3ec75e889c6e61400929b90df"
+    },
+    {
+      "file": "typing_extensions-4.16.0-py3-none-any.whl",
+      "bytes": 45571,
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+    },
+    {
+      "file": "tzdata-2026.6-py2.py3-none-any.whl",
+      "bytes": 348210,
+      "sha256": "0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec"
+    },
+    {
+      "file": "xlsxwriter-3.3.1-py3-none-any.whl",
+      "bytes": 180583,
+      "sha256": "8e2c89e59d733fe59e112317218c64fbbc276d90a8c144ebd6f7fa15e7ab184a"
+    }
+  ]
+}

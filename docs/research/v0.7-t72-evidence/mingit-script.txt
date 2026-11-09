@@ -1,0 +1,28 @@
+import pathlib,zipfile,hashlib,json,subprocess,os
+r=pathlib.Path(__file__).parent
+z=r/"MinGit-2.56.0.4-64-bit.zip"
+h=hashlib.sha256(z.read_bytes()).hexdigest()
+assert h=="e3bf78351fe777fba47ddee5950082f8a98bb0f02604fdc7ba3ee2cb68ffa877",h
+dest=r/"mingit"; dest.mkdir(exist_ok=True)
+with zipfile.ZipFile(z) as archive: archive.extractall(dest)
+files=[p for p in dest.rglob("*") if p.is_file()]
+proof={"asset":z.name,"url":"https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/"+z.name,"sha256":h,"downloadBytes":z.stat().st_size,"installedBytes":sum(p.stat().st_size for p in files),"files":len(files),"tests":[]}
+repo=r/"git-fixture"; repo.mkdir(exist_ok=True)
+env={**os.environ,"PATH":str(pathlib.Path(os.environ["SystemRoot"])/"System32"),"GIT_CONFIG_NOSYSTEM":"1","GIT_CONFIG_GLOBAL":str(r/"empty.gitconfig"),"GIT_TERMINAL_PROMPT":"0","HOME":str(r/"git-home")}
+exe=dest/"cmd/git.exe"
+def git(*args):
+ p=subprocess.run([str(exe),*args],cwd=repo,env=env,text=True,encoding="utf8",errors="replace",stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30)
+ proof["tests"].append({"args":args,"exitCode":p.returncode,"output":p.stdout.strip()})
+ assert p.returncode==0,p.stdout
+ return p.stdout
+git("--version"); git("init","-b","main"); (repo/"中文.txt").write_text("baseline\n",encoding="utf8"); git("add","--all")
+git("-c","user.name=T72 Fixture","-c","user.email=fixture@example.invalid","commit","-m","temporary fixture only")
+git("status","--porcelain=v1"); git("branch","trial"); git("switch","trial"); (repo/"中文.txt").write_text("changed\n",encoding="utf8")
+assert "changed" in git("diff","--","中文.txt")
+git("stash","push","--include-untracked","-m","T72 recoverable temporary point"); git("switch","main"); assert "T72 recoverable temporary point" in git("stash","list")
+git("stash","apply","stash@{0}"); assert (repo/"中文.txt").read_text(encoding="utf8")=="changed\n"
+git("log","-1","--format=%s"); git("branch","--list")
+proof["cleanPathSmoke"]="passed"; proof["allWritesUnder"]=str(r); proof["productionAuthorConfigTested"]=False
+(r/"mingit-results.json").write_text(json.dumps(proof,ensure_ascii=False,indent=2),encoding="utf8")
+print(json.dumps({k:v for k,v in proof.items() if k!="tests"},ensure_ascii=False))
+

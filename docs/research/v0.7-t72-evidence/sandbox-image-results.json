@@ -1,0 +1,83 @@
+{
+  "imageFile": "dreamflutter-sandbox.tar.gz",
+  "imageSha256": "d29ec8eb1e6ed5cde7ea1c47135d4e1af6a73061acdf747e923329cf7c199e8a",
+  "imageOriginalGzipBytes": 472724239,
+  "dpkgMatch": true,
+  "dpkgDiff": {},
+  "baseTarMembers": 70030,
+  "tarPrefixBytes": 1379367424,
+  "recompressedBaselineGzipBytes": 472087526,
+  "compression": "zlib gzip level 6; identical prefix compressor.copy; appended synthetic /opt/dreamflutter/office overlay, canonical tar ending",
+  "cases": [
+    {
+      "case": "python-docx",
+      "overlayTarPayloadBytes": 1852416,
+      "newGzipBytes": 472341466,
+      "deltaGzipBytes": 253940
+    },
+    {
+      "case": "openpyxl",
+      "overlayTarPayloadBytes": 0,
+      "newGzipBytes": 472087526,
+      "deltaGzipBytes": 0
+    },
+    {
+      "case": "python-pptx",
+      "overlayTarPayloadBytes": 2477568,
+      "newGzipBytes": 472720644,
+      "deltaGzipBytes": 633118
+    },
+    {
+      "case": "pypdf",
+      "overlayTarPayloadBytes": 1846784,
+      "newGzipBytes": 472473443,
+      "deltaGzipBytes": 385917
+    },
+    {
+      "case": "pdfplumber",
+      "overlayTarPayloadBytes": 55433216,
+      "newGzipBytes": 494950496,
+      "deltaGzipBytes": 22862970
+    },
+    {
+      "case": "pandas",
+      "overlayTarPayloadBytes": 0,
+      "newGzipBytes": 472087526,
+      "deltaGzipBytes": 0
+    },
+    {
+      "case": "matplotlib",
+      "overlayTarPayloadBytes": 0,
+      "newGzipBytes": 472087526,
+      "deltaGzipBytes": 0
+    },
+    {
+      "case": "reportlab",
+      "overlayTarPayloadBytes": 5830656,
+      "newGzipBytes": 474278829,
+      "deltaGzipBytes": 2191303
+    },
+    {
+      "case": "lean",
+      "overlayTarPayloadBytes": 5987328,
+      "newGzipBytes": 473315726,
+      "deltaGzipBytes": 1228200
+    },
+    {
+      "case": "recommended",
+      "overlayTarPayloadBytes": 5987328,
+      "newGzipBytes": 473315734,
+      "deltaGzipBytes": 1228208,
+      "archiveReadbackAddedMembers": 364,
+      "archiveSha256": "86959adf2f25182e30c92c198d43f9d7d7e599e2f555cc98f2b329024006edbf"
+    },
+    {
+      "case": "full",
+      "overlayTarPayloadBytes": 66466816,
+      "newGzipBytes": 498119803,
+      "deltaGzipBytes": 26032277
+    }
+  ],
+  "baselinePackageCount": 667,
+  "baselineVerification": "parsed installed Package/Version fields from exact extracted image var/lib/dpkg/status; compare source packages.txt"
+}

@@ -1,0 +1,212 @@
+=== python-docx-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Processing ./wheels/python_docx-1.2.0-py3-none-any.whl
+Requirement already satisfied: lxml>=3.1.0 in /usr/lib/python3/dist-packages (from python-docx==1.2.0) (5.4.0)
+Processing ./wheels/typing_extensions-4.16.0-py3-none-any.whl (from python-docx==1.2.0)
+Installing collected packages: typing_extensions, python-docx
+
+Successfully installed python-docx-1.2.0 typing_extensions-4.16.0
+
+
+=== python-docx-smoke.log ===
+T72_SMOKE_OK
+
+
+=== openpyxl-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Requirement already satisfied: openpyxl==3.1.5 in /usr/lib/python3/dist-packages (3.1.5)
+Requirement already satisfied: et_xmlfile in /usr/lib/python3/dist-packages (from openpyxl==3.1.5) (2.0.0)
+
+
+=== openpyxl-smoke.log ===
+T72_SMOKE_OK
+
+
+=== python-pptx-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Processing ./wheels/python_pptx-1.0.2-py3-none-any.whl
+Requirement already satisfied: Pillow>=3.3.2 in /usr/lib/python3/dist-packages (from python-pptx==1.0.2) (11.1.0)
+Processing ./wheels/xlsxwriter-3.3.1-py3-none-any.whl (from python-pptx==1.0.2)
+Requirement already satisfied: lxml>=3.1.0 in /usr/lib/python3/dist-packages (from python-pptx==1.0.2) (5.4.0)
+Processing ./wheels/typing_extensions-4.16.0-py3-none-any.whl (from python-pptx==1.0.2)
+Installing collected packages: XlsxWriter, typing-extensions, python-pptx
+
+Successfully installed XlsxWriter-3.3.1 python-pptx-1.0.2 typing-extensions-4.16.0
+
+
+=== python-pptx-smoke.log ===
+T72_SMOKE_OK
+
+
+=== pypdf-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Processing ./wheels/pypdf-7.0.0-py3-none-any.whl
+Installing collected packages: pypdf
+Successfully installed pypdf-7.0.0
+
+
+=== pypdf-smoke.log ===
+T72_SMOKE_OK
+
+
+=== pdfplumber-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Processing ./wheels/pdfplumber-0.11.10-py3-none-any.whl
+Processing ./wheels/pdfminer_six-20260107-py3-none-any.whl (from pdfplumber==0.11.10)
+Processing ./wheels/pillow-13.0.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (from pdfplumber==0.11.10)
+Processing ./wheels/pypdfium2-5.15.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (from pdfplumber==0.11.10)
+Processing ./wheels/charset_normalizer-3.5.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (from pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing ./wheels/cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl (from pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing ./wheels/cffi-2.1.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (from cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing ./wheels/pycparser-3.12-py3-none-any.whl (from cffi>=2.0.0->cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber==0.11.10)
+Installing collected packages: pypdfium2, pycparser, Pillow, charset-normalizer, cffi, cryptography, pdfminer.six, pdfplumber
+  Attempting uninstall: Pillow
+    Found existing installation: pillow 11.1.0
+    Not uninstalling pillow at /usr/lib/python3/dist-packages, outside environment /tmp/t72-exact/venv-pdfplumber
+    Can't uninstall 'pillow'. No files were found to uninstall.
+
+Successfully installed Pillow-13.0.0 cffi-2.1.1 charset-normalizer-3.5.2 cryptography-50.0.2 pdfminer.six-20260107 pdfplumber-0.11.10 pycparser-3.12 pypdfium2-5.15.1
+
+
+=== pdfplumber-smoke.log ===
+T72_SMOKE_OK
+
+
+=== pandas-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Requirement already satisfied: pandas==2.2.3+dfsg in /usr/lib/python3/dist-packages (2.2.3+dfsg)
+Requirement already satisfied: numpy>=1.26.0 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2.2.4)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2.9.0)
+Requirement already satisfied: pytz>=2020.1 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2025.2)
+
+
+=== pandas-smoke.log ===
+T72_SMOKE_OK
+
+
+=== matplotlib-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Requirement already satisfied: matplotlib==3.10.1+dfsg1 in /usr/lib/python3/dist-packages (3.10.1+dfsg1)
+Requirement already satisfied: contourpy>=1.0.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (1.3.1)
+Requirement already satisfied: cycler>=0.10 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (0.12.1)
+Requirement already satisfied: fonttools>=4.22.0 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (4.57.0)
+Requirement already satisfied: kiwisolver>=1.3.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (1.4.7)
+Requirement already satisfied: numpy>=1.23 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (2.2.4)
+Requirement already satisfied: packaging>=20.0 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (25.0)
+Requirement already satisfied: pillow>=8 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (11.1.0)
+Requirement already satisfied: pyparsing>=2.3.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (3.1.2)
+Requirement already satisfied: python-dateutil>=2.7 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (2.9.0)
+
+
+=== matplotlib-smoke.log ===
+T72_SMOKE_OK
+
+
+=== reportlab-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Processing ./wheels/reportlab-5.1.0-py3-none-any.whl
+Requirement already satisfied: pillow>=9.0.0 in /usr/lib/python3/dist-packages (from reportlab==5.1.0) (11.1.0)
+Processing ./wheels/charset_normalizer-3.5.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (from reportlab==5.1.0)
+Installing collected packages: charset-normalizer, reportlab
+
+Successfully installed charset-normalizer-3.5.2 reportlab-5.1.0
+
+
+=== reportlab-smoke.log ===
+T72_SMOKE_OK
+
+
+=== lean-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Processing ./wheels/python_docx-1.2.0-py3-none-any.whl
+Requirement already satisfied: openpyxl==3.1.5 in /usr/lib/python3/dist-packages (3.1.5)
+Processing ./wheels/python_pptx-1.0.2-py3-none-any.whl
+Processing ./wheels/pypdf-7.0.0-py3-none-any.whl
+Requirement already satisfied: lxml>=3.1.0 in /usr/lib/python3/dist-packages (from python-docx==1.2.0) (5.4.0)
+Processing ./wheels/typing_extensions-4.16.0-py3-none-any.whl (from python-docx==1.2.0)
+Requirement already satisfied: et_xmlfile in /usr/lib/python3/dist-packages (from openpyxl==3.1.5) (2.0.0)
+Requirement already satisfied: Pillow>=3.3.2 in /usr/lib/python3/dist-packages (from python-pptx==1.0.2) (11.1.0)
+Processing ./wheels/xlsxwriter-3.3.1-py3-none-any.whl (from python-pptx==1.0.2)
+Installing collected packages: XlsxWriter, typing_extensions, pypdf, python-pptx, python-docx
+
+Successfully installed XlsxWriter-3.3.1 pypdf-7.0.0 python-docx-1.2.0 python-pptx-1.0.2 typing_extensions-4.16.0
+
+
+=== lean-smoke.log ===
+T72_SMOKE_OK
+
+
+=== recommended-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Processing ./wheels/python_docx-1.2.0-py3-none-any.whl
+Requirement already satisfied: openpyxl==3.1.5 in /usr/lib/python3/dist-packages (3.1.5)
+Processing ./wheels/python_pptx-1.0.2-py3-none-any.whl
+Processing ./wheels/pypdf-7.0.0-py3-none-any.whl
+Requirement already satisfied: pandas==2.2.3+dfsg in /usr/lib/python3/dist-packages (2.2.3+dfsg)
+Requirement already satisfied: matplotlib==3.10.1+dfsg1 in /usr/lib/python3/dist-packages (3.10.1+dfsg1)
+Requirement already satisfied: lxml>=3.1.0 in /usr/lib/python3/dist-packages (from python-docx==1.2.0) (5.4.0)
+Processing ./wheels/typing_extensions-4.16.0-py3-none-any.whl (from python-docx==1.2.0)
+Requirement already satisfied: et_xmlfile in /usr/lib/python3/dist-packages (from openpyxl==3.1.5) (2.0.0)
+Requirement already satisfied: Pillow>=3.3.2 in /usr/lib/python3/dist-packages (from python-pptx==1.0.2) (11.1.0)
+Processing ./wheels/xlsxwriter-3.3.1-py3-none-any.whl (from python-pptx==1.0.2)
+Requirement already satisfied: numpy>=1.26.0 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2.2.4)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2.9.0)
+Requirement already satisfied: pytz>=2020.1 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2025.2)
+Requirement already satisfied: contourpy>=1.0.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (1.3.1)
+Requirement already satisfied: cycler>=0.10 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (0.12.1)
+Requirement already satisfied: fonttools>=4.22.0 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (4.57.0)
+Requirement already satisfied: kiwisolver>=1.3.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (1.4.7)
+Requirement already satisfied: packaging>=20.0 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (25.0)
+Requirement already satisfied: pyparsing>=2.3.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (3.1.2)
+Installing collected packages: XlsxWriter, typing_extensions, pypdf, python-pptx, python-docx
+
+Successfully installed XlsxWriter-3.3.1 pypdf-7.0.0 python-docx-1.2.0 python-pptx-1.0.2 typing_extensions-4.16.0
+
+
+=== recommended-smoke.log ===
+T72_SMOKE_OK
+
+
+=== full-install.log ===
+Looking in links: /tmp/t72-exact/wheels
+Processing ./wheels/python_docx-1.2.0-py3-none-any.whl
+Requirement already satisfied: openpyxl==3.1.5 in /usr/lib/python3/dist-packages (3.1.5)
+Processing ./wheels/python_pptx-1.0.2-py3-none-any.whl
+Processing ./wheels/pypdf-7.0.0-py3-none-any.whl
+Requirement already satisfied: pandas==2.2.3+dfsg in /usr/lib/python3/dist-packages (2.2.3+dfsg)
+Requirement already satisfied: matplotlib==3.10.1+dfsg1 in /usr/lib/python3/dist-packages (3.10.1+dfsg1)
+Processing ./wheels/pdfplumber-0.11.10-py3-none-any.whl
+Processing ./wheels/reportlab-5.1.0-py3-none-any.whl
+Requirement already satisfied: lxml>=3.1.0 in /usr/lib/python3/dist-packages (from python-docx==1.2.0) (5.4.0)
+Processing ./wheels/typing_extensions-4.16.0-py3-none-any.whl (from python-docx==1.2.0)
+Requirement already satisfied: et_xmlfile in /usr/lib/python3/dist-packages (from openpyxl==3.1.5) (2.0.0)
+Requirement already satisfied: Pillow>=3.3.2 in /usr/lib/python3/dist-packages (from python-pptx==1.0.2) (11.1.0)
+Processing ./wheels/xlsxwriter-3.3.1-py3-none-any.whl (from python-pptx==1.0.2)
+Requirement already satisfied: numpy>=1.26.0 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2.2.4)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2.9.0)
+Requirement already satisfied: pytz>=2020.1 in /usr/lib/python3/dist-packages (from pandas==2.2.3+dfsg) (2025.2)
+Requirement already satisfied: contourpy>=1.0.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (1.3.1)
+Requirement already satisfied: cycler>=0.10 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (0.12.1)
+Requirement already satisfied: fonttools>=4.22.0 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (4.57.0)
+Requirement already satisfied: kiwisolver>=1.3.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (1.4.7)
+Requirement already satisfied: packaging>=20.0 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (25.0)
+Requirement already satisfied: pyparsing>=2.3.1 in /usr/lib/python3/dist-packages (from matplotlib==3.10.1+dfsg1) (3.1.2)
+Processing ./wheels/pdfminer_six-20260107-py3-none-any.whl (from pdfplumber==0.11.10)
+Processing ./wheels/pillow-13.0.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (from python-pptx==1.0.2)
+Processing ./wheels/pypdfium2-5.15.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (from pdfplumber==0.11.10)
+Processing ./wheels/charset_normalizer-3.5.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (from reportlab==5.1.0)
+Processing ./wheels/cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl (from pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing ./wheels/cffi-2.1.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (from cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing ./wheels/pycparser-3.12-py3-none-any.whl (from cffi>=2.0.0->cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber==0.11.10)
+Installing collected packages: XlsxWriter, typing_extensions, pypdfium2, pypdf, pycparser, Pillow, charset-normalizer, reportlab, python-pptx, python-docx, cffi, cryptography, pdfminer.six, pdfplumber
+  Attempting uninstall: Pillow
+    Found existing installation: pillow 11.1.0
+    Not uninstalling pillow at /usr/lib/python3/dist-packages, outside environment /tmp/t72-exact/venv-full
+    Can't uninstall 'pillow'. No files were found to uninstall.
+
+Successfully installed Pillow-13.0.0 XlsxWriter-3.3.1 cffi-2.1.1 charset-normalizer-3.5.2 cryptography-50.0.2 pdfminer.six-20260107 pdfplumber-0.11.10 pycparser-3.12 pypdf-7.0.0 pypdfium2-5.15.1 python-docx-1.2.0 python-pptx-1.0.2 reportlab-5.1.0 typing_extensions-4.16.0
+
+
+=== full-smoke.log ===
+T72_SMOKE_OK
+

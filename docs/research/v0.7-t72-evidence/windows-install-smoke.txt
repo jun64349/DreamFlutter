@@ -1,0 +1,191 @@
+=== python-docx-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\python_docx-1.2.0-py3-none-any.whl
+Processing .\wheels\lxml-6.1.3-cp313-cp313-win_amd64.whl (from python-docx==1.2.0)
+Processing .\wheels\typing_extensions-4.16.0-py3-none-any.whl (from python-docx==1.2.0)
+Installing collected packages: typing_extensions, lxml, python-docx
+
+Successfully installed lxml-6.1.3 python-docx-1.2.0 typing_extensions-4.16.0
+
+=== python-docx-smoke.log ===
+T72_SMOKE_OK
+
+=== openpyxl-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\openpyxl-3.1.5-py2.py3-none-any.whl
+Processing .\wheels\et_xmlfile-2.0.0-py3-none-any.whl (from openpyxl==3.1.5)
+Installing collected packages: et-xmlfile, openpyxl
+
+Successfully installed et-xmlfile-2.0.0 openpyxl-3.1.5
+
+=== openpyxl-smoke.log ===
+T72_SMOKE_OK
+
+=== python-pptx-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\python_pptx-1.0.2-py3-none-any.whl
+Processing .\wheels\pillow-13.0.0-cp313-cp313-win_amd64.whl (from python-pptx==1.0.2)
+Processing .\wheels\xlsxwriter-3.3.1-py3-none-any.whl (from python-pptx==1.0.2)
+Processing .\wheels\lxml-6.1.3-cp313-cp313-win_amd64.whl (from python-pptx==1.0.2)
+Processing .\wheels\typing_extensions-4.16.0-py3-none-any.whl (from python-pptx==1.0.2)
+Installing collected packages: XlsxWriter, typing-extensions, Pillow, lxml, python-pptx
+
+Successfully installed Pillow-13.0.0 XlsxWriter-3.3.1 lxml-6.1.3 python-pptx-1.0.2 typing-extensions-4.16.0
+
+=== python-pptx-smoke.log ===
+T72_SMOKE_OK
+
+=== pypdf-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\pypdf-7.0.0-py3-none-any.whl
+Installing collected packages: pypdf
+Successfully installed pypdf-7.0.0
+
+=== pypdf-smoke.log ===
+T72_SMOKE_OK
+
+=== pdfplumber-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\pdfplumber-0.11.10-py3-none-any.whl
+Processing .\wheels\pdfminer_six-20260107-py3-none-any.whl (from pdfplumber==0.11.10)
+Processing .\wheels\pillow-13.0.0-cp313-cp313-win_amd64.whl (from pdfplumber==0.11.10)
+Processing .\wheels\pypdfium2-5.15.1-py3-none-win_amd64.whl (from pdfplumber==0.11.10)
+Processing .\wheels\charset_normalizer-3.5.2-cp313-cp313-win_amd64.whl (from pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing .\wheels\cryptography-50.0.2-cp311-abi3-win_amd64.whl (from pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing .\wheels\cffi-2.1.1-cp313-cp313-win_amd64.whl (from cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing .\wheels\pycparser-3.12-py3-none-any.whl (from cffi>=2.0.0->cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber==0.11.10)
+Installing collected packages: pypdfium2, pycparser, Pillow, charset-normalizer, cffi, cryptography, pdfminer.six, pdfplumber
+
+Successfully installed Pillow-13.0.0 cffi-2.1.1 charset-normalizer-3.5.2 cryptography-50.0.2 pdfminer.six-20260107 pdfplumber-0.11.10 pycparser-3.12 pypdfium2-5.15.1
+
+=== pdfplumber-smoke.log ===
+T72_SMOKE_OK
+
+=== pandas-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\pandas-3.1.1-cp313-cp313-win_amd64.whl
+Processing .\wheels\numpy-2.5.4-cp313-cp313-win_amd64.whl (from pandas==3.1.1)
+Processing .\wheels\python_dateutil-4.0.0-py3-none-any.whl (from pandas==3.1.1)
+Processing .\wheels\tzdata-2026.6-py2.py3-none-any.whl (from pandas==3.1.1)
+Installing collected packages: tzdata, numpy, python-dateutil, pandas
+
+Successfully installed numpy-2.5.4 pandas-3.1.1 python-dateutil-4.0.0 tzdata-2026.6
+
+=== pandas-smoke.log ===
+T72_SMOKE_OK
+
+=== matplotlib-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\matplotlib-3.11.2-cp313-cp313-win_amd64.whl
+Processing .\wheels\contourpy-1.4.0-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\cycler-0.12.1-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\fonttools-4.68.0-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\kiwisolver-1.5.1-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\numpy-2.5.4-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\packaging-26.3-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\pillow-13.0.0-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\pyparsing-3.3.3-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\python_dateutil-4.0.0-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\tzdata-2026.6-py2.py3-none-any.whl (from python-dateutil>=2.7->matplotlib==3.11.2)
+Installing collected packages: tzdata, pyparsing, pillow, packaging, numpy, kiwisolver, fonttools, cycler, python-dateutil, contourpy, matplotlib
+
+Successfully installed contourpy-1.4.0 cycler-0.12.1 fonttools-4.68.0 kiwisolver-1.5.1 matplotlib-3.11.2 numpy-2.5.4 packaging-26.3 pillow-13.0.0 pyparsing-3.3.3 python-dateutil-4.0.0 tzdata-2026.6
+
+=== matplotlib-smoke.log ===
+T72_SMOKE_OK
+
+=== reportlab-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\reportlab-5.1.0-py3-none-any.whl
+Processing .\wheels\pillow-13.0.0-cp313-cp313-win_amd64.whl (from reportlab==5.1.0)
+Processing .\wheels\charset_normalizer-3.5.2-cp313-cp313-win_amd64.whl (from reportlab==5.1.0)
+Installing collected packages: pillow, charset-normalizer, reportlab
+
+Successfully installed charset-normalizer-3.5.2 pillow-13.0.0 reportlab-5.1.0
+
+=== reportlab-smoke.log ===
+T72_SMOKE_OK
+
+=== lean-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\python_docx-1.2.0-py3-none-any.whl
+Processing .\wheels\openpyxl-3.1.5-py2.py3-none-any.whl
+Processing .\wheels\python_pptx-1.0.2-py3-none-any.whl
+Processing .\wheels\pypdf-7.0.0-py3-none-any.whl
+Processing .\wheels\lxml-6.1.3-cp313-cp313-win_amd64.whl (from python-docx==1.2.0)
+Processing .\wheels\typing_extensions-4.16.0-py3-none-any.whl (from python-docx==1.2.0)
+Processing .\wheels\et_xmlfile-2.0.0-py3-none-any.whl (from openpyxl==3.1.5)
+Processing .\wheels\pillow-13.0.0-cp313-cp313-win_amd64.whl (from python-pptx==1.0.2)
+Processing .\wheels\xlsxwriter-3.3.1-py3-none-any.whl (from python-pptx==1.0.2)
+Installing collected packages: XlsxWriter, typing_extensions, pypdf, Pillow, lxml, et-xmlfile, python-pptx, python-docx, openpyxl
+
+Successfully installed Pillow-13.0.0 XlsxWriter-3.3.1 et-xmlfile-2.0.0 lxml-6.1.3 openpyxl-3.1.5 pypdf-7.0.0 python-docx-1.2.0 python-pptx-1.0.2 typing_extensions-4.16.0
+
+=== lean-smoke.log ===
+T72_SMOKE_OK
+
+=== recommended-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\python_docx-1.2.0-py3-none-any.whl
+Processing .\wheels\openpyxl-3.1.5-py2.py3-none-any.whl
+Processing .\wheels\python_pptx-1.0.2-py3-none-any.whl
+Processing .\wheels\pypdf-7.0.0-py3-none-any.whl
+Processing .\wheels\pandas-3.1.1-cp313-cp313-win_amd64.whl
+Processing .\wheels\matplotlib-3.11.2-cp313-cp313-win_amd64.whl
+Processing .\wheels\lxml-6.1.3-cp313-cp313-win_amd64.whl (from python-docx==1.2.0)
+Processing .\wheels\typing_extensions-4.16.0-py3-none-any.whl (from python-docx==1.2.0)
+Processing .\wheels\et_xmlfile-2.0.0-py3-none-any.whl (from openpyxl==3.1.5)
+Processing .\wheels\pillow-13.0.0-cp313-cp313-win_amd64.whl (from python-pptx==1.0.2)
+Processing .\wheels\xlsxwriter-3.3.1-py3-none-any.whl (from python-pptx==1.0.2)
+Processing .\wheels\numpy-2.5.4-cp313-cp313-win_amd64.whl (from pandas==3.1.1)
+Processing .\wheels\python_dateutil-4.0.0-py3-none-any.whl (from pandas==3.1.1)
+Processing .\wheels\tzdata-2026.6-py2.py3-none-any.whl (from pandas==3.1.1)
+Processing .\wheels\contourpy-1.4.0-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\cycler-0.12.1-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\fonttools-4.68.0-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\kiwisolver-1.5.1-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\packaging-26.3-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\pyparsing-3.3.3-py3-none-any.whl (from matplotlib==3.11.2)
+Installing collected packages: XlsxWriter, tzdata, typing_extensions, pypdf, pyparsing, Pillow, packaging, numpy, lxml, kiwisolver, fonttools, et-xmlfile, cycler, python-pptx, python-docx, python-dateutil, openpyxl, contourpy, pandas, matplotlib
+
+Successfully installed Pillow-13.0.0 XlsxWriter-3.3.1 contourpy-1.4.0 cycler-0.12.1 et-xmlfile-2.0.0 fonttools-4.68.0 kiwisolver-1.5.1 lxml-6.1.3 matplotlib-3.11.2 numpy-2.5.4 openpyxl-3.1.5 packaging-26.3 pandas-3.1.1 pyparsing-3.3.3 pypdf-7.0.0 python-dateutil-4.0.0 python-docx-1.2.0 python-pptx-1.0.2 typing_extensions-4.16.0 tzdata-2026.6
+
+=== recommended-smoke.log ===
+T72_SMOKE_OK
+
+=== full-install.log ===
+Looking in links: c:\Users\21669\AppData\Local\Temp\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e\windows\wheels
+Processing .\wheels\python_docx-1.2.0-py3-none-any.whl
+Processing .\wheels\openpyxl-3.1.5-py2.py3-none-any.whl
+Processing .\wheels\python_pptx-1.0.2-py3-none-any.whl
+Processing .\wheels\pypdf-7.0.0-py3-none-any.whl
+Processing .\wheels\pandas-3.1.1-cp313-cp313-win_amd64.whl
+Processing .\wheels\matplotlib-3.11.2-cp313-cp313-win_amd64.whl
+Processing .\wheels\pdfplumber-0.11.10-py3-none-any.whl
+Processing .\wheels\reportlab-5.1.0-py3-none-any.whl
+Processing .\wheels\lxml-6.1.3-cp313-cp313-win_amd64.whl (from python-docx==1.2.0)
+Processing .\wheels\typing_extensions-4.16.0-py3-none-any.whl (from python-docx==1.2.0)
+Processing .\wheels\et_xmlfile-2.0.0-py3-none-any.whl (from openpyxl==3.1.5)
+Processing .\wheels\pillow-13.0.0-cp313-cp313-win_amd64.whl (from python-pptx==1.0.2)
+Processing .\wheels\xlsxwriter-3.3.1-py3-none-any.whl (from python-pptx==1.0.2)
+Processing .\wheels\numpy-2.5.4-cp313-cp313-win_amd64.whl (from pandas==3.1.1)
+Processing .\wheels\python_dateutil-4.0.0-py3-none-any.whl (from pandas==3.1.1)
+Processing .\wheels\tzdata-2026.6-py2.py3-none-any.whl (from pandas==3.1.1)
+Processing .\wheels\contourpy-1.4.0-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\cycler-0.12.1-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\fonttools-4.68.0-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\kiwisolver-1.5.1-cp313-cp313-win_amd64.whl (from matplotlib==3.11.2)
+Processing .\wheels\packaging-26.3-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\pyparsing-3.3.3-py3-none-any.whl (from matplotlib==3.11.2)
+Processing .\wheels\pdfminer_six-20260107-py3-none-any.whl (from pdfplumber==0.11.10)
+Processing .\wheels\pypdfium2-5.15.1-py3-none-win_amd64.whl (from pdfplumber==0.11.10)
+Processing .\wheels\charset_normalizer-3.5.2-cp313-cp313-win_amd64.whl (from reportlab==5.1.0)
+Processing .\wheels\cryptography-50.0.2-cp311-abi3-win_amd64.whl (from pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing .\wheels\cffi-2.1.1-cp313-cp313-win_amd64.whl (from cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber==0.11.10)
+Processing .\wheels\pycparser-3.12-py3-none-any.whl (from cffi>=2.0.0->cryptography>=36.0.0->pdfminer.six==20260107->pdfplumber==0.11.10)
+Installing collected packages: XlsxWriter, tzdata, typing_extensions, pypdfium2, pypdf, pyparsing, pycparser, Pillow, packaging, numpy, lxml, kiwisolver, fonttools, et-xmlfile, cycler, charset-normalizer, reportlab, python-pptx, python-docx, python-dateutil, openpyxl, contourpy, cffi, pandas, matplotlib, cryptography, pdfminer.six, pdfplumber
+
+Successfully installed Pillow-13.0.0 XlsxWriter-3.3.1 cffi-2.1.1 charset-normalizer-3.5.2 contourpy-1.4.0 cryptography-50.0.2 cycler-0.12.1 et-xmlfile-2.0.0 fonttools-4.68.0 kiwisolver-1.5.1 lxml-6.1.3 matplotlib-3.11.2 numpy-2.5.4 openpyxl-3.1.5 packaging-26.3 pandas-3.1.1 pdfminer.six-20260107 pdfplumber-0.11.10 pycparser-3.12 pyparsing-3.3.3 pypdf-7.0.0 pypdfium2-5.15.1 python-dateutil-4.0.0 python-docx-1.2.0 python-pptx-1.0.2 reportlab-5.1.0 typing_extensions-4.16.0 tzdata-2026.6
+
+=== full-smoke.log ===
+T72_SMOKE_OK

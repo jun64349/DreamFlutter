@@ -1,0 +1,38 @@
+import pathlib,subprocess,json
+r=pathlib.Path(__file__).parent
+remote="/tmp/dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e"
+extract="import pathlib,tarfile,sys; p=pathlib.Path("+repr(remote+"/exact-image")+"); p.mkdir(exist_ok=True); t=tarfile.open(fileobj=sys.stdin.buffer,mode='r|gz'); t.extractall(p,filter='fully_trusted'); print('T72_EXACT_IMAGE_EXTRACTED')"
+with pathlib.Path(r"E:\claude\DreamFlutter\core\sandbox-image\dreamflutter-sandbox.tar.gz").open("rb") as f:
+ p=subprocess.run(["wsl.exe","-d","DreamFlutterSandbox","-u","root","--","python3","-B","-c",extract],stdin=f,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=180)
+(r/"exact-extract.log").write_bytes(p.stdout+p.stderr); assert p.returncode==0,p.stderr.decode(errors="replace")
+s=(r/"t72_measure.py").read_text(encoding="utf8")
+s=s.replace('for name in NAMES:\n    if REUSE', 'for name in NAMES:\n    if (ROOT/"pinned-versions.json").exists():\n        versions=json.loads((ROOT/"pinned-versions.json").read_text()); break\n    if REUSE')
+s=s.replace('run([py(bootstrap),"-B","-m","pip","--isolated","download"', 'if not (ROOT/"offline-ready").exists(): run([py(bootstrap),"-B","-m","pip","--isolated","download"')
+# Exact extraction contains root-created dirs; keep all writes below the one temporary image root.
+setup="""import pathlib,os,shutil,stat,json,base64
+remote=pathlib.Path(REMOTE)
+image=remote/'exact-image'
+out=image/'tmp/t72-exact'
+out.mkdir(exist_ok=True)
+(out/'wheels').mkdir(exist_ok=True)
+for p in (remote/'linux/wheels').glob('*'): shutil.copy2(p,out/'wheels'/p.name)
+shutil.copy2(remote/'linux/versions.json',out/'pinned-versions.json')
+(out/'offline-ready').write_text('offline wheelhouse fixed')
+(out/'t72_measure.py').write_bytes(base64.b64decode(SCRIPT))
+null=image/'dev/null'
+if not null.exists(): os.mknod(null,stat.S_IFCHR|0o666,os.makedev(1,3))
+for p in [out,*out.rglob('*')]: os.chown(p,1000,1000)
+print('T72_EXACT_OFFLINE_READY')
+"""
+import base64
+setup=setup.replace("REMOTE",repr(remote)).replace("SCRIPT",repr(base64.b64encode(s.encode()).decode()))
+p=subprocess.run(["wsl.exe","-d","DreamFlutterSandbox","-u","root","--","python3","-B","-c",setup],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
+(r/"exact-setup.log").write_bytes(p.stdout+p.stderr); assert p.returncode==0,p.stderr.decode(errors="replace")
+print(p.stdout.decode(),flush=True)
+p=subprocess.run(["wsl.exe","-d","DreamFlutterSandbox","-u","root","--","chroot","--userspec=1000:1000",remote+"/exact-image","/usr/bin/python3","-B","/tmp/t72-exact/t72_measure.py","/tmp/t72-exact"],timeout=300)
+assert p.returncode==0,p.returncode
+with (r/"linux-exact-results.json").open("wb") as f:
+ subprocess.run(["wsl.exe","-d","DreamFlutterSandbox","-u","agent","--","python3","-B","-c","import sys; sys.stdout.buffer.write(open("+repr(remote+"/exact-image/tmp/t72-exact/results.json")+",'rb').read())"],stdout=f,stderr=subprocess.DEVNULL,check=True)
+(r/"exact-measure-script.txt").write_text(s,encoding="utf8")
+print("T72_EXACT_IMAGE_DONE",flush=True)
+

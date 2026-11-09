@@ -22,6 +22,7 @@ export function category(path) {
   if (name.startsWith('app/')) return 'Flutter client';
   if (name.startsWith('runtime/')) return 'Node';
   if (name.startsWith('core/node_modules/')) return 'Core production dependencies';
+  if (name.startsWith('core/bin/git/')) return 'Bundled MinGit';
   if (name.startsWith('core/python/') || /^core\/bin\/(?:uv|uvx|uvw)\.exe$/i.test(name)) return 'Python and uv';
   if (/^core\/bin\/(?:rg|fd)\.exe$/i.test(name)) return 'Tools rg and fd';
   if (name.startsWith('core/sandbox-image/')) return 'Sandbox image';

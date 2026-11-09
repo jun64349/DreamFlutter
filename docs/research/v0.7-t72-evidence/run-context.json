@@ -1,0 +1,34 @@
+{
+  "task": "T-72",
+  "date": "2026-11-08 Asia/Taipei",
+  "sourceHead": "96d2c5553f2236eb230889f1bc7a4618cc504d9a",
+  "windowsTempRoot": "C:\\Users\\21669\\AppData\\Local\\Temp\\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e",
+  "linuxTempRoot": "/tmp/dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e",
+  "portablePythonBaselineAfter": [
+    [
+      "pip",
+      "26.2.2"
+    ]
+  ],
+  "portablePythonBytes": 62780059,
+  "portablePythonFiles": 3320,
+  "authoritativeOfficeCases": 22,
+  "preliminaryOfficeCases": 11,
+  "realModelCalls": 0,
+  "thirdPartyMcpConnections": 0,
+  "registryHttpGets": 2,
+  "measurementsOnlyTemporary": true,
+  "notes": [
+    "GitHub unauthenticated repository API queries returned 403 rate limit; switched to official raw/codeload sources without credentials.",
+    "First MinGit asset download returned HTTP 504; retry of official same version succeeded and SHA256 matched published value.",
+    "Live WSL inventory differs from bundled image; all Linux candidates rerun in temporary exact-image chroot as uid/gid 1000.",
+    "Initial dpkg-query inventory formatting was unsuitable for exact comparison; final comparison parses installed Package/Version from extracted image var/lib/dpkg/status: 667/667 equal.",
+    "Compression prototype is a research overlay. Product boot, Python search-path wiring and final Velopack package not tested."
+  ],
+  "cleanup": {
+    "windowsCleanupResult": "Automatic approval rejected Remove-Item of the verified task temp root: blocked by policy; no detailed reason; not retried",
+    "linuxTempRemoved": true,
+    "preserved": "Windows task temporary root and small text evidence; original Python, image, distro packages and settings untouched",
+    "windowsTempRemoved": false
+  }
+}

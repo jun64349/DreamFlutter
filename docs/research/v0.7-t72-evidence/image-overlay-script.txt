@@ -1,0 +1,64 @@
+import pathlib,subprocess,json,hashlib,gzip,tarfile,zlib,zipfile,math
+r=pathlib.Path(__file__).parent
+src=pathlib.Path(r"E:\claude\DreamFlutter\core\sandbox-image\dreamflutter-sandbox.tar.gz")
+meta=json.loads(src.with_suffix("").with_suffix(".json").read_text(encoding="utf-8-sig"))
+h=hashlib.file_digest(src.open("rb"),"sha256").hexdigest(); assert h==meta["sha256"]
+dp=subprocess.run(['wsl.exe', '-d', 'DreamFlutterSandbox', '-u', 'agent', '--', 'python3', '-B', '-c', "import pathlib; text=pathlib.Path('/tmp/dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e/exact-image/var/lib/dpkg/status').read_text(); rows=[dict(line.split(': ',1) for line in block.splitlines() if ': ' in line and not line.startswith(' ')) for block in text.split('\\n\\n')]; print('\\n'.join(d['Package']+'\\t'+d['Version'] for d in rows if d.get('Status')=='install ok installed'))"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=True).stdout.decode('utf8')
+original=src.with_suffix("").with_suffix(".packages.txt").read_text(encoding="utf-8-sig").splitlines()
+a={line.split("\t")[0]:line.split("\t")[1] for line in original if "\t" in line}
+b={line.split("\t")[0]:line.split("\t")[1] for line in dp.splitlines() if "\t" in line}
+diff={k:{"image":a.get(k),"live":b.get(k)} for k in sorted(a.keys()|b.keys()) if a.get(k)!=b.get(k)}
+(r/"linux-dpkg.txt").write_text(dp,encoding="utf8")
+linux=json.loads((r/"linux-exact-results.json").read_text(encoding="utf-8-sig"))
+payloads=r/"linux-payloads"; payloads.mkdir(exist_ok=True)
+for row in linux["cases"]:
+ p=payloads/(row["case"]+"-payload.zip")
+ remote="/tmp/dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e/exact-image/tmp/t72-exact/"+p.name
+ with p.open("wb") as f:
+  subprocess.run(["wsl.exe","-d","DreamFlutterSandbox","-u","agent","--","python3","-B","-c","import sys; sys.stdout.buffer.write(open("+repr(remote)+",'rb').read())"],stdout=f,stderr=subprocess.DEVNULL,check=True)
+ assert hashlib.file_digest(p.open("rb"),"sha256").hexdigest()==row["zipSha256"]
+print("T72_LINUX_PAYLOADS_COPIED",flush=True)
+end=0; count=0
+with tarfile.open(src,"r:gz") as t:
+ for m in t:
+  count+=1; end=max(end,m.offset_data+math.ceil(m.size/512)*512)
+comp=zlib.compressobj(6,zlib.DEFLATED,31)
+prefix=r/"sandbox-base-prefix.gzpart"
+with gzip.open(src,"rb") as f,prefix.open("wb") as o:
+ left=end
+ while left:
+  chunk=f.read(min(left,4*1024*1024)); assert chunk; left-=len(chunk); o.write(comp.compress(chunk))
+prefixBytes=prefix.stat().st_size
+def ending(length): return b"\0"*(1024+(-(length+1024)%10240))
+baselineTail=comp.copy().compress(ending(end))
+c=comp.copy(); baselineTail=c.compress(ending(end))+c.flush()
+baselineBytes=prefixBytes+len(baselineTail)
+proof={"imageFile":src.name,"imageSha256":h,"imageOriginalGzipBytes":src.stat().st_size,"dpkgMatch":not diff,"dpkgDiff":diff,"baseTarMembers":count,"tarPrefixBytes":end,"recompressedBaselineGzipBytes":baselineBytes,"compression":"zlib gzip level 6; identical prefix compressor.copy; appended synthetic /opt/dreamflutter/office overlay, canonical tar ending","cases":[]}
+for row in linux["cases"]:
+ c=comp.copy(); total=end; tail=bytearray()
+ with zipfile.ZipFile(payloads/(row["case"]+"-payload.zip")) as z:
+  for item in sorted(z.infolist(),key=lambda i:i.filename):
+   if item.is_dir(): continue
+   data=z.read(item); info=tarfile.TarInfo("opt/dreamflutter/office/"+item.filename.replace("\\","/")); info.size=len(data); info.mtime=0; info.mode=0o644; info.uid=1000; info.gid=1000
+   head=info.tobuf(format=tarfile.PAX_FORMAT); pad=b"\0"*((-len(data))%512)
+   for chunk in (head,data,pad): tail.extend(c.compress(chunk)); total+=len(chunk)
+ tail.extend(c.compress(ending(total))); tail.extend(c.flush())
+ rec={"case":row["case"],"overlayTarPayloadBytes":total-end,"newGzipBytes":prefixBytes+len(tail),"deltaGzipBytes":prefixBytes+len(tail)-baselineBytes}
+ if row["case"]=="recommended":
+  out=r/"sandbox-recommended-research.tar.gz"
+  with out.open("wb") as f,prefix.open("rb") as p:
+   while chunk:=p.read(4*1024*1024): f.write(chunk)
+   f.write(tail)
+  names=[]
+  with tarfile.open(out,"r:gz") as t:
+   for m in t:
+    if m.name.startswith("opt/dreamflutter/office/"): names.append(m.name)
+  assert len(names)==row["addedFiles"]
+  rec["archiveReadbackAddedMembers"]=len(names); rec["archiveSha256"]=hashlib.file_digest(out.open("rb"),"sha256").hexdigest()
+ proof["cases"].append(rec)
+ print(json.dumps(rec),flush=True)
+(r/"sandbox-image-results.json").write_text(json.dumps(proof,indent=2),encoding="utf8")
+print("T72_IMAGE_OVERLAY_DONE",flush=True)
+
+
+

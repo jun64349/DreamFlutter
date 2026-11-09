@@ -1,8 +1,9 @@
 /**
  * Fetches the workbench toolchain (roadmap 3.6) into core/bin and core/python,
  * where the core and scripts/package-windows.ps1 find it:
- *   core/bin/uv.exe, uvx.exe  latest uv release (checksum verified)
- *   core/python/cpython-3.13.*  portable Python, installed by uv (python-build-standalone, verified by uv)
+ *   core/bin/uv.exe, uvx.exe  pinned uv release (official checksum verified)
+ *   core/python/cpython-3.13.18  pinned portable Python, installed and verified by uv
+ *   core/bin/git/ and Python office libraries from bundled-runtime.lock.json
  *   node --disable-warning=ExperimentalWarning scripts/fetch-toolchain.ts
  * Build-time only: downloads go through curl, which honours the proxy settings.
  * rg and fd come from Pi's bin folder when packaging (package-windows.ps1).
@@ -14,7 +15,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bundledPython, PYTHON_DIR, TOOLS_DIR } from "../src/agent/toolchain.ts";
 
-const PYTHON_VERSION = "3.13";
+const runtimeLock = JSON.parse(readFileSync(join(import.meta.dirname, "../bundled-runtime.lock.json"), "utf8"));
+const PYTHON_VERSION: string = runtimeLock.python;
+const UV_VERSION: string = runtimeLock.licenses.find((entry: { tool: string }) => entry.tool === "uv").version;
 const UV_ASSET = "uv-x86_64-pc-windows-msvc.zip";
 
 function run(command: string, args: string[]): string {
@@ -29,8 +32,8 @@ const sha256 = (path: string) => createHash("sha256").update(readFileSync(path))
 mkdirSync(TOOLS_DIR, { recursive: true });
 const work = mkdtempSync(join(tmpdir(), "df-toolchain-"));
 try {
-	// uv: the latest release (GitHub's latest/download links, no API rate limit), checked against the checksum published beside it.
-	const latest = `https://github.com/astral-sh/uv/releases/latest/download/${UV_ASSET}`;
+	// uv: fixed release from the bundle lock, checked against the checksum published beside it.
+	const latest = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${UV_ASSET}`;
 	const zip = join(work, UV_ASSET);
 	curl(latest, zip);
 	const expected = curl(`${latest}.sha256`).trim().split(/\s+/)[0]!.toLowerCase();
@@ -50,6 +53,8 @@ try {
 	for (const exe of ["rg.exe", "fd.exe"]) {
 		if (!existsSync(join(TOOLS_DIR, exe))) console.log(`note: ${exe} is not in core/bin; the core uses Pi's copy (packaging copies it in)`);
 	}
+	// Explicit build-time preparation. Runtime sessions never download office libraries or Git.
+	console.log(run(process.execPath, [join(import.meta.dirname, "../../scripts/prepare-bundled-runtime.mjs"), "--download"]));
 } finally {
 	rmSync(work, { recursive: true, force: true });
 }

@@ -1,0 +1,47 @@
+import pathlib,json,re,urllib.parse,hashlib,collections,subprocess
+repo=pathlib.Path(r"E:\claude\DreamFlutter")
+d=repo/"docs/research/v0.7-t72-evidence"
+errors=[]; checks=[]
+def check(ok,label):
+ checks.append({"check":label,"passed":bool(ok)})
+ if not ok: errors.append(label)
+def read(name): return json.loads((d/name).read_text(encoding="utf-8-sig"))
+win=read("windows-results.json"); lin=read("linux-exact-results.json"); image=read("sandbox-image-results.json"); git=read("mingit-results.json")
+check(len(win["cases"])==11 and len(lin["cases"])==11,"22 authoritative office cases")
+check(all(x["smoke"]=="passed" and x["modifiedDeltaBytes"]==0 for x in win["cases"]+lin["cases"]),"all office assertions passed and no baseline file modifications")
+check(image["dpkgMatch"] and len((d/"linux-exact-dpkg.txt").read_text(encoding="utf8").strip().splitlines())==667,"exact image baseline has 667 matching packages")
+check(image["imageSha256"]=="d29ec8eb1e6ed5cde7ea1c47135d4e1af6a73061acdf747e923329cf7c199e8a","image source SHA256 matches sidecar")
+lrows={x["case"]:x for x in lin["cases"]}; wrows={x["case"]:x for x in win["cases"]}; irows={x["case"]:x for x in image["cases"]}
+check(all(lrows[n]["addedBytes"]==0 and irows[n]["deltaGzipBytes"]==0 for n in ["openpyxl","pandas","matplotlib"]),"three existing libraries have zero Linux increment")
+check(wrows["recommended"]["addedBytes"]==150231893 and lrows["recommended"]["addedBytes"]==5694768 and irows["recommended"]["deltaGzipBytes"]==1228208,"recommended figures match primary evidence")
+check(irows["recommended"]["archiveReadbackAddedMembers"]==364,"derived recommended tar was read back")
+check(all(x["newGzipBytes"]-image["recompressedBaselineGzipBytes"]==x["deltaGzipBytes"] for x in image["cases"]),"all image delta arithmetic")
+check(git["downloadBytes"]==39846926 and git["installedBytes"]==96237338 and git["files"]==375,"MinGit footprint")
+check(git["sha256"]=="e3bf78351fe777fba47ddee5950082f8a98bb0f02604fdc7ba3ee2cb68ffa877" and git["cleanPathSmoke"]=="passed" and all(x["exitCode"]==0 for x in git["tests"]),"MinGit official hash and all commands passed")
+probe=read("registry-probe.json")
+check(len(probe["requests"])==2 and all(x.get("status")==200 for x in probe["requests"]),"Registry two successful read-only GETs")
+route=json.loads((repo/"docs/research/v0.7-routing-draft.json").read_text(encoding="utf8"))
+check([x["id"] for x in route["cases"]]==["RT%02d"%n for n in range(1,31)],"30 unique ordered routing IDs")
+check(collections.Counter(x["category"] for x in route["cases"])=={"hit":10,"negative":8,"multiple":6,"mcp_tool":6},"routing category distribution")
+check(sum(x["security_critical"] for x in route["cases"])==5 and not route["executed"] and route["model_calls"]==0,"routing draft unexecuted with 5 critical cases")
+texts=list((repo/"docs/research").glob("v0.7-*.md"))+[d/"README.md",repo/"Claude Codex Bridge/2026-11-08-02-T-72调研与实测.md"]
+links=0
+for p in texts:
+ text=p.read_text(encoding="utf8")
+ check(text.count("```")%2==0,"balanced fences: "+p.name)
+ for target in re.findall(r"(?<!!)\[[^\]]*\]\(([^)]+)\)",text):
+  target=target.strip().strip("<>")
+  if re.match(r"^[a-z][a-z0-9+.-]*:",target,re.I) or target.startswith("#"): continue
+  local=urllib.parse.unquote(target.split("#",1)[0])
+  links+=1
+  check((p.parent/local).exists(),"local link: "+p.name+" -> "+local)
+check(all((d/n).stat().st_size<200000 for n in ["windows-results.json","linux-exact-results.json"]),"text-only compact experiment evidence")
+# This is a docs-only check; current application code is being edited by other windows.
+tracked=subprocess.run(["git","status","--short"],cwd=repo,text=True,encoding="utf8",stdout=subprocess.PIPE,check=True).stdout
+result={"task":"T-72","date":"2026-11-08 Asia/Taipei","passed":not errors,"checkedMarkdownFiles":len(texts),"checkedLocalLinks":links,"checks":checks,"errors":errors,"scope":"documentation and evidence only; no product source tests, no model calls","parallelWorkingTreeObserved":tracked.splitlines()}
+(d/"validation.json").write_text(json.dumps(result,ensure_ascii=False,indent=2)+"\n",encoding="utf8")
+manifest={"task":"T-72","date":"2026-11-08 Asia/Taipei","files":[{"file":p.name,"bytes":p.stat().st_size,"sha256":hashlib.file_digest(p.open("rb"),"sha256").hexdigest()} for p in sorted(d.iterdir()) if p.is_file() and p.name!="manifest.json"]}
+(d/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+"\n",encoding="utf8")
+print(json.dumps({"passed":not errors,"checks":len(checks),"markdownFiles":len(texts),"localLinks":links,"evidenceFiles":len(manifest["files"]),"errors":errors},ensure_ascii=False))
+raise SystemExit(1 if errors else 0)
+

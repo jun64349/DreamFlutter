@@ -1,0 +1,340 @@
+{
+  "schema": 1,
+  "platform": "win32-x64",
+  "python": "3.13.18",
+  "git": {
+    "version": "2.56.0.windows.4",
+    "file": "MinGit-2.56.0.4-64-bit.zip",
+    "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/MinGit-2.56.0.4-64-bit.zip",
+    "sha256": "e3bf78351fe777fba47ddee5950082f8a98bb0f02604fdc7ba3ee2cb68ffa877",
+    "bytes": 39846926,
+    "license": "GPL-2.0-only and bundled component licenses",
+    "source": "https://github.com/git-for-windows/git/tree/v2.56.0.windows.4"
+  },
+  "font": {
+    "name": "WenQuanYi Micro Hei",
+    "version": "0.2.0-beta-4",
+    "file": "fonts-wqy-microhei_0.2.0-beta-4_all.deb",
+    "url": "https://deb.debian.org/debian/pool/main/f/fonts-wqy-microhei/fonts-wqy-microhei_0.2.0-beta-4_all.deb",
+    "sha256": "3fb0ff79033124b863bf9d28af56c62646d5b74774d26be0ce8a5beefe2fed55",
+    "license": "Apache-2.0 OR GPL-3.0-or-later WITH Font-exception-2.0"
+  },
+  "windows": [
+    {
+      "name": "contourpy",
+      "version": "1.4.0",
+      "file": "contourpy-1.4.0-cp313-cp313-win_amd64.whl",
+      "sha256": "6507a016976a75a15aee47809a34605de6244ccc056e6164bf9fb14b27eecad4",
+      "bytes": 234084,
+      "url": "https://files.pythonhosted.org/packages/68/c1/a59df0754bf83a6f3e153cc19d550a5b01f607e389b1c4d57f436f9139e0/contourpy-1.4.0-cp313-cp313-win_amd64.whl",
+      "license": "BSD-3-Clause",
+      "source": "https://pypi.org/project/contourpy/"
+    },
+    {
+      "name": "cycler",
+      "version": "0.12.1",
+      "file": "cycler-0.12.1-py3-none-any.whl",
+      "sha256": "85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30",
+      "bytes": 8321,
+      "url": "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl",
+      "license": "License :: OSI Approved :: BSD License",
+      "source": "https://pypi.org/project/cycler/"
+    },
+    {
+      "name": "et-xmlfile",
+      "version": "2.0.0",
+      "file": "et_xmlfile-2.0.0-py3-none-any.whl",
+      "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa",
+      "bytes": 18059,
+      "url": "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl",
+      "license": "MIT",
+      "source": "https://pypi.org/project/et-xmlfile/"
+    },
+    {
+      "name": "fonttools",
+      "version": "4.68.0",
+      "file": "fonttools-4.68.0-cp313-cp313-win_amd64.whl",
+      "sha256": "6ed796b220654b4d37ad20af73419ec7969b669dd678cab88afb602c5683a331",
+      "bytes": 2531658,
+      "url": "https://files.pythonhosted.org/packages/61/2b/6c6f578176edeec83c5e02b7e745c1c8029f8cec4e32b4898d2c573bb881/fonttools-4.68.0-cp313-cp313-win_amd64.whl",
+      "license": "MIT",
+      "source": "https://pypi.org/project/fonttools/"
+    },
+    {
+      "name": "kiwisolver",
+      "version": "1.5.1",
+      "file": "kiwisolver-1.5.1-cp313-cp313-win_amd64.whl",
+      "sha256": "dc23390afe9f4ef9ac3bcc72a03a56eebbde03f4c571a32cb38f859cff9a6524",
+      "bytes": 70758,
+      "url": "https://files.pythonhosted.org/packages/f5/22/deabbb3ad6d918d74b7831b2d8ae7151b09d21c87974e5ee8a456f58c94c/kiwisolver-1.5.1-cp313-cp313-win_amd64.whl",
+      "license": "License :: OSI Approved :: BSD License",
+      "source": "https://pypi.org/project/kiwisolver/"
+    },
+    {
+      "name": "lxml",
+      "version": "6.1.3",
+      "file": "lxml-6.1.3-cp313-cp313-win_amd64.whl",
+      "sha256": "e477aca0bc0d19f3b4ae9e4f2a1cfd687c31bf772d78734910658186b40b2477",
+      "bytes": 4004091,
+      "url": "https://files.pythonhosted.org/packages/c0/28/e46a7702bd95e9043291f7c3539b6184cba66f96cea9936f20939b284eeb/lxml-6.1.3-cp313-cp313-win_amd64.whl",
+      "license": "BSD-3-Clause",
+      "source": "https://pypi.org/project/lxml/"
+    },
+    {
+      "name": "matplotlib",
+      "version": "3.11.2",
+      "file": "matplotlib-3.11.2-cp313-cp313-win_amd64.whl",
+      "sha256": "bc067c462a86f0e57bf52fc6e058d90171a5420007dac00c46e90153050c69a7",
+      "bytes": 9349539,
+      "url": "https://files.pythonhosted.org/packages/94/2e/6d1d33f242c705b5c6c6fb3f0fc141add51cb1abb62912e59de0835d28c4/matplotlib-3.11.2-cp313-cp313-win_amd64.whl",
+      "license": "License :: OSI Approved :: Python Software Foundation License",
+      "source": "https://pypi.org/project/matplotlib/"
+    },
+    {
+      "name": "numpy",
+      "version": "2.5.4",
+      "file": "numpy-2.5.4-cp313-cp313-win_amd64.whl",
+      "sha256": "8b4d2fd2d34e5f8c9235ee787de5631a37a28402b15cb80814df973d2be54129",
+      "bytes": 12566113,
+      "url": "https://files.pythonhosted.org/packages/90/8c/140a40398a66b4471211be1affdb6ed24c486d581bd28d07b7f2fcb69540/numpy-2.5.4-cp313-cp313-win_amd64.whl",
+      "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+      "source": "https://pypi.org/project/numpy/"
+    },
+    {
+      "name": "openpyxl",
+      "version": "3.1.5",
+      "file": "openpyxl-3.1.5-py2.py3-none-any.whl",
+      "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2",
+      "bytes": 250910,
+      "url": "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl",
+      "license": "MIT",
+      "source": "https://pypi.org/project/openpyxl/"
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "file": "packaging-26.3-py3-none-any.whl",
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+      "bytes": 129956,
+      "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "source": "https://pypi.org/project/packaging/"
+    },
+    {
+      "name": "pandas",
+      "version": "3.1.1",
+      "file": "pandas-3.1.1-cp313-cp313-win_amd64.whl",
+      "sha256": "6d84760cc1bd799440a66b4df2ceb7a508870f3b8b4d8dda21befd62779cd3b4",
+      "bytes": 10732758,
+      "url": "https://files.pythonhosted.org/packages/38/ef/15b6a24451e75f2d48931062f73a5ebbd00d86394d750699dbd8d6b159b6/pandas-3.1.1-cp313-cp313-win_amd64.whl",
+      "license": "BSD-3-Clause",
+      "source": "https://pypi.org/project/pandas/"
+    },
+    {
+      "name": "pillow",
+      "version": "13.0.0",
+      "file": "pillow-13.0.0-cp313-cp313-win_amd64.whl",
+      "sha256": "9dda0788a9932776a75d8bcc020076edc308ce2508b51f6739a45e3158b3fc42",
+      "bytes": 7284777,
+      "url": "https://files.pythonhosted.org/packages/d7/ed/1b16fb66a37e1b9e41370b93b2c614c7da761a5b2a41dc333f7af4639962/pillow-13.0.0-cp313-cp313-win_amd64.whl",
+      "license": "MIT-CMU",
+      "source": "https://pypi.org/project/pillow/"
+    },
+    {
+      "name": "pyparsing",
+      "version": "3.3.3",
+      "file": "pyparsing-3.3.3-py3-none-any.whl",
+      "sha256": "ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4",
+      "bytes": 126420,
+      "url": "https://files.pythonhosted.org/packages/38/bb/d215ee7c73b61497b28a5503f9f53523f294fcc936762b7caf90e0c1c2b5/pyparsing-3.3.3-py3-none-any.whl",
+      "license": "MIT",
+      "source": "https://pypi.org/project/pyparsing/"
+    },
+    {
+      "name": "pypdf",
+      "version": "7.0.0",
+      "file": "pypdf-7.0.0-py3-none-any.whl",
+      "sha256": "112a2c7cbabefd8dfe498f7a13977e575e762d58cdb0d832acb8886922602c6f",
+      "bytes": 413949,
+      "url": "https://files.pythonhosted.org/packages/8a/21/e83122a25e334c718a4da67004fa94acd7215fe9f8e63a9d7c7f979eb52b/pypdf-7.0.0-py3-none-any.whl",
+      "license": "BSD-3-Clause",
+      "source": "https://pypi.org/project/pypdf/"
+    },
+    {
+      "name": "python-dateutil",
+      "version": "4.0.0",
+      "file": "python_dateutil-4.0.0-py3-none-any.whl",
+      "sha256": "a5e246f79eb80475e691bf93862cead98decd8a498cf53ba0516fcdc0f50dc1c",
+      "bytes": 92853,
+      "url": "https://files.pythonhosted.org/packages/2f/a9/52b89563d154433d79b51ed1eb4842bf7334cb2696891a7fe135618853d7/python_dateutil-4.0.0-py3-none-any.whl",
+      "license": "BSD-3-Clause",
+      "source": "https://pypi.org/project/python-dateutil/"
+    },
+    {
+      "name": "python-docx",
+      "version": "1.2.0",
+      "file": "python_docx-1.2.0-py3-none-any.whl",
+      "sha256": "3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7",
+      "bytes": 252987,
+      "url": "https://files.pythonhosted.org/packages/d0/00/1e03a4989fa5795da308cd774f05b704ace555a70f9bf9d3be057b680bcf/python_docx-1.2.0-py3-none-any.whl",
+      "license": "MIT",
+      "source": "https://pypi.org/project/python-docx/"
+    },
+    {
+      "name": "python-pptx",
+      "version": "1.0.2",
+      "file": "python_pptx-1.0.2-py3-none-any.whl",
+      "sha256": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba",
+      "bytes": 472788,
+      "url": "https://files.pythonhosted.org/packages/d9/4f/00be2196329ebbff56ce564aa94efb0fbc828d00de250b1980de1a34ab49/python_pptx-1.0.2-py3-none-any.whl",
+      "license": "MIT",
+      "source": "https://pypi.org/project/python-pptx/"
+    },
+    {
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "file": "typing_extensions-4.16.0-py3-none-any.whl",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "bytes": 45571,
+      "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+      "license": "PSF-2.0",
+      "source": "https://pypi.org/project/typing-extensions/"
+    },
+    {
+      "name": "tzdata",
+      "version": "2026.6",
+      "file": "tzdata-2026.6-py2.py3-none-any.whl",
+      "sha256": "0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec",
+      "bytes": 348210,
+      "url": "https://files.pythonhosted.org/packages/0a/66/9a06c2227fedfd4919f0eaaa8b94377d9730882a7e4f95823c9a331ab5e1/tzdata-2026.6-py2.py3-none-any.whl",
+      "license": "Apache-2.0",
+      "source": "https://pypi.org/project/tzdata/"
+    },
+    {
+      "name": "xlsxwriter",
+      "version": "3.3.1",
+      "file": "xlsxwriter-3.3.1-py3-none-any.whl",
+      "sha256": "8e2c89e59d733fe59e112317218c64fbbc276d90a8c144ebd6f7fa15e7ab184a",
+      "bytes": 180583,
+      "url": "https://files.pythonhosted.org/packages/88/eb/1e6af9959a567901a7e7c7cef2e75883e487df223ed67f9a8977ff863bd8/xlsxwriter-3.3.1-py3-none-any.whl",
+      "license": "BSD-2-Clause",
+      "source": "https://pypi.org/project/xlsxwriter/"
+    }
+  ],
+  "linux": [
+    {
+      "name": "pypdf",
+      "version": "7.0.0",
+      "file": "pypdf-7.0.0-py3-none-any.whl",
+      "sha256": "112a2c7cbabefd8dfe498f7a13977e575e762d58cdb0d832acb8886922602c6f",
+      "bytes": 413949,
+      "url": "https://files.pythonhosted.org/packages/8a/21/e83122a25e334c718a4da67004fa94acd7215fe9f8e63a9d7c7f979eb52b/pypdf-7.0.0-py3-none-any.whl",
+      "license": "BSD-3-Clause",
+      "source": "https://pypi.org/project/pypdf/"
+    },
+    {
+      "name": "python-docx",
+      "version": "1.2.0",
+      "file": "python_docx-1.2.0-py3-none-any.whl",
+      "sha256": "3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7",
+      "bytes": 252987,
+      "url": "https://files.pythonhosted.org/packages/d0/00/1e03a4989fa5795da308cd774f05b704ace555a70f9bf9d3be057b680bcf/python_docx-1.2.0-py3-none-any.whl",
+      "license": "MIT",
+      "source": "https://pypi.org/project/python-docx/"
+    },
+    {
+      "name": "python-pptx",
+      "version": "1.0.2",
+      "file": "python_pptx-1.0.2-py3-none-any.whl",
+      "sha256": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba",
+      "bytes": 472788,
+      "url": "https://files.pythonhosted.org/packages/d9/4f/00be2196329ebbff56ce564aa94efb0fbc828d00de250b1980de1a34ab49/python_pptx-1.0.2-py3-none-any.whl",
+      "license": "MIT",
+      "source": "https://pypi.org/project/python-pptx/"
+    },
+    {
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "file": "typing_extensions-4.16.0-py3-none-any.whl",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "bytes": 45571,
+      "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+      "license": "PSF-2.0",
+      "source": "https://pypi.org/project/typing-extensions/"
+    },
+    {
+      "name": "xlsxwriter",
+      "version": "3.3.1",
+      "file": "xlsxwriter-3.3.1-py3-none-any.whl",
+      "sha256": "8e2c89e59d733fe59e112317218c64fbbc276d90a8c144ebd6f7fa15e7ab184a",
+      "bytes": 180583,
+      "url": "https://files.pythonhosted.org/packages/88/eb/1e6af9959a567901a7e7c7cef2e75883e487df223ed67f9a8977ff863bd8/xlsxwriter-3.3.1-py3-none-any.whl",
+      "license": "BSD-2-Clause",
+      "source": "https://pypi.org/project/xlsxwriter/"
+    }
+  ],
+  "linuxReuse": {
+    "numpy": "2.2.4",
+    "pandas": "2.2.3+dfsg",
+    "matplotlib": "3.10.1+dfsg1",
+    "openpyxl": "3.1.5",
+    "lxml": "5.4.0",
+    "pillow": "11.1.0"
+  },
+  "baseImage": {
+    "sha256": "d29ec8eb1e6ed5cde7ea1c47135d4e1af6a73061acdf747e923329cf7c199e8a",
+    "file": "sandbox-base-d29ec8eb.tar.gz",
+    "bytes": 472724239
+  },
+  "licenses": [
+    {
+      "tool": "rg",
+      "version": "15.2.0",
+      "url": "https://raw.githubusercontent.com/BurntSushi/ripgrep/15.2.0/LICENSE-MIT",
+      "file": "rg-15.2.0-LICENSE-MIT.txt",
+      "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f"
+    },
+    {
+      "tool": "rg",
+      "version": "15.2.0",
+      "url": "https://raw.githubusercontent.com/BurntSushi/ripgrep/15.2.0/UNLICENSE",
+      "file": "rg-15.2.0-UNLICENSE.txt",
+      "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c"
+    },
+    {
+      "tool": "fd",
+      "version": "10.5.0",
+      "url": "https://raw.githubusercontent.com/sharkdp/fd/v10.5.0/LICENSE-MIT",
+      "file": "fd-10.5.0-LICENSE-MIT.txt",
+      "sha256": "322cfc7aa0c774d0eca3b2610f1d414de3ddbd7d8dd4b9dea941a13a6eb07455"
+    },
+    {
+      "tool": "fd",
+      "version": "10.5.0",
+      "url": "https://raw.githubusercontent.com/sharkdp/fd/v10.5.0/LICENSE-APACHE",
+      "file": "fd-10.5.0-LICENSE-APACHE.txt",
+      "sha256": "73c83c60d817e7df1943cb3f0af81e4939a8352c9a96c2fd00451b1116fa635c"
+    },
+    {
+      "tool": "uv",
+      "version": "0.13.6",
+      "url": "https://raw.githubusercontent.com/astral-sh/uv/0.13.6/LICENSE-MIT",
+      "file": "uv-0.13.6-LICENSE-MIT.txt",
+      "sha256": "860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c"
+    },
+    {
+      "tool": "uv",
+      "version": "0.13.6",
+      "url": "https://raw.githubusercontent.com/astral-sh/uv/0.13.6/LICENSE-APACHE",
+      "file": "uv-0.13.6-LICENSE-APACHE.txt",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "tool": "Velopack",
+      "version": "1.2.161",
+      "url": "https://raw.githubusercontent.com/velopack/velopack/1.2.161/LICENSE",
+      "file": "Velopack-1.2.161-LICENSE.txt",
+      "sha256": "91845db83551c877ebbb1118e0fb92e4e527290d23b995c55dcd438b3293943f"
+    }
+  ]
+}

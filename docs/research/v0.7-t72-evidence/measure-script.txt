@@ -1,0 +1,66 @@
+import os, sys, json, pathlib, subprocess, hashlib, urllib.request, zipfile, gzip, io, time, importlib.metadata as md, platform
+ROOT=pathlib.Path(sys.argv[1]).resolve(); ROOT.mkdir(parents=True,exist_ok=True)
+REUSE=sys.platform!="win32"; ENV={**os.environ,"PYTHONDONTWRITEBYTECODE":"1","PIP_DISABLE_PIP_VERSION_CHECK":"1","PIP_NO_CACHE_DIR":"1","MPLCONFIGDIR":str(ROOT/"mpl"),"XDG_CACHE_HOME":str(ROOT/"cache"),"TMPDIR":str(ROOT/"tmp"),"TEMP":str(ROOT/"tmp"),"TMP":str(ROOT/"tmp")}
+(ROOT/"tmp").mkdir(exist_ok=True)
+NAMES=["python-docx","openpyxl","python-pptx","pypdf","pdfplumber","pandas","matplotlib","reportlab"]
+base={d.metadata["Name"].lower().replace("_","-"):d.version for d in md.distributions()}
+versions={}
+for name in NAMES:
+    if REUSE and name in base: versions[name]=base[name]; continue
+    with urllib.request.urlopen("https://pypi.org/pypi/"+name+"/json",timeout=45) as r: info=json.load(r)
+    versions[name]=info["info"]["version"]
+(ROOT/"versions.json").write_text(json.dumps(versions,indent=2))
+summary={"python":sys.version,"executable":sys.executable,"platform":platform.platform(),"reuseSystemSitePackages":REUSE,"baseline":base,"versions":versions,"cases":[],"wheelhouse":[]}
+def save(): (ROOT/"results.json").write_text(json.dumps(summary,indent=2,ensure_ascii=False),encoding="utf8")
+def run(args,log,timeout=300):
+    p=subprocess.run([str(a) for a in args],env=ENV,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding="utf8",errors="replace",timeout=timeout)
+    (ROOT/log).write_text(p.stdout,encoding="utf8")
+    if p.returncode: raise RuntimeError(str(args)+" failed, see "+str(ROOT/log)+"\n"+p.stdout[-1800:])
+    return p.stdout
+def py(v): return v/("Scripts/python.exe" if sys.platform=="win32" else "bin/python")
+def snapshot(path):
+    return {str(p.relative_to(path)):p.stat().st_size for p in path.rglob("*") if p.is_file() and "__pycache__" not in p.parts}
+bootstrap=ROOT/"download-venv"
+run([sys.executable,"-B","-m","venv",*(["--system-site-packages"] if REUSE else []),bootstrap],"bootstrap.log")
+wheelhouse=ROOT/"wheels"; wheelhouse.mkdir(exist_ok=True)
+requirements=[n+"=="+v for n,v in versions.items() if not(REUSE and n in base)]
+run([py(bootstrap),"-B","-m","pip","--isolated","download","--index-url","https://pypi.org/simple","--only-binary=:all:","--dest",wheelhouse,*requirements],"download.log",600)
+for p in sorted(wheelhouse.glob("*")): summary["wheelhouse"].append({"file":p.name,"bytes":p.stat().st_size,"sha256":hashlib.sha256(p.read_bytes()).hexdigest()})
+save()
+single_smoke={
+"python-docx":"from docx import Document; d=Document(); d.add_heading('T72 中文周报',0); d.add_paragraph('项目进度'); d.add_table(rows=2,cols=2).cell(0,0).text='任务'; d.save('sample.docx'); r=Document('sample.docx'); assert r.paragraphs[0].text=='T72 中文周报'; assert len(r.tables)==1",
+"openpyxl":"from openpyxl import Workbook,load_workbook; w=Workbook(); s=w.active; s.append(['名称','数量']); s.append(['甲',2]); s.append(['乙',3]); s['B4']='=SUM(B2:B3)'; w.save('sample.xlsx'); r=load_workbook('sample.xlsx'); assert r.active['B4'].value=='=SUM(B2:B3)'; assert r.active['A2'].value=='甲'",
+"python-pptx":"from pptx import Presentation; from pptx.util import Inches; p=Presentation(); s=p.slides.add_slide(p.slide_layouts[0]); s.shapes.title.text='T72 中文汇报'; s=p.slides.add_slide(p.slide_layouts[5]); s.shapes.add_table(2,2,Inches(1),Inches(1),Inches(4),Inches(2)); p.save('sample.pptx'); r=Presentation('sample.pptx'); assert len(r.slides)==2; assert r.slides[0].shapes.title.text=='T72 中文汇报'",
+"pypdf":"from pypdf import PdfWriter,PdfReader; w=PdfWriter(); w.add_blank_page(width=300,height=300); w.add_blank_page(width=300,height=300); w.add_metadata({'/Title':'T72'}); w.write('sample.pdf'); r=PdfReader('sample.pdf'); assert len(r.pages)==2; out=PdfWriter(); out.add_page(r.pages[1]); out.write('split.pdf'); assert len(PdfReader('split.pdf').pages)==1",
+"pdfplumber":"import pdfplumber; p=pdfplumber.open('fixture.pdf'); assert len(p.pages)==1; assert 'T72 PDF text' in p.pages[0].extract_text(); p.close()",
+"pandas":"import pandas as pd; d=pd.DataFrame({'team':['A','B']*50000,'amount':list(range(100000))}); d.to_csv('data.csv',index=False); r=pd.read_csv('data.csv'); g=r.groupby('team').amount.sum(); assert len(r)==100000; assert int(g.sum())==4999950000",
+"matplotlib":"import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; plt.bar(['A','B'],[2,3]); plt.savefig('chart.png'); import pathlib; assert pathlib.Path('chart.png').stat().st_size>1000",
+"reportlab":"from reportlab.platypus import SimpleDocTemplate,Table; SimpleDocTemplate('generated.pdf').build([Table([['team','amount'],['A',2],['B',3]])]); from pathlib import Path; assert Path('generated.pdf').read_bytes().startswith(b'%PDF-')"
+}
+def fixture(dest):
+    stream=b"BT /F1 16 Tf 40 100 Td (T72 PDF text) Tj ET"
+    objs=[b"<< /Type /Catalog /Pages 2 0 R >>",b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",b"<< /Length "+str(len(stream)).encode()+b" >>\nstream\n"+stream+b"\nendstream"]
+    data=b"%PDF-1.4\n"; offsets=[0]
+    for i,o in enumerate(objs,1): offsets.append(len(data)); data+=str(i).encode()+b" 0 obj\n"+o+b"\nendobj\n"
+    xref=len(data); data+=b"xref\n0 6\n0000000000 65535 f \n"+b"".join(("%010d 00000 n \n"%o).encode() for o in offsets[1:]); data+=b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"+str(xref).encode()+b"\n%%EOF\n"
+    dest.write_bytes(data)
+lean=["python-docx","openpyxl","python-pptx","pypdf"]
+tiers={"lean":lean,"recommended":lean+["pandas","matplotlib"],"full":lean+["pandas","matplotlib","pdfplumber","reportlab"]}
+cases={**{n:[n] for n in NAMES},**tiers}
+for label,names in cases.items():
+    started=time.time(); v=ROOT/("venv-"+label); run([sys.executable,"-B","-m","venv",*(["--system-site-packages"] if REUSE else []),v],label+"-venv.log")
+    before=snapshot(v)
+    run([py(v),"-B","-m","pip","--isolated","install","--no-index","--find-links",wheelhouse,"--no-compile",*[n+"=="+versions[n] for n in names]],label+"-install.log")
+    after=snapshot(v); added={p:s for p,s in after.items() if p not in before}
+    replaced={p:after[p]-before[p] for p in after.keys() & before.keys() if after[p]!=before[p]}
+    payload=ROOT/(label+"-payload.zip")
+    with zipfile.ZipFile(payload,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+        for p in sorted(added): z.write(v/p,p)
+    smoke_dir=ROOT/("smoke-"+label); smoke_dir.mkdir(exist_ok=True); fixture(smoke_dir/"fixture.pdf")
+    code="import os; os.chdir("+repr(str(smoke_dir))+");\n"+"\n".join(single_smoke[n] for n in names)+"\nprint('T72_SMOKE_OK')"
+    run([py(v),"-B","-c",code],label+"-smoke.log",120)
+    installed=json.loads(run([py(v),"-B","-c","import importlib.metadata as m,json; print(json.dumps(sorted([(d.metadata['Name'],d.version) for d in m.distributions()])))"],label+"-metadata.log"))
+    row={"case":label,"roots":names,"venvOverheadBytes":sum(before.values()),"addedBytes":sum(added.values()),"modifiedDeltaBytes":sum(replaced.values()),"addedFiles":len(added),"zipPayloadBytes":payload.stat().st_size,"zipSha256":hashlib.sha256(payload.read_bytes()).hexdigest(),"installed":installed,"smoke":"passed","seconds":round(time.time()-started,2)}
+    summary["cases"].append(row); save(); print(json.dumps({k:row[k] for k in ["case","addedBytes","zipPayloadBytes","smoke","seconds"]}),flush=True)
+print("T72_MEASURE_DONE",flush=True)
+

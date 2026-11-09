@@ -1,0 +1,343 @@
+{
+  "task": "T-72",
+  "date": "2026-11-08 Asia/Taipei",
+  "passed": true,
+  "checkedMarkdownFiles": 8,
+  "checkedLocalLinks": 51,
+  "checks": [
+    {
+      "check": "22 authoritative office cases",
+      "passed": true
+    },
+    {
+      "check": "all office assertions passed and no baseline file modifications",
+      "passed": true
+    },
+    {
+      "check": "exact image baseline has 667 matching packages",
+      "passed": true
+    },
+    {
+      "check": "image source SHA256 matches sidecar",
+      "passed": true
+    },
+    {
+      "check": "three existing libraries have zero Linux increment",
+      "passed": true
+    },
+    {
+      "check": "recommended figures match primary evidence",
+      "passed": true
+    },
+    {
+      "check": "derived recommended tar was read back",
+      "passed": true
+    },
+    {
+      "check": "all image delta arithmetic",
+      "passed": true
+    },
+    {
+      "check": "MinGit footprint",
+      "passed": true
+    },
+    {
+      "check": "MinGit official hash and all commands passed",
+      "passed": true
+    },
+    {
+      "check": "Registry two successful read-only GETs",
+      "passed": true
+    },
+    {
+      "check": "30 unique ordered routing IDs",
+      "passed": true
+    },
+    {
+      "check": "routing category distribution",
+      "passed": true
+    },
+    {
+      "check": "routing draft unexecuted with 5 critical cases",
+      "passed": true
+    },
+    {
+      "check": "balanced fences: v0.7-decision-memo.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> v0.7-r2-routing.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> v0.7-routing-draft.json",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> v0.7-r3-office-footprint.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> v0.7-r4-git.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> v0.7-r1-skills-mcp.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> v0.7-r1-skills-mcp.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> v0.7-fix-batch.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> v0.7-t72-evidence/README.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-decision-memo.md -> ../../Claude Codex Bridge/2026-11-08-02-T-72调研与实测.md",
+      "passed": true
+    },
+    {
+      "check": "balanced fences: v0.7-fix-batch.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-fix-batch.md -> ../releases/v0.6.0.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-fix-batch.md -> ../../Claude Codex Bridge/2026-11-07-12-v0.6联合验收准备.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-fix-batch.md -> v0.7-r1-skills-mcp.md",
+      "passed": true
+    },
+    {
+      "check": "balanced fences: v0.7-r1-skills-mcp.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-r1-skills-mcp.md -> v0.7-decision-memo.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-r1-skills-mcp.md -> v0.7-r2-routing.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-r1-skills-mcp.md -> v0.7-t72-evidence/registry-probe.json",
+      "passed": true
+    },
+    {
+      "check": "balanced fences: v0.7-r2-routing.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-r2-routing.md -> v0.7-routing-draft.json",
+      "passed": true
+    },
+    {
+      "check": "balanced fences: v0.7-r3-office-footprint.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-r3-office-footprint.md -> v0.7-t72-evidence/README.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-r3-office-footprint.md -> v0.7-decision-memo.md",
+      "passed": true
+    },
+    {
+      "check": "balanced fences: v0.7-r4-git.md",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-r4-git.md -> v0.7-t72-evidence/mingit-results.json",
+      "passed": true
+    },
+    {
+      "check": "local link: v0.7-r4-git.md -> v0.7-t72-evidence/mingit-script.txt",
+      "passed": true
+    },
+    {
+      "check": "balanced fences: README.md",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> ../v0.7-r3-office-footprint.md",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> ../v0.7-r4-git.md",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> ../v0.7-decision-memo.md",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> windows-results.json",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> linux-exact-results.json",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> linux-preliminary-results.json",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> linux-exact-dpkg.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> sandbox-image-results.json",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> mingit-results.json",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> registry-probe.json",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> windows-install-smoke.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> linux-exact-install-smoke.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> windows-full-requirements.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> linux-added-requirements.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> run-context.json",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> manifest.json",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> measure-script.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> exact-image-driver.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> exact-measure-script.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> image-overlay-script.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> mingit-script.txt",
+      "passed": true
+    },
+    {
+      "check": "local link: README.md -> ../../../Claude Codex Bridge/2026-11-08-02-T-72调研与实测.md",
+      "passed": true
+    },
+    {
+      "check": "balanced fences: 2026-11-08-02-T-72调研与实测.md",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> 2026-11-08-01-v0.7阶段派工.md",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> ../docs/research/v0.7-r1-skills-mcp.md",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> ../docs/research/v0.7-r2-routing.md",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> ../docs/research/v0.7-routing-draft.json",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> ../docs/research/v0.7-r3-office-footprint.md",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> ../docs/research/v0.7-t72-evidence/README.md",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> ../docs/research/v0.7-r4-git.md",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> ../docs/research/v0.7-fix-batch.md",
+      "passed": true
+    },
+    {
+      "check": "local link: 2026-11-08-02-T-72调研与实测.md -> ../docs/research/v0.7-decision-memo.md",
+      "passed": true
+    },
+    {
+      "check": "text-only compact experiment evidence",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "scope": "documentation and evidence only; no product source tests, no model calls",
+  "parallelWorkingTreeObserved": [
+    " M .gitignore",
+    " M app/lib/state/agent_controller.dart",
+    " M app/lib/ui/library_page.dart",
+    " M app/test/library_pages_test.dart",
+    " M core/src/agent/harness.ts",
+    " M core/src/app.ts",
+    " M core/src/core.ts",
+    " M core/src/ext/approval.ts",
+    " M core/src/modules/mcp.ts",
+    " M core/src/modules/skills.ts",
+    " M core/src/pi/host.ts",
+    " M core/src/schema.ts",
+    " M core/src/security/mcp.ts",
+    "?? .obsidian/",
+    "?? \"Claude Codex Bridge/\"",
+    "?? \"claude\\343\\200\\201gpt\\343\\200\\201\\347\\224\\250\\346\\210\\267\\345\\210\\206\\345\\267\\245\\350\\257\\264\\346\\230\\216\\346\\226\\207\\346\\241\\243\\357\\274\\210\\347\\273\\217\\347\\224\\250\\346\\210\\267\\346\\211\\271\\345\\207\\206\\345\\217\\257\\344\\277\\256\\346\\224\\271\\357\\274\\211/\"",
+    "?? core/scripts/live-library-t73.ts",
+    "?? core/src/git/",
+    "?? core/src/modules/library-registry.ts",
+    "?? core/src/modules/skill-validation.ts",
+    "?? core/test-evidence/",
+    "?? core/test/git-agent.test.ts",
+    "?? core/test/git-live.ts",
+    "?? core/test/git-sandbox-live.ts",
+    "?? core/test/git.test.ts",
+    "?? core/test/library-t73.test.ts",
+    "?? docs/research/v0.7-decision-memo.md",
+    "?? docs/research/v0.7-fix-batch.md",
+    "?? docs/research/v0.7-r1-skills-mcp.md",
+    "?? docs/research/v0.7-r2-routing.md",
+    "?? docs/research/v0.7-r3-office-footprint.md",
+    "?? docs/research/v0.7-r4-git.md",
+    "?? docs/research/v0.7-routing-draft.json",
+    "?? docs/research/v0.7-t72-evidence/"
+  ]
+}

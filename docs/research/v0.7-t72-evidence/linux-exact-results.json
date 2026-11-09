@@ -1,0 +1,1842 @@
+{
+  "python": "3.13.5 (main, Aug 10 2026, 12:06:59) [GCC 14.2.0]",
+  "executable": "/usr/bin/python3",
+  "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+  "reuseSystemSitePackages": true,
+  "baseline": {
+    "pytz": "2025.2",
+    "mpmath": "1.3.0",
+    "openpyxl": "3.1.5",
+    "decorator": "5.2.1",
+    "fonttools": "4.57.0",
+    "unicodedata2": "15.1.0",
+    "brotli": "1.1.0",
+    "matplotlib": "3.10.1+dfsg1",
+    "python-dateutil": "2.9.0",
+    "ufolib2": "0.17.1",
+    "lz4": "4.4.0+dfsg",
+    "scipy": "1.15.3",
+    "pillow": "11.1.0",
+    "pandas": "2.2.3+dfsg",
+    "numpy": "2.2.4",
+    "packaging": "25.0",
+    "zopfli": "0.2.3.post1",
+    "gyp-next": "0.16.2",
+    "platformdirs": "4.3.7",
+    "contourpy": "1.3.1",
+    "fs": "2.4.16",
+    "sympy": "1.13.3",
+    "lxml": "5.4.0",
+    "cycler": "0.12.1",
+    "attrs": "25.3.0",
+    "et-xmlfile": "2.0.0",
+    "pyparsing": "3.1.2",
+    "pip": "25.1.1",
+    "kiwisolver": "1.4.7",
+    "wheel": "0.46.1"
+  },
+  "versions": {
+    "python-docx": "1.2.0",
+    "openpyxl": "3.1.5",
+    "python-pptx": "1.0.2",
+    "pypdf": "7.0.0",
+    "pdfplumber": "0.11.10",
+    "pandas": "2.2.3+dfsg",
+    "matplotlib": "3.10.1+dfsg1",
+    "reportlab": "5.1.0"
+  },
+  "cases": [
+    {
+      "case": "python-docx",
+      "roots": [
+        "python-docx"
+      ],
+      "venvOverheadBytes": 25497644,
+      "addedBytes": 1734481,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 132,
+      "zipPayloadBytes": 303472,
+      "zipSha256": "1b462bae3479557fff34fea1f8984861743d6e664e867c064406ebc844b114f8",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "python-docx",
+          "1.2.0"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 2.15
+    },
+    {
+      "case": "openpyxl",
+      "roots": [
+        "openpyxl"
+      ],
+      "venvOverheadBytes": 25497602,
+      "addedBytes": 0,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 0,
+      "zipPayloadBytes": 22,
+      "zipSha256": "8739c76e681f900923b900c9df0ef75cf421d39cabb54650c4b9ad19b6a76d85",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 2.08
+    },
+    {
+      "case": "python-pptx",
+      "roots": [
+        "python-pptx"
+      ],
+      "venvOverheadBytes": 25497644,
+      "addedBytes": 2348013,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 172,
+      "zipPayloadBytes": 706619,
+      "zipSha256": "83bbd40f071dfa0a115e490e8fe937667a80719485b678b445330a8934b058f8",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "python-pptx",
+          "1.0.2"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "xlsxwriter",
+          "3.3.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 2.31
+    },
+    {
+      "case": "pypdf",
+      "roots": [
+        "pypdf"
+      ],
+      "venvOverheadBytes": 25497560,
+      "addedBytes": 1795149,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 66,
+      "zipPayloadBytes": 414410,
+      "zipSha256": "38e9512d08798c6240bc6745d64c2dd4fc623c8139356f98dfa9b4cb7b5be00b",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "pypdf",
+          "7.0.0"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 2.28
+    },
+    {
+      "case": "pdfplumber",
+      "roots": [
+        "pdfplumber"
+      ],
+      "venvOverheadBytes": 25497630,
+      "addedBytes": 54824013,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 643,
+      "zipPayloadBytes": 23065873,
+      "zipSha256": "05d2a8d0e0c55965b8c31fdad51bec1097ce5d8d27bc142fe82f3b6472bf6ed6",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "cffi",
+          "2.1.1"
+        ],
+        [
+          "charset-normalizer",
+          "3.5.2"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cryptography",
+          "50.0.2"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pdfminer.six",
+          "20260107"
+        ],
+        [
+          "pdfplumber",
+          "0.11.10"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pycparser",
+          "3.12"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "pypdfium2",
+          "5.15.1"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 7.21
+    },
+    {
+      "case": "pandas",
+      "roots": [
+        "pandas"
+      ],
+      "venvOverheadBytes": 25497574,
+      "addedBytes": 0,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 0,
+      "zipPayloadBytes": 22,
+      "zipSha256": "8739c76e681f900923b900c9df0ef75cf421d39cabb54650c4b9ad19b6a76d85",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 2.38
+    },
+    {
+      "case": "matplotlib",
+      "roots": [
+        "matplotlib"
+      ],
+      "venvOverheadBytes": 25497630,
+      "addedBytes": 0,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 0,
+      "zipPayloadBytes": 22,
+      "zipSha256": "8739c76e681f900923b900c9df0ef75cf421d39cabb54650c4b9ad19b6a76d85",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 2.3
+    },
+    {
+      "case": "reportlab",
+      "roots": [
+        "reportlab"
+      ],
+      "venvOverheadBytes": 25497616,
+      "addedBytes": 5629538,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 239,
+      "zipPayloadBytes": 2275544,
+      "zipSha256": "ba828f6b1341f92695b673ee8cab9ce96e895b16c5bf3f75342a99d045a0d7c8",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "charset-normalizer",
+          "3.5.2"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "reportlab",
+          "5.1.0"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 2.6
+    },
+    {
+      "case": "lean",
+      "roots": [
+        "python-docx",
+        "openpyxl",
+        "python-pptx",
+        "pypdf"
+      ],
+      "venvOverheadBytes": 25497546,
+      "addedBytes": 5694761,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 364,
+      "zipPayloadBytes": 1378720,
+      "zipSha256": "ed579bc8a1f7781a943662af1f16f1fc3526b4a327f15544a820818f81d03063",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "pypdf",
+          "7.0.0"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "python-docx",
+          "1.2.0"
+        ],
+        [
+          "python-pptx",
+          "1.0.2"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "xlsxwriter",
+          "3.3.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 3.09
+    },
+    {
+      "case": "recommended",
+      "roots": [
+        "python-docx",
+        "openpyxl",
+        "python-pptx",
+        "pypdf",
+        "pandas",
+        "matplotlib"
+      ],
+      "venvOverheadBytes": 25497644,
+      "addedBytes": 5694768,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 364,
+      "zipPayloadBytes": 1378721,
+      "zipSha256": "b617189c750e1ccd6c4b353b660a8a886782d8daf0286992a67caa7ed9e26e11",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "pypdf",
+          "7.0.0"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "python-docx",
+          "1.2.0"
+        ],
+        [
+          "python-pptx",
+          "1.0.2"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "xlsxwriter",
+          "3.3.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 3.67
+    },
+    {
+      "case": "full",
+      "roots": [
+        "python-docx",
+        "openpyxl",
+        "python-pptx",
+        "pypdf",
+        "pandas",
+        "matplotlib",
+        "pdfplumber",
+        "reportlab"
+      ],
+      "venvOverheadBytes": 25497546,
+      "addedBytes": 65387867,
+      "modifiedDeltaBytes": 0,
+      "addedFiles": 1223,
+      "zipPayloadBytes": 26465797,
+      "zipSha256": "ef2519a90602a6d54ebbcc77a104bf910ae85babe8993e506e9491501184350f",
+      "installed": [
+        [
+          "Brotli",
+          "1.1.0"
+        ],
+        [
+          "attrs",
+          "25.3.0"
+        ],
+        [
+          "cffi",
+          "2.1.1"
+        ],
+        [
+          "charset-normalizer",
+          "3.5.2"
+        ],
+        [
+          "contourpy",
+          "1.3.1"
+        ],
+        [
+          "cryptography",
+          "50.0.2"
+        ],
+        [
+          "cycler",
+          "0.12.1"
+        ],
+        [
+          "decorator",
+          "5.2.1"
+        ],
+        [
+          "et_xmlfile",
+          "2.0.0"
+        ],
+        [
+          "fonttools",
+          "4.57.0"
+        ],
+        [
+          "fs",
+          "2.4.16"
+        ],
+        [
+          "gyp-next",
+          "0.16.2"
+        ],
+        [
+          "kiwisolver",
+          "1.4.7"
+        ],
+        [
+          "lxml",
+          "5.4.0"
+        ],
+        [
+          "lz4",
+          "4.4.0+dfsg"
+        ],
+        [
+          "matplotlib",
+          "3.10.1+dfsg1"
+        ],
+        [
+          "mpmath",
+          "1.3.0"
+        ],
+        [
+          "numpy",
+          "2.2.4"
+        ],
+        [
+          "openpyxl",
+          "3.1.5"
+        ],
+        [
+          "packaging",
+          "25.0"
+        ],
+        [
+          "pandas",
+          "2.2.3+dfsg"
+        ],
+        [
+          "pdfminer.six",
+          "20260107"
+        ],
+        [
+          "pdfplumber",
+          "0.11.10"
+        ],
+        [
+          "pillow",
+          "11.1.0"
+        ],
+        [
+          "pillow",
+          "13.0.0"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "pip",
+          "25.1.1"
+        ],
+        [
+          "platformdirs",
+          "4.3.7"
+        ],
+        [
+          "pycparser",
+          "3.12"
+        ],
+        [
+          "pyparsing",
+          "3.1.2"
+        ],
+        [
+          "pypdf",
+          "7.0.0"
+        ],
+        [
+          "pypdfium2",
+          "5.15.1"
+        ],
+        [
+          "python-dateutil",
+          "2.9.0"
+        ],
+        [
+          "python-docx",
+          "1.2.0"
+        ],
+        [
+          "python-pptx",
+          "1.0.2"
+        ],
+        [
+          "pytz",
+          "2025.2"
+        ],
+        [
+          "reportlab",
+          "5.1.0"
+        ],
+        [
+          "scipy",
+          "1.15.3"
+        ],
+        [
+          "sympy",
+          "1.13.3"
+        ],
+        [
+          "typing_extensions",
+          "4.16.0"
+        ],
+        [
+          "ufoLib2",
+          "0.17.1"
+        ],
+        [
+          "unicodedata2",
+          "15.1.0"
+        ],
+        [
+          "wheel",
+          "0.46.1"
+        ],
+        [
+          "xlsxwriter",
+          "3.3.1"
+        ],
+        [
+          "zopfli",
+          "0.2.3.post1"
+        ]
+      ],
+      "smoke": "passed",
+      "seconds": 9.88
+    }
+  ],
+  "wheelhouse": [
+    {
+      "file": "cffi-2.1.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+      "bytes": 221824,
+      "sha256": "a931079504ecc49efed7744c476a5c343a92fabf66dec2db95edb1b2fdc770e2"
+    },
+    {
+      "file": "charset_normalizer-3.5.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 254660,
+      "sha256": "7218e8f32b0956cfcd048fd42d9d5779809745ca1d86113ca56f66e7ae1549c4"
+    },
+    {
+      "file": "cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl",
+      "bytes": 4752576,
+      "sha256": "9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079"
+    },
+    {
+      "file": "lxml-6.1.3-cp313-cp313-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 5232385,
+      "sha256": "d85dfab42dd672f87a7f76e9de7172962aee69fa12044f0d6e1a23cbd53fb80e"
+    },
+    {
+      "file": "pdfminer_six-20260107-py3-none-any.whl",
+      "bytes": 6592252,
+      "sha256": "366585ba97e80dffa8f00cebe303d2f381884d8637af4ce422f1df3ef38111a9"
+    },
+    {
+      "file": "pdfplumber-0.11.10-py3-none-any.whl",
+      "bytes": 60047,
+      "sha256": "7741ea81bf165b474b153e6789d10d18e06b6ddcf3ec84289c3ef2fed6802580"
+    },
+    {
+      "file": "pillow-13.0.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 7142544,
+      "sha256": "5f56499c1a74d2b862beb0c33b8016f99d095858455df9d21583bbbc1c15b582"
+    },
+    {
+      "file": "pycparser-3.12-py3-none-any.whl",
+      "bytes": 62600,
+      "sha256": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e"
+    },
+    {
+      "file": "pypdf-7.0.0-py3-none-any.whl",
+      "bytes": 413949,
+      "sha256": "112a2c7cbabefd8dfe498f7a13977e575e762d58cdb0d832acb8886922602c6f"
+    },
+    {
+      "file": "pypdfium2-5.15.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "bytes": 4020615,
+      "sha256": "e479df7f9260865554f301889bf1afcdf9aaf5e2ad98c69797a2ebaa1c5e3a3b"
+    },
+    {
+      "file": "python_docx-1.2.0-py3-none-any.whl",
+      "bytes": 252987,
+      "sha256": "3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7"
+    },
+    {
+      "file": "python_pptx-1.0.2-py3-none-any.whl",
+      "bytes": 472788,
+      "sha256": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba"
+    },
+    {
+      "file": "reportlab-5.1.0-py3-none-any.whl",
+      "bytes": 2018647,
+      "sha256": "59fdbaec5efe437095ad1d7292ec9a271c8ca2d3ec75e889c6e61400929b90df"
+    },
+    {
+      "file": "typing_extensions-4.16.0-py3-none-any.whl",
+      "bytes": 45571,
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
+    },
+    {
+      "file": "xlsxwriter-3.3.1-py3-none-any.whl",
+      "bytes": 180583,
+      "sha256": "8e2c89e59d733fe59e112317218c64fbbc276d90a8c144ebd6f7fa15e7ab184a"
+    }
+  ]
+}

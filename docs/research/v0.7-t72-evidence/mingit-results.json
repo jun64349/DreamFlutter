@@ -1,0 +1,136 @@
+{
+  "asset": "MinGit-2.56.0.4-64-bit.zip",
+  "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/MinGit-2.56.0.4-64-bit.zip",
+  "sha256": "e3bf78351fe777fba47ddee5950082f8a98bb0f02604fdc7ba3ee2cb68ffa877",
+  "downloadBytes": 39846926,
+  "installedBytes": 96237338,
+  "files": 375,
+  "tests": [
+    {
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0,
+      "output": "git version 2.56.0.windows.4"
+    },
+    {
+      "args": [
+        "init",
+        "-b",
+        "main"
+      ],
+      "exitCode": 0,
+      "output": "Initialized empty Git repository in C:/Users/21669/AppData/Local/Temp/dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e/git-fixture/.git/"
+    },
+    {
+      "args": [
+        "add",
+        "--all"
+      ],
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "args": [
+        "-c",
+        "user.name=T72 Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-m",
+        "temporary fixture only"
+      ],
+      "exitCode": 0,
+      "output": "[main (root-commit) 1c85dcd] temporary fixture only\n 1 file changed, 1 insertion(+)\n create mode 100644 \"\\344\\270\\255\\346\\226\\207.txt\""
+    },
+    {
+      "args": [
+        "status",
+        "--porcelain=v1"
+      ],
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "args": [
+        "branch",
+        "trial"
+      ],
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "args": [
+        "switch",
+        "trial"
+      ],
+      "exitCode": 0,
+      "output": "Switched to branch 'trial'"
+    },
+    {
+      "args": [
+        "diff",
+        "--",
+        "中文.txt"
+      ],
+      "exitCode": 0,
+      "output": "diff --git \"a/\\344\\270\\255\\346\\226\\207.txt\" \"b/\\344\\270\\255\\346\\226\\207.txt\"\nindex 35a99ad..60b8d23 100644\n--- \"a/\\344\\270\\255\\346\\226\\207.txt\"\n+++ \"b/\\344\\270\\255\\346\\226\\207.txt\"\n@@ -1 +1 @@\n-baseline\n+changed"
+    },
+    {
+      "args": [
+        "stash",
+        "push",
+        "--include-untracked",
+        "-m",
+        "T72 recoverable temporary point"
+      ],
+      "exitCode": 0,
+      "output": "Saved working directory and index state On trial: T72 recoverable temporary point"
+    },
+    {
+      "args": [
+        "switch",
+        "main"
+      ],
+      "exitCode": 0,
+      "output": "Switched to branch 'main'"
+    },
+    {
+      "args": [
+        "stash",
+        "list"
+      ],
+      "exitCode": 0,
+      "output": "stash@{0}: On trial: T72 recoverable temporary point"
+    },
+    {
+      "args": [
+        "stash",
+        "apply",
+        "stash@{0}"
+      ],
+      "exitCode": 0,
+      "output": "On branch main\nChanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n  (use \"git restore <file>...\" to discard changes in working directory)\n\tmodified:   \"\\344\\270\\255\\346\\226\\207.txt\"\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")"
+    },
+    {
+      "args": [
+        "log",
+        "-1",
+        "--format=%s"
+      ],
+      "exitCode": 0,
+      "output": "temporary fixture only"
+    },
+    {
+      "args": [
+        "branch",
+        "--list"
+      ],
+      "exitCode": 0,
+      "output": "* main\n  trial"
+    }
+  ],
+  "cleanPathSmoke": "passed",
+  "allWritesUnder": "C:\\Users\\21669\\AppData\\Local\\Temp\\dreamflutter-t72-3ba9ad424fe14340a8cade0a4dbd8b7e",
+  "productionAuthorConfigTested": false
+}
