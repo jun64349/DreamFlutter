@@ -29,6 +29,15 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
   String? _receipt;
   bool _busy = false;
 
+  String _moveFailure(Json outcome, {bool previous = false}) {
+    if (outcome['kind'] == 'sandbox' && outcome['reasonCode'] == 'sandbox_in_use') {
+      return '蝶君沙箱正被其他程序占用。它是本机默认的 WSL 系统，终端、编辑器等调用 WSL 的程序会把它启动。请关闭这些程序后再试。原位置的数据没有改动。';
+    }
+    return previous
+      ? '上次搬迁失败，已回退：${outcome['error'] ?? ''}'
+      : '搬迁失败，已退回原位置：${outcome['error'] ?? ''}';
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -67,7 +76,7 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
   }
 
   Future<void> _move(Json row) async {
-    final destination = await showDialog<String>(context: context, builder: (_) => _MoveLocationDialog(label: '${row['label']}'));
+    final destination = await showDialog<String>(context: context, builder: (_) => _MoveLocationDialog(label: '${row['label']}', database: row['id'] == 'database'));
     if (destination == null || !mounted) return;
     if (destination.isEmpty) { setState(() => _error = '请输入目标新目录'); return; }
     await _run(() async {
@@ -89,7 +98,7 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
       _poll?.cancel();
       setState(() { _moveId = null; _locations = data; _receipt = outcome['ok'] == true
         ? '搬迁完成，已在新位置启动验证。自动备份：${outcome['backup'] ?? ''}${outcome['warning'] == null ? '' : '\n${outcome['warning']}'}'
-        : '搬迁失败，已退回原位置：${outcome['error'] ?? ''}'; });
+        : _moveFailure(outcome); });
       await _load();
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -191,15 +200,16 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
         ])),
         if (_locations!['lastMove'] is Map && _moveId == null) SelectableText(asJsonMap(_locations!['lastMove'])['ok'] == true
           ? '上次搬迁已验证：${asJsonMap(_locations!['lastMove'])['path']}${asJsonMap(_locations!['lastMove'])['warning'] == null ? '' : '\n${asJsonMap(_locations!['lastMove'])['warning']}'}'
-          : '上次搬迁失败，已回退：${asJsonMap(_locations!['lastMove'])['error']}'),
+          : _moveFailure(asJsonMap(_locations!['lastMove']), previous: true)),
       ],
     ]);
   }
 }
 
 class _MoveLocationDialog extends StatefulWidget {
-  const _MoveLocationDialog({required this.label});
+  const _MoveLocationDialog({required this.label, required this.database});
   final String label;
+  final bool database;
   @override
   State<_MoveLocationDialog> createState() => _MoveLocationDialogState();
 }
@@ -214,7 +224,8 @@ class _MoveLocationDialogState extends State<_MoveLocationDialog> {
     content: SizedBox(width: 480, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('先停止相关任务并自动备份，再复制和校验。后台会重启，在新位置启动验证通过后才清理旧文件；失败退回原位置。'),
       const SizedBox(height: 12),
-      TextField(controller: _target, autofocus: true, decoration: const InputDecoration(labelText: '目标新目录（绝对路径）', helperText: '父目录需已存在，目标目录不能已存在', helperMaxLines: 2)),
+      TextField(controller: _target, autofocus: true, decoration: InputDecoration(labelText: '目标新目录（绝对路径）',
+        helperText: widget.database ? '请选择本地磁盘；不支持网络路径或映射网络盘。父目录需已存在，目标目录不能已存在' : '父目录需已存在，目标目录不能已存在', helperMaxLines: 3)),
     ])),
     actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
       FilledButton(onPressed: () => Navigator.pop(context, _target.text.trim()), child: const Text('搬迁并重启'))],

@@ -12,6 +12,7 @@ import { backupDatabase, checkDatabase } from "./memory-maintenance.ts";
 import { atomicJson, configureResourcePaths, locationFile, readLocationConfig, storageLocations, type LocationConfig, type StorageKind, type StorageLocations } from "./locations.ts";
 import { officialMoveArguments, officialMoveWithRetry } from "./wsl.ts";
 import { readPiJson } from "../gateway/pi-config.ts";
+import { localDatabaseTarget } from "./target.ts";
 
 export const pendingMoveFile = (root: string) => join(root, "storage-move.json");
 export const moveResultFile = (root: string) => join(root, "storage-move-result.json");
@@ -24,7 +25,13 @@ export interface MoveRecord {
 }
 export interface MoveHooks { wsl?: WslRunner; afterCopy?: () => void; }
 
-function checkTarget(source: string, target: string, kind: StorageKind, locations: StorageLocations, root: string): void {
+/** Keep the raw WSL diagnostic while identifying an occupied disk after rollback succeeds. */
+class SandboxInUseError extends Error {
+  readonly reasonCode = "sandbox_in_use";
+}
+
+function checkTarget(source: string, target: string, kind: StorageKind, locations: StorageLocations, root: string): string {
+  if (kind === "database") target = localDatabaseTarget(target);
   if (!isAbsolute(target) || resolve(target) === dirname(resolve(target))) throw new Error("请选择新的绝对目录，不能使用磁盘根目录");
   if (existsSync(target)) throw new Error("目标目录已存在，请选择一个尚不存在的新目录");
   if (realpathSync(dirname(target)).toLowerCase() !== resolve(dirname(target)).toLowerCase()) throw new Error("目标路径不能经过链接");
@@ -34,6 +41,7 @@ function checkTarget(source: string, target: string, kind: StorageKind, location
     if (other === kind || ["database", "logs", "configuration"].includes(other)) continue;
     if (isInside(path, target) || isInside(target, path)) throw new Error("目标不能与其他数据类别重叠");
   }
+  return target;
 }
 
 /** The RPC schedules work; copying starts only after normal shutdown releases writers. */
@@ -41,7 +49,7 @@ export function requestMove(root: string, kind: StorageKind, target: string, age
   if (existsSync(pendingMoveFile(root))) throw new Error("已有数据搬迁等待重启完成");
   const locations = storageLocations(root, agentDir, sessionsDir);
   const source = locations[kind];
-  checkTarget(source, target, kind, locations, root);
+  target = checkTarget(source, target, kind, locations, root);
   const rules: PathRule[] = ["database", "logs"].includes(kind)
     ? (kind === "database" ? ["core.db"] : ["core.log", "core.log.1"]).map((name) => ({ from: join(source, name), to: join(target, name) }))
     : [{ from: source, to: target }, ...Object.entries(locations).filter(([key, path]) => key !== kind && isInside(source, path) && path !== source).map(([, path]) => ({ from: path, to: path }))];
@@ -115,7 +123,7 @@ export async function preparePendingMove(root: string, hooks: MoveHooks = {}): P
   if (record.stage !== "requested") { await rollbackMove(root, record, "上次搬迁未完成启动验证，已退回原位置", hooks); return; }
   const wsl = hooks.wsl ?? runWsl;
   try {
-    checkTarget(record.source, record.target, record.kind, record.locations, root);
+    record.target = checkTarget(record.source, record.target, record.kind, record.locations, root);
     const db = new Db(record.dbFile);
     try { record.backup = backupDatabase(db, join(root, "backups", "storage")); }
     finally { db.close(); }
@@ -140,7 +148,11 @@ export async function preparePendingMove(root: string, hooks: MoveHooks = {}): P
       record.diskBytes = statSync(join(record.source, "disk", "ext4.vhdx")).size;
       save(root, record);
       const moved = await officialMoveWithRetry(wsl, args);
-      if (moved.code !== 0) throw new Error(`WSL官方搬迁失败：${moved.stderr || moved.stdout}`);
+      if (moved.code !== 0) {
+        const message = `WSL官方搬迁失败：${moved.stderr || moved.stdout}`;
+        if (/ERROR_SHARING_VIOLATION/.test(moved.stderr + moved.stdout)) throw new SandboxInUseError(message);
+        throw new Error(message);
+      }
       record.wslMoved = true; save(root, record);
       if (lstatSync(join(record.target, "disk", "ext4.vhdx")).isSymbolicLink() || statSync(join(record.target, "disk", "ext4.vhdx")).size !== record.diskBytes) throw new Error("WSL磁盘大小校验失败");
     }
@@ -148,7 +160,7 @@ export async function preparePendingMove(root: string, hooks: MoveHooks = {}): P
     atomicJson(locationFile(root), { version: 1, ...(record.before ?? {}), paths: { ...record.locations, [record.kind]: record.target } });
     fixResources(root, record);
     return record;
-  } catch (error) { await rollbackMove(root, record, String(error), hooks); return; }
+  } catch (error) { await rollbackMove(root, record, error instanceof Error ? error : String(error), hooks); return; }
 }
 
 function captureEdit(root: string, record: MoveRecord, path: string): void {
@@ -231,7 +243,7 @@ function finishMove(root: string, record: MoveRecord): void {
 }
 
 /** Core/server must be closed first. Never deletes the source or a pre-existing target. */
-export async function rollbackMove(root: string, record: MoveRecord, error: string, hooks: MoveHooks = {}): Promise<void> {
+export async function rollbackMove(root: string, record: MoveRecord, error: string | Error, hooks: MoveHooks = {}): Promise<void> {
   if (record.kind === "sandbox" && (record.wslMoved || (!existsSync(join(record.source, "disk", "ext4.vhdx")) && existsSync(join(record.target, "disk", "ext4.vhdx"))))) {
     const wsl = hooks.wsl ?? runWsl;
     await wsl(["--terminate", record.distro!], { timeoutMs: 30_000 });
@@ -251,6 +263,7 @@ export async function rollbackMove(root: string, record: MoveRecord, error: stri
   }
   if (record.before) atomicJson(locationFile(root), record.before); else rmSync(locationFile(root), { force: true });
   if (ownedTarget(record)) rmSync(record.target, { recursive: true, force: true });
-  result(root, { id: record.id, ok: false, kind: record.kind, path: record.source, backup: record.backup, error, restartRequired: false });
+  result(root, { id: record.id, ok: false, kind: record.kind, path: record.source, backup: record.backup, error: String(error),
+    ...(record.kind === "sandbox" && error instanceof SandboxInUseError ? { reasonCode: error.reasonCode } : {}), restartRequired: false });
   rmSync(pendingMoveFile(root), { force: true });
 }

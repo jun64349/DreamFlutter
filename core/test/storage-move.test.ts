@@ -209,6 +209,59 @@ it("official move retries only a transient sharing violation without stopping ot
   assert.equal(count, 1);
 });
 
+for (const failure of [
+  { name: "stderr sharing violation", stdout: "", stderr: "Wsl/Service/MoveDistro/ERROR_SHARING_VIOLATION", reasonCode: "sandbox_in_use", attempts: 6 },
+  { name: "stdout sharing violation", stdout: "Wsl/Service/MoveDistro/ERROR_SHARING_VIOLATION", stderr: "", reasonCode: "sandbox_in_use", attempts: 6 },
+  { name: "unrelated access error", stdout: "", stderr: "Wsl/Service/MoveDistro/ERROR_ACCESS_DENIED", reasonCode: undefined, attempts: 1 },
+]) it(`failed sandbox move reports ${failure.name} without losing original data or changing WSL operations`, { timeout: 60_000 }, async () => {
+  const { root, dir } = fresh(); const core = construct(root), source = storageLocations(root).sandbox;
+  mkdirSync(join(source, "disk"));
+  const originalDisk = Buffer.from("original sandbox disk remains unchanged\0fixture");
+  writeFileSync(join(source, "disk", "ext4.vhdx"), originalDisk);
+  writeFileSync(join(source, "clean.vhdx"), "original reset template");
+  writeFileSync(join(source, "distro.txt"), "df-storage-fixture");
+  const target = join(dir, "occupied-sandbox");
+  const requested = requestMove(root, "sandbox", target, core.agentDir, core.sessionDir, core.paths.dbFile, "df-storage-fixture");
+  await core.shutdown();
+  const commands: string[][] = [];
+  const wsl: WslRunner = async (args) => {
+    commands.push(args);
+    if (args[0] === "--help") return { code: 0, stdout: "--manage <Distro> --move <Location>", stderr: "" };
+    if (args[0] === "--terminate") return { code: 0, stdout: "", stderr: "" };
+    assert.deepEqual(args, ["--manage", "df-storage-fixture", "--move", join(target, "disk")]);
+    return { code: 1, stdout: failure.stdout, stderr: failure.stderr };
+  };
+  assert.equal(await preparePendingMove(root, { wsl }), undefined);
+  const receipt = JSON.parse(readFileSync(moveResultFile(root), "utf8"));
+  assert.equal(receipt.reasonCode, failure.reasonCode);
+  assert.deepEqual([receipt.id, receipt.ok, receipt.kind, receipt.path, receipt.restartRequired], [requested.id, false, "sandbox", source, false]);
+  assert.ok(receipt.error.includes(failure.stderr || failure.stdout), "raw diagnostic remains available");
+  assert.ok(existsSync(receipt.backup));
+  assert.deepEqual(readFileSync(join(source, "disk", "ext4.vhdx")), originalDisk);
+  assert.equal(readFileSync(join(source, "clean.vhdx"), "utf8"), "original reset template");
+  assert.equal(readFileSync(join(source, "distro.txt"), "utf8"), "df-storage-fixture");
+  assert.equal(storageLocations(root).sandbox, source);
+  assert.equal(existsSync(target), false);
+  assert.equal(existsSync(pendingMoveFile(root)), false);
+  assert.equal(commands.filter(args => args[0] === "--manage").length, failure.attempts);
+  assert.deepEqual(commands.filter(args => args[0] === "--terminate"), [["--terminate", "df-storage-fixture"]]);
+  assert.equal(commands.some(args => args.includes("--shutdown") || args.includes("--unregister") || args[0] === "-d"), false);
+  const restarted = construct(root);
+  assert.deepEqual((await restarted.call("storage.locations", {}) as any).lastMove, receipt, "persisted reason is returned by the existing RPC after restart");
+});
+
+it("a non-sandbox copy failure containing a sharing diagnostic retains its generic receipt", async () => {
+  const { root, dir } = fresh(); const core = construct(root), source = storageLocations(root).cards;
+  writeFileSync(join(source, "keep.txt"), "original card");
+  requestMove(root, "cards", join(dir, "cards-sharing-error"), core.agentDir, core.sessionDir, core.paths.dbFile);
+  await core.shutdown();
+  assert.equal(await preparePendingMove(root, { afterCopy() { throw new Error("ERROR_SHARING_VIOLATION"); } }), undefined);
+  const receipt = JSON.parse(readFileSync(moveResultFile(root), "utf8"));
+  assert.equal(receipt.kind, "cards"); assert.equal(receipt.reasonCode, undefined);
+  assert.match(receipt.error, /ERROR_SHARING_VIOLATION/);
+  assert.equal(readFileSync(join(source, "keep.txt"), "utf8"), "original card");
+});
+
 it("a declared path collision aborts the switch and restores the original DB instead of retaining stale source references", async () => {
   const { root, dir } = fresh(); let core = construct(root);
   const source = storageLocations(root).sessions, target = join(dir, "session-collision");
