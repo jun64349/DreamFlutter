@@ -1,9 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import type { Core } from "../core.ts";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, join } from "node:path";
+import type { Core, CoreModule } from "../core.ts";
+import type { ExtensionFactory, McpServerEntry } from "@earendil-works/pi-coding-agent";
 import { RpcError, requireStr, str } from "../core.ts";
-import { isSecretReference, SecretStore } from "./secrets.ts";
+import { isSecretReference, relocateSecretRef, secretFileOf, SecretStore } from "./secrets.ts";
 import { checkMcpServers } from "../security/mcp.ts";
+import { locator, mcpFingerprint, type EntryMetadata, type SourceKind } from "./library-registry.ts";
+import { redactValue } from "../security/redaction.ts";
 
 type Json = Record<string, unknown>;
 
@@ -37,13 +41,15 @@ const EXPOSURES = ["codemode", "deferred", "direct", "hidden"];
  * secret env values and headers DPAPI-encrypted behind Pi's `!command`
  * syntax, and checks connections and tools with `pi mcp list --json`.
  */
-export class McpModule {
+export class McpModule implements CoreModule {
+	readonly modelFacing = true;
 	private readonly core: Core;
 	private readonly secrets: SecretStore;
 
 	constructor(core: Core) {
 		this.core = core;
 		this.secrets = new SecretStore(core.paths.dataDir);
+		core.exemptFromApproval("mcp_register", "mcp_test");
 		this.register();
 	}
 
@@ -52,10 +58,13 @@ export class McpModule {
 	}
 
 	private read(file = this.file): Json {
+		if (!existsSync(file)) return {};
 		try {
-			return JSON.parse(readFileSync(file, "utf8")) as Json;
+			const value = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+			if (!value || typeof value !== "object" || Array.isArray(value) || value.mcpServers !== undefined && (!value.mcpServers || typeof value.mcpServers !== "object" || Array.isArray(value.mcpServers))) throw new Error("invalid structure");
+			return value as Json;
 		} catch {
-			return {};
+			throw new RpcError("bad_config", "MCP 配置无法读取或格式无效，请修复 mcp.json 后重试；原文件未改写");
 		}
 	}
 
@@ -73,12 +82,17 @@ export class McpModule {
 	}
 
 	/** Servers as form data: user-level ones are editable, project ones are shown read-only. */
-	list(cwd?: string): (McpServerForm & { scope: "user" | "project"; source: string })[] {
+	list(cwd?: string): (McpServerForm & EntryMetadata & { scope: "user" | "project"; source: string })[] {
 		const mask = (values: unknown): Record<string, FormValue> =>
 			Object.fromEntries(
 				Object.entries((values as Record<string, unknown>) ?? {}).map(([k, v]) => [k, isSecretReference(v) ? { value: "", secret: true } : { value: String(v ?? ""), secret: false }]),
 			);
-		const toForm = (name: string, entry: Json, scope: "user" | "project", source: string) => ({
+		const toForm = (name: string, entry: Json, scope: "user" | "project", source: string) => {
+			const key = this.core.library.mcpKey({ source, name });
+			this.core.library.ensureMcp({ name, source, config: entry as never });
+			if (!this.core.library.mcpTrusted({ name, source, config: entry as never })) this.core.library.write("mcp", key, { trust: "untrusted", enabled: false, butterflyAllowed: false });
+			const meta = this.core.library.get("mcp", key);
+			return ({
 			name,
 			scope,
 			source,
@@ -91,9 +105,10 @@ export class McpModule {
 			headers: mask(entry.headers),
 			description: str(entry.description),
 			exposure: str(entry.exposure),
-			enabled: entry.enabled !== false,
+			...meta,
+			enabled: entry.enabled !== false && meta.enabled && meta.trust === "trusted",
 			timeout: typeof entry.timeout === "number" ? entry.timeout : undefined,
-		});
+		}); };
 		const out = Object.entries(this.servers(this.read())).map(([name, entry]) => toForm(name, entry, "user", this.file));
 		if (cwd) {
 			const projectFile = join(cwd, ".pi", "mcp.json");
@@ -102,20 +117,24 @@ export class McpModule {
 		return out;
 	}
 
-	async save(form: McpServerForm, previousName?: string): Promise<void> {
-		const name = form.name.trim();
-		if (!NAME.test(name)) throw new RpcError("bad_request", "名称只能用字母、数字、横线和下划线");
+	async save(form: McpServerForm, previousName?: string, origin?: { sourceKind: SourceKind; sourceUrl?: string; cwd?: string; sourceSession?: string | null }): Promise<unknown> {
+		const name = typeof form?.name === "string" ? form.name.trim() : "";
+		if (!NAME.test(name) || ["__proto__", "constructor", "prototype"].includes(name)) throw new RpcError("bad_request", "名称只能用字母、数字、横线和下划线，不能使用保留名称");
 		const config = this.read();
 		const servers = { ...this.servers(config) };
 		const previous = servers[previousName ?? name] ?? {};
-		if (previousName !== name && servers[name]) throw new RpcError("conflict", `已经有名为 ${name} 的服务`);
+		if (servers[previousName ?? name]) this.core.library.ensureMcp({ source: this.file, name: previousName ?? name, config: previous as never });
+		if (previousName && previousName !== name && servers[name]) throw new RpcError("conflict", `已经有名为 ${name} 的服务`);
+		if (Object.keys(servers).some((other) => other !== name && other !== previousName && other.replaceAll("-", "_").toLowerCase() === name.replaceAll("-", "_").toLowerCase())) throw new RpcError("conflict", "服务名称的大小写或工具命名空间冲突");
+		const pending = origin?.sourceKind === "agent" || origin?.sourceKind === "community";
+		const secretName = pending ? `${name}-pending-${randomUUID().slice(0, 8)}` : name;
 		const entry: Json = {};
 		if (form.transport === "http") {
 			const url = form.url?.trim();
 			if (!url || !/^https?:\/\//i.test(url)) throw new RpcError("bad_request", "请填写以 http:// 或 https:// 开头的网址");
 			if (/\/sse\/?$/i.test(url)) throw new RpcError("bad_request", "Pi 不支持旧的 SSE 连接方式，这类服务通常也提供 /mcp 地址");
 			entry.url = url;
-			const headers = await this.values(name, previousName ?? name, "header", form.headers, previous.headers as Json | undefined);
+			const headers = await this.values(secretName, previousName ?? name, "header", form.headers, previous.headers as Json | undefined);
 			if (Object.keys(headers).length) entry.headers = headers;
 			if (previous.oauth) entry.oauth = previous.oauth;
 		} else {
@@ -126,7 +145,7 @@ export class McpModule {
 			const args = (form.args ?? []).map((a) => a.trim()).filter(Boolean);
 			if (args.length) entry.args = args;
 			if (form.cwd?.trim()) entry.cwd = form.cwd.trim();
-			const env = await this.values(name, previousName ?? name, "env", form.env, previous.env as Json | undefined);
+			const env = await this.values(secretName, previousName ?? name, "env", form.env, previous.env as Json | undefined);
 			if (Object.keys(env).length) entry.env = env;
 		}
 		if (form.description?.trim()) entry.description = form.description.trim();
@@ -134,6 +153,18 @@ export class McpModule {
 		if (previous.toolExposure) entry.toolExposure = previous.toolExposure;
 		if (form.timeout && form.timeout > 0) entry.timeout = form.timeout;
 		if (form.enabled === false) entry.enabled = false;
+		const previousMeta = this.core.library.get("mcp", this.core.library.mcpKey({ source: this.file, name: previousName ?? name }));
+		entry.dfLibrary = { sourceKind: origin?.sourceKind ?? previousMeta.sourceKind, sourceUrl: origin?.sourceUrl ?? previousMeta.sourceUrl };
+		if (pending) {
+			if (previousName && previousName !== name) throw new RpcError("bad_request", "Agent 更新 MCP 时请保持服务名；重命名由用户管理页执行");
+			const id = `p_${randomUUID().slice(0, 8)}`;
+			const payload = { name, description: form.description ?? "", content: JSON.stringify(redactValue(entry), null, 2), scope: "user", sourceKind: origin!.sourceKind, sourceUrl: origin?.sourceUrl ?? origin?.sourceSession ?? null,
+				mcpConfig: entry, previous: servers[name] ? JSON.stringify(servers[name]) : null };
+			this.core.db.run("INSERT INTO proposals(id,kind,title,payload,status,source_session,cwd,created_at) VALUES(?,'mcp',?,?,'pending',?,?,?)", id, name, JSON.stringify(payload), origin?.sourceSession ?? null, origin?.cwd ?? null, Date.now());
+			if (!servers[name]) this.core.library.write("mcp", this.core.library.mcpKey({ source: this.file, name }), { sourceKind: origin!.sourceKind, sourceUrl: origin?.sourceUrl ?? null, trust: "untrusted", enabled: false });
+			this.core.broadcast({ event: "proposals.changed" });
+			return { id, status: "pending", enabled: false, trust: "untrusted" };
+		}
 		// Encrypting the keys took a while: write into the file as it is now, not as it was read above.
 		const current = this.read();
 		const latest = { ...this.servers(current) };
@@ -143,6 +174,10 @@ export class McpModule {
 		}
 		latest[name] = entry;
 		this.write({ ...current, mcpServers: latest });
+		const meta = this.core.library.get("mcp", this.core.library.mcpKey({ source: this.file, name: previousName ?? name }));
+		this.core.library.write("mcp", this.core.library.mcpKey({ source: this.file, name }), { sourceKind: origin?.sourceKind ?? meta.sourceKind, sourceUrl: origin?.sourceUrl ?? meta.sourceUrl, trust: "trusted", enabled: form.enabled !== false, butterflyAllowed: false }, mcpFingerprint(entry));
+		if (previousName && previousName !== name) this.core.library.write("mcp", this.core.library.mcpKey({ source: this.file, name: previousName }), { enabled: false, trust: "untrusted", butterflyAllowed: false });
+		return { ok: true };
 	}
 
 	/** Env values / headers: secret ones are encrypted; an empty secret keeps the stored one. */
@@ -155,7 +190,8 @@ export class McpModule {
 				if (field.value) out[key] = await this.secrets.put(`mcp-${server}-${kind}-${key}`, field.value);
 				else if (isSecretReference(previous?.[key])) {
 					// Renamed: re-store under the new name, so the old name's blob can go and never aliases.
-					out[key] = previousServer === server ? previous![key] : await this.secrets.put(`mcp-${server}-${kind}-${key}`, await this.secrets.get(`mcp-${previousServer}-${kind}-${key}`));
+					const oldFile = secretFileOf(String(previous![key]));
+					out[key] = previousServer === server ? previous![key] : await this.secrets.put(`mcp-${server}-${kind}-${key}`, await this.secrets.get(oldFile ? basename(oldFile, ".dpapi") : `mcp-${previousServer}-${kind}-${key}`));
 				}
 			} else if (field.value !== "") {
 				out[key] = field.value;
@@ -169,9 +205,13 @@ export class McpModule {
 		const servers = { ...this.servers(config) };
 		if (!servers[name]) throw new RpcError("not_found", "没有这个服务");
 		const entry = { ...servers[name] };
+		const server: McpServerEntry = { name, source: this.file, config: entry as never };
+		this.core.library.ensureMcp(server);
+		if (enabled && !this.core.library.mcpTrusted(server)) throw new RpcError("untrusted", "请先在待确认里审阅并确认此 MCP 服务");
 		if (enabled) delete entry.enabled;
 		else entry.enabled = false;
 		servers[name] = entry;
+		this.core.library.write("mcp", this.core.library.mcpKey({ source: this.file, name }), { enabled });
 		this.write({ ...config, mcpServers: servers });
 	}
 
@@ -180,15 +220,17 @@ export class McpModule {
 		const servers = { ...this.servers(config) };
 		const entry = servers[name];
 		if (!entry) return;
+		this.core.library.ensureMcp({ source: this.file, name, config: entry as never });
 		this.removeSecrets(name, entry);
 		delete servers[name];
+		this.core.library.write("mcp", this.core.library.mcpKey({ source: this.file, name }), { enabled: false, trust: "untrusted", butterflyAllowed: false });
 		this.write({ ...config, mcpServers: servers });
 	}
 
 	private removeSecrets(name: string, entry: Json | undefined): void {
 		for (const kind of ["env", "headers"] as const) {
 			for (const [key, value] of Object.entries((entry?.[kind] as Json | undefined) ?? {})) {
-				if (isSecretReference(value)) this.secrets.remove(`mcp-${name}-${kind === "env" ? "env" : "header"}-${key}`);
+				if (isSecretReference(value)) { const file = secretFileOf(String(value)); this.secrets.remove(file ? basename(file, ".dpapi") : `mcp-${name}-${kind === "env" ? "env" : "header"}-${key}`); }
 			}
 		}
 	}
@@ -198,7 +240,56 @@ export class McpModule {
 		await this.core.security.loadKnownSecrets();
 		const trusted = this.core.isProjectTrusted(cwd);
 		const reports = [...new Map(this.list(trusted ? cwd : undefined).map((form) => [form.name, { name: form.name, scope: form.scope, source: form.source, enabled: form.enabled, exposure: form.exposure }])).values()];
-		return checkMcpServers(this.core.agentDir, cwd, this.core.security.audit, reports, trusted);
+		return checkMcpServers(this.core.agentDir, cwd, this.core.security.audit, reports, trusted, { registry: this.core.library });
+	}
+
+	async test(name: string, cwd: string, source = this.file): Promise<Json> {
+		await this.core.security.loadKnownSecrets();
+		const server = this.list(this.core.isProjectTrusted(cwd) ? cwd : undefined).find((entry) => entry.name === name && locator(entry.source) === locator(source));
+		if (!server) throw new RpcError("not_found", "没有这个服务，或工作区未获信任");
+		const result = await checkMcpServers(this.core.agentDir, cwd, this.core.security.audit, [server as unknown as Json], this.core.isProjectTrusted(cwd), { registry: this.core.library, name, source: server.source, testDisabled: true });
+		const report = result.servers[0]!;
+		return { ...report, ok: report.state === "connected", errors: result.errors };
+	}
+
+	private acceptProposal(id: string): Json {
+		const row = this.core.db.get<{ payload: string; status: string; kind: string }>("SELECT * FROM proposals WHERE id=?", id);
+		if (!row || row.status !== "pending" || row.kind !== "mcp") throw new RpcError("gone", "这个 MCP 建议已经处理过了");
+		const payload = JSON.parse(row.payload) as { name: string; mcpConfig: Json; sourceKind: SourceKind; sourceUrl?: string; previous: string | null };
+		const config = this.read(), servers = { ...this.servers(config) };
+		if ((servers[payload.name] ? JSON.stringify(servers[payload.name]) : null) !== payload.previous) throw new RpcError("conflict", "MCP 配置已变化，请重新登记建议");
+		for (const section of ["env", "headers"]) for (const [key, value] of Object.entries((payload.mcpConfig[section] as Json | undefined) ?? {})) {
+			if (isSecretReference(value)) (payload.mcpConfig[section] as Json)[key] = relocateSecretRef(String(value), this.secrets.dir);
+		}
+		servers[payload.name] = payload.mcpConfig;
+		this.write({ ...config, mcpServers: servers });
+		this.core.library.write("mcp", this.core.library.mcpKey({ source: this.file, name: payload.name }), { sourceKind: payload.sourceKind, sourceUrl: payload.sourceUrl ?? null,
+			trust: "trusted", enabled: payload.mcpConfig.enabled !== false, butterflyAllowed: false }, mcpFingerprint(payload.mcpConfig));
+		this.core.db.run("UPDATE proposals SET status='accepted',resolved_at=? WHERE id=?", Date.now(), id);
+		this.core.broadcast({ event: "proposals.changed" });
+		return { path: this.file, name: payload.name };
+	}
+
+	extensions(slot: { slotId: string }): ExtensionFactory[] {
+		return [(pi) => {
+			pi.registerTool({ name: "mcp_register", label: "登记 MCP", description: "Register or update an MCP server for user review. It remains untrusted until the user accepts it. This tool cannot grant trust or butterfly access.",
+				parameters: { type: "object", properties: { server: { type: "object", properties: { name: { type: "string" }, transport: { type: "string", enum: ["stdio", "http"] }, command: { type: "string" }, args: { type: "array", items: { type: "string" } }, cwd: { type: "string" }, url: { type: "string" }, description: { type: "string" }, exposure: { type: "string", enum: EXPOSURES }, env: { type: "object", additionalProperties: { type: "object", properties: { value: { type: "string" }, secret: { type: "boolean" } }, required: ["value", "secret"] } }, headers: { type: "object", additionalProperties: { type: "object", properties: { value: { type: "string" }, secret: { type: "boolean" } }, required: ["value", "secret"] } } }, required: ["name", "transport"] }, sourceUrl: { type: "string" }, sourceKind: { type: "string", enum: ["agent", "community"] } }, required: ["server"] } as never,
+				execute: async (_id, input: { server: McpServerForm; sourceUrl?: string; sourceKind?: "agent" | "community" }) => {
+					const live = this.core.slots.get(slot.slotId);
+					const result = await this.save(input.server, undefined, { sourceKind: input.sourceKind === "agent" ? "agent" : input.sourceKind === "community" || input.sourceUrl ? "community" : "agent", sourceUrl: input.sourceUrl, cwd: live?.cwd, sourceSession: live?.info().sessionFile });
+					return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
+				},
+			});
+			pi.registerTool({ name: "mcp_test", label: "测试 MCP", description: "Start/connect one trusted MCP server, initialize, list tools and close. Returns duration, tool names and failure reason. Never counts as tool use; untrusted servers are blocked.",
+				parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } as never,
+				execute: async (_id, input: { name: string }) => {
+					const live = this.core.slots.get(slot.slotId);
+					if (!live) throw new RpcError("gone", "会话已关闭");
+					if (live.info().sandbox && !this.list().find((entry) => entry.name === input.name)?.butterflyAllowed) throw new RpcError("forbidden", "此 MCP 服务未单独授权给蝶君");
+					return { content: [{ type: "text", text: JSON.stringify(await this.test(input.name, live.cwd)) }], details: {} };
+				},
+			});
+		}];
 	}
 
 	private register(): void {
@@ -208,9 +299,22 @@ export class McpModule {
 				Object.entries((v as Record<string, { value?: unknown; secret?: unknown }>) ?? {}).map(([k, f]) => [k, { value: typeof f?.value === "string" ? f.value : "", secret: f?.secret === true }]),
 			);
 		core.register("mcp.list", (p) => ({ file: this.file, servers: this.list(str(p.cwd)) }));
+		core.register("mcp.register", (p) => this.save(p.server as McpServerForm, undefined, { sourceKind: p.sourceUrl ? "community" : "agent", sourceUrl: str(p.sourceUrl), cwd: str(p.cwd) }));
+		core.register("mcp.acceptProposal", (p) => this.acceptProposal(requireStr(p.id, "id")));
+		core.register("mcp.test", (p) => this.test(requireStr(p.name, "name"), requireStr(p.cwd, "cwd"), str(p.source)));
+		core.register("mcp.setButterflyAllowed", (p) => {
+			const name = requireStr(p.name, "name");
+			const source = str(p.source) ?? this.file;
+			const cwd = str(p.cwd);
+			const entry = this.list(cwd && core.isProjectTrusted(cwd) ? cwd : undefined).find((entry) => entry.name === name && locator(entry.source) === locator(source));
+			if (!entry) throw new RpcError("not_found", "没有这个服务，或项目未获信任");
+			if (p.allowed === true && entry.trust !== "trusted") throw new RpcError("untrusted", "请先在待确认里确认服务，再单独授权给蝶君");
+			core.library.write("mcp", core.library.mcpKey({ source: entry.source, name }), { butterflyAllowed: p.allowed === true });
+			core.broadcast({ event: "mcp.changed" }); return { ok: true };
+		});
 		core.register("mcp.save", async (p) => {
 			const form = (p.server ?? {}) as Json;
-			await this.save(
+			return this.save(
 				{
 					name: requireStr(form.name, "name"),
 					transport: form.transport === "http" ? "http" : "stdio",
@@ -226,8 +330,8 @@ export class McpModule {
 					timeout: typeof form.timeout === "number" ? form.timeout : undefined,
 				},
 				str(p.previousName),
+				p.sourceKind === "community" || p.sourceKind === "agent" ? { sourceKind: p.sourceKind, sourceUrl: str(p.sourceUrl) } : undefined,
 			);
-			return { ok: true };
 		});
 		core.register("mcp.setEnabled", (p) => {
 			this.setEnabled(requireStr(p.name, "name"), p.enabled === true);

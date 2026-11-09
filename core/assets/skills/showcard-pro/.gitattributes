@@ -1,0 +1,2 @@
+# Preserve pinned source bytes and generated hashes under Windows autocrlf.
+* -text

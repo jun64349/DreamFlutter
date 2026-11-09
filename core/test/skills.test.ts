@@ -53,7 +53,7 @@ describe("skills", () => {
 		await t.core.call("slot.open", { slotId: "s1", cwd: t.workspace }, t.client);
 		t.respond(
 			fauxAssistantMessage(
-				[fauxToolCall("skill_propose", { name: "Trip Planner", description: "Plan slow-paced trips", body: "1. Ask budget\n2. Pick 2 sights per day", reason: "worked well" })],
+				[fauxToolCall("skill_propose", { name: "trip-planner", description: "Plan slow-paced trips", body: "1. Ask budget\n2. Pick 2 sights per day", reason: "worked well" })],
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage("我建议把这个方法存成技能"),

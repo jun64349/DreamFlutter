@@ -10,7 +10,8 @@ import 'common.dart';
 
 class SkillInfo {
   SkillInfo.fromJson(Json json)
-    : name = json['name'] as String? ?? '',
+    : metadata = json,
+      name = json['name'] as String? ?? '',
       description = json['description'] as String? ?? '',
       filePath = json['filePath'] as String? ?? '',
       scope = json['scope'] as String? ?? 'user',
@@ -21,8 +22,10 @@ class SkillInfo {
   final String filePath;
   final String scope;
   final bool enabled;
+  final Json metadata;
 
   String get scopeLabel => switch (scope) {
+    'builtin' => '内置',
     'user' => '个人',
     'project' => '本工作区',
     'temporary' => '临时',
@@ -43,7 +46,8 @@ class TemplateParam {
 
 class TemplateInfo {
   TemplateInfo.fromJson(Json json)
-    : name = json['name'] as String? ?? '',
+    : metadata = json,
+      name = json['name'] as String? ?? '',
       description = json['description'] as String? ?? '',
       body = json['body'] as String? ?? '',
       params = [
@@ -55,16 +59,19 @@ class TemplateInfo {
   final String description;
   final String body;
   final List<TemplateParam> params;
+  final Json metadata;
 }
 
 class SkillProposal {
   SkillProposal.fromJson(Json json)
     : id = json['id'] as String? ?? '',
+      kind = json['kind'] as String? ?? 'skill',
       title = json['title'] as String? ?? '',
       createdAt = (json['createdAt'] as num?)?.toInt() ?? 0,
       payload = (json['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
 
   final String id;
+  final String kind;
   final String title;
   final int createdAt;
   final Json payload;
@@ -72,6 +79,11 @@ class SkillProposal {
   String get name => payload['name'] as String? ?? title;
   String get description => payload['description'] as String? ?? '';
   String get content => payload['content'] as String? ?? '';
+  String get preview {
+    final files = (payload['files'] ?? payload['filesPreview']) as Map? ?? const {};
+    return [content, for (final entry in files.entries) '\n--- ${entry.key} ---\n${entry.value}'].join('\n');
+  }
+
   String? get previous => payload['previous'] as String?;
   String get scope => payload['scope'] as String? ?? 'user';
   String? get reason => payload['reason'] as String?;
@@ -100,6 +112,8 @@ class _LibraryPageState extends State<LibraryPage> {
   List<SkillInfo> _skills = const [];
   List<TemplateInfo> _templates = const [];
   List<SkillProposal> _proposals = const [];
+  List<Json> _mcps = const [];
+  final _testing = <String>{};
   String? _error;
   var _loading = true;
   late final AgentController _agent;
@@ -129,11 +143,13 @@ class _LibraryPageState extends State<LibraryPage> {
         _agent.backend.call('skills.list', {'cwd': _agent.workspace}),
         _agent.backend.call('templates.list'),
         _agent.backend.call('proposals.list', {'status': 'pending'}),
+        _agent.backend.call('mcp.list', {'cwd': _agent.workspace}),
       ]);
       List<Json> rows(Object? v) => v is List ? v.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList() : const [];
       _skills = rows(results[0]).map(SkillInfo.fromJson).toList();
       _templates = rows(results[1]).map(TemplateInfo.fromJson).toList();
       _proposals = rows(results[2]).map(SkillProposal.fromJson).toList();
+      _mcps = rows(asJsonMap(results[3])['servers']);
       _error = null;
       if (!_chose) {
         _chose = true;
@@ -169,6 +185,7 @@ class _LibraryPageState extends State<LibraryPage> {
         SideNavItem('技能', Icons.auto_stories_outlined, count: _skills.length),
         SideNavItem('任务模板', Icons.post_add_outlined, count: _templates.length),
         SideNavItem('待确认', Icons.rule, count: _proposals.length, alert: true),
+        SideNavItem('MCP 服务', Icons.extension_outlined, count: _mcps.length),
       ],
       selected: _section,
       onSelect: (i) => setState(() => _section = i),
@@ -188,6 +205,7 @@ class _LibraryPageState extends State<LibraryPage> {
           : switch (_section) {
               1 => _templatesTab(),
               2 => _proposalsTab(),
+              3 => _mcpTab(),
               _ => _skillsTab(),
             },
     );
@@ -218,10 +236,13 @@ class _LibraryPageState extends State<LibraryPage> {
         for (final s in shown)
           _SkillTile(
             skill: s,
+            testing: _testing.contains(s.filePath),
+            onTest: () => _testEntry(s.filePath, 'skills.test', {'filePath': s.filePath}),
             onToggle: (v) => _call('skills.setEnabled', {'filePath': s.filePath, 'enabled': v}),
             onAction: (v) => switch (v) {
               'view' => _viewSkill(s),
               'folder' => _agent.revealInExplorer(p.dirname(s.filePath)),
+              'copy' => _copyBuiltin(s),
               _ => _removeSkill(s),
             },
           ),
@@ -232,27 +253,36 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _viewSkill(SkillInfo skill) async {
     try {
       final text = await _agent.backend.call('skills.read', {'filePath': skill.filePath});
-      if (mounted) await showTextDialog(context, title: skill.name, text: text as String? ?? '');
+      if (mounted) {
+        await showTextDialog(context, title: skill.name, text: text as String? ?? '');
+      }
     } catch (e) {
       _snack('读取失败：${SessionRuntime.describeError(e)}');
     }
   }
 
-  Future<void> _removeSkill(SkillInfo skill) async {
-    final ok = await confirmAction(
+  Future<void> _copyBuiltin(SkillInfo skill) async {
+    final values = await showFieldsDialog(
       context,
-      title: '删除技能「${skill.name}」？',
-      message: '技能文件夹会移到 DreamFlutter 数据目录的 trash 文件夹里，需要时可以找回。',
-      confirm: '删除',
-      danger: true,
+      title: '复制为用户技能',
+      confirm: '复制',
+      fields: [FieldSpec('新技能名', initial: '${skill.name}-custom', required: true)],
     );
-    if (ok) await _call('skills.remove', {'filePath': skill.filePath}, done: '已删除');
+    if (values == null) return;
+    await _call('skills.copyBuiltin', {'filePath': skill.filePath, 'name': values.first}, done: '已复制为用户技能，可通过更新建议修改');
+  }
+
+  Future<void> _removeSkill(SkillInfo skill) async {
+    final ok = await confirmAction(context, title: '删除技能「${skill.name}」？', message: '技能文件夹会移到 DreamFlutter 数据目录的 trash 文件夹里，需要时可以找回。', confirm: '删除', danger: true);
+    if (ok) {
+      await _call('skills.remove', {'filePath': skill.filePath}, done: '已删除');
+    }
   }
 
   Future<void> _importSkill() async {
     final folder = await getDirectoryPath(confirmButtonText: '导入这个技能');
     if (folder == null) return;
-    await _call('skills.import', {'folder': folder}, done: '已导入');
+    await _call('skills.import', {'folder': folder}, done: '已导入，等待你确认后启用');
   }
 
   Future<void> _draftFromSession() async {
@@ -285,16 +315,13 @@ class _LibraryPageState extends State<LibraryPage> {
                     children: [
                       Text(
                         '/${t.name}',
-                        style: context.text.titleSmall?.copyWith(
-                          fontFamily: AppTokens.monoFamily,
-                          fontFamilyFallback: AppTokens.monoFallback,
-                          color: context.colors.accent,
-                        ),
+                        style: context.text.titleSmall?.copyWith(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, color: context.colors.accent),
                       ),
                       if (t.description.isNotEmpty && t.description != t.name) ...[
                         const SizedBox(height: 4),
                         Text(t.description, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
                       ],
+                      Text(_entrySummary(t.metadata), style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
                       if (t.params.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Wrap(spacing: 6, runSpacing: 4, children: [for (final param in t.params) TagChip('{{${param.name}}}', color: context.colors.ochre)]),
@@ -302,7 +329,15 @@ class _LibraryPageState extends State<LibraryPage> {
                     ],
                   ),
                 ),
-                OutlinedButton.icon(onPressed: () => runTemplateWithForm(context, t), icon: const Icon(Icons.play_arrow, size: 18), label: const Text('运行')),
+                Tooltip(
+                  message: t.metadata['enabled'] == false ? '启用模板' : '停用模板',
+                  child: Switch(value: t.metadata['enabled'] != false, onChanged: (value) => _call('templates.setEnabled', {'name': t.name, 'enabled': value})),
+                ),
+                OutlinedButton.icon(
+                  onPressed: t.metadata['enabled'] == false ? null : () => runTemplateWithForm(context, t),
+                  icon: const Icon(Icons.play_arrow, size: 18),
+                  label: const Text('运行'),
+                ),
                 PopupMenuButton<String>(
                   tooltip: '操作',
                   icon: const Icon(Icons.more_horiz, size: 18),
@@ -348,22 +383,122 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _proposalsTab() {
     return PageBody(
       children: [
-        const ContentHeader(title: '等你确认的技能', description: 'Agent 觉得值得保存的做法，或者你让它从会话里整理的技能。确认后才会写入技能目录。'),
+        ContentHeader(title: _proposals.any((p) => p.kind == 'mcp') ? '等你确认的技能与 MCP' : '等你确认的技能', description: '社区安装和 Agent 新建的条目，确认前不启用。确认 MCP 后，仍需单独选择是否授权给蝶君。'),
         if (_proposals.isEmpty) const EmptyState(title: '没有待确认的技能建议', message: '在对话页右上角菜单里选「存成技能」，整理好的草稿会出现在这里。'),
         for (final proposal in _proposals) _ProposalCard(proposal: proposal, onAction: _call),
       ],
     );
   }
+
+  Future<void> _testEntry(String key, String method, Json params) async {
+    if (_testing.contains(key)) return;
+    setState(() => _testing.add(key));
+    try {
+      final result = asJsonMap(await _agent.backend.call(method, params, const Duration(seconds: 150)));
+      final tools = (result['tools'] as List? ?? const []).join('、');
+      final errors = [if (result['error'] != null) result['error'], ...result['errors'] as List? ?? const []].join('\n');
+      final trial = asJsonMap(result['scriptTrial']);
+      if (mounted) {
+        await showTextDialog(
+          context,
+          title: result['ok'] == true ? '测试通过' : '测试未通过',
+          text: [
+            '耗时：${result['durationMs'] ?? 0} ms',
+            if (tools.isNotEmpty) '工具：$tools',
+            if (errors.isNotEmpty) '原因：$errors',
+            if (trial['reason'] != null) trial['reason'].toString(),
+            if ((result['warnings'] as List? ?? const []).isNotEmpty) '提示：${(result['warnings'] as List).join('；')}',
+          ].join('\n\n'),
+        );
+      }
+    } catch (e) {
+      if (mounted) _snack('测试失败：${SessionRuntime.describeError(e)}');
+    } finally {
+      if (mounted) setState(() => _testing.remove(key));
+    }
+  }
+
+  Widget _mcpTab() => PageBody(
+    children: [
+      const ContentHeader(title: 'MCP 服务', description: '测试会启动或连接服务、握手、列出工具，然后关闭。蝶君默认不使用任何 MCP；授权后，服务仍在本机运行。添加和编辑配置请到设置里的 MCP。'),
+      if (_mcps.isEmpty) const EmptyState(title: '还没有 MCP 服务', message: '可在设置里添加服务，或让 Agent 登记建议后在「待确认」里审阅。'),
+      for (final server in _mcps)
+        OutlinedCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: AppTokens.gap,
+                runSpacing: AppTokens.gap,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(server['name'] as String? ?? '', style: context.text.titleSmall),
+                  TagChip(server['scope'] == 'project' ? '本工作区 · 只读配置' : '个人'),
+                  Tooltip(
+                    message: server['trust'] == 'untrusted'
+                        ? '请先在待确认里确认'
+                        : server['enabled'] != false
+                        ? '停用服务'
+                        : '启用服务',
+                    child: Switch(
+                      value: server['enabled'] != false,
+                      onChanged: server['scope'] == 'project' || server['trust'] == 'untrusted'
+                          ? null
+                          : (value) => _call('mcp.setEnabled', {'name': server['name'], 'enabled': value}),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _testing.contains('${server['source']}#${server['name']}')
+                        ? null
+                        : () => _testEntry('${server['source']}#${server['name']}', 'mcp.test', {'name': server['name'], 'source': server['source'], 'cwd': _agent.workspace}),
+                    icon: const Icon(Icons.science_outlined, size: 18),
+                    label: Text(_testing.contains('${server['source']}#${server['name']}') ? '测试中…' : '测试'),
+                  ),
+                ],
+              ),
+              if ((server['description'] as String? ?? '').isNotEmpty) Text(server['description'] as String),
+              Text(_entrySummary(server), style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+              SelectableText((server['url'] ?? server['command'] ?? '').toString(), style: context.text.bodySmall),
+              Material(
+                type: MaterialType.transparency,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('允许蝶君使用'),
+                  subtitle: const Text('此授权独立于服务的启用开关'),
+                  value: server['butterflyAllowed'] == true,
+                  onChanged: server['trust'] == 'untrusted'
+                      ? null
+                      : (value) => _call('mcp.setButterflyAllowed', {'name': server['name'], 'source': server['source'], 'cwd': _agent.workspace, 'allowed': value}),
+                ),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+}
+
+String _entrySummary(Json entry) {
+  final source = switch (entry['sourceKind']) {
+    'builtin' => '内置',
+    'agent' => 'Agent 建立',
+    'community' => '社区安装',
+    _ => '用户自建',
+  };
+  final last = (entry['lastUsedAt'] as num?)?.toInt();
+  return '$source · ${entry['trust'] == 'untrusted' ? '未信任' : '已信任'} · 使用 ${entry['usageCount'] ?? 0} 次 · ${last == null ? '尚未使用' : '最后使用 ${formatDate(last)}'}${entry['sourceUrl'] == null ? '' : '\n出处：${entry['sourceUrl']}'}';
 }
 
 /// One installed skill: a letter badge, name, source and description, an
 /// on/off switch and a menu.
 class _SkillTile extends StatelessWidget {
-  const _SkillTile({required this.skill, required this.onToggle, required this.onAction});
+  const _SkillTile({required this.skill, required this.onToggle, required this.onAction, required this.onTest, required this.testing});
 
   final SkillInfo skill;
   final ValueChanged<bool> onToggle;
   final ValueChanged<String> onAction;
+  final VoidCallback onTest;
+  final bool testing;
 
   @override
   Widget build(BuildContext context) {
@@ -409,30 +544,42 @@ class _SkillTile extends StatelessWidget {
                     style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.5),
                   ),
                 ],
+                Text(_entrySummary(s.metadata), style: context.text.bodySmall?.copyWith(color: colors.muted)),
+                if (s.metadata['readOnly'] == true) Text('随版本更新 · 修改请先复制为用户技能', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+                if ((s.metadata['nameDiagnostics'] as List? ?? const []).isNotEmpty)
+                  Text('名称诊断：${(s.metadata['nameDiagnostics'] as List).join('；')}', style: context.text.bodySmall?.copyWith(color: colors.warning)),
               ],
             ),
           ),
           Tooltip(
             message: s.enabled ? '停用' : '启用',
-            child: Switch(value: s.enabled, onChanged: onToggle),
+            child: Switch(value: s.enabled, onChanged: s.metadata['trust'] == 'untrusted' ? null : onToggle),
           ),
+          OutlinedButton(onPressed: testing ? null : onTest, child: Text(testing ? '检查中…' : '检查')),
           PopupMenuButton<String>(
             tooltip: '操作',
             icon: const Icon(Icons.more_horiz, size: 18),
             onSelected: onAction,
-            itemBuilder: (_) => const [
-              PopupMenuItem(
+            itemBuilder: (_) => [
+              const PopupMenuItem(
                 value: 'view',
                 child: ListTile(dense: true, leading: Icon(Icons.article_outlined), title: Text('查看内容')),
               ),
-              PopupMenuItem(
-                value: 'folder',
-                child: ListTile(dense: true, leading: Icon(Icons.folder_open_outlined), title: Text('打开所在文件夹')),
-              ),
-              PopupMenuItem(
-                value: 'remove',
-                child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除')),
-              ),
+              if (s.metadata['readOnly'] != true)
+                const PopupMenuItem(
+                  value: 'folder',
+                  child: ListTile(dense: true, leading: Icon(Icons.folder_open_outlined), title: Text('打开所在文件夹')),
+                ),
+              if (s.metadata['readOnly'] == true)
+                const PopupMenuItem(
+                  value: 'copy',
+                  child: ListTile(dense: true, leading: Icon(Icons.copy_outlined), title: Text('复制为用户技能')),
+                ),
+              if (s.metadata['readOnly'] != true)
+                const PopupMenuItem(
+                  value: 'remove',
+                  child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除')),
+                ),
             ],
           ),
         ],
@@ -462,12 +609,20 @@ class _ProposalCard extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text(proposal.name, style: context.text.titleSmall),
-              TagChip(updating ? '修改已有技能' : '新技能', color: updating ? colors.warning : Theme.of(context).colorScheme.primary),
+              TagChip(
+                proposal.kind == 'mcp'
+                    ? 'MCP 服务'
+                    : updating
+                    ? '修改已有技能'
+                    : '新技能',
+                color: updating ? colors.warning : Theme.of(context).colorScheme.primary,
+              ),
               TagChip(proposal.scope == 'project' ? '本工作区' : '个人'),
               Text(formatDate(proposal.createdAt), style: muted),
             ],
           ),
           if (proposal.description.isNotEmpty) ...[const SizedBox(height: 4), Text(proposal.description)],
+          Text(_entrySummary({...proposal.payload, 'trust': 'untrusted'}), style: muted),
           if ((proposal.reason ?? '').isNotEmpty) ...[const SizedBox(height: 4), Text('理由：${proposal.reason}', style: muted)],
           const SizedBox(height: AppTokens.gap),
           Container(
@@ -477,7 +632,7 @@ class _ProposalCard extends StatelessWidget {
             decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radiusSm)),
             child: SingleChildScrollView(
               child: SelectableText(
-                proposal.content,
+                proposal.preview,
                 style: context.text.bodySmall?.copyWith(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback),
               ),
             ),
@@ -486,11 +641,11 @@ class _ProposalCard extends StatelessWidget {
           Row(
             children: [
               FilledButton(
-                onPressed: () => onAction('proposals.accept', {'id': proposal.id}, done: '技能「${proposal.name}」已保存'),
-                child: const Text('保存技能'),
+                onPressed: () => onAction('proposals.accept', {'id': proposal.id}, done: '已确认「${proposal.name}」'),
+                child: Text(proposal.kind == 'mcp' ? '确认 MCP' : '保存技能'),
               ),
               const SizedBox(width: AppTokens.gap),
-              OutlinedButton(onPressed: () => _edit(context), child: const Text('修改后保存')),
+              if (proposal.kind != 'mcp') OutlinedButton(onPressed: () => _edit(context), child: const Text('修改后保存')),
               if (updating) ...[
                 const SizedBox(width: AppTokens.gap),
                 TextButton(

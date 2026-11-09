@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "skill": "showcard-pro",
+  "entries": [
+    {
+      "name": "beautiful-article",
+      "version": "0.1.0",
+      "license": "MIT",
+      "licenseFile": "vendor/beautiful-article/LICENSE",
+      "notice": "Unmodified skill subtree at garden-skills 2b9a89340b70f632d31c0f1c69fce94a7912423e; https://github.com/ConardLi/garden-skills/tree/2b9a89340b70f632d31c0f1c69fce94a7912423e/skills/beautiful-article"
+    },
+    {
+      "name": "react",
+      "version": "18.3.1",
+      "license": "MIT",
+      "licenseFile": "licenses/react-LICENSE.txt",
+      "notice": "License retained verbatim from the pinned npm package; transitive release-time renderer dependency."
+    },
+    {
+      "name": "react-dom",
+      "version": "18.3.1",
+      "license": "MIT",
+      "licenseFile": "licenses/react-dom-LICENSE.txt",
+      "notice": "License retained verbatim from the pinned npm package; transitive release-time renderer dependency."
+    },
+    {
+      "name": "scheduler",
+      "version": "0.23.2",
+      "license": "MIT",
+      "licenseFile": "licenses/scheduler-LICENSE.txt",
+      "notice": "License retained verbatim from the pinned npm package; transitive release-time renderer dependency."
+    },
+    {
+      "name": "loose-envify",
+      "version": "1.4.0",
+      "license": "MIT",
+      "licenseFile": "licenses/loose-envify-LICENSE.txt",
+      "notice": "License retained verbatim from the pinned npm package; transitive release-time renderer dependency."
+    },
+    {
+      "name": "js-tokens",
+      "version": "4.0.0",
+      "license": "MIT",
+      "licenseFile": "licenses/js-tokens-LICENSE.txt",
+      "notice": "License retained verbatim from the pinned npm package; transitive release-time renderer dependency."
+    },
+    {
+      "name": "katex",
+      "version": "0.17.0",
+      "license": "MIT",
+      "licenseFile": "licenses/katex-LICENSE.txt",
+      "notice": "License retained verbatim from the pinned npm package; transitive release-time renderer dependency."
+    },
+    {
+      "name": "prismjs",
+      "version": "1.30.0",
+      "license": "MIT",
+      "licenseFile": "licenses/prismjs-LICENSE.txt",
+      "notice": "License retained verbatim from the pinned npm package; transitive release-time renderer dependency."
+    },
+    {
+      "name": "commander",
+      "version": "8.3.0",
+      "license": "MIT",
+      "licenseFile": "licenses/commander-LICENSE.txt",
+      "notice": "License retained verbatim from the pinned npm package; transitive release-time renderer dependency."
+    },
+    {
+      "name": "reacticle",
+      "version": "0.2.6",
+      "license": "MIT",
+      "licenseFile": "licenses/reacticle-MIT.txt",
+      "notice": "Author ConardLi; original package/README retained. Standalone upstream LICENSE absent. CSS adaptation removes embedded fonts; bundled renderer statically includes components. https://github.com/ConardLi/reacticle"
+    },
+    {
+      "name": "Showcard",
+      "version": "1.0",
+      "license": "MIT",
+      "licenseFile": "licenses/showcard-LICENSE.txt",
+      "notice": "Existing DreamFlutter Showcard host; host implementation unchanged. https://github.com/liliMozi/showcard"
+    }
+  ]
+}
