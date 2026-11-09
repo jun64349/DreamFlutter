@@ -3,9 +3,11 @@ import { ALLOW, APPROVAL_TITLE, DENY, alwaysAllowLabel, workspaceAllowLabel } fr
 import type { ApprovalMode } from "../settings.ts";
 import { safeLiteralCommand, wasSecurityApproved } from "../security/command.ts";
 import { redact } from "../security/redaction.ts";
+import { GIT_READ_TOOLS } from "../git/service.ts";
 
 /** Tools that cannot change anything outside the agent's own context. */
 export const READ_ONLY_TOOLS = new Set([
+	...GIT_READ_TOOLS,
 	"read",
 	"grep",
 	"find",
@@ -95,6 +97,7 @@ export function approvalExtension(policy: ApprovalPolicy): ExtensionFactory {
 			if (wasSecurityApproved((event.input ?? {}) as object)) return undefined;
 			const mode = policy.mode();
 			if (mode === "off") return undefined;
+			if (GIT_READ_TOOLS.includes(event.toolName)) return undefined;
 			if (policy.exempt?.(event.toolName)) return undefined;
 			if (mode === "changes" && isReadOnlyCall(event.toolName, (event.input ?? {}) as Record<string, unknown>)) return undefined;
 			if (sessionAllowed.has(event.toolName)) return undefined;

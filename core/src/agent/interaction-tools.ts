@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { stripFrontmatter, type ExtensionContext, type Skill, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { INFO_TITLE } from "../pi/dialogs.ts";
 import { skillContent } from "./dsh-text.ts";
+import { skillNameErrors } from "../modules/skill-name.ts";
 import type { HarnessState, TodoItem } from "./state.ts";
 
 /**
@@ -239,14 +240,14 @@ export function skillTool(skills: () => Skill[], state?: HarnessState): ToolDefi
 			required: ["name"],
 		} as never,
 		async execute(_id, params: { name: string }) {
-			if (!/^[\w.:-]+$/.test(params.name)) throw new Error(`invalid skill name "${params.name}"`);
+			const nameDiagnostics = skillNameErrors(params.name);
 			const skill = skills().find((s) => s.name === params.name);
-			if (!skill) throw new Error(`skill "${params.name}" is unknown or no longer available`);
+			if (!skill) throw new Error(`skill "${params.name}" is unknown or no longer available${nameDiagnostics.length ? `: ${nameDiagnostics.join("; ")}` : ""}`);
 			if (skill.disableModelInvocation) throw new Error(`skill "${params.name}" is not available for model invocation`);
 			await state?.security?.authorize(skill.filePath, "skill");
 			const raw = await readFile(skill.filePath, "utf8");
 			const content = stripFrontmatter(state?.security ? await state.security.read(skill.filePath, raw) : raw).trim();
-			return { content: [{ type: "text", text: skillContent(skill.name, skill.baseDir, content) }], details: { name: skill.name, path: skill.filePath } };
+			return { content: [{ type: "text", text: skillContent(skill.name, skill.baseDir, content) }], details: { name: skill.name, path: skill.filePath, nameDiagnostics } };
 		},
 	};
 }

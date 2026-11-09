@@ -1,4 +1,5 @@
 import { join, resolve, sep } from "node:path";
+import { mcpIdentity, parseMcpIdentity } from "../security/mcp-identity.ts";
 
 /** One rewrite: paths at or under [from] move under [to]. */
 export interface PathRule {
@@ -46,6 +47,8 @@ export class PathMap {
 
 	/** Like map, for values stored lowercased and resolved (normalizeCwd keys). */
 	mapKey(value: string): string {
+		const mcp = parseMcpIdentity(value);
+		if (mcp) return mcpIdentity(this.map(mcp.source), mcp.name);
 		return this.map(value).toLowerCase();
 	}
 

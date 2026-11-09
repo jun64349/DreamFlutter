@@ -718,4 +718,33 @@ export const MIGRATIONS: string[] = [
 	CREATE TABLE request_ledger_sources(source_key TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES request_ledger(id));
 	CREATE TABLE ledger_price_rules(version TEXT PRIMARY KEY, definition TEXT NOT NULL);
 	`,
+	// 14: T-73 library provenance, trust, per-service butterfly permission and real usage.
+	`
+	CREATE TABLE library_entries (
+		kind TEXT NOT NULL, locator TEXT NOT NULL, source_kind TEXT NOT NULL DEFAULT 'user', source_url TEXT,
+		trusted INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1,
+		butterfly_allowed INTEGER NOT NULL DEFAULT 0, fingerprint TEXT,
+		usage_count INTEGER NOT NULL DEFAULT 0, last_used_at INTEGER,
+		PRIMARY KEY(kind, locator)
+	);
+	CREATE TABLE library_usage (
+		event_id TEXT PRIMARY KEY, kind TEXT NOT NULL, locator TEXT NOT NULL, at INTEGER NOT NULL
+	);
+	`,
+	// 15: T-80 MCP identities separate configuration paths from case-sensitive server names.
+	`
+	ALTER TABLE library_entries ADD COLUMN identity_conflict TEXT;
+	WITH RECURSIVE pieces(id,original,tail,pos) AS (
+		SELECT rowid,locator,locator,0 FROM library_entries WHERE kind='mcp' AND locator NOT LIKE 'mcp:v1:%' AND instr(locator,'#')>0
+		UNION ALL SELECT id,original,substr(tail,instr(tail,'#')+1),pos+instr(tail,'#') FROM pieces WHERE instr(tail,'#')>0
+	)
+	UPDATE library_entries SET locator=(SELECT 'mcp:v1:'||json_array(substr(original,1,pos-1),tail) FROM pieces WHERE id=library_entries.rowid AND instr(tail,'#')=0)
+	WHERE kind='mcp' AND locator NOT LIKE 'mcp:v1:%' AND instr(locator,'#')>0;
+	WITH RECURSIVE pieces(id,original,tail,pos) AS (
+		SELECT rowid,locator,locator,0 FROM library_usage WHERE kind='mcp' AND locator NOT LIKE 'mcp:v1:%' AND instr(locator,'#')>0
+		UNION ALL SELECT id,original,substr(tail,instr(tail,'#')+1),pos+instr(tail,'#') FROM pieces WHERE instr(tail,'#')>0
+	)
+	UPDATE library_usage SET locator=(SELECT 'mcp:v1:'||json_array(substr(original,1,pos-1),tail) FROM pieces WHERE id=library_usage.rowid AND instr(tail,'#')=0)
+	WHERE kind='mcp' AND locator NOT LIKE 'mcp:v1:%' AND instr(locator,'#')>0;
+	`,
 ];

@@ -19,6 +19,7 @@ import { isSideFile } from "./pi/session-metadata.ts";
 import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
 import { SecurityService } from "./security/service.ts";
+import { LibraryRegistry } from "./modules/library-registry.ts";
 import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
 import type { WebTools } from "./web/types.ts";
 import { currentToolEnvironment, withToolEnvironment, type ToolEnvironmentProvider } from "./agent/tool-environment.ts";
@@ -126,6 +127,7 @@ export class Core {
 	readonly notifier: Notifier;
 	readonly settings: SettingsStore;
 	readonly security: SecurityService;
+	readonly library: LibraryRegistry;
 	readonly confirmations: ConfirmationStore;
 	readonly runs: RunStore;
 	readonly paths: CorePaths;
@@ -192,6 +194,7 @@ export class Core {
 		this.db = new Db(options.paths.dbFile);
 		this.settings = new SettingsStore(this.db);
 		this.security = new SecurityService(this);
+		this.library = new LibraryRegistry(this.db, this.security.audit, () => this.broadcast({ event: "library.changed" }), join(this.agentDir, "mcp.json"));
 		this.confirmations = new ConfirmationStore(this.db);
 		this.runs = new RunStore(this.db);
 		this.interruptedAtStartup = this.runs.interruptOrphans();
@@ -206,6 +209,7 @@ export class Core {
 			webTools: () => this.webTools,
 			toolEnvironment: () => this.toolEnvironment,
 			security: this.security,
+			library: this.library,
 			securityContext: (slot) => ({ slotId: slot.slotId, runId: this.slotOrOpening(slot.slotId)?.currentRun?.id }),
 			pendingSessionFiles: this.pendingSessionFiles,
 			agentDir: options.agentDir,

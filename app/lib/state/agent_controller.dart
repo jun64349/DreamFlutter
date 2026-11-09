@@ -612,7 +612,7 @@ class AgentController extends ChangeNotifier {
   /// Events only the main controller acts on (toasts, badges, the sandbox panel), so 蝶君's does not repeat them.
   static const _mainOnlyEvents = {
     'memory.unsaved', 'memory.notice', 'memory.warning', 'memory.task',
-    'memory.changed', 'proposals.changed', 'skills.changed', 'templates.changed', 'schedules.delivered', //
+    'memory.changed', 'proposals.changed', 'skills.changed', 'templates.changed', 'mcp.changed', 'library.changed', 'schedules.delivered', //
     'gateway.switched', 'gateway.alert', 'vision.missing', 'notices.changed', 'sandbox.changed', 'butterfly.outbox', //
     'backup.job', 'backup.restarting',
   };
@@ -647,7 +647,7 @@ class AgentController extends ChangeNotifier {
       case 'settings.changed':
         coreSettings = asJsonMap(message['settings']);
         _notify();
-      case 'memory.changed' || 'proposals.changed' || 'skills.changed' || 'templates.changed':
+      case 'memory.changed' || 'proposals.changed' || 'skills.changed' || 'templates.changed' || 'mcp.changed' || 'library.changed':
         libraryRevision.value++;
         unawaited(refreshPendingCounts());
       case 'tasks.changed' || 'desk.changed' || 'confirm.changed' || 'run.finished' || 'schedules.changed':

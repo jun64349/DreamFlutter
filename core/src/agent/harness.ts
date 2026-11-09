@@ -48,6 +48,8 @@ import { redactValue } from "../security/redaction.ts";
 import { protectJobOutput } from "../security/shell-output.ts";
 import type { WebCallContext, WebTools } from "../web/types.ts";
 import { WEB_SEARCH_GUIDANCE } from "./dsh-text.ts";
+import { gitTools } from "../git/tools.ts";
+import { GIT_TOOLS } from "../git/service.ts";
 
 /**
  * The two agent modes, reproducing DeepSeek Harness's presets on Pi:
@@ -93,6 +95,7 @@ export const STANDARD_TOOLS = [
 	"ask_user_question",
 	"edit",
 	"exit_plan_mode",
+	...GIT_TOOLS,
 	"glob",
 	"grep",
 	"job_kill",
@@ -279,6 +282,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 							pi.appendEntry(PLAN_ENTRY, { on });
 							notifyState();
 						}),
+						...gitTools(state, sandbox),
 						globTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
 						grepTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
 						// The sandbox has one persistent bash; this machine has PowerShell with background jobs.

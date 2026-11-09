@@ -33,6 +33,8 @@ import type { WebTools } from "../web/types.ts";
 import { withToolEnvironment, type ToolEnvironmentProvider } from "../agent/tool-environment.ts";
 import type { Ledger } from "../ledger/ledger.ts";
 import { withLedgerContext, type LedgerContext } from "../ledger/types.ts";
+import { locator, type LibraryRegistry } from "../modules/library-registry.ts";
+import { mergeBuiltinSkills } from "../modules/builtin-skills.ts";
 
 /** Fixed inputs shared by every session the core hosts. */
 export interface PiHostConfig {
@@ -42,6 +44,7 @@ export interface PiHostConfig {
 	webTools?: () => WebTools | undefined;
 	toolEnvironment?: () => ToolEnvironmentProvider | undefined;
 	security?: SecurityService;
+	library?: LibraryRegistry;
 	securityContext?: (slot: SlotIdentity) => AuditContext;
 	pendingSessionFiles?: Set<string>;
 	agentDir: string;
@@ -80,7 +83,7 @@ export interface SlotIdentity {
 }
 
 /** DreamFlutter tools a standard session keeps beside dsh's (patterns as Pi's tool lists accept them). */
-export const STANDARD_EXTRA_TOOLS = ["memory_*", "session_search", "skill_propose", "schedule_*", "tool_search", "mcp__*", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource", "show_card", "read_card", "read_document", "agent", "web_search"];
+export const STANDARD_EXTRA_TOOLS = ["memory_*", "session_search", "skill_propose", "skill_register", "skill_test", "skill_script_trial", "skill_route", "mcp_register", "mcp_test", "schedule_*", "tool_search", "mcp__*", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource", "show_card", "read_card", "read_document", "agent", "web_search"];
 
 /** The mode a runtime for [sessionManager] runs in: recorded, else standard for an old session, else the new-session mode. */
 export function modeFor(sessionManager: SessionManager, newSessionMode: AgentMode): AgentMode {
@@ -108,11 +111,19 @@ export function isProjectTrusted(cwd: string, agentDir: string, decisions: Map<s
 }
 
 /** The CLI's built-in extensions (not exported as a list by the package). */
-function builtInExtensions(agentDir: string, security?: SecurityService, context?: () => AuditContext): InlineExtension[] {
+function builtInExtensions(agentDir: string, security?: SecurityService, context?: () => AuditContext, library?: LibraryRegistry, butterfly = false): InlineExtension[] {
+	const transportId = randomUUID();
 	return [
 		{ name: "codemode", factory: createCodemodeExtension(), replaceable: true, builtin: true },
 		{ name: "tool-search", factory: createToolSearchExtension(), replaceable: true, builtin: true },
-		{ name: "mcp", factory: createMcpExtension({ logPath: join(agentDir, "mcp.log"), loadConfig: (ctx) => loadSecurityMcpConfig(agentDir, ctx.cwd, ctx.isProjectTrusted()), createTransport: secureMcpFactory(security?.audit, undefined, context) }), replaceable: true, builtin: true },
+		{ name: "mcp", factory: createMcpExtension({ logPath: join(agentDir, "mcp.log"), loadConfig: (ctx) => {
+			const loaded = loadSecurityMcpConfig(agentDir, ctx.cwd, ctx.isProjectTrusted());
+			loaded.servers = loaded.servers.filter((entry) => library ? library.mcpAllowed(entry, butterfly) : !butterfly);
+			return loaded;
+		}, createTransport: secureMcpFactory(security?.audit, undefined, context, library ? {
+			allowed: (entry) => library.mcpAllowed(entry, butterfly),
+			used: (entry, id) => library.used("mcp", library.mcpKey(entry), `${transportId}:${entry.name}:${String(id)}`),
+		} : undefined) }), replaceable: true, builtin: true },
 	] as InlineExtension[];
 }
 
@@ -243,8 +254,8 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			const provider = config.toolEnvironment?.();
 			return provider ? withToolEnvironment({ provider, workspace: cwd }, () => harness(api)) : harness(api);
 		};
-		// 蝶君 has no MCP: its servers run on this machine, outside the sandbox.
-		const builtIns = mode === "minimal" ? [] : builtInExtensions(agentDir, config.security, securityContext).filter((e) => (e.name === "mcp" && !sandbox) || e.name === "tool-search");
+		// A host-side MCP service is visible to 蝶君 only after a separate per-service user grant.
+		const builtIns = mode === "minimal" ? [] : builtInExtensions(agentDir, config.security, securityContext, config.library, sandboxed).filter((e) => (e.name === "mcp" && (!sandboxed || !!config.library)) || e.name === "tool-search");
 		services = await createAgentSessionServices({
 			cwd,
 			agentDir,
@@ -261,8 +272,9 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 					}
 				: undefined,
 			resourceLoaderOptions: {
-				extensionFactories: [...(security ? [security.extension()] : []), ...builtIns, sourceHarness, ...config.extensions({ ...slot, sideConversation: side }, mode)],
-				skillsOverride: dropSharedAgentSkills,
+				extensionFactories: [...(config.library ? [config.library.extension(sandboxed, () => ({ skills: services?.resourceLoader.getSkills().skills ?? [], prompts: services?.resourceLoader.getPrompts().prompts ?? [] }), () => `${slot.slotId}:${securityContext().runId ?? requestId}`)] : []), ...(security ? [security.extension()] : []), ...builtIns, sourceHarness, ...config.extensions({ ...slot, sideConversation: side }, mode)],
+				skillsOverride: (base) => { const filtered = mergeBuiltinSkills(dropSharedAgentSkills(base), config.library); return { ...filtered, skills: filtered.skills.filter((skill) => config.library?.fileAllowed("skill", skill.filePath) !== false) }; },
+				promptsOverride: (base) => ({ ...base, prompts: base.prompts.filter((prompt) => config.library?.fileAllowed("template", prompt.filePath) !== false) }),
 			},
 		});
 		const requestContext = () => ({ ...config.ledgerContext?.(slot), sessionId: sessionManager.getSessionId(), workspace: cwd });

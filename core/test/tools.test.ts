@@ -108,8 +108,8 @@ describe("MCP servers", () => {
 		const saved = JSON.parse(readFileSync(file(), "utf8"));
 		assert.equal(saved.autoEnableCodemode, false);
 		assert.deepEqual(saved.mcpServers.keep.toolExposure, { a: "direct" });
-		assert.deepEqual(saved.mcpServers.fs, { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "."], env: { MODE: "ro" } });
-		assert.deepEqual(saved.mcpServers.docs, { url: "https://example.com/mcp", description: "文档", exposure: "direct" });
+		assert.deepEqual(saved.mcpServers.fs, { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "."], env: { MODE: "ro" }, dfLibrary: { sourceKind: "user", sourceUrl: null } });
+		assert.deepEqual(saved.mcpServers.docs, { url: "https://example.com/mcp", description: "文档", exposure: "direct", dfLibrary: { sourceKind: "user", sourceUrl: null } });
 
 		await t.core.call("mcp.setEnabled", { name: "fs", enabled: false });
 		assert.equal(JSON.parse(readFileSync(file(), "utf8")).mcpServers.fs.enabled, false);

@@ -55,6 +55,6 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new WebSearchModule(core, options.webSearch));
 	core.use(new UpdateModule(core, options.updates));
 	registerRenderer(core);
-	new McpModule(core);
+	core.use(new McpModule(core));
 	return core;
 }
