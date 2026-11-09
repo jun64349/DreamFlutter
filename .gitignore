@@ -18,3 +18,17 @@ core/python/
 
 # All of the platform's data (v0.3.2: next to the software)
 /data/
+
+# Local environment values; sanitized examples may be versioned
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Personal / collaboration workspace, kept local (see docs/HANDOFF.md)
+/.obsidian/
+/Claude Codex Bridge/
+/claude、gpt、用户分工说明文档*/
+
+# Raw test-run evidence (model transcripts, databases, logs); conclusions live in docs/
+core/test-evidence/
