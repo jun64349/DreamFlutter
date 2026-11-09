@@ -259,7 +259,7 @@ describe("memory", () => {
 		assert.deepEqual((await items()).map((m) => m.content), ["秘密背景"]);
 	});
 
-	it("moves v0.2's memory over once, marked for review, without making up sources (§11)", async () => {
+	it("moves v0.2's memory over once, in effect, without making up sources (§11, V07-03)", async () => {
 		const at = Date.now() - 30 * 86_400_000;
 		const insert = (id: string, fields: Record<string, unknown>) => {
 			const row = { scope: "global", cwd: null, kind: "preference", source: "user", source_session: null, status: "active", action: null, target_id: null, replaced_by: null, reason: null, created_at: at, updated_at: at, ...fields, id };
@@ -286,7 +286,7 @@ describe("memory", () => {
 		assert.deepEqual([report.items, report.superseded, report.pending, report.blockLines], [2, 1, 2, 3]);
 		assert.deepEqual(report.skipped.map((s) => s.id).sort(), ["m_del", "m_rej"]);
 		const node = (await t.core.call("memory.item", { id: "m_new1" })) as { item: MemoryItem & { workspacePath: string }; sources: { kind: string; ref: string }[]; links: { from: string; to: string; kind: string }[] };
-		assert.deepEqual([node.item.level, node.item.status, node.item.confidence, node.item.scope, node.item.workspacePath], [2, "review", "user_confirmed", "workspace", t.workspace], "level 2 to review, never level 3 for being old");
+		assert.deepEqual([node.item.level, node.item.status, node.item.confidence, node.item.scope, node.item.workspacePath], [2, "active", "user_confirmed", "workspace", t.workspace], "level 2 and in effect, never level 3 for being old");
 		assert.deepEqual(node.sources.map((s) => [s.kind, s.ref]), [["session", join(t.sessionDir, "a.jsonl")]]);
 		assert.deepEqual(node.links.map((l) => [l.from, l.to, l.kind]), [["m_new1", "m_old1", "supersedes"]]);
 		assert.equal(((await t.core.call("memory.item", { id: "m_old1" })) as { item: MemoryItem }).item.status, "superseded");
@@ -308,6 +308,29 @@ describe("memory", () => {
 		// The whole migration can be undone from the log.
 		await t.core.call("memory.undoBatch", { batchId: migrated[0]!.batchId });
 		assert.equal((await items()).length, 0);
+	});
+
+	it("puts memory an earlier migration left 「待复核」 back in effect, once and undoably (V07-03)", async () => {
+		const at = Date.now() - 30 * 86_400_000;
+		t.core.db.run(
+			"INSERT INTO memories(id, scope, cwd, kind, content, source, source_session, status, action, target_id, replaced_by, reason, created_at, updated_at) VALUES('m_pref', 'global', NULL, 'preference', '交流用简体中文', 'user', NULL, 'active', NULL, NULL, NULL, NULL, ?, ?)",
+			at, at,
+		);
+		t.core.db.run("DELETE FROM memory_items");
+		t.core.db.run("DELETE FROM app_flags");
+		t = await t.reopen();
+		// As v0.7.0-test.3 left it: the migrated item marked 「待复核」 and the repair never run.
+		t.core.db.run("UPDATE memory_items SET status = 'review' WHERE id = 'm_pref'");
+		t.core.db.run("DELETE FROM app_flags WHERE key = 'memory_v07_migrated_active'");
+		t = await t.reopen();
+		const item = (id: string) => t.core.call("memory.item", { id }) as Promise<{ item: MemoryItem }>;
+		assert.equal((await item("m_pref")).item.status, "active");
+		const fix = (await log())[0]!.entries.filter((e) => e.batchKind === "migration_fix");
+		assert.equal(fix.length, 1);
+		// Runs once: marking it 「待复核」 again by hand is not undone on the next start.
+		t.core.db.run("UPDATE memory_items SET status = 'review' WHERE id = 'm_pref'");
+		t = await t.reopen();
+		assert.equal((await item("m_pref")).item.status, "review");
 	});
 
 	it("v0.2's memory page methods still work on the new store", async () => {

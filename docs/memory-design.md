@@ -166,7 +166,7 @@
 - 时机：0.5 的数据库升级（v0.3.1 之后升级前会自动备份，可以回退）。
 - `memories` 里 `active` 的条目 → `memory_items`：
   - `kind` 照搬（preference / background / experience）；`scope`、`cwd` → `scope`、`workspace_id`（新建 `workspaces` 记录）。
-  - **层级**：都放二级，状态 `review`（标记「迁移，待复核」），**不因为旧就放三级**；记忆 Agent 第一次整理时逐条提出层级建议，用户批量确认。
+  - **层级**：都放二级，状态 `active`（**2026-11-09 改**：原为 `review`「迁移，待复核」；v0.7 实测 V07-03 发现这些是用户以前写过或批准过的，标待复核后一直没人处理，在快照里被当成未核实，用户觉得记忆没生效。已迁移的由一次性修正改回生效，可在记忆日志撤销），**不因为旧就放三级**；记忆 Agent 第一次整理时逐条提出层级建议，用户批量确认。
   - `confidence`：v0.2 里用户确认过才会 `active` → `user_confirmed`；`source` 是用户明说的 → `user_explicit`。
   - 来源：`source_session` 有就写一条 `session` 来源；没有就**不补造**，只记 `migration`。
   - `replaced_by` → `supersedes` 关系；`candidate` 的条目照样是候选；`rejected` 的不迁。

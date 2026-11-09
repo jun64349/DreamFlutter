@@ -12,7 +12,7 @@ import { TokenCalibration } from "../memory/calibrate.ts";
 import { resultText, sentences } from "../memory/lifecycle.ts";
 import { boundarySignal, NEW_TASK_CONFIDENCE, saysNewTask, type TaskView, TaskViews } from "../memory/tasks.ts";
 import { scanMemoryText } from "../memory/safety.ts";
-import { migrateV02, migrationDone, splitBlock } from "../memory/migrate.ts";
+import { activateMigratedReview, migrateV02, migrationDone, splitBlock } from "../memory/migrate.ts";
 import { allowedScopes, homeScope, type ScopeSet, visibleIn, Workspaces } from "../memory/scopes.ts";
 import { memoryBudget, planSnapshot, SHARES, type SnapshotPlan } from "../memory/snapshot.ts";
 import { MemoryStore } from "../memory/store.ts";
@@ -176,6 +176,8 @@ export class MemoryModule implements CoreModule {
 		core.exemptFromApproval(...MEMORY_TOOLS);
 		const report = migrateV02(core.db, this.store, this.workspaces, core.paths.butterflyDir);
 		if (report) core.log.info(`memory: moved v0.2 memory over (${report.items} items, ${report.blockLines} block lines, ${report.pending} waiting, ${report.skipped.length} left out)`);
+		const activated = activateMigratedReview(core.db, this.store);
+		if (activated) core.log.info(`memory: ${activated} migrated item(s) back in effect (V07-03)`);
 		this.register();
 	}
 

@@ -5,11 +5,37 @@ import type { MemoryStore } from "./store.ts";
 import type { Confidence, ItemKind, ItemScope, MemoryOp, NewItem, SourceInput } from "./types.ts";
 
 export const MIGRATION_FLAG = "memory_v05_migrated";
+export const REVIEW_FIX_FLAG = "memory_v07_migrated_active";
+
+/**
+ * Puts back into effect what an earlier migration marked 「待复核」 (V07-03):
+ * the user had written or approved those memories in v0.2, nothing ever
+ * cleared the mark, and they sat at the end of every snapshot as unverified.
+ * Only items untouched since the migration added them change; it is one
+ * logged batch the user can undo. Runs once.
+ */
+export function activateMigratedReview(db: Db, store: MemoryStore): number | undefined {
+	if (db.get("SELECT 1 FROM app_flags WHERE key = ?", REVIEW_FIX_FLAG)) return undefined;
+	const rows = db.all<{ id: string; version: number }>(
+		`SELECT i.id, i.version FROM memory_items i
+		 WHERE i.status = 'review' AND EXISTS (
+		   SELECT 1 FROM memory_ops o JOIN memory_batches b ON b.id = o.batch_id
+		   WHERE o.item_id = i.id AND b.kind = 'migration' AND o.kind = 'add' AND o.undone_at IS NULL AND o.after_version = i.version)`,
+	);
+	let changed = 0;
+	if (rows.length) {
+		const ops: MemoryOp[] = rows.map((r) => ({ kind: "status", id: r.id, baseVersion: r.version, status: "active" }));
+		const result = store.commit({ actor: "system", ops, reason: "迁移来的记忆是你以前写过或批准过的，直接生效", batchKind: "migration_fix" });
+		changed = rows.length - result.rejected.length;
+	}
+	db.run("INSERT OR REPLACE INTO app_flags(key, value, at) VALUES(?, ?, ?)", REVIEW_FIX_FLAG, json({ changed }), store.clock());
+	return changed;
+}
 
 /** What moving v0.2's memory over did (docs/memory-design.md §11: 「迁移有核对报告」). */
 export interface MigrationReport {
 	at: number;
-	/** v0.2 memories now items (marked 「迁移，待复核」). */
+	/** v0.2 memories now items, in effect (V07-03). */
 	items: number;
 	/** Older versions brought over as superseded, linked to what replaced them. */
 	superseded: number;
@@ -52,7 +78,9 @@ export function migrationDone(db: Db): MigrationReport | undefined {
 
 /**
  * Moves v0.2's memory into the v0.5 store once (§11): active memories become
- * level-2 items to review (never level 3 just for being old), with a session
+ * level-2 items that stay in effect (never level 3 just for being old; v0.2
+ * only kept what the user wrote or approved, so they are not put back to
+ * review — 2026-11-09 user test V07-03), with a session
  * source when v0.2 knew one and nothing made up otherwise; superseded ones
  * keep their link; candidates wait for the user as before; the blocks are
  * split into pinned items (a locked block's lines are locked). Ids are kept,
@@ -86,10 +114,10 @@ export function migrateV02(db: Db, store: MemoryStore, workspaces: Workspaces, b
 			level: 2,
 			...where(row),
 			confidence,
-			status: row.status === "active" ? "review" : "superseded",
+			status: row.status === "active" ? "active" : "superseded",
 			occurredAt: row.created_at,
 		};
-		ops.push({ kind: "add", item, sources: sourcesOf(row), reason: row.status === "active" ? "迁移，待复核" : "迁移：v0.2 里的旧版本" });
+		ops.push({ kind: "add", item, sources: sourcesOf(row), reason: row.status === "active" ? "迁移：v0.2 里已生效的记忆" : "迁移：v0.2 里的旧版本" });
 		if (row.status === "active") report.items++;
 		else {
 			report.superseded++;
