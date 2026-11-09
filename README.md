@@ -14,7 +14,7 @@
   <img alt="ui" src="https://img.shields.io/badge/UI-Flutter%20Desktop-02569B">
   <img alt="core" src="https://img.shields.io/badge/core-Node.js%2022%20%2B%20Pi%20SDK-3c873a">
   <img alt="sandbox" src="https://img.shields.io/badge/sandbox-WSL2-6e4a9e">
-  <img alt="status" src="https://img.shields.io/badge/status-v0.7%20%E5%AE%9E%E6%B5%8B%E4%B8%AD-ca704d">
+  <img alt="status" src="https://img.shields.io/badge/status-v0.7.0-ca704d">
 </p>
 
 > **English in one paragraph** — DreamFlutter is a local-first personal AI agent platform for Windows. A Flutter desktop shell talks to a Node.js core that hosts many [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) agent sessions in-process. It has two spaces: the **Workbench**, which works with you on your own folders under per-action approval, and **Diejun** ("Lord Butterfly"), an agent that runs on its own inside a WSL2 sandbox. Beyond that it has a three-tier long-term memory, context compaction, sub-agents, skills and MCP that the agent can find, build, test and register itself, built-in Office/PDF/data tooling, a Git service, a per-request cost ledger, sandboxed security boundaries, backups and rollback-safe updates. Bring your own model keys (DeepSeek, OpenAI-compatible gateways, and more).
@@ -94,9 +94,10 @@ flowchart LR
 | v0.4 | 外壳与呈现：新窗口框架、详情栏、侧边对话、品牌与名画主题 | ✅ 已完成 |
 | v0.5 | 三级记忆、上下文服务与压缩、会话关系 | ✅ [v0.5.0](docs/releases/v0.5.0.md) |
 | v0.6 | 模型与渠道、安全设置、数据与存储、联网搜索、逐请求账本、更新与回滚、包体瘦身 | ✅ [v0.6.0](docs/releases/v0.6.0.md) |
-| **v0.7** | **技能与 MCP 体系、内置办公与数据处理、Git 服务** | 🧪 候选 `0.7.0-test.3` 联合验收已通过，用户实测中 |
-| v0.8 – v0.9 | 长任务与目标、蝶君自主与成长 | 规划中 |
-| v0.10 – v0.12 | 接口文档、前端阶段、打磨与深度测试 | 规划中 |
+| v0.7 | 技能与 MCP 体系、内置办公与数据处理、Git 服务 | ✅ [v0.7.0](docs/releases/v0.7.0.md) |
+| **v0.8** | **新界面：照[交互设计第一版](docs/design/interaction-design.md)重做外壳和主要页面**（[可点击原型](docs/design/prototype/interaction-v1.html)） | 🛠 开发中 |
+| v0.9 – v0.10 | 长任务与目标、蝶君自主与成长 | 规划中 |
+| v0.11 – v0.13 | 接口文档、前端补完、打磨与深度测试 | 规划中 |
 | v1.0 | 正式版和安装包 | 规划中 |
 
 完整计划见 [roadmap](docs/roadmap.md)。**正式安装包等 V1.0 再发布**，在那之前仓库里的版本标签都是源码节点。
