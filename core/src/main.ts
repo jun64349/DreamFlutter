@@ -42,6 +42,16 @@ if (!lock.ok) {
 	process.exit(3);
 }
 
+// Startup phases, logged once the core listens, so a slow start can be traced (V07-07).
+const startedAt = performance.now();
+let phaseAt = startedAt;
+const phases: string[] = [];
+const phase = (name: string): void => {
+	const now = performance.now();
+	phases.push(`${name} ${Math.round(now - phaseAt)}ms`);
+	phaseAt = now;
+};
+
 process.on("uncaughtException", (error) => log.error("uncaught exception", error));
 process.on("unhandledRejection", (error) => log.error("unhandled rejection", error));
 
@@ -49,6 +59,7 @@ try {
 	if (await recoverUpdateStartup(paths) === "guardian-active") { releaseLock(paths); process.exit(7); }
 	if ((args["update-test-source"] || process.env.DREAMFLUTTER_UPDATE_TEST_SOURCE) && (buildInfo() as unknown as { failStartup?: boolean }).failStartup) { releaseLock(paths); process.exit(42); }
 } catch (error) { log.error("update recovery: startup held to preserve data", error); releaseLock(paths); process.exit(8); }
+phase("update check");
 let migration: MoveRecord | undefined;
 let startingCore: ReturnType<typeof buildCore> | undefined;
 let startingServer: Awaited<ReturnType<typeof startServer>> | undefined;
@@ -77,9 +88,12 @@ try {
 	if (migration) throw error;
 	process.exit(4);
 }
+phase("storage and restore");
 await backupBeforeUpgrade(paths, agentDir, sessionDir, log);
+phase("backup before upgrade");
 
 await configurePiNetworking(agentDir, log);
+phase("network");
 
 const core = buildCore({
 	updates: { testSource: args["update-test-source"] ?? process.env.DREAMFLUTTER_UPDATE_TEST_SOURCE, testThumbprints: (args["update-test-source"] || process.env.DREAMFLUTTER_UPDATE_TEST_SOURCE) ? (args["update-test-cert"] ?? process.env.DREAMFLUTTER_UPDATE_TEST_CERT ?? "").split(",").filter(Boolean) : [] },
@@ -93,25 +107,31 @@ const core = buildCore({
 });
 startingCore = core;
 if (migration) remapMovedDatabase(core, migration);
+phase("open data and modules");
 
 const token = newToken();
 const server = await startServer(core, { port: args.port ? Number(args.port) : 0, token });
 startingServer = server;
+phase("server");
 await core.start();
-if (migration) await validateMove(core, migration);
+phase("start modules");
+if (migration) { await validateMove(core, migration); phase("check moved data"); }
 writeInfo(paths, { pid: process.pid, port: server.port, token, version: CORE_VERSION, startedAt: Date.now() });
 log.info(`core ${CORE_VERSION} listening on 127.0.0.1:${server.port} (pid ${process.pid})`);
+log.info(`startup ${Math.round(performance.now() - startedAt)}ms: ${phases.join(", ")}`);
 process.stdout.write(JSON.stringify({ ready: true, pid: process.pid, port: server.port }) + "\n");
 
 let exiting = false;
 async function exit(code: number): Promise<void> {
 	if (exiting) return;
 	exiting = true;
+	const began = performance.now();
 	log.info("shutting down");
 	removeInfo(paths);
 	await server.close();
 	await core.shutdown();
 	releaseLock(paths);
+	log.info(`shutdown ${Math.round(performance.now() - began)}ms`);
 	process.exit(code);
 }
 

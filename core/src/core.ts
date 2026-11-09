@@ -296,7 +296,17 @@ export class Core {
 	}
 
 	async start(): Promise<void> {
-		for (const module of this.modules) { this.beforeModuleStart?.(); await module.start?.(); this.beforeModuleStart?.(); }
+		// Timed so a slow start can be traced to its module (V07-07).
+		const slow: string[] = [];
+		for (const module of this.modules) {
+			this.beforeModuleStart?.();
+			const at = performance.now();
+			await module.start?.();
+			const ms = performance.now() - at;
+			if (ms >= 50) slow.push(`${module.constructor.name} ${Math.round(ms)}ms`);
+			this.beforeModuleStart?.();
+		}
+		if (slow.length) this.log.info(`startup: slow modules: ${slow.join(", ")}`);
 		this.reaper = setInterval(() => void this.reapIdle(), 60_000);
 		this.reaper.unref();
 	}
@@ -711,16 +721,25 @@ export class Core {
 		if (this.stopped) return;
 		this.stopped = true;
 		if (this.reaper) clearInterval(this.reaper);
+		// Timed so a slow exit can be traced (V07-07).
+		const began = performance.now();
+		const slow: string[] = [];
 		for (const module of [...this.modules].reverse()) {
+			const at = performance.now();
 			try {
 				await module.stop?.();
 			} catch (error) {
 				this.log.warn("module stop failed", error);
 			}
+			const ms = performance.now() - at;
+			if (ms >= 50) slow.push(`${module.constructor.name} ${Math.round(ms)}ms`);
 		}
+		const modulesDone = performance.now();
 		for (const slot of this.opening.values()) slot.ui.cancelAll();
+		const slots = this.slots.size;
 		for (const slotId of [...this.slots.keys()]) await this.closeSlot(slotId);
 		await Promise.all([...this.closingSlots.values()].map((c) => c.done));
+		this.log.info(`shutdown: modules ${Math.round(modulesDone - began)}ms${slow.length ? ` (${slow.join(", ")})` : ""}, ${slots} session(s) closed in ${Math.round(performance.now() - modulesDone)}ms`);
 		this.db.close();
 		for (const listener of this.shutdownListeners) listener();
 	}
