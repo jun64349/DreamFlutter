@@ -54,4 +54,5 @@
 ## 四、给之后做设计的人
 
 - 用户给的素材，造型一律不改；要矢量就 1:1 复刻。
+- 让布局来说明：避免不必要的次要标签和描述，让布局本身来传达信息（用户 2026-11-09，见 [interaction-design.md](interaction-design.md) 第二节第 7 条）。
 - 视觉方向（用户 2026-10-29 定）：参考 HanaAgent 的文艺、简洁大气；蝴蝶元素；主题以世界名画名作为来源（见 [../v0.2-design.md](../v0.2-design.md) 第三节；现有主题 `theme.dart` 的 `PaintingTheme.all`：蛱蝶 jiadie、草蝶 caodie、羽化 yuhua、神思 shensi（日间），墨夜 moye、幽华 youhua、琉光 liuguang（夜间））。

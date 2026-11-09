@@ -7,6 +7,8 @@
 - 文艺、简洁、大气，留白多（用户 2026-10-29，参考 HanaAgent）；蝴蝶元素；颜色、字体、圆角来自当前名画主题（`app/lib/theme.dart` 的 `PaintingTheme` / `AppColors` / `AppTokens`），**任何颜色都不写死在页面里**。
 - 字体：标题、回复正文、问候语用宋体（Noto Serif SC），界面文字用黑体（Noto Sans SC），代码用等宽（Cascadia Mono）。
 - 少而清楚：平时只露必要的东西，过程、数字、操作在需要时（悬停、点开、打开详情）才出现。
+- **让布局来说明**（用户 2026-11-09 加，适用于所有界面）：Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining. 避免不必要的次要标签和描述，让布局本身来传达信息。详见 [interaction-design.md](interaction-design.md) 第二节第 7 条。
+- 0.8 起界面以 [interaction-design.md](interaction-design.md) 为准；本文件里和它冲突的地方，以它为准。
 
 ## 二、窗口框架（4.2，用户选定：设计稿方案三 + 方案一的顶栏）
 
