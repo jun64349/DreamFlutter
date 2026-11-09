@@ -186,6 +186,9 @@ DreamFlutter $version（Windows x64 可更新免安装版，测试版未签名�
 已包含 Node.js、rg/fd、uv、MinGit、便携 Python 办公和图表库，以及离线沙箱镜像。通过设置的“关于”检查、下载、校验并确认安装。
 安装前等待现有任务结束并自动备份，启动验证失败时由 Velopack 回到旧程序，并用更新前备份恢复数据。
 新版本已经接受用户写入后，不再自动恢复旧备份。请保留更新记录与诊断，按提示处理。
+安装版（Setup.exe）默认装到 %LOCALAPPDATA%\DreamFlutter，数据也在那里。C 盘空间紧张时，在 PowerShell 里运行
+  .\DreamFlutter-win-x64-Setup.exe --installto E:\DreamFlutter
+换成你想要的位置即可，数据会放在那个位置的 data 里；也可以直接用免安装版。
 "@ | Set-Content -LiteralPath (Join-Path $target '使用说明.txt') -Encoding utf8
     $env:DOTNET_CLI_HOME = Join-Path $VelopackToolsDir 'dotnet-home'
     $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
