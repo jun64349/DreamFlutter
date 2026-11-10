@@ -5,11 +5,10 @@ import { afterEach, describe, it } from "node:test";
 import { type Api, type AssistantMessage, fauxAssistantMessage, type FauxResponseFactory, type Model } from "@earendil-works/pi-ai";
 import { levelMap, readModelList } from "../src/gateway/catalog.ts";
 import { classifyFailure } from "../src/gateway/classify.ts";
-import { type ChannelStatus, channelProvider, type Transport } from "../src/gateway/gateway.ts";
+import { type ChannelStatus, channelProvider, Gateway, type Transport } from "../src/gateway/gateway.ts";
 import { HealthBook } from "../src/gateway/health.ts";
 import { platformForUrl } from "../src/gateway/platforms.ts";
 import { readQuota } from "../src/gateway/quota.ts";
-import { type CandidateInfo, type GroupEntry, type ModelGroup, pickEntry } from "../src/gateway/router.ts";
 import { settledCount, startTestCore, type TestCore } from "./harness.ts";
 
 const fail = (message: string): AssistantMessage => fauxAssistantMessage("", { stopReason: "error", errorMessage: message });
@@ -28,43 +27,6 @@ describe("gateway: failure kinds", () => {
 		assert.equal(classifyFailure("500 Internal Server Error; key=****a401"), "server", "nor a redacted key's last characters");
 		assert.equal(classifyFailure("bad request (request id req_f401b9)"), "other", "nor codes inside request ids");
 		assert.equal(classifyFailure('{"error":{"code":"1316"}}'), "quota");
-	});
-});
-
-describe("gateway: router", () => {
-	const entry = (channel: string, priority = 0, weight = 0): GroupEntry => ({ channel, model: "m", priority, weight });
-	const group = (entries: GroupEntry[], allowPaidOverflow = true): ModelGroup => ({ id: "g", name: "主力", entries, allowPaidOverflow });
-	const ok = (kind: CandidateInfo["kind"] = "payg"): CandidateInfo => ({ kind, name: "x", unavailable: null });
-
-	it("goes in order, stays on the session's entry, and moves on after a failure", () => {
-		const g = group([entry("a", 0), entry("b", 1)]);
-		const first = pickEntry(g, () => ok(), undefined, undefined);
-		assert.ok(first.ok && first.entry.channel === "a");
-		const sticky = pickEntry(g, () => ok(), { channel: "b", model: "m" }, undefined);
-		assert.ok(sticky.ok && sticky.entry.channel === "b", "a session stays where it is while that works");
-		const moved = pickEntry(g, () => ok(), { channel: "a", model: "m" }, { channel: "a", model: "m" });
-		assert.ok(moved.ok && moved.entry.channel === "b" && moved.switchedFrom?.channel === "a");
-	});
-
-	it("skips resting channels and splits a tier by weight only when weights are set", () => {
-		const resting: CandidateInfo = { kind: "payg", name: "A", unavailable: { kind: "rate_limit", message: "", until: Date.now() + 60_000 } };
-		const g = group([entry("a", 0), entry("b", 0), entry("c", 1)]);
-		const decision = pickEntry(g, (e) => (e.channel === "a" ? resting : ok()), undefined, undefined);
-		assert.ok(decision.ok && decision.entry.channel === "b");
-		const weighted = group([entry("a", 0, 1), entry("b", 0, 3)]);
-		assert.ok((pickEntry(weighted, () => ok(), undefined, undefined, () => 0.1) as { entry: GroupEntry }).entry.channel === "a");
-		assert.ok((pickEntry(weighted, () => ok(), undefined, undefined, () => 0.5) as { entry: GroupEntry }).entry.channel === "b");
-	});
-
-	it("keeps plan groups off paid channels when told to, and says why", () => {
-		const usedUp: CandidateInfo = { kind: "plan", name: "智谱", unavailable: { kind: "quota", message: "", until: Date.now() + 3_600_000 } };
-		const info = (e: GroupEntry) => (e.channel === "plan" ? usedUp : { kind: "payg" as const, name: "DeepSeek", unavailable: null });
-		const allowed = pickEntry(group([entry("plan", 0), entry("paid", 1)]), info, undefined, undefined);
-		assert.ok(allowed.ok && allowed.entry.channel === "paid");
-		const blocked = pickEntry(group([entry("plan", 0), entry("paid", 1)], false), info, undefined, undefined);
-		assert.ok(!blocked.ok);
-		assert.match(blocked.message, /智谱：额度用完，.*恢复/);
-		assert.match(blocked.message, /DeepSeek：本组不允许套餐用完后转到付费渠道/);
 	});
 });
 
@@ -125,67 +87,26 @@ describe("gateway: in a session", () => {
 		return ends.at(-1)!.message as AssistantMessage;
 	}
 
-	it("moves a conversation to the next channel when the first one's money runs out, and stays there", async () => {
-		await start();
-		const plan = await channel("套餐 A", "glm-coding", ["key-a"]);
-		const paid = await channel("按量 B", "deepseek", ["key-b"]);
-		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: plan, model: "m", priority: 0 }, { channel: paid, model: "m", priority: 1 }] });
-		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
-
-		const asked: { provider: string; key: string | undefined }[] = [];
-		const reply: FauxResponseFactory = (_context, options, _state, model) => {
-			asked.push({ provider: model.provider, key: options?.apiKey });
-			return model.provider === channelProvider(plan) ? fail("402 Insufficient Balance") : fauxAssistantMessage("来自 B");
-		};
-		t!.respond(reply, reply);
-		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
-		await ask("s1", "你好");
-
-		assert.deepEqual(asked, [
-			{ provider: channelProvider(plan), key: "key-a" },
-			{ provider: channelProvider(paid), key: "key-b" },
-		]);
-		const answer = lastAssistant("s1");
-		assert.equal(answer.stopReason, "stop");
-		assert.equal(answer.content.map((c) => (c.type === "text" ? c.text : "")).join(""), "来自 B");
-		const switched = t!.messages.find((m) => m.event === "gateway.switched");
-		assert.ok(switched, "the window hears about the switch");
-		assert.match(String(switched.from), /套餐 A/);
-		assert.equal(switched.toPaid, true);
-
-		const rows = t!.core.db.all<{ channel: string; ok: number; error_kind: string | null }>("SELECT channel, ok, error_kind FROM gateway_requests ORDER BY id");
-		assert.deepEqual(rows.map((r) => ({ ...r })), [
-			{ channel: plan, ok: 0, error_kind: "balance" },
-			{ channel: paid, ok: 1, error_kind: null },
-		]);
-		const channels = (await t!.core.call("gateway.channels", {})) as { id: string; unavailable: { kind: string } | null }[];
-		assert.equal(channels.find((c) => c.id === plan)?.unavailable?.kind, "balance");
-
-		t!.respond(reply);
-		await ask("s1", "再问一次");
-		assert.equal(asked.length, 3);
-		assert.equal(asked[2]!.provider, channelProvider(paid), "the next question stays on the channel that works");
-	});
-
-	it("takes a plan's used-up window as a quota, and rotates a channel's keys", async () => {
+	it("takes a plan's used-up window as a quota, and rotates a channel's keys between sessions", async () => {
 		await start();
 		const plan = await channel("套餐 A", "glm-coding", ["key-a"]);
 		const paid = await channel("按量 B", "deepseek", ["key-b1", "key-b2"]);
-		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: plan, model: "m", priority: 0 }, { channel: paid, model: "m", priority: 1 }] });
-		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
-		const keys: (string | undefined)[] = [];
-		const reply: FauxResponseFactory = (_context, options, _state, model) => {
-			keys.push(options?.apiKey);
-			return model.provider === channelProvider(plan) ? fail('429 {"error":{"code":"1316","message":"已达到 5 小时使用上限"}}') : fauxAssistantMessage("ok");
-		};
-		t!.respond(reply, reply, reply);
+		t!.core.settings.update({ defaultModel: `${channelProvider(plan)}/m` });
+		t!.respond(fail('429 {"error":{"code":"1316","message":"已达到 5 小时使用上限"}}'));
 		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
-		await t!.core.call("slot.open", { slotId: "s2", cwd: t!.workspace }, t!.client);
 		await ask("s1", "一");
-		await ask("s2", "二");
 		const channels = (await t!.core.call("gateway.channels", {})) as { id: string; unavailable: { kind: string } | null }[];
 		assert.equal(channels.find((c) => c.id === plan)?.unavailable?.kind, "quota");
-		assert.deepEqual(keys, ["key-a", "key-b1", "key-b2"], "the second session gets the channel's next key");
+
+		t!.core.settings.update({ defaultModel: `${channelProvider(paid)}/m` });
+		const keys: (string | undefined)[] = [];
+		const reply: FauxResponseFactory = (_context, options) => { keys.push(options?.apiKey); return fauxAssistantMessage("ok"); };
+		t!.respond(reply, reply);
+		await t!.core.call("slot.open", { slotId: "s2", cwd: t!.workspace }, t!.client);
+		await t!.core.call("slot.open", { slotId: "s3", cwd: t!.workspace }, t!.client);
+		await ask("s2", "二");
+		await ask("s3", "三");
+		assert.deepEqual(keys, ["key-b1", "key-b2"], "the second session gets the channel's next key");
 	});
 
 	it("leaves the error alone when a channel's model was picked directly", async () => {
@@ -199,29 +120,24 @@ describe("gateway: in a session", () => {
 		assert.equal(t!.core.db.all("SELECT id FROM gateway_requests").length, 1, "and does not retry a balance error");
 	});
 
-	it("explains why nothing is available instead of failing quietly", async () => {
+	it("retired model groups: settings and old conversations move to the group's first model that still exists (0.8.1)", async () => {
 		await start();
-		const plan = await channel("套餐 A", "glm-coding", ["key-a"]);
-		const paid = await channel("按量 B", "deepseek", ["key-b"]);
-		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: plan, model: "m", priority: 0 }, { channel: paid, model: "m", priority: 1 }], allowPaidOverflow: false });
-		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
-		const quota: FauxResponseFactory = () => fail('429 {"error":{"code":"1316","message":"已达到 5 小时使用上限"}}');
-		t!.respond(quota);
-		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
-		await ask("s1", "你好");
-		const error = lastAssistant("s1").errorMessage ?? "";
-		assert.match(error, /套餐 A：额度用完/);
-		assert.match(error, /按量 B：本组不允许套餐用完后转到付费渠道/);
-	});
-
-	it("turns the old fallback chain into the group 「自动」 under the same model key", async () => {
-		await start();
-		t!.core.settings.update({ fallbackModels: ["faux/faux-1", "df-gone/m"] });
+		const gone = await channel("已删除", "deepseek", ["key-x"]);
+		const kept = await channel("还在", "deepseek", ["key-y"]);
+		const entries = JSON.stringify([{ channel: kept, model: "m", priority: 1, weight: 0 }, { channel: gone, model: "m", priority: 0, weight: 0 }]);
+		t!.core.db.run("INSERT INTO gateway_groups(id, name, entries, allow_paid_overflow, created_at, sort) VALUES('main', '主力', ?, 1, 1, 0)", entries);
+		await t!.core.call("gateway.removeChannel", { id: gone });
+		t!.core.settings.update({ largeTaskModel: "dreamflutter/main", smallTaskModel: "dreamflutter/missing", modelOverrides: { title: "dreamflutter/main" }, fallbackModels: ["faux/faux-1"] });
 		t = await t!.reopen();
-		const groups = (await t.core.call("gateway.groups", {})) as { id: string; name: string; entries: { channel: string; model: string }[] }[];
-		const auto = groups.find((g) => g.id === "auto");
-		assert.equal(auto?.name, "自动");
-		assert.deepEqual(auto?.entries.map((e) => `${e.channel}|${e.model}`), ["pi:faux|faux-1", "gone|m"]);
+		const settings = t.core.settings.get();
+		assert.equal(settings.largeTaskModel, `${channelProvider(kept)}/m`, "the first entry whose channel still exists");
+		assert.equal(settings.smallTaskModel, null, "a group that is gone falls back to the default model");
+		assert.equal((settings.modelOverrides as Record<string, string>).title, `${channelProvider(kept)}/m`);
+		const gateway = t.core.module(Gateway)!;
+		assert.equal(gateway.retiredGroupTarget("dreamflutter/main"), `${channelProvider(kept)}/m`);
+		assert.equal(gateway.retiredGroupTarget("dreamflutter/auto"), "faux/faux-1", "the old fallback chain was group 「自动」");
+		assert.equal(gateway.retiredGroupTarget(`${channelProvider(kept)}/m`), undefined, "not a group reference");
+		await assert.rejects(() => t!.core.call("gateway.saveGroup", { name: "x", entries: [] }), "groups can no longer be made");
 	});
 
 	it("sends OpenCode Go its conversation header, max_tokens and the model's own thinking levels", async () => {
@@ -450,8 +366,8 @@ describe("gateway: review fixes", () => {
 			models: [{ id: "m" }],
 			keys: [{ secret: "sk-spare-2222cccc" }],
 		})) as { id: string };
-		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: id, model: "m", priority: 0 }, { channel: other.id, model: "m", priority: 1 }] });
-		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
+		void other;
+		t!.core.settings.update({ defaultModel: `${channelProvider(id)}/m` });
 		const asked: (string | undefined)[] = [];
 		const reply: FauxResponseFactory = (_context, options) => {
 			asked.push(options?.apiKey);

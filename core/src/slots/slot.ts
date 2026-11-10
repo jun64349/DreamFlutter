@@ -581,13 +581,10 @@ export class Slot {
 				return ok(id, "cycle_model", result ? { ...result, model: this.presentModel(session.model!) } : null);
 			}
 			case "get_available_models": {
-				const order = new Map(this.db.all<{id: string}>("SELECT id FROM gateway_groups ORDER BY sort, created_at").map((g, i) => [g.id, i]));
 				const models = session.modelRuntime.getAvailableSnapshot().map((m) => this.hooks.resolveModel?.(m) ?? m);
-				const groups = models.filter((m) => m.provider === "dreamflutter").sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-				let groupIndex = 0;
 				// Each model carries its own thinking levels, so the window can list them for a model that is not the session's (settings' default model).
 				return ok(id, "get_available_models", {
-					models: models.map((m) => this.presentModel(m.provider === "dreamflutter" ? groups[groupIndex++]! : m)),
+					models: models.map((m) => this.presentModel(m)),
 				});
 			}
 			case "set_thinking_level":

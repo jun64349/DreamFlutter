@@ -82,41 +82,14 @@ describe("v0.6 model configuration", () => {
     assert.deepEqual(getSupportedThinkingLevels(slot.session.model!), getSupportedThinkingLevels(known));
   });
 
-  it("persists group order, returns it to selectors, appends new groups and rejects stale reorders atomically", async () => {
-    await start();
-    for (const id of ["a", "b", "c"]) await t.core.call("gateway.saveGroup", { id, name: id, entries: [] });
-    await t.core.call("gateway.reorderGroups", { ids: ["c", "a", "b"] });
-    await open();
-    const listed = await rpc("get_available_models");
-    assert.deepEqual(listed.models.filter((m: any) => m.provider === "dreamflutter").map((m: any) => m.id), ["c", "a", "b"]);
-    await assert.rejects(() => t.core.call("gateway.reorderGroups", { ids: ["c", "a", "a"] }));
-    await t.core.call("gateway.saveGroup", { id: "a", name: "rename", entries: [] });
-    await t.core.call("gateway.saveGroup", { id: "d", name: "d", entries: [] });
-    assert.deepEqual(t.core.module(Gateway)!.groups().map((g) => g.id), ["c", "a", "b", "d"]);
-    t = await t.reopen();
-    assert.deepEqual(t.core.module(Gateway)!.groups().map((g) => g.id), ["c", "a", "b", "d"]);
-  });
-
-  it("does not let a deleted channel shrink a group's window to the 128k fallback (0.8.1 F.2)", async () => {
-    await start();
-    const big = await channel([{ id: "deepseek-v4.1-flash", contextWindow: 1_000_000 }]);
-    const gone = await channel([{ id: "deepseek-flash", contextWindow: 64_000 }]);
-    await t.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: big, model: "deepseek-v4.1-flash", priority: 0 }, { channel: gone, model: "deepseek-flash", priority: 1 }] });
-    await t.core.call("gateway.removeChannel", { id: gone });
-    const gateway = t.core.module(Gateway)!;
-    assert.equal(gateway.window("dreamflutter", "main"), 1_000_000);
-    assert.equal(gateway.resolveModel({ provider: "dreamflutter", id: "main", contextWindow: 0 } as never).contextWindow, 1_000_000);
-  });
-
-  it("keeps routed group and compression windows equal and clamps thinking to the actual member", async () => {
+  it("keeps a model's overridden window and the compression window equal, and clamps thinking to the model", async () => {
     t = await startTestCore(undefined, { gatewayTransport: (model, context, options) => t.faux.streamSimple(model as never, context as never, options) });
     const id = await channel([{ id: "large", contextWindow: 100_000, thinkingLevels: ["off"] }, { id: "small", contextWindow: 60_000, thinkingLevels: ["high"] }]);
-    await t.core.call("gateway.saveGroup", { id: "route", name: "Route", entries: [{ channel: id, model: "large", priority: 0 }, { channel: id, model: "small", priority: 1 }] });
-    t.core.settings.update({ defaultModel: "dreamflutter/route", defaultThinking: "high", modelContextWindows: { "dreamflutter/route": 50_000 }, compactionThresholdPercent: 30 });
+    t.core.settings.update({ defaultModel: `${channelProvider(id)}/large`, defaultThinking: "high", modelContextWindows: { [`${channelProvider(id)}/large`]: 50_000 }, compactionThresholdPercent: 30 });
     const slot = await open();
     t.respond((_context, options, _state, model) => {
       assert.equal(model.contextWindow, 50_000);
-      assert.equal(options?.reasoning, undefined, "Pi omits reasoning when the routed member only supports off");
+      assert.equal(options?.reasoning, undefined, "Pi omits reasoning when the model only supports off");
       const compression = t.core.module(ContextModule)!.settingsFor(slot.session.sessionId, model, dshCompactionSettings(model, true));
       assert.equal(model.contextWindow - compression.reserveTokens, 15_000);
       return fauxAssistantMessage("ok");
@@ -128,8 +101,8 @@ describe("v0.6 model configuration", () => {
     const info = await t.core.call("context.info", { slotId: "models" }) as any;
     assert.equal(info.contextWindow, 50_000);
     assert.equal(info.thresholdTokens, 15_000);
-    await rpc("set_model", { provider: channelProvider(id), modelId: "large" });
-    assert.equal((await t.core.call("context.info", { slotId: "models" }) as any).contextWindow, 100_000);
+    await rpc("set_model", { provider: channelProvider(id), modelId: "small" });
+    assert.equal((await t.core.call("context.info", { slotId: "models" }) as any).contextWindow, 60_000);
   });
 
   it("reports the actual restore destination without losing historical channel values", async () => {

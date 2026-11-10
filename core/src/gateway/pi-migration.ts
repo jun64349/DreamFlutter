@@ -45,6 +45,10 @@ export class PiMigration implements CoreModule {
 		core.restoreSessionModel = (ref, runtime, recordedAt) => {
 			if (this.state.status !== "done") return undefined;
 			gateway.installRuntime(runtime);
+			// 0.8.1: model groups are retired; a conversation that chose one continues with its first model, or the default.
+			const retired = gateway.retiredGroupTarget(ref);
+			if (retired === null) return undefined;
+			if (retired !== undefined) ref = retired;
 			const mapped = this.resolveReference(ref, recordedAt), slash = mapped.indexOf("/");
 			const model = runtime.getModel(mapped.slice(0, slash), mapped.slice(slash + 1));
 			if (model) return model;

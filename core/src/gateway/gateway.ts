@@ -4,10 +4,10 @@ import { basename, resolve } from "node:path";
 import { secretFileOf } from "../modules/secrets.ts";
 import { piApi, piPresets } from "./pi-presets.ts";
 import { REQUEST_LEDGER_ID } from "../ledger/types.ts";
-import { type Api, type AssistantMessage, type AssistantMessageEvent, type AssistantMessageEventStream, clampThinkingLevel, createAssistantMessageEventStream, getSupportedThinkingLevels, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { type Api, type AssistantMessage, type AssistantMessageEvent, type AssistantMessageEventStream, createAssistantMessageEventStream, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
-import type { ExtensionAPI, ExtensionContext, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Core, CoreModule } from "../core.ts";
 import { num, RpcError, requireStr, str } from "../core.ts";
 import { json, now, parseJson } from "../db.ts";
@@ -17,9 +17,9 @@ import { catalogModel, describeCatalogModel, levelMap, selectedLevelMap, THINKIN
 import { HealthBook } from "./health.ts";
 import { type QuotaReading, readQuota } from "./quota.ts";
 import { type ChannelApi, type ChannelKind, hostOf, PLATFORMS, platform, platformForUrl } from "./platforms.ts";
-import { type CandidateInfo, describe, type GroupEntry, type ModelGroup, pickEntry, type RouteState, type Unavailable } from "./router.ts";
+import { describe, type Unavailable } from "./router.ts";
 
-/** Provider id of the model groups (the old fallback chain lives here too, as group "auto"). */
+/** Provider id the retired model groups used; old references to it are mapped to a channel model. */
 export const GROUP_PROVIDER = "dreamflutter";
 /** Pi provider id of a DreamFlutter channel. */
 export const channelProvider = (channelId: string) => `df-${channelId}`;
@@ -96,13 +96,6 @@ export interface ChannelInput {
 	keys: { id?: string; label?: string; secret?: string; enabled?: boolean }[];
 }
 
-export interface GroupInput {
-	id?: string;
-	name: string;
-	entries: GroupEntry[];
-	allowPaidOverflow?: boolean;
-}
-
 export interface ChannelStatus {
 	quotaError?: Extract<QuotaReading, { type: "error" }> | null;
 	localUsage?: { label: string; allowance: Record<string, number>; amounts: Record<string, number>; amountSources: Record<string, number> };
@@ -149,38 +142,36 @@ interface KeyRow {
 	enabled: number;
 }
 
-interface GroupRow {
+/** A retired model group's stored entries (0.8.1: groups are gone; old references are mapped, see [retiredGroupTarget]). */
+interface RetiredGroupRow {
 	id: string;
-	name: string;
 	entries: string;
-	allow_paid_overflow: number;
 }
 
 /** What registration needs from a session's extension API or a bare model runtime. */
 interface Target {
 	registerProvider(id: string, config: Record<string, unknown>): void;
 	unregisterProvider(id: string): void;
-	registerVirtualModel(definition: Record<string, unknown>): void;
-	unregisterVirtualModel(provider: string, id: string): void;
+	unregisterVirtualModel?(provider: string, id: string): void;
 }
 
 interface Registered {
 	providers: Set<string>;
-	groups: Set<string>;
 	find: (provider: string, id: string) => Model<Api> | undefined;
 }
 
 /**
  * The personal model gateway (docs/v0.2-gateway.md). Channels become Pi
  * providers whose stream goes through [wrap]: it picks the key, records each
- * request, keeps the circuit breaker, and turns a switchable failure of a
- * group request into one Pi retries, so the group's router moves on. Model
- * groups are Pi virtual models routed by [pickEntry].
+ * request and keeps the circuit breaker. Model groups were retired in 0.8.1
+ * (the user's decision, docs/REVIEW-2026-11-10.md): a setting or an old
+ * conversation that chose one now uses the group's first model whose channel
+ * still exists.
  */
 export class Gateway implements CoreModule {
 	configChanged?: () => Promise<unknown>;
 	async refreshConfiguration(): Promise<void> { await this.refreshPiChannels(); }
-	/** Subagents pick channel models and model groups like any session. */
+	/** Subagents pick channel models like any session. */
 	readonly forSubagents = true;
 	private readonly core: Core;
 	private readonly providers: Providers;
@@ -200,10 +191,8 @@ export class Gateway implements CoreModule {
 	/** The last failed balance or allowance query per channel (the good reading stays). */
 	private readonly quotaErrors = new Map<string, QuotaReading>();
 	/** The entry a session's latest group request went to, so the wrapper knows it may switch. */
-	private readonly routed = new Map<string, { provider: string; model: string; group: string }>();
 	/** Key each session uses per channel (one account keeps its prompt cache). */
 	private readonly sessionKeys = new Map<string, string>();
-	private readonly lastFailure = new Map<string, FailureKind>();
 	private readonly secrets = new Map<string, string>();
 	/** Round-robin position per channel, for sessions that have no key yet. */
 	private readonly keyTurns = new Map<string, number>();
@@ -232,7 +221,7 @@ export class Gateway implements CoreModule {
 
 	async start(): Promise<void> {
 		await this.refreshPiChannels();
-		this.migrateFallbackChain();
+		this.retireGroupSettings();
 		this.quotaTimer = setInterval(() => void this.refreshQuotas(), QUOTA_INTERVAL_MS);
 		this.quotaTimer.unref();
 	}
@@ -547,54 +536,58 @@ export class Gateway implements CoreModule {
 		this.changed();
 	}
 
-	// ---- model groups --------------------------------------------------------------
+	// ---- retired model groups (0.8.1) ----------------------------------------------
 
-	groups(): ModelGroup[] {
-		return this.core.db.all<GroupRow>("SELECT * FROM gateway_groups ORDER BY sort, created_at").map((row) => ({
-			id: row.id,
-			name: row.name,
-			entries: parseJson<GroupEntry[]>(row.entries, []),
-			allowPaidOverflow: row.allow_paid_overflow === 1,
-		}));
+	/**
+	 * Where an old reference to a model group goes now: the group's first entry
+	 * (by priority) whose channel and model still exist, as a "provider/model" key;
+	 * null when none is left (then the default model is used). [ref] that is not a
+	 * group reference gives undefined. The old fallback chain was group "auto".
+	 */
+	retiredGroupTarget(ref: string): string | null | undefined {
+		const prefix = `${GROUP_PROVIDER}/`;
+		if (!ref.startsWith(prefix)) return undefined;
+		const id = ref.slice(prefix.length);
+		const row = this.core.db.get<RetiredGroupRow>("SELECT id, entries FROM gateway_groups WHERE id = ?", id);
+		const entries = row
+			? parseJson<{ channel: string; model: string; priority?: number }[]>(row.entries, []).sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+			: id === "auto"
+				? this.core.settings.get().fallbackModels.map((key) => { const slash = key.indexOf("/"); const provider = key.slice(0, slash); return { channel: provider.startsWith("df-") ? provider.slice(3) : `${PI_PREFIX}${provider}`, model: key.slice(slash + 1) }; })
+				: [];
+		for (const entry of entries) {
+			const channel = this.channel(entry.channel);
+			if (channel?.models.some((m) => m.id === entry.model)) return `${channel.provider}/${entry.model}`;
+		}
+		return null;
 	}
 
-	saveGroup(input: GroupInput): string {
-		if (this.core.maintenance === "正在迁移 Pi 服务商") throw new RpcError("busy", "Pi 迁移正在进行，请完成后再修改模型组。");
-		const name = input.name?.trim();
-		if (!name) throw new RpcError("bad_request", "请填写模型组名称");
-		const id = input.id ?? `g${randomUUID().slice(0, 8)}`;
-		if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new RpcError("bad_request", "模型组 ID 只能用小写字母、数字和横线");
-		const entries = (input.entries ?? []).map((e, index) => ({
-			channel: requireStr(e.channel, "channel"),
-			model: requireStr(e.model, "model"),
-			priority: Number.isFinite(e.priority) ? Math.trunc(e.priority) : index,
-			weight: Number.isFinite(e.weight) && e.weight > 0 ? e.weight : 0,
-		}));
-		this.core.db.run(
-			`INSERT INTO gateway_groups(id, name, entries, allow_paid_overflow, created_at, sort) VALUES(?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort), -1) + 1 FROM gateway_groups))
-			 ON CONFLICT(id) DO UPDATE SET name = excluded.name, entries = excluded.entries, allow_paid_overflow = excluded.allow_paid_overflow`,
-			id,
-			name,
-			json(entries),
-			input.allowPaidOverflow === false ? 0 : 1,
-			now(),
-		);
-		this.changed();
-		return id;
-	}
-
-	removeGroup(id: string): void {
-		if (this.core.maintenance === "正在迁移 Pi 服务商") throw new RpcError("busy", "Pi 迁移正在进行，请完成后再修改模型组。");
-		this.core.db.run("DELETE FROM gateway_groups WHERE id = ?", id);
-		this.changed();
-	}
-
-	reorderGroups(ids: unknown): void {
-		if (this.core.maintenance === "正在迁移 Pi 服务商") throw new RpcError("busy", "Pi 迁移正在进行，请完成后再修改模型组。");
-		const current = this.groups().map((g) => g.id);
-		if (!Array.isArray(ids) || ids.length !== current.length || new Set(ids).size !== current.length || ids.some((id) => typeof id !== "string" || !current.includes(id))) throw new RpcError("bad_request", "模型组列表已变化，请刷新后重试");
-		this.core.db.transaction(() => ids.forEach((id, index) => this.core.db.run("UPDATE gateway_groups SET sort = ? WHERE id = ?", index, id)));
-		this.changed();
+	/** Settings that chose a model group now name the model it would have used first. */
+	private retireGroupSettings(): void {
+		const settings = this.core.settings.get() as unknown as Record<string, unknown>;
+		const patch: Record<string, unknown> = {};
+		for (const key of ["defaultModel", "smallTaskModel", "largeTaskModel", "visionModel", "auxModel", "memoryModel"]) {
+			const value = settings[key];
+			if (typeof value !== "string") continue;
+			const target = this.retiredGroupTarget(value);
+			if (target !== undefined) patch[key] = target;
+		}
+		const overrides = settings.modelOverrides;
+		if (overrides && typeof overrides === "object") {
+			let changed = false;
+			const next = Object.fromEntries(Object.entries(overrides as Record<string, unknown>).map(([purpose, ref]) => {
+				const target = typeof ref === "string" ? this.retiredGroupTarget(ref) : undefined;
+				if (target === undefined) return [purpose, ref];
+				changed = true;
+				return [purpose, target];
+			}));
+			if (changed) patch.modelOverrides = next;
+		}
+		const windows = settings.modelContextWindows as Record<string, number> | undefined;
+		if (windows && Object.keys(windows).some((k) => k.startsWith(`${GROUP_PROVIDER}/`))) patch.modelContextWindows = Object.fromEntries(Object.entries(windows).filter(([k]) => !k.startsWith(`${GROUP_PROVIDER}/`)));
+		if (Object.keys(patch).length) {
+			this.core.settings.update(patch as never);
+			this.core.log.info(`gateway: model groups retired; settings now use their first model (${Object.keys(patch).join(", ")})`);
+		}
 	}
 
 	/** null means unknown. The SDK's existing 128K fallback is only for execution. */
@@ -602,15 +595,6 @@ export class Gateway implements CoreModule {
 		const key = `${provider}/${id}`;
 		const override = this.core.settings.get().modelContextWindows[key];
 		if (!sourceOnly && override !== undefined) return override;
-		if (provider === GROUP_PROVIDER) {
-			const group = this.groups().find((g) => g.id === id);
-			// Entries whose channel was deleted can never serve a request, so they don't narrow the group's window.
-			const windows = group?.entries.flatMap((e) => {
-				const channel = this.channel(e.channel);
-				return channel ? [this.window(channel.provider, e.model)] : [];
-			}) ?? [];
-			return windows.length && windows.every((w) => w !== null) ? Math.min(...windows as number[]) : null;
-		}
 		if (provider.startsWith("df-")) {
 			const channel = this.channel(provider.slice(3));
 			const model = channel?.models.find((m) => m.id === id);
@@ -620,63 +604,29 @@ export class Gateway implements CoreModule {
 	}
 
 	resolveModel(model: Model<Api>): Model<Api> {
-		const contextWindow = this.executionWindow(model.provider, model.id, model.contextWindow);
+		const contextWindow = this.window(model.provider, model.id, model.contextWindow) ?? 128_000;
 		return contextWindow === model.contextWindow ? model : { ...model, contextWindow };
-	}
-
-	private executionWindow(provider: string, id: string, fallback?: number): number {
-		const known = this.window(provider, id, fallback);
-		if (known !== null) return known;
-		if (provider === GROUP_PROVIDER) {
-			const windows = this.groups().find((g) => g.id === id)?.entries.flatMap((e) => {
-				const channel = this.channel(e.channel);
-				return channel ? [this.executionWindow(channel.provider, e.model)] : [];
-			}) ?? [];
-			if (windows.length) return Math.min(...windows);
-		}
-		return 128_000;
-	}
-
-	/** The old "自动（主模型 + 备用链）" becomes the group "auto" (same model key, so old sessions keep working). */
-	private migrateFallbackChain(): void {
-		const chain = this.core.settings.get().fallbackModels;
-		if (!chain.length || this.core.db.get("SELECT id FROM gateway_groups WHERE id = 'auto'")) return;
-		const entries = chain.map((key, priority) => {
-			const slash = key.indexOf("/");
-			const provider = key.slice(0, slash);
-			return { channel: provider.startsWith("df-") ? provider.slice(3) : `${PI_PREFIX}${provider}`, model: key.slice(slash + 1), priority, weight: 0 };
-		});
-		this.saveGroup({ id: "auto", name: "自动", entries, allowPaidOverflow: true });
-	}
-
-	private candidateInfo(entry: GroupEntry, channels: ChannelInfo[]): CandidateInfo {
-		const channel = channels.find((c) => c.id === entry.channel);
-		if (!channel || !channel.models.some((m) => m.id === entry.model)) return { kind: "payg", name: channel?.name ?? entry.channel, unavailable: { kind: "missing", message: "找不到这个渠道或模型" } };
-		return { kind: channel.kind, name: channel.name, unavailable: channel.unavailable };
 	}
 
 	// ---- registration --------------------------------------------------------------
 
-	/** The session extension: registers channels and groups, and keeps them current. */
+	/** The session extension: registers the channels, and keeps them current. */
 	extensions(): ExtensionFactory[] {
 		return [
 			(pi: ExtensionAPI) => {
 				const target: Target = {
 					registerProvider: (id, config) => pi.registerProvider(id, config as never),
 					unregisterProvider: (id) => pi.unregisterProvider(id),
-					registerVirtualModel: (definition) => pi.registerVirtualModel(definition as never),
-					unregisterVirtualModel: (provider, id) => pi.unregisterVirtualModel(provider, id),
 				};
 				pi.on("session_shutdown", () => void this.targets.delete(target));
-				// Session routing looks models up through the context Pi passes to route().
-				const registered: Registered = { providers: new Set(), groups: new Set(), find: () => undefined };
+				const registered: Registered = { providers: new Set(), find: () => undefined };
 				this.targets.set(target, registered);
 				this.apply(target, registered);
 			},
 		];
 	}
 
-	/** Registers channels and groups on a model runtime used outside sessions (titles, memory, tests). */
+	/** Registers the channels on a model runtime used outside sessions (titles, memory, tests). */
 	installRuntime(runtime: ModelRuntime): void {
 		this.core.ledger?.install(runtime, () => ({ purpose: "auxiliary" }));
 		// One-off runtimes (a title, a connection test) are not kept for later
@@ -684,72 +634,35 @@ export class Gateway implements CoreModule {
 		const target: Target = {
 			registerProvider: (id: string, config: Record<string, unknown>) => runtime.registerProvider(id, config as never),
 			unregisterProvider: (id: string) => runtime.unregisterProvider(id),
-			registerVirtualModel: (definition: Record<string, unknown>) => runtime.registerVirtualModel(definition as never),
-			unregisterVirtualModel: (provider: string, id: string) => runtime.unregisterVirtualModel(provider, id),
 		};
-		const registered = this.runtimes.get(runtime) ?? { providers: new Set<string>(), groups: new Set<string>(), find: (provider, id) => runtime.getModel(provider, id) as Model<Api> | undefined };
+		const registered = this.runtimes.get(runtime) ?? { providers: new Set<string>(), find: (provider, id) => runtime.getModel(provider, id) as Model<Api> | undefined };
 		this.runtimes.set(runtime, registered);
 		this.apply(target, registered);
 	}
 
 	private apply(target: Target, registered: Registered): void {
-		const channels = this.channels();
-		const groups = this.groups();
-		const inGroups = new Set(groups.flatMap((g) => g.entries.map((e) => e.channel)));
-
 		const providers = new Set<string>();
-		for (const channel of channels) {
-			if (channel.source === "df") {
-				if (!channel.enabled || !channel.keys.some((k) => k.enabled)) continue;
-				providers.add(channel.provider);
-				this.safely(() =>
-					target.registerProvider(channel.provider, {
-						name: channel.name,
-						baseUrl: channel.baseUrl,
-						apiKey: KEY_PLACEHOLDER,
-						api: channel.api,
-						headers: channel.headers ?? {},
-						authHeader: channel.authHeader,
-						streamSimple: this.wrap(channel.id),
-						models: channel.models.map((m) => ({ ...modelConfig(channel, m), contextWindow: this.window(channel.provider, m.id) ?? 128_000 })),
-					}),
-				);
-			} else if (inGroups.has(channel.id) && !registered.providers.has(channel.provider)) {
-				// Pi's own provider: only its stream is wrapped (models and key stay Pi's).
-				providers.add(channel.provider);
-				this.safely(() => target.registerProvider(channel.provider, { api: channel.api, streamSimple: this.wrap(channel.id) }));
-			} else if (inGroups.has(channel.id)) {
-				providers.add(channel.provider);
-			}
+		for (const channel of this.channels()) {
+			// Pi's own providers stay Pi's; only DreamFlutter channels are registered (and their stream wrapped).
+			if (channel.source !== "df" || !channel.enabled || !channel.keys.some((k) => k.enabled)) continue;
+			providers.add(channel.provider);
+			this.safely(() =>
+				target.registerProvider(channel.provider, {
+					name: channel.name,
+					baseUrl: channel.baseUrl,
+					apiKey: KEY_PLACEHOLDER,
+					api: channel.api,
+					headers: channel.headers ?? {},
+					authHeader: channel.authHeader,
+					streamSimple: this.wrap(channel.id),
+					models: channel.models.map((m) => ({ ...modelConfig(channel, m), contextWindow: this.window(channel.provider, m.id) ?? 128_000 })),
+				}),
+			);
 		}
 		for (const old of registered.providers) {
 			if (!providers.has(old) && old.startsWith("df-")) this.safely(() => target.unregisterProvider(old));
 		}
 		registered.providers = providers;
-
-		const ids = new Set(groups.map((g) => g.id));
-		for (const group of groups) {
-			const models = group.entries.map((e) => channels.find((c) => c.id === e.channel)?.models.find((m) => m.id === e.model)).filter((m) => m !== undefined);
-			const levels = new Set(group.entries.flatMap((e) => {
-				const channel = channels.find((c) => c.id === e.channel);
-				const model = channel?.models.find((m) => m.id === e.model);
-				return channel && model ? getSupportedThinkingLevels(modelConfig(channel, model) as unknown as Model<Api>) : [];
-			}));
-			this.safely(() =>
-				target.registerVirtualModel({
-					provider: GROUP_PROVIDER,
-					id: group.id,
-					name: group.name,
-					thinkingLevels: levels.size ? THINKING_LEVELS.filter((l) => levels.has(l)) : ["off"],
-					input: models.length && models.every((m) => m.input?.includes("image")) ? ["text", "image"] : ["text"],
-					contextWindow: this.executionWindow(GROUP_PROVIDER, group.id),
-					maxTokens: models.length ? Math.min(...models.map((m) => m.maxTokens ?? 16_384)) : undefined,
-					route: (request: Parameters<typeof this.route>[1], ctx?: ExtensionContext) => this.route(group.id, request, registered.find, ctx, target.registerProvider),
-				}),
-			);
-		}
-		for (const old of registered.groups) if (!ids.has(old)) this.safely(() => target.unregisterVirtualModel(GROUP_PROVIDER, old));
-		registered.groups = ids;
 	}
 
 	private safely(action: () => void): void {
@@ -765,64 +678,6 @@ export class Gateway implements CoreModule {
 		this.core.broadcast({ event: "gateway.changed" });
 	}
 
-	// ---- routing -------------------------------------------------------------------
-
-	private route(
-		groupId: string,
-		request: { reason: string; thinkingLevel: string; state?: unknown; failed?: { model: Model<Api>; message: AssistantMessage } },
-		find: Registered["find"],
-		ctx?: ExtensionContext,
-		register?: Target["registerProvider"],
-	): { model: Model<Api>; thinkingLevel: string; state: RouteState } {
-		const group = this.groups().find((g) => g.id === groupId);
-		if (!group) throw new Error("这个模型组已被删除");
-		const channels = this.channels();
-		// Move on only when the channel itself failed and has no usable key left: a
-		// context overflow retries the same model after compaction, and a channel
-		// with another healthy key retries with that key.
-		const failedEntry = request.failed ? this.entryOf(request.failed.model, channels) : undefined;
-		const failedChannel = failedEntry && channels.find((c) => c.id === failedEntry.channel);
-		const failed = failedEntry && failedChannel?.unavailable && isChannelFailure(classifyFailure(request.failed!.message.errorMessage)) ? failedEntry : undefined;
-		const decision = pickEntry(group, (entry) => this.candidateInfo(entry, channels), request.state as RouteState | undefined, failed);
-		if (!decision.ok) throw new Error(decision.message);
-		const channel = channels.find((c) => c.id === decision.entry.channel)!;
-		const model = ctx ? (ctx.modelRegistry.find(channel.provider, decision.entry.model) as Model<Api> | undefined) : find(channel.provider, decision.entry.model);
-		if (!model) throw new Error(`找不到模型 ${channel.name} · ${decision.entry.model}`);
-		const sessionId = sessionIdOf(ctx);
-		if (sessionId) this.routed.set(sessionId, { provider: model.provider, model: model.id, group: group.id });
-		if (decision.switchedFrom) {
-			const from = channels.find((c) => c.id === decision.switchedFrom!.channel);
-			const reason = from ? (from.unavailable ? describe(from.unavailable) : FAILURE_LABEL[this.lastFailure.get(from.id) ?? "other"]) : "";
-			this.core.broadcast({
-				event: "gateway.switched",
-				sessionId: sessionId ?? null,
-				group: group.name,
-				from: from ? `${from.name} · ${decision.switchedFrom.model}` : decision.switchedFrom.channel,
-				to: `${channel.name} · ${decision.entry.model}`,
-				reason,
-				toPaid: decision.toPaid,
-			});
-		}
-		// Pi 1.4 resolves the returned provider/id back to its physical catalog.
-		// Register the request's window through the public API so that resolution
-		// and Pi's subsequent compression use the same budget as the selected group.
-		const window = this.executionWindow(GROUP_PROVIDER, group.id);
-		if (model.contextWindow !== window) register?.(channel.provider, {
-			models: channel.models.map((m) => ({
-				...(ctx ? ctx.modelRegistry.find(channel.provider, m.id) : find(channel.provider, m.id)),
-				id: m.id,
-				contextWindow: m.id === model.id ? window : this.executionWindow(channel.provider, m.id),
-			})),
-		});
-		const effective = { ...this.resolveModel(model), contextWindow: this.executionWindow(GROUP_PROVIDER, group.id) };
-		return { model: effective, thinkingLevel: clampThinkingLevel(effective, request.thinkingLevel as never), state: decision.state };
-	}
-
-	private entryOf(model: { provider: string; id: string }, channels: ChannelInfo[]): { channel: string; model: string } | undefined {
-		const channel = channels.find((c) => c.provider === model.provider);
-		return channel ? { channel: channel.id, model: model.id } : undefined;
-	}
-
 	// ---- the channel stream ----------------------------------------------------------
 
 	private wrap(channelId: string): Transport {
@@ -836,10 +691,6 @@ export class Gateway implements CoreModule {
 	private async relay(channelId: string, model: Model<Api>, context: Parameters<Transport>[1], options: SimpleStreamOptions | undefined, out: AssistantMessageEventStream): Promise<void> {
 		const channel = this.channel(channelId);
 		const sessionId = options?.sessionId;
-		// The router marks the request it routed; the mark is for this request only.
-		const routed = sessionId ? this.routed.get(sessionId) : undefined;
-		if (sessionId) this.routed.delete(sessionId);
-		const group = routed && routed.provider === model.provider && routed.model === model.id ? routed.group : undefined;
 		const started = this.clock();
 		let key: { id: string; secret: string } | undefined;
 		let firstToken: number | undefined;
@@ -849,16 +700,15 @@ export class Gateway implements CoreModule {
 			this.core.ledger?.timing((options as (SimpleStreamOptions & { [REQUEST_LEDGER_ID]?: string }) | undefined)?.[REQUEST_LEDGER_ID], firstToken === undefined ? undefined : started + firstToken);
 			failure = { ...failure, errorMessage: failure.errorMessage === undefined ? undefined : redact(failure.errorMessage, [key?.secret, options?.apiKey]) };
 			const kind = reason === "aborted" ? "other" : classifyFailure(failure.errorMessage);
-			this.record(channelId, key?.id, model.id, group, sessionId, started, firstToken, failure, reason === "aborted" ? undefined : kind);
+			this.record(channelId, key?.id, model.id, undefined, sessionId, started, firstToken, failure, reason === "aborted" ? undefined : kind);
 			if (reason !== "aborted" && isChannelFailure(kind)) {
 				this.health.fail(`${channelId}#${key?.id ?? "pi"}`, kind, failure.errorMessage ?? "");
-				this.lastFailure.set(channelId, kind);
 			}
-			// Pi does not retry quota, balance or key errors. Through a group, another
-			// channel can take the request: say it so that Pi retries and the router moves on.
-			if (group && !streamed && reason !== "aborted" && isChannelFailure(kind) && !isRetryableAssistantError(failure)) {
-				const name = channel?.name ?? channelId;
-				out.push({ type: "error", reason: "error", error: { ...failure, errorMessage: `渠道「${name}」${FAILURE_LABEL[kind]}，换下一个渠道（service temporarily unavailable）` } });
+			// Pi does not retry quota, balance or key errors. When this channel has another
+			// key that is still healthy, say it so that Pi retries: [pickKey] then takes that key.
+			const otherKey = key && this.channel(channelId)?.keys.some((k) => k.enabled && k.id !== key!.id && k.unavailable === null);
+			if (otherKey && !streamed && reason !== "aborted" && isChannelFailure(kind) && !isRetryableAssistantError(failure)) {
+				out.push({ type: "error", reason: "error", error: { ...failure, errorMessage: `渠道「${channel?.name ?? channelId}」的这个 Key ${FAILURE_LABEL[kind]}，换同渠道的另一个 Key（service temporarily unavailable）` } });
 			} else {
 				out.push({ type: "error", reason, error: failure });
 			}
@@ -884,7 +734,7 @@ export class Gateway implements CoreModule {
 				if (event.type === "done") {
 					this.core.ledger?.timing((options as (SimpleStreamOptions & { [REQUEST_LEDGER_ID]?: string }) | undefined)?.[REQUEST_LEDGER_ID], firstToken === undefined ? undefined : started + firstToken);
 					this.health.succeed(`${channelId}#${key?.id ?? "pi"}`);
-					this.record(channelId, key?.id, model.id, group, sessionId, started, firstToken, event.message, undefined);
+					this.record(channelId, key?.id, model.id, undefined, sessionId, started, firstToken, event.message, undefined);
 					out.push(event);
 					continue;
 				}
@@ -1000,16 +850,6 @@ export class Gateway implements CoreModule {
 			await this.removeChannel(requireStr(params.id, "id"));
 			return { ok: true };
 		});
-		core.register("gateway.groups", () => this.groups());
-		core.register("gateway.reorderGroups", (params) => {
-			this.reorderGroups(params.ids);
-			return { ok: true };
-		});
-		core.register("gateway.saveGroup", (params) => ({ id: this.saveGroup(params as unknown as GroupInput) }));
-		core.register("gateway.removeGroup", (params) => {
-			this.removeGroup(requireStr(params.id, "id"));
-			return { ok: true };
-		});
 		core.register("gateway.resetHealth", (params) => {
 			this.health.reset(requireStr(params.channel, "channel"));
 			this.changed();
@@ -1082,14 +922,6 @@ export function modelConfig(channel: ChannelInfo, m: ChannelModel): Record<strin
 
 function mapOr<T, R>(value: T | undefined, map: (value: T) => R, fallback: R): R {
 	return value === undefined ? fallback : map(value);
-}
-
-function sessionIdOf(ctx: ExtensionContext | undefined): string | undefined {
-	try {
-		return ctx?.sessionManager?.getSessionId();
-	} catch {
-		return undefined;
-	}
 }
 
 function errorMessage(model: Model<Api>, message: string): AssistantMessage {
