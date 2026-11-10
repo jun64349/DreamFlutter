@@ -152,7 +152,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('settings list the channels and build a model group with a split tier', (tester) async {
+  testWidgets('settings list the channels; model groups are no longer offered (0.8.1 S.6)', (tester) async {
     await startApp(tester);
     expect(agent.providerLabel('df-cglm'), '智谱套餐');
     expect(agent.providerLabel('dreamflutter'), '模型组');
@@ -166,33 +166,8 @@ void main() {
 
     final settingsScroll = find.descendant(of: find.byKey(const ValueKey('settings-模型')), matching: find.byType(Scrollable)).first;
     await tester.scrollUntilVisible(find.text('高级'),250,scrollable:settingsScroll);await tester.tap(find.text('高级'));await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('新建模型组'), 250, scrollable: settingsScroll);
-    await tester.ensureVisible(find.text('新建模型组'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('新建模型组'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, '名称'), '主力');
-    for (final label in ['智谱套餐 · glm-5.3', 'DeepSeek · deepseek-flash', '随想中转 · deepseek-flash']) {
-      await tester.tap(find.text('＋ 添加模型'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(label).last);
-      await tester.pumpAndSettle();
-    }
-    expect(find.text('套餐用完后允许转到付费渠道'), findsOneWidget, reason: 'a group with a plan offers the switch');
-    await tester.tap(find.text('高级：按比例分流'));
-    await tester.pumpAndSettle();
-    // The relay shares DeepSeek's tier.
-    await tester.tap(find.byType(Checkbox).last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('保存'));
-    await settle(tester);
-
-    final saved = backend.callsTo('gateway.saveGroup').single;
-    expect(saved['name'], '主力');
-    expect(saved['allowPaidOverflow'], true);
-    final entries = [for (final e in saved['entries'] as List) e as Map];
-    expect([for (final e in entries) e['priority']], [0, 1, 1]);
-    expect([for (final e in entries) e['weight']], [0.0, 1.0, 1.0], reason: 'weights only in the split tier');
+    expect(find.text('新建模型组'), findsNothing);
+    expect(find.text('按模型覆盖上下文窗口'), findsNothing);
   });
 
   testWidgets('spending shows month, today and truthful request ledger', (tester) async {
@@ -201,8 +176,8 @@ void main() {
     await tester.tap(find.byTooltip(RegExp('^花费')));await settle(tester);
     expect(find.byType(DashboardPage),findsOneWidget);
     expect(find.text('本月'),findsOneWidget);expect(find.text('今天'),findsWidgets);
-    expect(find.text('本月按用途'),findsOneWidget);expect(find.text('账目'),findsOneWidget);
-    expect(find.text('\$0.50'),findsWidgets);expect(find.textContaining('含估算'),findsWidgets);
+    expect(find.text('本月按用途'),findsOneWidget);expect(find.byKey(const ValueKey('ledger-range')),findsOneWidget);
+    expect(find.text('\$0.50'),findsWidgets);expect(find.textContaining('4 次'),findsWidgets);
     backend.push({'event':'gateway.switched','from':'智谱套餐 · glm-5.3','to':'DeepSeek · deepseek-flash','reason':'额度用完','toPaid':true});await settle(tester);
     expect(find.textContaining('已转到付费渠道「DeepSeek · deepseek-flash」'),findsOneWidget);
   });
@@ -214,8 +189,8 @@ void main() {
     expect(find.text('每月花费上限'), findsNothing, reason: 'the general category opens first');
     await tester.enterText(find.widgetWithText(TextField, '搜索设置'), '花费上限');
     await tester.pumpAndSettle();
-    expect(find.text('每天花费上限（美元）'), findsOneWidget);
-    expect(find.text('每月花费上限（美元）'), findsOneWidget);
+    expect(find.text('每天花费上限'), findsOneWidget);
+    expect(find.text('每月花费上限'), findsOneWidget);
     expect(find.text('工作台 · 高级'), findsWidgets);
     await tester.enterText(find.widgetWithText(TextField, '搜索设置'), '没有这一项');
     await tester.pumpAndSettle();

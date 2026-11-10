@@ -31,7 +31,8 @@ void main() {
   }
   Finder nav(String text)=>['工作台','蝶君','等你处理','新对话'].contains(text)?find.descendant(of:find.byType(Sidebar),matching:find.text(text)).first:find.byTooltip(text).first;
   Json tool(String name,Json args)=>{'name':name,'arguments':args};
-  Future<void> menu(WidgetTester tester,T91Harness h,String label) async {await h.tap(tester,find.byTooltip('对话菜单'));await h.tap(tester,find.text(label));}
+  /// 0.8.1: conversation actions live in the right panel's 常用操作, not a title-bar menu.
+  Future<void> menu(WidgetTester tester,T91Harness h,String label) async {if(find.byKey(const ValueKey('panel-actions')).evaluate().isEmpty)await h.tap(tester,find.byTooltip(RegExp('^详情')).first);final b=find.descendant(of:find.byKey(const ValueKey('panel-actions')),matching:find.text(label));await tester.ensureVisible(b);await h.tap(tester,b);}
   String reply(AgentController a)=>a.transcript.items.whereType<AssistantItem>().lastOrNull?.parts.whereType<TextPart>().map((p)=>p.text).join()??'';
 
   scenario('4.3','工作台开始：工作区、新对话、输入、模型及无痕',(tester,h) async {
@@ -41,7 +42,7 @@ void main() {
     await h.tap(tester,find.byTooltip(RegExp('^工作区：')).first);
     await h.tap(tester,find.text(p.basename(h.workspace)).last);
     await h.tap(tester,nav('新对话'));
-    expect(h.composer,findsOneWidget);expect(find.byTooltip('无痕'),findsOneWidget);expect(find.byTooltip('操作前问我'),findsOneWidget);
+    expect(h.composer,findsOneWidget);expect(find.byTooltip('无痕'),findsOneWidget);expect(find.byKey(const ValueKey('ask-before-acting')),findsOneWidget);
     expect(find.text('标准模式'),findsNothing);expect(find.text('极简模式'),findsNothing);
     h.agent.dropFiles([p.join(h.workspace,'notes.md')]);await h.settle(tester);
     expect(find.textContaining('notes.md'),findsWidgets);
@@ -75,13 +76,13 @@ void main() {
     await h.script([{'text':'重试后恢复。'}]);await h.tap(tester,find.text('重试').last);await h.wait(tester,()=>reply(h.agent).contains('重试后恢复')&&!h.agent.isRunning);
   });
 
-  scenario('4.5','拿结果：回复操作、本次改动、真实隔离Git提交及对话菜单',(tester,h) async {
+  scenario('4.5','拿结果：回复操作、右栏改动、真实隔离Git提交、上下文和常用操作',(tester,h) async {
     await h.script([{'tools':[tool('read',{'file_path':'report.md'})]},{'tools':[tool('write',{'file_path':'report.md','content':'# 实验小结\n\n三组实验结果一致。\n'})]},{'text':'小结已经完成。'}]);
     await h.send(tester,'将实验记录整理成 report.md。');
     await h.hoverAnswer(tester);
     for(final label in ['复制','重新生成','从这里重来']){expect(find.byTooltip(label),findsWidgets);}
     await h.tap(tester,find.byTooltip(RegExp('^详情')).first);
-    expect(find.text('本次改动'),findsWidgets);expect(find.textContaining('report.md'),findsWidgets);
+    expect(find.text('这个对话'),findsWidgets);expect(find.textContaining('report.md'),findsWidgets);
     await h.script([{'text':'整理实验小结'}]);await h.tap(tester,find.text('提交这些改动'));
     await h.wait(tester,()=>find.text('确认提交').evaluate().isNotEmpty);
     final draft=find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.labelText=='提交说明');
@@ -90,14 +91,9 @@ void main() {
     await h.wait(tester,()=>find.textContaining('已提交').evaluate().isNotEmpty);
     expect(asJsonMap(await h.rpc('test.inspect'))['head'],'T91 isolated result');
     await h.tap(tester,find.widgetWithText(TextButton,'关闭').last);
-    await h.tap(tester,find.byTooltip('对话菜单'));
-    for(final text in ['把这次做法存成技能','定时再做一次','这段对话不记忆','导出','归档','删除']){expect(find.text(text),findsOneWidget);}
-    await h.tap(tester,find.text('这段对话不记忆'));
-    expect(asJsonMap(await h.rpc('memory.sessionMode',{'sessionId':h.agent.activeSessionId}))['mode'],'off');
-    // Reuse is the new conversation-menu entry, not the removed right-panel actions.
-    await menu(tester,h,'定时再做一次');await h.tap(tester,find.text('创建'));
-    final schedules=await h.rpc('schedules.list') as List;
-    expect(schedules,hasLength(1));expect((schedules.single as Map)['sessionFile'],h.agent.currentSessionPath);
+    expect(find.byTooltip('对话菜单'),findsNothing);
+    expect(find.byKey(const ValueKey('panel-context')),findsOneWidget);
+    for(final text in ['存成技能','导出 Markdown','归档','删除']){expect(find.descendant(of:find.byKey(const ValueKey('panel-actions')),matching:find.text(text)),findsOneWidget);}
   });
 
   scenario('4.6','选中文字引用与问一下，主对话隔离、带回和侧栏缩进',(tester,h) async {

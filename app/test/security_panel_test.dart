@@ -46,12 +46,12 @@ void main() {
         home: const Scaffold(body: SingleChildScrollView(child: SecurityPanel())),
       )));
       await tester.pumpAndSettle();
-      expect(find.text('此工作区没有路径例外'), findsOneWidget);
-      await tester.tap(find.text('添加工作区例外')); await tester.pumpAndSettle();
+      expect(find.text('还没有例外'), findsOneWidget);
+      await tester.tap(find.text('添加')); await tester.pumpAndSettle();
       expect(find.text('请填写要允许的文件或目录路径'), findsOneWidget);
       expect(backend.callsTo('security.addException'), isEmpty);
       await tester.enterText(find.byType(TextField), '.env.synthetic');
-      await tester.tap(find.text('添加工作区例外')); await tester.pumpAndSettle();
+      await tester.tap(find.text('添加')); await tester.pumpAndSettle();
       expect(backend.callsTo('security.addException').single['cwd'], dir.path);
       expect(find.text('.env.synthetic'), findsOneWidget);
       await tester.tap(find.byTooltip('删除路径例外')); await tester.pumpAndSettle();
@@ -61,10 +61,10 @@ void main() {
       expect(find.text('path · deny'), findsOneWidget);
       expect(find.textContaining('synthetic-run'), findsOneWidget);
       failed = true;
-      await tester.ensureVisible(find.text('刷新记录')); await tester.tap(find.text('刷新记录')); await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byTooltip('刷新记录')); await tester.tap(find.byTooltip('刷新记录')); await tester.pumpAndSettle();
       expect(find.text('无法读取安全设置，请重试'), findsOneWidget);
       failed = false;
-      await tester.tap(find.text('刷新记录')); await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('刷新记录')); await tester.pumpAndSettle();
       expect(find.text('无法读取安全设置，请重试'), findsNothing);
       await tester.ensureVisible(find.text('导出审计…'));
       await tester.tap(find.text('导出审计…'));

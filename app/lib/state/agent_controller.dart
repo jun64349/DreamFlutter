@@ -275,6 +275,17 @@ class AgentController extends ChangeNotifier {
     unawaited(backend.call('notifications.presence', {'foreground': windowFocused, 'slotId': slot}).catchError((Object _) => null));
   }
 
+  /// The settings group a "去设置" asked for (0.8.1 F.5); the settings page jumps to it and clears it.
+  final settingsTarget = ValueNotifier<String?>(null);
+
+  /// Opens settings at a group (通用 / 模型 / 工作台 / 蝶君 / 记忆 / 数据与安全 / 关于与更新).
+  void openSettings(String group) {
+    final parent = parentController;
+    if (parent != null) return parent.openSettings(group);
+    settingsTarget.value = group;
+    showSection(AppSection.settings);
+  }
+
   void showSection(AppSection value) {
     final parent = parentController;
     if (parent != null) return parent.showSection(value);
@@ -420,6 +431,10 @@ class AgentController extends ChangeNotifier {
   bool get planMode => _active?.planMode ?? false;
   List<Object?> get todos => _active?.todos ?? const [];
   List<PiModel> get models => _active?.models ?? const [];
+
+  /// The models offered in pickers: model groups are no longer managed in the UI (0.8.1 S.6), so they
+  /// only show when one is already chosen ([keep]), never as something new to pick.
+  List<PiModel> pickableModels({String? keep}) => [for (final m in models) if (m.provider != groupProvider || m.key == keep || m.key == model?.key) m];
   List<String> get thinkingLevels => _active?.thinkingLevels ?? const [];
   SessionStats get stats => _active?.stats ?? SessionStats.empty;
   String? get currentSessionPath => _active?.sessionPath;
@@ -1754,6 +1769,16 @@ class AgentController extends ChangeNotifier {
   }
 
   bool get runPanelOpen => preferences.runPanelOpen;
+
+  /// Bumped when the composer's context ring is clicked; the right panel's context block scrolls into view (0.8.1 R.2).
+  final contextFocus = ValueNotifier<int>(0);
+
+  /// Opens the right panel at its context block (replaces the old centred context dialog).
+  Future<void> showContextPanel() async {
+    closeSideChat();
+    if (!runPanelOpen) await setRunPanelOpen(true);
+    contextFocus.value++;
+  }
 
   Future<void> setRunPanelOpen(bool open) async {
     if (!open) closeSideChat();

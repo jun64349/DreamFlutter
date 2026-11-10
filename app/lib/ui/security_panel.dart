@@ -90,26 +90,22 @@ class _SecurityPanelState extends State<SecurityPanel> {
     final workspaceReady = _workspace?.isNotEmpty == true;
     return Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('路径例外', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 8),
-      const Text('默认拒绝私钥、浏览器数据、系统凭据、应用密钥和 .env。仅由你主动添加的例外可以放行；目录例外包含其子路径。需确认的路径也可在对话中选择本次允许。'),
-      const SizedBox(height: 8),
-      SelectableText(workspaceReady ? '当前工作区：$_workspace' : '请选择工作区后管理路径例外'),
+      if (!workspaceReady) const Padding(padding: EdgeInsets.only(top: 8), child: Text('先选一个工作区')),
       const SizedBox(height: 12),
-      TextField(controller: _path, enabled: !_busy && workspaceReady, decoration: const InputDecoration(labelText: '允许的文件或目录路径', helperText: '相对路径以当前工作区为基准'), onSubmitted: _busy || !workspaceReady ? null : (_) => _add()),
+      TextField(controller: _path, enabled: !_busy && workspaceReady, decoration: const InputDecoration(labelText: '允许的文件或文件夹'), onSubmitted: _busy || !workspaceReady ? null : (_) => _add()),
       const SizedBox(height: 8),
-      OutlinedButton(onPressed: _busy || !workspaceReady ? null : _add, child: const Text('添加工作区例外')),
-      if (_loaded && _paths.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('此工作区没有路径例外')),
+      OutlinedButton(onPressed: _busy || !workspaceReady ? null : _add, child: const Text('添加')),
+      if (_loaded && _paths.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('还没有例外')),
       for (final path in _paths) ListTile(contentPadding: EdgeInsets.zero, title: SelectableText(path), trailing: IconButton(tooltip: '删除路径例外', onPressed: _busy ? null : () => _run(() async {
         await _agent!.backend.call('security.removeException', {'cwd': _workspace, 'path': path});
         await _load();
       }), icon: const Icon(Icons.delete_outline))),
       const SizedBox(height: 24),
-      Text('本地安全审计', style: Theme.of(context).textTheme.titleMedium),
+      Text('安全审计', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 8),
-      const Text('保留最近 90 天，可查询和导出。记录路径判断、审批、命令判断、遮盖事件和 MCP 启动，不记录被遮盖的内容，不上传远端。'),
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        TextButton(onPressed: _busy ? null : () => _run(_load), child: const Text('刷新记录')),
+      Row(children: [
         OutlinedButton(onPressed: _busy ? null : _export, child: const Text('导出审计…')),
+        IconButton(tooltip: '刷新记录', onPressed: _busy ? null : () => _run(_load), icon: const Icon(Icons.refresh, size: 18)),
       ]),
       if (_loaded && _events.isEmpty) const Text('暂无安全审计记录'),
       if (_events.isNotEmpty) ExpansionTile(tilePadding: EdgeInsets.zero, title: Text('最近 ${_events.length} 条记录'), children: [

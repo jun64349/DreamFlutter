@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../state/agent_controller.dart';
 import '../state/butterfly_tasks.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -57,8 +56,7 @@ class _ButterflyPageState extends State<ButterflyPage> {
                 children: [
                   FilledButton(
                     onPressed: () =>
-                        AgentScope.read(context)
-                            .showSection(AppSection.settings),
+                        AgentScope.read(context).openSettings('蝶君'),
                     child: const Text('去设置'),
                   ),
                   TextButton(onPressed: _tasks.load, child: const Text('重试')),

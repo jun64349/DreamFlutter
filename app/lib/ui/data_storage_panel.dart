@@ -5,6 +5,7 @@ import 'package:pi_rpc/pi_rpc.dart';
 import 'package:path/path.dart' as p;
 
 import '../state/agent_controller.dart' show AgentController, asJsonMap, jsonRows;
+import '../theme.dart';
 import 'agent_scope.dart';
 import 'backup_panel.dart' show formatBytes;
 import 'settings_controls.dart';
@@ -144,56 +145,70 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
     });
   }
 
+  // 0.8.1 S.5: one line per place (name, path, size, open, "⋯" to move); the upkeep numbers as setting rows.
   @override
   Widget build(BuildContext context) {
     final data = _data;
     final space = asJsonMap(data?['space']);
     final path = data?['path'] as String?;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      if(!widget.locationsOnly)...[
-      if (data != null) ...[
-        Text('记忆内容约 ${formatBytes(data['logicalBytes'] as num? ?? 0)} · ${data['versions'] ?? 0} 个历史版本'),
-        Text('共用数据库（含其他数据和 WAL）：${formatBytes(data['databaseBytes'] as num? ?? 0)}'),
-        if (path != null) SelectableText(path),
-        if (space['paused'] == true) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(
-          space['reason'] as String? ?? '磁盘空间不足，记忆写入已暂停', style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        if (space['freeBytes'] is num) Text('磁盘剩余：${formatBytes(space['freeBytes'] as num)}'),
-      ],
-      const SizedBox(height: 12),
-      AutoSaveField(label:'至少保留的磁盘空间（GB）',value:((space['minimumBytes'] as num? ?? 1073741824)/1073741824).toStringAsFixed(2),number:true,validator:(v){final n=double.tryParse(v);return n==null||!n.isFinite||n<0||n*1073741824>9007199254740991?'请输入有效的非负数':null;},save:_saveMinimum),
-      const SizedBox(height: 12),
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        OutlinedButton(onPressed: _busy || data == null ? null : _compact, child: const Text('压缩历史…')),
-        if (path != null) TextButton(onPressed: () => _agent!.revealInExplorer(p.dirname(path)), child: const Text('打开数据库文件夹')),
-        TextButton(onPressed: _busy ? null : _load, child: const Text('刷新占用')),
+    final scheme = Theme.of(context).colorScheme;
+    final muted = context.text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+    final rows = _locations == null ? <Json>[] : jsonRows(_locations!['rows']);
+    final artifacts = _locations == null ? <Json>[] : jsonRows(_locations!['artifacts']);
+    Widget place(Json row) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${row['label']}', style: context.text.bodyMedium),
+          Tooltip(message: '${row['path']}', child: Text('${row['path']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: muted)),
+        ])),
+        const SizedBox(width: 12),
+        Text(formatBytes(row['bytes'] as num? ?? 0), style: muted),
+        IconButton(tooltip: '打开文件夹', visualDensity: VisualDensity.compact, onPressed: () => _agent!.revealInExplorer('${row['path']}'), icon: const Icon(Icons.folder_open_outlined, size: 18)),
+        if (row['movable'] == true)
+          MenuAnchor(
+            menuChildren: [MenuItemButton(onPressed: _busy || _moveId != null ? null : () => _move(row), child: Text(row['id'] == 'database' ? '修改位置（记忆跟着搬）…' : '修改位置…'))],
+            builder: (context, menu, _) => IconButton(tooltip: '更多', visualDensity: VisualDensity.compact, onPressed: () => menu.isOpen ? menu.close() : menu.open(), icon: const Icon(Icons.more_horiz, size: 18)),
+          )
+        else
+          const SizedBox(width: 40),
       ]),
-      if (_busy) const LinearProgressIndicator(),
-      if (_receipt != null) SelectableText(_receipt!),
+    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (!widget.locationsOnly) ...[
+        if (data != null) ...[
+          SettingRow('记忆', child: Text('${formatBytes(data['logicalBytes'] as num? ?? 0)} · ${data['versions'] ?? 0} 个历史版本')),
+          SettingRow('数据库', child: Text(formatBytes(data['databaseBytes'] as num? ?? 0))),
+          if (space['freeBytes'] is num) SettingRow('磁盘剩余', child: Text(formatBytes(space['freeBytes'] as num))),
+          if (space['paused'] == true) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(space['reason'] as String? ?? '磁盘空间不足，记忆写入已暂停', style: TextStyle(color: scheme.error))),
+        ],
+        AutoSaveField(label: '至少留出的磁盘空间', unit: 'GB', compact: true, value: ((space['minimumBytes'] as num? ?? 1073741824) / 1073741824).toStringAsFixed(2), number: true, validator: (v) { final n = double.tryParse(v); return n == null || !n.isFinite || n < 0 || n * 1073741824 > 9007199254740991 ? '请输入有效的非负数' : null; }, save: _saveMinimum),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          OutlinedButton(onPressed: _busy || data == null ? null : _compact, child: const Text('压缩历史…')),
+          if (path != null) TextButton(onPressed: () => _agent!.revealInExplorer(p.dirname(path)), child: const Text('打开数据库文件夹')),
+        ]),
+        if (_busy) const LinearProgressIndicator(),
+        if (_receipt != null) SelectableText(_receipt!),
       ],
-      if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-      if (_locations != null&&!widget.maintenanceOnly) ...[
-        const SizedBox(height: 24),
-        Text('数据位置', style: Theme.of(context).textTheme.titleMedium),
+      if (_error != null) Text(_error!, style: TextStyle(color: scheme.error)),
+      if (_locations != null && !widget.maintenanceOnly) ...[
+        Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: Text('数据位置', style: muted)),
         if (_moveId != null) const LinearProgressIndicator(),
-        for (final row in jsonRows(_locations!['rows'])) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('${row['label']} · ${formatBytes(row['bytes'] as num? ?? 0)}'),
-          SelectableText('${row['path']}'),
-          Wrap(spacing: 8, children: [
-            TextButton(onPressed: () => _agent!.revealInExplorer('${row['path']}'), child: const Text('打开文件夹')),
-            if (row['movable'] == true) OutlinedButton(onPressed: _busy || _moveId != null ? null : () => _move(row), child: Text('修改${row['label']}位置…')),
-          ]),
-        ])),
-        if (jsonRows(_locations!['rows']).where((r) => r['id'] == 'database').firstOrNull case final database?)
-          TextButton(onPressed: _busy || _moveId != null ? null : () => _move(database), child: const Text('修改记忆位置（随数据库）…')),
-        const SizedBox(height: 12),
-        const Text('产物（位于工作区，随工作区管理）'),
-        for (final artifact in jsonRows(_locations!['artifacts'])) Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SelectableText('${artifact['path']} · ${artifact['bytes'] is num ? formatBytes(artifact['bytes'] as num) : '占用未知或文件已移走'}'),
-          TextButton(onPressed: () => _agent!.revealInExplorer(p.dirname('${artifact['path']}')), child: const Text('打开文件夹')),
-        ])),
-        if (_locations!['lastMove'] is Map && _moveId == null) SelectableText(asJsonMap(_locations!['lastMove'])['ok'] == true
-          ? '上次搬迁已验证：${asJsonMap(_locations!['lastMove'])['path']}${asJsonMap(_locations!['lastMove'])['warning'] == null ? '' : '\n${asJsonMap(_locations!['lastMove'])['warning']}'}'
-          : _moveFailure(asJsonMap(_locations!['lastMove']), previous: true)),
+        for (final row in rows) place(row),
+        if (artifacts.isNotEmpty) ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: Text('工作区里的产物 · ${artifacts.length} 个', style: context.text.bodyMedium),
+          children: [
+            for (final artifact in artifacts) Row(children: [
+              Expanded(child: Tooltip(message: '${artifact['path']}', child: Text(p.basename('${artifact['path']}'), maxLines: 1, overflow: TextOverflow.ellipsis))),
+              Text(artifact['bytes'] is num ? formatBytes(artifact['bytes'] as num) : '已移走', style: muted),
+              IconButton(tooltip: '打开文件夹', visualDensity: VisualDensity.compact, onPressed: () => _agent!.revealInExplorer(p.dirname('${artifact['path']}')), icon: const Icon(Icons.folder_open_outlined, size: 18)),
+            ]),
+          ],
+        ),
+        if (_locations!['lastMove'] is Map && _moveId == null && asJsonMap(_locations!['lastMove'])['ok'] != true)
+          Padding(padding: const EdgeInsets.only(top: 6), child: SelectableText(_moveFailure(asJsonMap(_locations!['lastMove']), previous: true), style: TextStyle(color: scheme.error))),
       ],
     ]);
   }

@@ -737,8 +737,7 @@ class _SessionTileState extends State<_SessionTile> {
           ),
           const PopupMenuItem(value: 'rename', child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('重命名'))),
           const PopupMenuItem(value: 'clone', child: ListTile(dense: true, leading: Icon(Icons.copy_all_outlined), title: Text('复制为新对话'))),
-          const PopupMenuItem(value: 'export_md', child: ListTile(dense: true, leading: Icon(Icons.description_outlined), title: Text('导出为 Markdown'))),
-          const PopupMenuItem(value: 'export_html', child: ListTile(dense: true, leading: Icon(Icons.html_outlined), title: Text('导出为网页（HTML）'))),
+          const PopupMenuItem(value: 'export_md', child: ListTile(dense: true, leading: Icon(Icons.description_outlined), title: Text('导出 Markdown'))),
           PopupMenuItem(
             value: 'archive',
             child: ListTile(dense: true, leading: const Icon(Icons.inventory_2_outlined), title: Text(widget.archived ? '取消归档' : '归档')),
@@ -756,27 +755,13 @@ class _SessionTileState extends State<_SessionTile> {
       case 'clone':
         await agent.cloneSession(entry.path);
       case 'delete':
-        await deleteConversation(context, agent, entry.path);
+        await deleteConversation(context, agent, entry.path, title: entry.title);
       case 'pin':
         await agent.setPinned(entry.path, !entry.pinned);
       case 'archive':
         await agent.setArchived(entry.path, !widget.archived);
-      case 'export_md' || 'export_html':
-        final markdown = choice == 'export_md';
-        final location = await getSaveLocation(
-          suggestedName: '${entry.title.replaceAll(RegExp(r'[\\/:*?"<>|\s]+'), '_')}.${markdown ? 'md' : 'html'}',
-          acceptedTypeGroups: [markdown ? const XTypeGroup(label: 'Markdown', extensions: ['md']) : const XTypeGroup(label: '网页', extensions: ['html'])],
-        );
-        if (location == null) return;
-        final path = await agent.exportSession(entry.path, markdown ? 'markdown' : 'html', location.path);
-        if (path != null && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('已导出：$path'),
-              action: SnackBarAction(label: '打开所在文件夹', onPressed: () => agent.revealInExplorer(p.dirname(path))),
-            ),
-          );
-        }
+      case 'export_md':
+        await exportConversation(context, agent, entry.path, entry.title);
     }
   }
 

@@ -49,10 +49,9 @@ void main() {
       )));
       await tester.pumpAndSettle();
       expect(backend.callsTo('settings.update'), isEmpty);
-      expect(find.text('跟随现有配置（默认）'), findsNWidgets(2));
-      expect(find.text('下一条工作台命令：uv：项目配置 · pip：应用设置 · npm：跟随现有'), findsOneWidget);
+      expect(find.text('跟随现有配置'), findsNWidgets(2));
       Future<void> choose(int index, String label) async {
-        final dropdown = find.byType(DropdownButtonFormField<String>).at(index);
+        final dropdown = find.byKey(ValueKey(index == 0 ? 'python-source' : 'npm-source'));
         await tester.ensureVisible(dropdown); await tester.pumpAndSettle();
         await tester.tap(dropdown); await tester.pumpAndSettle();
         await tester.tap(find.text(label).last); await tester.pumpAndSettle();
@@ -62,7 +61,6 @@ void main() {
       await choose(1, 'npmmirror');
       expect(backend.settings['npmPackageSource'], 'npmmirror');
       expect(backend.callsTo('settings.update').first, {'pythonPackageSource': 'tuna'});
-      expect(find.text('只影响 DreamFlutter 启动的工具；项目自己指定的源优先；新命令开始生效。'), findsOneWidget);
       if (capture) {
         await tester.ensureVisible(find.text('工具软件源')); await tester.pumpAndSettle();
         await expectLater(find.byType(Scaffold), matchesGoldenFile('../../Claude Codex Bridge/T65-B-${brightness.name}-150.png'));
@@ -73,7 +71,7 @@ void main() {
       expect(find.textContaining('软件源保存失败'), findsOneWidget);
       expect(find.text('清华 TUNA'), findsOneWidget);
       backend.failSave = false;
-      await choose(0, '跟随现有配置（默认）');
+      await choose(0, '跟随现有配置');
       expect(backend.settings['pythonPackageSource'], 'inherit');
       expect(find.textContaining('软件源保存失败'), findsNothing);
       expect(tester.takeException(), isNull);

@@ -5,6 +5,7 @@ import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/agent_controller.dart' show AgentController, asJsonMap;
 import 'agent_scope.dart';
+import 'settings_controls.dart' show SettingRow, SettingMenu;
 
 /// A separately configured official search credential; no channel key is displayed or borrowed.
 class WebSearchPanel extends StatefulWidget {
@@ -96,12 +97,10 @@ class _WebSearchPanelState extends State<WebSearchPanel> {
     return Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('联网搜索与抓取', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 8),
-      Text(data == null ? '正在读取配置…' : configured ? '已配置 · 密钥已遮盖' : '未配置'),
-      const SizedBox(height: 8),
-      const Text('请在这里单独配置 DeepSeek 官方密钥。保存后可提供 web_search；未配置时仅提供本机网页抓取。'),
+      Text(data == null ? '正在读取…' : configured ? '已配置' : '未配置'),
       const SizedBox(height: 12),
       TextField(controller: _key, enabled: !_busy, obscureText: true, enableSuggestions: false, autocorrect: false,
-        decoration: InputDecoration(labelText: 'DeepSeek 官方密钥（联网搜索）', hintText: configured ? '填写新密钥以更换' : '在应用中填写官方密钥'),
+        decoration: InputDecoration(labelText: 'DeepSeek 官方密钥', hintText: configured ? '填新的以更换' : null),
         onSubmitted: _busy ? null : (_) => _save()),
       const SizedBox(height: 8),
       Wrap(spacing: 8, runSpacing: 8, children: [
@@ -110,31 +109,19 @@ class _WebSearchPanelState extends State<WebSearchPanel> {
       ]),
       if ((data?['pendingToolRefresh'] as num? ?? 0) > 0) const Padding(padding: EdgeInsets.only(top: 8), child: Text('运行中的对话将在结束后刷新工具列表。')),
       const SizedBox(height: 20),
-      DropdownButtonFormField<String>(key: ValueKey('web-backend-$backend-$configured'), initialValue: backend, isExpanded: true,
-        decoration: const InputDecoration(labelText: '网页抓取方式'),
-        items: [
-          const DropdownMenuItem(value: 'local', child: Text('本机直接抓取（默认）')),
-          DropdownMenuItem(value: 'deepseek', enabled: configured, child: const Text('DeepSeek 抓取')),
-        ],
-        onChanged: _busy || data == null ? null : (value) => _run(() async {
+      SettingRow('网页抓取', child: SettingMenu<String>(
+        key: const ValueKey('web-backend'), value: backend, enabled: !_busy && data != null,
+        choices: {'local': '本机直接抓取', if (configured || backend == 'deepseek') 'deepseek': 'DeepSeek 抓取'},
+        onSelected: (value) => _run(() async {
           final result = asJsonMap(await _agent!.backend.call('webSearch.setBackend', {'backend': value}));
           if (mounted) setState(() => _data = result);
-        })),
-      const SizedBox(height: 8),
-      const Text('选定方式失败时会说明原因，不自动改用另一家抓取方式。'),
+        }))),
       const SizedBox(height: 20),
       if (data != null) ...[
-        Text('${data['month'] ?? '本月'} 调用 ${usage['calls'] ?? 0} 次，其中 DeepSeek ${usage['deepseekCalls'] ?? 0} 次'),
-        Text('有结果的计费调用 ${usage['billableCalls'] ?? 0} 次 · 费用估算 ¥${(usage['estimatedCostCny'] as num? ?? 0).toStringAsFixed(3)}'),
-        if ((usage['uncertainCalls'] as num? ?? 0) > 0) Text('另有 ${usage['uncertainCalls']} 次响应无法确认计费，未计入估算。'),
-        const Text('价格来源：官方文档 2026-11-07 估算；供应商实际结算为准。'),
+        Text('本月用了 ${usage['calls'] ?? 0} 次 · 约 ¥${(usage['estimatedCostCny'] as num? ?? 0).toStringAsFixed(2)}'),
       ],
       const SizedBox(height: 12),
-      const Text('测试连接会发起一次搜索，预计约 ¥0.005；仅成功且有结果时计费。'),
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        OutlinedButton(onPressed: _busy || !configured ? null : _test, child: const Text('测试连接')),
-        TextButton(onPressed: _busy ? null : () => _run(_load), child: const Text('刷新状态')),
-      ]),
+      Tooltip(message: '会真的搜一次，约 ¥0.005', child: OutlinedButton(onPressed: _busy || !configured ? null : _test, child: const Text('测试连接'))),
       if (_busy) const LinearProgressIndicator(semanticsLabel: '正在处理联网工具设置'),
       if (_receipt != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_receipt!)),
       if (lastError != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('上次错误：$lastError', style: TextStyle(color: Theme.of(context).colorScheme.error))),

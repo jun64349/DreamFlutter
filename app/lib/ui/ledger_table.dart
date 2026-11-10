@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 import '../state/agent_controller.dart';
 import 'agent_scope.dart';
+import 'settings_controls.dart' show SettingMenu;
 import 'settings_workspace.dart' show modelDisplayName;
 
 const ledgerPurposes = {'conversation': '工作台对话', 'subagent': '协作任务', 'memory': '记忆整理', 'compaction': '整理上下文', 'auto_title': '起标题', 'vision': '看图', 'web_search': '联网搜索', 'web_fetch': '网页读取', 'auxiliary': '其他小任务'};
@@ -48,12 +49,14 @@ class _LedgerTableState extends State<LedgerTable> {
     } catch (error) { if (mounted) setState(() => _error = SessionRuntime.describeError(error)); }
     finally { if (mounted) setState(() => _busy = false); }
   }
-  Future<void> _pick(bool beginning) async {
-    final date = await showDatePicker(context: context, initialDate: beginning ? _from : _through, firstDate: DateTime(2000), lastDate: DateTime(2100));
-    if (date == null || !mounted) return;
-    setState(() { if (beginning) { _from = date; if (_through.isBefore(date)) _through = date; } else { _through = date; if (_from.isAfter(date)) _from = date; } });
+  /// One control for the range (0.8.1 S.8), not two date buttons.
+  Future<void> _pickRange() async {
+    final range = await showDateRangePicker(context: context, initialDateRange: DateTimeRange(start: _from, end: _through), firstDate: DateTime(2000), lastDate: DateTime(2100));
+    if (range == null || !mounted) return;
+    setState(() { _from = range.start; _through = range.end; });
     await _load();
   }
+  String _purposeFilter = '';
   String _money(Json row) {
     final amounts = asJsonMap(row['amounts']);
     return amounts.isEmpty ? '未知' : amounts.entries.map((e) => '${e.key} ${e.value is num ? _amount(e.value as num) : '未知'}').join('\n');
@@ -65,26 +68,30 @@ class _LedgerTableState extends State<LedgerTable> {
   }
   String _entryTime(Json row){final at=(row['requested_at'] as num?)?.toInt();if(at==null)return '未知';final date=DateTime.fromMillisecondsSinceEpoch(at);String two(int n)=>n.toString().padLeft(2,'0');return '${_date(date)} ${two(date.hour)}:${two(date.minute)}';}
   String _entryModel(Json row){if(row['model'] is! String || '${row['model']}'.isEmpty)return '—';return modelDisplayName(_agent!,'${row['provider']}/${row['model']}',fallback:{'${row['model']}':'${row['model']}'});}
-  String _entryMoney(Json row){if(row['amount'] is! num)return '未知';final source='${row['amount_source']}';return '${row['currency']??'未知币种'} ${_amount(row['amount'] as num)}${source.contains('estimate')?'（估算）':''}';}
-  Widget _cell(String value, {double? width}) => width == null ? Text(value) : SizedBox(width: width, child: SelectableText(value));
+  /// A plan (OpenCode Go and the like) bills nothing per request; what matters is how much of the plan it used (0.8.1 F.6).
+  String _entryMoney(Json row){
+    String symbol(Object? currency)=>currency=='USD'?'\$':currency=='CNY'?'¥':'${currency??''} ';
+    if('${row['amount_source']}'=='plan_occupancy'){final used=row['allowance'];return used is num?'套餐 ${symbol(row['allowance_unit'])}${_amount(used)}':'套餐内';}
+    if(row['amount'] is! num)return '未知';
+    final source='${row['amount_source']}';
+    return '${symbol(row['currency'])}${_amount(row['amount'] as num)}${source.contains('estimate')?'（估算）':''}';
+  }
+  Widget _cell(String value, {double? width, bool oneLine = false, bool right = false}) => width == null ? Text(value) : SizedBox(width: width, child: oneLine ? Tooltip(message: value, child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: right ? TextAlign.right : null, style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]))) : SelectableText(value));
   @override
   Widget build(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('账目', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 8),
-      const SizedBox(height: 12),
-      Wrap(spacing: 12, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        OutlinedButton(onPressed: _busy ? null : () => _pick(true), child: Text('开始：${_date(_from)}')),
-        OutlinedButton(onPressed: _busy ? null : () => _pick(false), child: Text('结束：${_date(_through)}')),
+      Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        OutlinedButton.icon(key: const ValueKey('ledger-range'), onPressed: _busy ? null : _pickRange, icon: const Icon(Icons.date_range_outlined, size: 16), label: Text('${_date(_from)} – ${_date(_through)}')),
+        SettingMenu<String>(key: const ValueKey('ledger-purpose'), value: _purposeFilter, choices: {'': '全部用途', for (final key in {for (final row in _entries) '${row['purpose']}'}) key: ledgerPurposes[key] ?? '其他'}, onSelected: (v) => setState(() => _purposeFilter = v)),
       ]),
       const SizedBox(height: 12),
       if (_busy) const LinearProgressIndicator(semanticsLabel: '正在查询账目'),
       if (_error != null) Text('查询失败：$_error', style: TextStyle(color: Theme.of(context).colorScheme.error)),
       if (!_busy && _error == null && _entries.isEmpty) const Text('这个时间范围内没有请求记录'),
       if (_entries.isNotEmpty) Scrollbar(controller:_entryHorizontal,thumbVisibility:true,child:SingleChildScrollView(key:const ValueKey('ledger-entries-horizontal'),controller:_entryHorizontal,scrollDirection:Axis.horizontal,child:Padding(padding:const EdgeInsets.only(bottom:16),child:DataTable(columnSpacing:16,horizontalMargin:12,
-        columns:[for(final name in ['时间','用在哪','模型','花费'])DataColumn(label:Text(name))],
-        dataRowMinHeight:56,dataRowMaxHeight:100,
-        rows:[for(final row in _entries)DataRow(cells:[DataCell(_cell(_entryTime(row))),DataCell(_cell(ledgerPurposes[row['purpose']]??'其他',width:90)),DataCell(_cell(_entryModel(row),width:120)),DataCell(_cell(_entryMoney(row),width:130))])],
+        headingRowHeight:40,columns:[for(final name in ['时间','用在哪','模型'])DataColumn(label:Text(name)),const DataColumn(label:Text('花费'),numeric:true)],
+        dataRowMinHeight:40,dataRowMaxHeight:48,
+        rows:[for(final row in _entries.where((r)=>_purposeFilter.isEmpty||'${r['purpose']}'==_purposeFilter))DataRow(cells:[DataCell(_cell(_entryTime(row))),DataCell(_cell(ledgerPurposes[row['purpose']]??'其他',width:90)),DataCell(_cell(_entryModel(row),width:190,oneLine:true)),DataCell(_cell(_entryMoney(row),width:140,oneLine:true,right:true))])],
       )))),
       if(_entries.length>=200)const Text('当前显示最近 200 笔，请缩小时间范围继续查看。'),
       const SizedBox(height:20),
@@ -113,8 +120,6 @@ class _LedgerTableState extends State<LedgerTable> {
         ])],
       )))),
       if (_rows.length > 200) Text('共 ${_rows.length} 组，当前显示前 200 组；请缩小时间范围继续核对。'),
-      const SizedBox(height: 8),
-      const Text('“本机累计用量（估算）”只包含本机观察到的逐笔计量，不表示套餐剩余。历史导入保留旧记录金额，无法确认的供应商实际结算仍为未知。'),
       ]),
     ]);
   }

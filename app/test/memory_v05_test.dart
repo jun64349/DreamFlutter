@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 import 'v05_harness.dart';
+import 'package:dreamflutter/ui/settings_controls.dart' show SettingMenu;
 
 void main() {
   testWidgets('v0.8 recent records keep compact rows and keyboard undo', (tester) async {
@@ -130,17 +131,17 @@ void main() {
     final h = await startV05(tester);
     await h.mount(tester, const SettingsPage(category: '记忆'));
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'记忆详细程度');await settleV05(tester);
-    await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(DropdownButton<String>)).first);await settleV05(tester);
+    await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(SettingMenu<String>)).first);await settleV05(tester);
     await tester.tap(find.text('简要').last);
     await settleV05(tester);
     expect(h.backend.settings['memoryDetail'], 'brief');
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'记忆频率');await settleV05(tester);
-    await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(DropdownButton<String>)).last);await settleV05(tester);
+    await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(SettingMenu<String>)).last);await settleV05(tester);
     await tester.tap(find.text('换任务或关闭时').last);
     await settleV05(tester);
     expect(h.backend.settings['memoryWriteFrequency'], 'low');
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'每天整理预算');await settleV05(tester);
-    final budget = find.byWidgetPredicate((w) => w is TextField && w.decoration?.labelText == '每天整理预算（美元）');
+    final budget = find.descendant(of: find.byKey(const ValueKey('memoryDailyBudgetUsd')), matching: find.byType(TextField));
     await tester.enterText(budget, '0');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await settleV05(tester);

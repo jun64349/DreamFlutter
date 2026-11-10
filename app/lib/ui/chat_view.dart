@@ -12,7 +12,6 @@ import 'agent_scope.dart';
 import 'shell_widgets.dart';
 import 'composer.dart';
 import 'common.dart';
-import 'conversation_controls.dart';
 import 'greetings.dart';
 import 'markdown_view.dart' show FileLinks;
 import 'message_widgets.dart';
@@ -878,7 +877,7 @@ class _ContextWarning extends StatelessWidget {
                   style: context.text.bodySmall?.copyWith(color: colors.warning),
                 ),
               ),
-              TextButton(onPressed: () => showConversationContext(context), child: const Text('整理上下文')),
+              TextButton(onPressed: AgentScope.read(context).showContextPanel, child: const Text('整理上下文')),
             ],
           ),
         ),

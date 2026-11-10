@@ -12,7 +12,7 @@ import 'package:dreamflutter/ui/conversation_actions.dart';
 import 'package:dreamflutter/ui/conversation_controls.dart';
 import 'package:dreamflutter/ui/conversation_memory.dart';
 import 'package:dreamflutter/ui/run_summary.dart';
-import 'package:dreamflutter/ui/message_widgets.dart' show ChatRowView;
+import 'package:dreamflutter/ui/message_widgets.dart' show ChatRowView, WorkBlock;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
@@ -82,9 +82,9 @@ void main() {
   testWidgets('default ChatView keeps the workbench body and details', (tester) async {
     await start(tester); agent.setRunPanelOpen(true);
     await mount(tester, const ChatView());
-    expect(find.byType(RunPanel), findsOneWidget); expect(find.text('本次改动'), findsOneWidget);
+    expect(find.byType(RunPanel), findsOneWidget); expect(find.text('这个对话'), findsOneWidget);
     expect(find.text('标准模式'), findsNothing); expect(find.text('下一条作为新任务'), findsNothing);
-    expect(find.byTooltip('操作前问我'), findsOneWidget);
+    expect(find.text('先问我'), findsOneWidget);
     expect(find.text('提交这些改动'), findsNothing, reason:'no invented Git RPC or repository state');
   });
 
@@ -97,17 +97,19 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('conversation menu follows design order and schedule binds to the originating slot', (tester) async {
-    await start(tester); backend.pis.single..startRun('整理报告')..finishRun(); await settle(tester);
-    await tester.tap(find.byTooltip('对话菜单')); await settle(tester);
-    final labels=['把这次做法存成技能','定时再做一次','这段对话不记忆','导出','归档','删除'];
-    final positions=[for(final label in labels) tester.getTopLeft(find.text(label)).dy];
-    expect(positions, orderedEquals([...positions]..sort()));
-    await tester.tap(find.text('定时再做一次')); await settle(tester);
-    await tester.tap(find.text('创建')); await settle(tester);
-    final params=backend.callsTo('schedules.fromSession').single;
-    expect(params['slotId'], agent.active!.slotId); expect((params['trigger'] as Map)['type'], 'once');
-    expect((params['trigger'] as Map)['at'], greaterThan(DateTime.now().millisecondsSinceEpoch));
+  testWidgets('0.8.1: no title-bar menu; the ring opens the right panel with context and common actions', (tester) async {
+    await start(tester); final pi=backend.pis.single;
+    pi.extraResponses['get_session_stats'] = {'tokens':{'total':70000,'input':12000,'output':3000,'cacheRead':55000},'cost':0.004,'contextUsage':{'tokens':62000,'contextWindow':1000000,'percent':6.2}};
+    pi..startRun('整理报告')..finishRun(); pi.emit({'type':'session_info_changed'}); await settle(tester);
+    expect(find.byTooltip('对话菜单'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('context-ring'))); await settle(tester);
+    expect(agent.runPanelOpen, isTrue); expect(find.text('这个对话'), findsOneWidget);
+    expect(find.text('6.2 万 / 100 万'), findsOneWidget); expect(find.text('缓存命中'), findsOneWidget); expect(find.text('82%'), findsOneWidget);
+    final labels=['存成技能','导出 Markdown','归档','删除'];
+    for (final label in labels) { expect(find.descendant(of: find.byKey(const ValueKey('panel-actions')), matching: find.text(label)), findsOneWidget); }
+    for (final gone in ['定时再做一次','这段对话不记忆']) { expect(find.text(gone), findsNothing); }
+    await tester.tap(find.byKey(const ValueKey('panel-compact'))); await settle(tester);
+    expect(pi.commands.any((c)=>c['type']=='compact'), isTrue);
   });
 
   testWidgets('error card retries the actual question and composer can send again', (tester) async {
@@ -120,6 +122,40 @@ void main() {
     expect(tester.widget<IconButton>(find.byWidgetPredicate((w)=>w is IconButton && w.tooltip=='发送')).onPressed, isNotNull);
     await tester.tap(find.text('重试')); await settle(tester);
     expect(pi.commands.lastWhere((c)=>c['type']=='prompt')['message'], '核对实验记录');
+  });
+
+  testWidgets('0.8.1: a timeout says so in plain words, and a retry that recovers leaves no error card behind', (tester) async {
+    await start(tester); final pi=backend.pis.single;
+    pi.startRun('整理资料');
+    final error={'role':'assistant','content':<Json>[],'timestamp':2,'stopReason':'error','errorMessage':'Request timed out.','model':'deepseek-v4.1-flash'};
+    pi.emit({'type':'message_start','message':error}); pi.emit({'type':'message_end','message':error});
+    pi.emit({'type':'auto_retry_start','attempt':1,'maxAttempts':5,'delayMs':1000,'errorMessage':'Request timed out.'}); for (var i=0;i<5;i++) { await tester.pump(const Duration(milliseconds: 100)); }
+    expect(find.text('这次没能完成'), findsNothing, reason: 'no card while the automatic retry is still running');
+    final ok={'role':'assistant','content':[{'type':'text','text':'整理好了。'}],'timestamp':3,'stopReason':'stop'};
+    pi.emit({'type':'message_start','message':ok}); pi.emit({'type':'message_end','message':ok});
+    pi.emit({'type':'auto_retry_end','success':true}); pi.finishRun(); await settle(tester);
+    expect(find.text('这次没能完成'), findsNothing); expect(find.textContaining('正在重试'), findsNothing); expect(find.text('整理好了。'), findsOneWidget);
+    pi.startRun('再整理一次');
+    pi.emit({'type':'message_start','message':error}); pi.emit({'type':'message_end','message':error}); pi.finishRun(); await settle(tester);
+    expect(find.text('这次没能完成'), findsOneWidget); expect(find.text('模型太久没有回应，这次请求超时了'), findsOneWidget);
+    expect(find.text('Request timed out.'), findsOneWidget, reason: 'the original message stays under the plain words');
+    final heights={for (final label in ['重试','换个模型','去设置']) tester.getSize(find.ancestor(of: find.text(label), matching: find.byWidgetPredicate((w)=>w is ButtonStyleButton)).first).height};
+    expect(heights.toSet(), hasLength(1), reason: 'the three buttons are one size: $heights');
+  });
+
+  testWidgets('0.8.1 C.3: what the model says between tool calls goes into the process chain, not the reply', (tester) async {
+    await start(tester); final pi=backend.pis.single;
+    pi.startRun('整理这个文件夹');
+    final step={'role':'assistant','content':[{'type':'text','text':'我先看一下目录。'},{'type':'toolCall','id':'t1','name':'ls','arguments':{'path':'.'}}],'timestamp':2,'stopReason':'toolUse'};
+    pi.emit({'type':'message_start','message':step}); pi.emit({'type':'message_end','message':step});
+    pi.emit({'type':'tool_execution_start','toolCallId':'t1','toolName':'ls','args':{'path':'.'}});
+    pi.emit({'type':'tool_execution_end','toolCallId':'t1','toolName':'ls','result':{'content':[{'type':'text','text':'a.md'}]},'isError':false});
+    final done={'role':'assistant','content':[{'type':'text','text':'整理好了，一共 1 个文件。'}],'timestamp':3,'stopReason':'stop'};
+    pi.emit({'type':'message_start','message':done}); pi.emit({'type':'message_end','message':done}); pi.finishRun(); await settle(tester);
+    expect(find.text('整理好了，一共 1 个文件。'), findsOneWidget);
+    expect(find.text('我先看一下目录。'), findsNothing, reason: 'the narration is inside the collapsed chain');
+    await tester.tap(find.descendant(of: find.byType(WorkBlock), matching: find.byType(InkWell)).first); await settle(tester);
+    expect(find.text('我先看一下目录。'), findsOneWidget);
   });
 
   testWidgets('quote card preserves typed text and sends real quoted content', (tester) async {
@@ -150,15 +186,18 @@ void main() {
     expect(agent.section, AppSection.memory);
   });
 
-  testWidgets('delete receipt undo and recycle restore send the owning batch', (tester) async {
+  testWidgets('deleting asks first, then goes to the recycle bin, and recycle restore sends the owning batch', (tester) async {
     await start(tester);
     backend.handlers['sessions.delete'] = (_) => {'deleted': true, 'batchId': 'batch-1'};
-    Future<void>? deletion;
-    await mount(tester, Builder(builder: (context) => TextButton(onPressed: () { deletion = deleteConversation(context, agent, 'old.jsonl'); }, child: const Text('删除测试'))));
+    await mount(tester, Builder(builder: (context) => TextButton(onPressed: () => deleteConversation(context, agent, 'old.jsonl', title: '旧报告'), child: const Text('删除测试'))));
     await tester.tap(find.text('删除测试')); await settle(tester);
-    expect(deletion, isNotNull);
-    await tester.tap(find.text('撤销')); await settle(tester);
-    expect(backend.callsTo('sessions.restore').last['batchId'], 'batch-1');
+    expect(find.text('删除「旧报告」？'), findsOneWidget);
+    await tester.tap(find.text('取消')); await settle(tester);
+    expect(backend.callsTo('sessions.delete'), isEmpty);
+    await tester.tap(find.text('删除测试')); await settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '删除')); await settle(tester);
+    expect(backend.callsTo('sessions.delete').single['path'], 'old.jsonl');
+    expect(find.text('已移到回收站'), findsOneWidget);
     backend.handlers['sessions.recycleBin'] = (_) => [{'batchId': 'batch-2', 'session': {'title': '已删除的报告'}}];
     await mount(tester, Builder(builder: (context) => TextButton(onPressed: () => showConversationRecycleBin(context), child: const Text('打开回收站'))));
     await tester.tap(find.text('打开回收站')); await settle(tester);

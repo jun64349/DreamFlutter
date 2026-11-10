@@ -102,6 +102,8 @@ class _MemoryPageState extends State<MemoryPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          persist: false,
+          duration: const Duration(seconds: 5),
           content: const Text('已删除'),
           action: SnackBarAction(
             label: '撤销',

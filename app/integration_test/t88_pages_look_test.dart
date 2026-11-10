@@ -33,9 +33,10 @@ void main(){
         f.agent.showSection(AppSection.tasks);await render();await shot('attention_${size}_$theme');
         await navigate('设置');expect(find.descendant(of:find.byType(AppTitleBar),matching:find.text('设置')),findsOneWidget);await group('通用');await shot('settings_${size}_$theme');
         await group('模型');await shot('models_${size}_$theme');
+        await group('数据与安全');await shot('data_${size}_$theme');await group('关于与更新');await shot('about_${size}_$theme');
         if(zoom==1){await t.binding.setSurfaceSize(const Size(1280,800));await shot('groups_$theme');await t.binding.setSurfaceSize(const Size(1000,800));await wait();}
         await navigate('花费');await shot('spending_${size}_$theme');
-        await t.ensureVisible(find.text('账目'));await wait();await shot('ledger_${size}_$theme');
+        await t.ensureVisible(find.byKey(const ValueKey('ledger-range')));await wait();await shot('ledger_${size}_$theme');
         await render(home:SetupWizard(key:ValueKey('wizard-$theme-$size'),status:{'dataRoot':f.root.path},initialStep:2,onComplete:(){}));
         expect(find.descendant(of:find.byType(AppTitleBar),matching:find.text('花费')),findsNothing);
         await t.enterText(find.widgetWithText(TextField,'称呼'),'小周');await t.tap(find.text('下一步'));await wait();await t.enterText(find.widgetWithText(TextField,'密钥'),'test-only-not-a-key');await t.tap(find.text('测试连接'));await wait();expect(find.text('DeepSeek-V4.1-Flash'),findsNWidgets(3));await shot('wizard_models_${size}_$theme');

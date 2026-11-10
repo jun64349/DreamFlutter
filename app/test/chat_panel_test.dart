@@ -100,9 +100,9 @@ void main() {
       };
       await tester.tap(find.byTooltip(RegExp('^详情')));
       await settle(tester);
-      expect(find.text('本次改动'), findsOneWidget);
+      expect(find.text('这个对话'), findsOneWidget);
       expect(find.text('分支'), findsNothing);
-      expect(find.text('常用操作'), findsNothing);
+      expect(find.text('常用操作'), findsOneWidget); // 0.8.1 R.3: back in the panel
       expect(find.text('相关对话'), findsNothing);
       expect(pi.sent('df_navigate_tree'), isEmpty);
     });

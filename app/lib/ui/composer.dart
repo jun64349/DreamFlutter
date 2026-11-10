@@ -732,7 +732,7 @@ class _ModelChip extends StatelessWidget {
     final model = agent.model;
     // Model groups first, then each channel's models under its name.
     final byProvider = <String, List<PiModel>>{};
-    for (final m in agent.models) {
+    for (final m in agent.pickableModels()) {
       byProvider.putIfAbsent(m.provider, () => []).add(m);
     }
     final providers = byProvider.keys.toList()..sort((a, b) => (a == groupProvider ? 0 : 1).compareTo(b == groupProvider ? 0 : 1));
@@ -799,7 +799,6 @@ class _ContextRing extends StatelessWidget {
     final tip = [
       known ? '上下文已用 ${percent.toStringAsFixed(percent < 10 ? 1 : 0)}%' : '上下文用量未知',
       if (stats.cost > 0) '花费 ${formatCost(stats.cost)}',
-      '整理上下文',
     ].join(' · ');
     return Tooltip(
       message: tip,
@@ -809,7 +808,7 @@ class _ContextRing extends StatelessWidget {
         child: InkWell(
           key: const ValueKey('context-ring'),
           customBorder: const CircleBorder(),
-          onTap: agent.isReady ? () => showConversationContext(context) : null,
+          onTap: agent.isReady ? agent.showContextPanel : null,
           child: Padding(
             padding: const EdgeInsets.all(4),
             child: SizedBox.square(

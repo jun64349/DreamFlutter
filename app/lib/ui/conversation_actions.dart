@@ -9,45 +9,6 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart' show showsOnScreen;
 
-class ConversationMenuAnchor extends StatefulWidget {
-  const ConversationMenuAnchor({super.key, required this.agent});
-  final AgentController agent;
-  @override
-  State<ConversationMenuAnchor> createState() => _ConversationMenuAnchorState();
-}
-
-class _ConversationMenuAnchorState extends State<ConversationMenuAnchor> {
-  var _memoryOff = false;
-  Future<void> _load() async {
-    final id = widget.agent.activeSessionId;
-    if (id == null) return;
-    try {
-      final result = asJsonMap(await widget.agent.backend.call('memory.sessionMode', {'sessionId': id}));
-      if (mounted && id == widget.agent.activeSessionId) setState(() => _memoryOff = result['mode'] == 'off');
-    } catch (_) {}
-  }
-  @override
-  Widget build(BuildContext context) {
-    final agent = widget.agent;
-    final saved = agent.active?.incognito != true && agent.currentSessionPath != null;
-    final content = saved && !(agent.active?.isPristine ?? true);
-    void action(String value) => agent.requestConversationAction(value);
-    return MenuAnchor(
-      onOpen: _load,
-      menuChildren: [
-        MenuItemButton(onPressed: content && !agent.isRunning ? () => action('skill') : null, child: const Text('把这次做法存成技能')),
-        MenuItemButton(onPressed: content ? () => action('schedule') : null, child: const Text('定时再做一次')),
-        CheckboxMenuButton(value: _memoryOff, onChanged: saved ? (value) => action(value == true ? 'memory_off' : 'memory_on') : null, child: const Text('这段对话不记忆')),
-        MenuItemButton(onPressed: content ? () => action('export') : null, child: const Text('导出')),
-        MenuItemButton(onPressed: saved ? () => action('archive') : null, child: const Text('归档')),
-        const Divider(height: 8),
-        MenuItemButton(onPressed: agent.active == null ? null : () => action('delete'), child: Text('删除', style: TextStyle(color: context.colors.danger))),
-      ],
-      builder: (context, menu, _) => IconButton(tooltip: '对话菜单', onPressed: () => menu.isOpen ? menu.close() : menu.open(), icon: const Icon(Icons.more_horiz, size: 20)),
-    );
-  }
-}
-
 /// The title strip has no Navigator. Actions are handled inside the owning chat.
 class ConversationActionHost extends StatefulWidget {
   const ConversationActionHost({super.key, required this.child});
@@ -76,19 +37,15 @@ class _ConversationActionHostState extends State<ConversationActionHost> {
       switch (action) {
         case 'skill':
           await agent.draftSkillFromSession();
-        case 'schedule':
-          await showDialog<void>(context: context, builder: (_) => AgentScope(controller: agent, child: const _RepeatConversation()));
-        case 'memory_off' || 'memory_on':
-          final id = agent.activeSessionId;
-          if (id != null) await agent.backend.call('memory.setSessionMode', {'sessionId': id, 'mode': action == 'memory_off' ? 'off' : 'normal'});
         case 'export':
           final path = agent.currentSessionPath;
-          if (path == null) return;
-          final file = await getSaveLocation(suggestedName: '${agent.sessionTitle.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')}.md', acceptedTypeGroups: [const XTypeGroup(label: 'Markdown', extensions: ['md'])]);
-          if (file != null) await agent.exportSession(path, 'markdown', file.path);
+          if (path != null && mounted) await exportConversation(context, agent, path, agent.sessionTitle);
         case 'archive':
           final path = agent.currentSessionPath;
-          if (path != null) await agent.setArchived(path, true);
+          if (path != null) {
+            await agent.setArchived(path, true);
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已归档，在侧栏底部「已归档」里')));
+          }
         case 'delete':
           if (agent.active?.incognito == true) { await agent.newSession(); }
           else if (agent.currentSessionPath case final path?) { if (mounted) await deleteConversation(context, agent, path); }
@@ -101,17 +58,37 @@ class _ConversationActionHostState extends State<ConversationActionHost> {
   Widget build(BuildContext context) => widget.child;
 }
 
-Future<void> deleteConversation(BuildContext context, AgentController agent, String path) async {
-  Json? receipt;
-  if (!await agent.deleteSession(path, onReceipt: (value) => receipt = value) || !context.mounted) return;
-  final batchId = receipt?['batchId'];
+/// Exports a conversation as Markdown (the only export since 0.8.1 R.5) and says where it went.
+Future<void> exportConversation(BuildContext context, AgentController agent, String path, String title) async {
+  final location = await getSaveLocation(
+    suggestedName: '${title.replaceAll(RegExp(r'[\\/:*?"<>|\s]+'), '_')}.md',
+    acceptedTypeGroups: [const XTypeGroup(label: 'Markdown', extensions: ['md'])],
+  );
+  if (location == null) return;
+  final saved = await agent.exportSession(path, 'markdown', location.path);
+  if (saved == null || !context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: const Text('已删除'),
-    action: batchId is! String ? null : SnackBarAction(label: '撤销', onPressed: () async {
-      try { await agent.backend.call('sessions.restore', {'batchId': batchId}); await agent.refreshSessions(); }
-      catch (error) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(SessionRuntime.describeError(error)))); }
-    }),
+    persist: false,
+    duration: const Duration(seconds: 5),
+    content: Text('已导出：$saved'),
+    action: SnackBarAction(label: '打开所在文件夹', onPressed: () => agent.revealFile(saved)),
   ));
+}
+
+/// Deleting a conversation asks first (0.8.1 R.6): it goes to the recycle bin and can be restored there for 30 days.
+Future<void> deleteConversation(BuildContext context, AgentController agent, String path, {String? title}) async {
+  final name = title ?? (agent.currentSessionPath == path ? agent.sessionTitle : null);
+  final sure = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+    title: Text(name == null || name.isEmpty ? '删除这个对话？' : '删除「${name.length > 20 ? '${name.substring(0, 20)}…' : name}」？'),
+    content: const Text('删除后进回收站，30 天内可以恢复。'),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('取消')),
+      FilledButton(style: FilledButton.styleFrom(backgroundColor: context.colors.danger), onPressed: () => Navigator.pop(dialog, true), child: const Text('删除')),
+    ],
+  ));
+  if (sure != true || !context.mounted) return;
+  if (!await agent.deleteSession(path) || !context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已移到回收站')));
 }
 
 Future<void> showConversationRecycleBin(BuildContext context) {
@@ -159,53 +136,4 @@ class _RecycleBinState extends State<_RecycleBin> {
       ),
     ]))), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))]);
   }
-}
-
-class _RepeatConversation extends StatefulWidget {
-  const _RepeatConversation();
-  @override
-  State<_RepeatConversation> createState() => _RepeatConversationState();
-}
-
-class _RepeatConversationState extends State<_RepeatConversation> {
-  String? _slot;
-  @override
-  void initState() { super.initState(); _slot = AgentScope.read(context).active?.slotId; }
-  late final _name = TextEditingController(text: AgentScope.read(context).sessionTitle);
-  var _frequency = 'once';
-  var _time = const TimeOfDay(hour: 9, minute: 0);
-  var _date = DateTime.now().add(const Duration(days: 1));
-  var _weekday = DateTime.monday;
-  var _saving = false;
-  String? _error;
-  @override
-  void dispose() { _name.dispose(); super.dispose(); }
-  Future<void> _save() async {
-    final agent = AgentScope.read(context);
-    if (_slot == null || agent.active?.slotId != _slot) { setState(() => _error = '对话已变化，请重新打开'); return; }
-    final at = DateTime(_date.year, _date.month, _date.day, _time.hour, _time.minute);
-    if (_frequency == 'once' && !at.isAfter(DateTime.now())) { setState(() => _error = '请选择未来的时间'); return; }
-    setState(() { _saving = true; _error = null; });
-    try {
-      await agent.backend.call('schedules.fromSession', {
-        'slotId': _slot, 'name': _name.text.trim(),
-        'trigger': _frequency == 'once' ? {'type': 'once', 'at': at.millisecondsSinceEpoch} : {'type': 'cron', 'cron': '${_time.minute} ${_time.hour} * * ${_frequency == 'daily' ? '*' : _weekday % 7}'},
-      });
-      if (mounted) Navigator.pop(context);
-    } catch (error) { if (mounted) setState(() { _saving = false; _error = SessionRuntime.describeError(error); }); }
-  }
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('定时再做一次'),
-    content: SizedBox(width: 400, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      TextField(controller: _name, decoration: const InputDecoration(labelText: '名称')),
-      const SizedBox(height: 16),
-      DropdownButtonFormField<String>(initialValue: _frequency, decoration: const InputDecoration(labelText: '重复'), items: const [DropdownMenuItem(value: 'once', child: Text('只做一次')), DropdownMenuItem(value: 'daily', child: Text('每天')), DropdownMenuItem(value: 'weekly', child: Text('每周'))], onChanged: _saving ? null : (value) => setState(() => _frequency = value!)),
-      if (_frequency == 'weekly') DropdownButtonFormField<int>(initialValue: _weekday, items: [for (var i = 1; i <= 7; i++) DropdownMenuItem(value: i, child: Text(['周一','周二','周三','周四','周五','周六','周日'][i-1]))], onChanged: _saving ? null : (value) => setState(() => _weekday = value!)),
-      if (_frequency == 'once') TextButton(onPressed: () async { final value = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 3650))); if (mounted && value != null) setState(() => _date = value); }, child: Text('${_date.year}-${_date.month}-${_date.day}')),
-      TextButton(onPressed: () async { final value = await showTimePicker(context: context, initialTime: _time); if (mounted && value != null) setState(() => _time = value); }, child: Text(_time.format(context))),
-      if (_error != null) Text(_error!, style: TextStyle(color: context.colors.danger)),
-    ]))),
-    actions: [TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('取消')), FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? '正在创建…' : '创建'))],
-  );
 }

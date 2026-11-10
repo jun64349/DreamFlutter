@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -6,8 +5,8 @@ import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/conversation_git.dart';
 import 'package:dreamflutter/state/preferences.dart';
-import 'package:dreamflutter/ui/conversation_controls.dart';
 import 'package:dreamflutter/ui/message_widgets.dart';
+import 'package:dreamflutter/ui/run_summary.dart' show RunPanel;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -107,11 +106,13 @@ void main() {
       pi.extraResponses['get_session_stats'] = {'tokens':{'total':176000},'contextUsage':{'tokens':176000,'contextWindow':200000,'percent':88}};
       pi.emit({'type':'session_info_changed'}); await wait(); expect(find.text('上下文已用 88%'),findsOneWidget); await shot('context_warning_$color');
       pi.extraResponses.remove('get_session_stats'); pi.emit({'type':'session_info_changed'}); await wait();
-      await tester.tap(find.byTooltip('对话菜单')); await shot('menu_$color');
-      await tester.tap(find.text('定时再做一次')); await shot('schedule_$color');
-      await tester.tap(find.text('取消').last); await wait();
-      final scope = tester.element(find.byType(ChatRowView).last);
-      unawaited(showConversationContext(scope)); await shot('context_$color'); await tester.tap(find.text('关闭').last); await wait();
+      // 0.8.1: no title-bar "⋯"; the ring opens the right panel at its context block, with the common actions below.
+      pi.extraResponses['get_session_stats'] = {'tokens':{'total':70000,'input':12000,'output':3000,'cacheRead':55000},'cost':0.004,'contextUsage':{'tokens':62000,'contextWindow':1000000,'percent':6.2}};
+      pi.emit({'type':'session_info_changed'}); await wait();
+      await tester.tap(find.byKey(const ValueKey('context-ring'))); await shot('context_$color');
+      pi.extraResponses.remove('get_session_stats');
+      await tester.scrollUntilVisible(find.byKey(const ValueKey('panel-actions')), 200, scrollable: find.descendant(of: find.byType(RunPanel), matching: find.byType(Scrollable)).first); await shot('panel_actions_$color');
+      agent.setRunPanelOpen(false); await wait();
       await tester.enterText(find.byKey(const ValueKey('sidebar-search')),'实验'); await tester.pump(const Duration(milliseconds:350)); await shot('search_$color');
       await tester.tap(find.byTooltip('清除搜索')); await wait();
       await tester.tap(find.text('回收站')); await shot('recycle_$color'); await tester.tap(find.text('关闭').last); await wait();
@@ -119,16 +120,18 @@ void main() {
       pi.startRun('再检查一下温度记录。');
       final thinking = <String,dynamic>{'role':'assistant','content':[{'type':'thinking','thinking':'逐项核对温度与测量时间。'}],'timestamp':now+1000};
       pi.emit({'type':'message_start','message':thinking}); await shot('thinking_$color');
-      final tool = <String,dynamic>{'role':'assistant','content':[{'type':'toolCall','id':'live-edit','name':'edit','arguments':{'path':file.path,'description':'补充温度记录的核对结果','oldText':'待核对','newText':'温度记录已核对'}}],'timestamp':now+2000};
+      final tool = <String,dynamic>{'role':'assistant','content':[{'type':'text','text':'我先核对一下温度记录，再把结论补进小结。'},{'type':'toolCall','id':'live-edit','name':'edit','arguments':{'path':file.path,'description':'补充温度记录的核对结果','oldText':'待核对','newText':'温度记录已核对'}}],'timestamp':now+2000};
       pi.emit({'type':'message_end','message':thinking}); pi.emit({'type':'message_start','message':tool}); pi.emit({'type':'message_end','message':tool});
-      pi.emit({'type':'tool_execution_start','toolCallId':'live-edit','toolName':'edit','args':tool['content'][0]['arguments']});
+      pi.emit({'type':'tool_execution_start','toolCallId':'live-edit','toolName':'edit','args':tool['content'][1]['arguments']});
       pi.emit({'type':'extension_ui_request','id':'approval-$color','method':'select','title':'Agent 请求执行操作\n\n修改文件：${file.path}','options':['允许','本会话内总是允许「edit」','在此工作区总是允许「edit」','拒绝']});
       await shot('approval_$color');
       final work=find.byType(WorkBlock).last;
       await tester.tap(find.descendant(of:work,matching:find.byType(InkWell)).first); await shot('process_expanded_$color');
       await tester.tap(find.text('拒绝').last); pi.finishRun(); await wait();
-      final error={'role':'assistant','content':<Json>[],'timestamp':now+3000,'stopReason':'error','errorMessage':'连接中断，请检查网络后重试。'};
+      final error={'role':'assistant','content':<Json>[],'timestamp':now+3000,'stopReason':'error','errorMessage':'Request timed out.','model':'test-model'};
       pi.emit({'type':'message_start','message':error}); pi.emit({'type':'message_end','message':error}); await shot('error_$color');
+      await tester.tap(find.descendant(of:find.byType(WorkBlock).last,matching:find.byType(InkWell)).first); await shot('narration_$color');
+      await tester.tap(find.descendant(of:find.byType(WorkBlock).last,matching:find.byType(InkWell)).first); await wait();
       await tester.runAsync(() => agent.openSideChat('第二组在高温时波动稍大')); await wait();
       await tester.binding.setSurfaceSize(const Size(1000,800)); await agent.setZoom(1.5); await shot('side_150_$color');
       agent.closeSideChat(); agent.setRunPanelOpen(false); await wait();

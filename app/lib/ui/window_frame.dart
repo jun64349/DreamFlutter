@@ -10,7 +10,6 @@ import 'package:window_manager/window_manager.dart';
 import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'butterfly_motion.dart';
-import 'conversation_actions.dart';
 import 'agent_scope.dart';
 
 /// The workspace menu of the title bar; the sidebar's switch button and
@@ -201,7 +200,6 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                 ],
               ),
             ),
-            if (talking != null && (!onButterfly || agent.butterflyTab.value == ButterflyTab.talk)) ConversationMenuAnchor(agent: talking),
             if (talking != null)
               ListenableBuilder(
                 listenable: talking,
@@ -209,7 +207,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                   final incognito = talking.active?.incognito ?? false;
                   final open = talking.runPanelOpen && !incognito;
                   return IconButton(
-                    tooltip: incognito ? '无痕对话没有详情' : (open ? '收起详情' : (onButterfly ? '详情：任务进度' : '详情：本次改动')),
+                    tooltip: incognito ? '无痕对话没有详情' : (open ? '收起详情' : (onButterfly ? '详情：任务进度' : '详情：这个对话')),
                     isSelected: open,
                     onPressed: incognito ? null : () => talking.setRunPanelOpen(!open),
                     style: IconButton.styleFrom(foregroundColor: open ? colors.accent : colors.muted, backgroundColor: open ? colors.accentSoft : null),

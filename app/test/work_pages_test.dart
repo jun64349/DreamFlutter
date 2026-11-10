@@ -189,24 +189,6 @@ void main() {
     await tester.tap(find.text('去看看'));await settle(tester);expect(agent.section,AppSection.memory);
   });
 
-  testWidgets('schedule creation uses the conversation action and its current slot', (tester) async {
-    await startApp(tester);
-    agent.requestConversationAction('schedule');await settle(tester);
-    expect(find.text('定时再做一次'),findsOneWidget);
-    await tester.enterText(find.widgetWithText(TextField,'名称'),'周报提醒');
-    await tester.tap(find.byType(DropdownButtonFormField<String>));await settle(tester);await tester.tap(find.text('每天').last);await settle(tester);
-    await tester.tap(find.widgetWithText(FilledButton,'创建'));await settle(tester);
-    final saved=backend.callsTo('schedules.fromSession').single;
-    expect(saved['name'],'周报提醒');expect(saved['slotId'],agent.active!.slotId);expect((saved['trigger'] as Map)['type'],'cron');expect(backend.callsTo('schedules.save'),isEmpty);
-  });
-
-  testWidgets('changing the conversation cannot bind a schedule to the wrong slot', (tester) async {
-    await startApp(tester);agent.requestConversationAction('schedule');await settle(tester);
-    await tester.runAsync(()=>agent.newSession(forceNew:true));await settle(tester);
-    await tester.tap(find.widgetWithText(FilledButton,'创建'));await settle(tester);
-    expect(find.text('对话已变化，请重新打开'),findsOneWidget);expect(backend.callsTo('schedules.fromSession'),isEmpty);
-  });
-
   testWidgets('a limit notice from the core is announced', (tester) async {
     await startApp(tester);
     backend.push({

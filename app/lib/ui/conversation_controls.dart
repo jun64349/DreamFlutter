@@ -32,6 +32,8 @@ class IncognitoToggle extends StatelessWidget {
   }
 }
 
+/// Whether the agent asks before changing files or running commands (0.8.1 C.1): the chip says the
+/// current state in words ("先问我" / "直接做"), so it needs no hover to be understood.
 class AskBeforeActingToggle extends StatelessWidget {
   const AskBeforeActingToggle({super.key});
   @override
@@ -40,11 +42,22 @@ class AskBeforeActingToggle extends StatelessWidget {
     final on = agent.approvalMode != ApprovalMode.off;
     return Semantics(
       label: '操作前问我', toggled: on,
-      child: IconButton(
-        tooltip: '操作前问我', isSelected: on, visualDensity: VisualDensity.compact,
-        style: IconButton.styleFrom(foregroundColor: on ? context.colors.accent : context.colors.muted, backgroundColor: on ? context.colors.accentSoft : null),
-        onPressed: agent.isReady ? () => agent.setApprovalMode(on ? ApprovalMode.off : ApprovalMode.changes) : null,
-        icon: Icon(on ? Icons.verified_user_outlined : Icons.shield_outlined, size: 18),
+      child: TextButton.icon(
+        key: const ValueKey('ask-before-acting'),
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          shape: const StadiumBorder(),
+          foregroundColor: on ? context.colors.accent : context.colors.warning,
+          backgroundColor: on ? context.colors.accentSoft : context.colors.warning.withValues(alpha: .12),
+        ),
+        onPressed: agent.isReady ? () async {
+          await agent.setApprovalMode(on ? ApprovalMode.off : ApprovalMode.changes);
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context)..hideCurrentSnackBar()..showSnackBar(SnackBar(content: Text(on ? '改文件、跑命令不再先问你' : '改文件、跑命令前会先问你')));
+        } : null,
+        icon: Icon(on ? Icons.verified_user_outlined : Icons.bolt_outlined, size: 16),
+        label: Text(on ? '先问我' : '直接做', style: const TextStyle(fontSize: 12.5)),
       ),
     );
   }
@@ -65,41 +78,4 @@ class ComposerQuote extends StatelessWidget {
       IconButton(tooltip: '移除引用', onPressed: onRemove, visualDensity: VisualDensity.compact, icon: const Icon(Icons.close, size: 15)),
     ]),
   );
-}
-
-Future<void> showConversationContext(BuildContext context) {
-  final agent = AgentScope.read(context);
-  return showDialog<void>(context: context, builder: (_) => AgentScope(controller: agent, child: const _ConversationContext()));
-}
-
-class _ConversationContext extends StatefulWidget {
-  const _ConversationContext();
-  @override
-  State<_ConversationContext> createState() => _ConversationContextState();
-}
-
-class _ConversationContextState extends State<_ConversationContext> {
-  var _busy = false;
-  String? _result;
-  Future<void> _compact() async {
-    setState(() { _busy = true; _result = null; });
-    final agent = AgentScope.read(context);
-    final result = await agent.compact();
-    if (mounted) setState(() { _busy = false; _result = result == null ? agent.active?.lastCompactionError ?? '暂时无法整理，请稍后重试' : '上下文已整理'; });
-  }
-  @override
-  Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
-    return AlertDialog(
-      title: const Text('上下文'),
-      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(agent.stats.contextKnown ? '已用 ${agent.stats.contextPercent.toStringAsFixed(0)}%' : '尚无用量记录'),
-        if (_result != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_result!)),
-      ]),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
-        FilledButton(onPressed: _busy || agent.isRunning || agent.isCompacting ? null : _compact, child: Text(_busy ? '正在整理…' : '整理上下文')),
-      ],
-    );
-  }
 }

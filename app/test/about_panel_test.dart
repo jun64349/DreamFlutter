@@ -43,16 +43,15 @@ void main() {
       backend.handlers['updates.licenseText'] = (_) => {'text': 'Synthetic license text from the generated package'};
       final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: dir.path), backend: backend);
       addTearDown(() { agent.dispose(); dir.deleteSync(recursive: true); });
-      var openedData = false;
       final theme = buildTheme(brightness);
       await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(
         theme: capture ? theme.copyWith(textTheme: theme.textTheme.apply(fontFamily: 'T67Capture')) : theme,
         builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.5)), child: child!),
-        home: Scaffold(body: SingleChildScrollView(padding: const EdgeInsets.all(20), child: AboutPanel(openData: () => openedData = true))),
+        home: Scaffold(body: SingleChildScrollView(padding: const EdgeInsets.all(20), child: const Column(children: [AboutPanel(), AboutPanel(details: true)]))),
       )));
       await tester.pumpAndSettle();
       expect(find.text('测试版未签名'), findsOneWidget);
-      expect(find.text('应用版本：0.6.0-test.1'), findsOneWidget);
+      expect(find.text('DreamFlutter 0.6.0-test.1'), findsOneWidget);
       expect(backend.callsTo('updates.check'), isEmpty);
       expect(backend.callsTo('app.setStartup'), isEmpty);
       expect((tester.widgetList<SwitchListTile>(find.byType(SwitchListTile))).map((item) => item.value), [true, false]);
@@ -68,13 +67,9 @@ void main() {
       await tap('自动检查更新'); expect(backend.settings['autoCheckUpdates'], false);
       await tap('开机启动'); expect(backend.callsTo('app.setStartup').last['enabled'], true);
       await tap('开机启动'); expect(backend.callsTo('app.setStartup').last['enabled'], false);
-      backend.failSave = true;
-      final dropdown = find.byType(DropdownButtonFormField<String>);
-      await tester.ensureVisible(dropdown); await tester.pumpAndSettle(); await tester.tap(dropdown); await tester.pumpAndSettle(); await tap('退出程序');
-      expect(find.textContaining('关闭行为保存失败'), findsOneWidget); expect(find.text('隐藏到托盘（默认）'), findsOneWidget);
-      backend.failSave = false;
+      expect(find.text('关闭窗口时'), findsNothing, reason: '0.8.1 S.4: only in 通用');
       await tap('导出诊断信息'); expect(find.textContaining('不会自动上传'), findsOneWidget);
-      await tap('数据备份与恢复'); expect(openedData, true);
+      expect(find.text('数据备份与恢复'), findsNothing);
       await tap('许可证与第三方声明'); await tap('Synthetic dependency 1.2.3');
       expect(find.text('Synthetic license text from the generated package'), findsOneWidget);
       expect(tester.takeException(), isNull);

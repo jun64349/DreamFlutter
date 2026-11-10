@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
-import '../main.dart' show appVersion;
 import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -8,7 +7,6 @@ import 'settings_controls.dart';
 import 'shell_widgets.dart';
 import 'zoom.dart';
 import 'gateway_pages.dart';
-import 'model_settings.dart';
 import 'sandbox_panel.dart';
 import 'backup_panel.dart';
 import 'data_storage_panel.dart';
@@ -30,12 +28,15 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage>{
   late String _selected=const {'外观':'通用','模型与网关':'模型','对话':'工作台','安全与审批':'工作台','运行上限':'工作台','蝶君沙箱':'蝶君','工具':'工作台','数据与迁移':'数据与安全','关于':'关于与更新'}[widget.category] ?? widget.category ?? '通用';
   final _search=TextEditingController();String _query='';
-  @override void dispose(){_search.dispose();super.dispose();}
+  AgentController? _agent;
+  void _jump(){final target=_agent?.settingsTarget.value;if(target==null||!mounted)return;setState((){_selected=target;_query='';_search.clear();});_agent!.settingsTarget.value=null;}
+  @override void didChangeDependencies(){super.didChangeDependencies();final a=AgentScope.read(context);if(identical(a,_agent))return;_agent?.settingsTarget.removeListener(_jump);_agent=a..settingsTarget.addListener(_jump);_jump();}
+  @override void dispose(){_agent?.settingsTarget.removeListener(_jump);_search.dispose();super.dispose();}
   List<_SettingsGroup> _groups(AgentController a){
     final s=a.coreSettings;
     Future<void> save(String key,Object? v)async{await a.updateCoreSettings({key:v});if(a.coreSettings[key]!=v)throw StateError('未能保存，请重试');}
     Widget toggle(String title,String key,bool fallback)=>SettingsSwitch(title,value:s[key] as bool? ?? fallback,save:(v)=>save(key,v));
-    Widget number(String title,String key,num fallback,{num min=0,num? max,bool integer=false})=>AutoSaveField(key:ValueKey(key),label:title,value:'${s[key] ?? fallback}',number:true,validator:(v){final n=num.tryParse(v);return n==null||!n.isFinite||n<min||max!=null&&n>max||integer&&n!=n.round()?'请输入有效${integer?'整数':'数值'}':null;},save:(v)=>save(key,integer?int.parse(v):num.parse(v)));
+    Widget number(String title,String key,num fallback,{num min=0,num? max,bool integer=false,String? unit})=>AutoSaveField(key:ValueKey(key),label:title,compact:true,unit:unit,value:'${s[key] ?? fallback}',number:true,validator:(v){final n=num.tryParse(v);return n==null||!n.isFinite||n<min||max!=null&&n>max||integer&&n!=n.round()?'请输入有效${integer?'整数':'数值'}':null;},save:(v)=>save(key,integer?int.parse(v):num.parse(v)));
     Widget choice<T>(String title,T value,Map<T,String> choices,Future<void> Function(T) change)=>SettingChoice<T>(title,value:value,choices:choices,save:change);
     Widget model(String label,String setting)=>SettingRow(label,child:ModelSettingMenu(label:label,selected:s[setting] as String?,inheritLabel:setting=='defaultModel'?'自动':'跟对话模型一样',onChanged:(v)=>save(setting,v)));
     Widget override(String label,String purpose){final overrides=asJsonMap(s['modelOverrides']);return SettingRow(label,child:ModelSettingMenu(label:label,selected:overrides[purpose] as String?,extra:purpose=='compaction'?const {'session':'当前对话','small':'小任务模型'}:const {},onChanged:(v)=>a.updateCoreSettings({'modelOverrides':{...overrides,purpose:v}})));}
@@ -43,16 +44,14 @@ class _SettingsPageState extends State<SettingsPage>{
       _SettingsGroup('通用',Icons.tune,[
         _Setting('称呼 名字',EditableSetting(key:const ValueKey('userName'),title:'称呼',value:s['userName'] as String? ?? '',save:(v)=>save('userName',v.trim()))),
         const _Setting('明暗 主题 浅色 深色 跟随系统',SettingRow('明暗',child:ThemeModeControl())),
-        // The theme is a preference, not a mechanism: it sits in the main list as in the 1.0 prototype.
-        const _Setting('主题 名画 日间',SettingRow('日间主题',child:ThemeChoiceRow(brightness:Brightness.light))),
-        const _Setting('主题 名画 夜间',SettingRow('夜间主题',child:ThemeChoiceRow(brightness:Brightness.dark))),
+        // 0.8.1 S.2: themes are chosen in one place, the painting cards (day row, night row).
+        const _Setting('主题 名画 日间',ThemePicker(brightness:Brightness.light)),
+        const _Setting('主题 名画 夜间',Padding(padding:EdgeInsets.only(top:12,bottom:8),child:ThemePicker(brightness:Brightness.dark))),
         _Setting('关窗口 托盘 退出',choice('关窗口时',s['closeBehavior'] as String? ?? 'tray',const {'tray':'缩到托盘','quit':'退出'},(v)async{await save('closeBehavior',v);await a.preferences.setCloseBehaviorChoice(v);})),
         _Setting('系统通知 提醒',toggle('系统通知','notifications',true)),
       ],[
         const _Setting('缩放 放大 缩小',SettingRow('界面缩放',child:ZoomControl())),
         const _Setting('文字大小 字号',SettingRow('文字大小',child:TextSizeControl())),
-        const _Setting('名画 主题 预览',ThemePicker(brightness:Brightness.light)),
-        const _Setting('名画 主题 预览 夜间',ThemePicker(brightness:Brightness.dark)),
       ]),
       _SettingsGroup('模型',Icons.hub_outlined,[
         _Setting('对话模型',model('对话模型','defaultModel')),
@@ -66,8 +65,6 @@ class _SettingsPageState extends State<SettingsPage>{
         _Setting('整理上下文 模型',override('整理上下文时使用','compaction')),
         _Setting('深度分析 模型',override('深度分析时使用','analysis')),
         _Setting('默认思考深度',choice('思考深度',a.defaultThinkingLevel??'',const {'':'自动','off':'关闭','low':'低','medium':'中','high':'高','xhigh':'很高','max':'最高'},(v)=>save('defaultThinking',v.isEmpty?null:v))),
-        const _Setting('上下文长度 模型范围',ModelWindowSetting()),
-        const _Setting('模型组 备用 自动切换',GroupList()),
         const _Setting('导入原有连接配置',PiCompatibilityPanel()),
       ]),
       _SettingsGroup('工作台',Icons.chat_bubble_outline,[
@@ -79,13 +76,13 @@ class _SettingsPageState extends State<SettingsPage>{
         const _Setting('总是允许 工具规则',_ToolRules()),
         _Setting('自动标题',toggle('自动起标题','autoTitle',true)),
         _Setting('自动整理上下文',toggle('自动整理上下文','autoCompaction',true)),
-        _Setting('整理阈值',number('整理时机（%）','compactionThresholdPercent',80,min:20,max:95,integer:true)),
+        _Setting('整理阈值',number('用到多少时整理','compactionThresholdPercent',80,min:20,max:95,integer:true,unit:'%')),
         _Setting('后台整理上下文',choice('后台整理',s['backgroundCompaction'] as String? ?? 'auto',const {'auto':'自动','on':'开启','off':'关闭'},(v)=>save('backgroundCompaction',v))),
         _Setting('提问等待',choice('提问时等多久',(s['askTimeoutSeconds'] as num?)?.toInt()??60,const {30:'30 秒',60:'1 分钟',300:'5 分钟',0:'一直等'},(v)=>save('askTimeoutSeconds',v))),
         _Setting('轮数上限',number('单次最多轮数','maxTurnsPerRun',60,integer:true)),
-        _Setting('每天花费上限',number('每天花费上限（美元）','dailyBudgetUsd',0)),
-        _Setting('每月花费上限',number('每月花费上限（美元）','monthlyBudgetUsd',0)),
-        _Setting('空闲回收',number('空闲对话保留时间（分钟）','idleSessionMinutes',10,min:1,integer:true)),
+        _Setting('每天花费上限',number('每天花费上限','dailyBudgetUsd',0,unit:'美元')),
+        _Setting('每月花费上限',number('每月花费上限','monthlyBudgetUsd',0,unit:'美元')),
+        _Setting('空闲回收',number('空闲对话保留','idleSessionMinutes',10,min:1,integer:true,unit:'分钟')),
         _Setting('网络 联网搜索 软件源 代理',ExpansionTile(key:ValueKey('network-$_query'),tilePadding:EdgeInsets.zero,title:const Text('网络'),initiallyExpanded:_query.isNotEmpty,children:const [WebSearchPanel(),PackageSourcesPanel()])),
       ]),
       _SettingsGroup('蝶君',Icons.auto_awesome_outlined,[
@@ -103,8 +100,8 @@ class _SettingsPageState extends State<SettingsPage>{
         _Setting('详细程度 强度',choice('记忆详细程度',s['memoryDetail'] as String? ?? 'standard',const {'brief':'简要','standard':'标准','detailed':'详细'},(v)=>save('memoryDetail',v))),
         _Setting('频率',choice('记忆频率',s['memoryWriteFrequency'] as String? ?? 'standard',const {'standard':'每次回复后','low':'换任务或关闭时'},(v)=>save('memoryWriteFrequency',v))),
         _Setting('容量',number('记忆容量','memoryCapacityTokens',40000,min:1,integer:true)),
-        _Setting('本次记忆篇幅',number('每次带上的记忆篇幅','memoryBudgetTokens',2000,min:1,integer:true)),
-        _Setting('后台预算',number('每天整理预算（美元）','memoryDailyBudgetUsd',.2)),
+        _Setting('本次记忆篇幅',number('每次带上的记忆','memoryBudgetTokens',2000,min:1,integer:true)),
+        _Setting('后台预算',number('每天整理预算','memoryDailyBudgetUsd',.2,unit:'美元')),
       ]),
       _SettingsGroup('数据与安全',Icons.folder_outlined,[
         const _Setting('数据位置 存储 搬迁',DataStoragePanel(locationsOnly:true)),
@@ -114,10 +111,9 @@ class _SettingsPageState extends State<SettingsPage>{
         const _Setting('磁盘空间 记忆历史 占用',DataStoragePanel(maintenanceOnly:true)),
       ]),
       _SettingsGroup('关于与更新',Icons.info_outline,[
-        _Setting('版本 更新 开机启动',AboutPanel(openData:()=>setState(()=>_selected='数据与安全'))),
-        _Setting('版本',SettingRow('DreamFlutter',child:Text('v$appVersion'))),
+        const _Setting('版本 更新 开机启动 诊断 反馈 许可证',AboutPanel()),
       ],[
-        _Setting('后台版本',SettingRow('后台版本',child:Text('${a.coreInfo['version'] ?? '未连接'}'))),
+        const _Setting('构建号 后台版本 Pi 平台 签名',AboutPanel(details:true)),
       ]),
     ];
   }
@@ -166,10 +162,7 @@ class ModelSettingMenu extends StatelessWidget {
   final String label;final String? selected;final Future<void> Function(String?) onChanged;final Map<String,String> extra;final String inheritLabel;
   @override
   Widget build(BuildContext context){final a=AgentScope.of(context);final model=a.models.where((m)=>m.key==selected).firstOrNull;
-    return PopupMenuButton<String>(tooltip:'选择$label',onSelected:(v)async{try{await onChanged(v.isEmpty?null:v);}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('未保存：${SessionRuntime.describeError(e)}')));}},itemBuilder:(_)=>[
-      CheckedPopupMenuItem(value:'',checked:selected==null,child:Text(inheritLabel)),
-      for(final e in extra.entries)CheckedPopupMenuItem(value:e.key,checked:selected==e.key,child:Text(e.value)),
-      for(final m in a.models)CheckedPopupMenuItem(value:m.key,checked:selected==m.key,child:Text('${m.name} · ${a.providerLabel(m.provider)}')),
-    ],child:Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Row(mainAxisSize:MainAxisSize.min,children:[Flexible(child:Text(model?.name??extra[selected]??(selected==null?inheritLabel:'暂不可用'),overflow:TextOverflow.ellipsis,style:TextStyle(color:context.colors.accent))),const Icon(Icons.expand_more,size:18)])));
+    final choices=<String,String>{'':inheritLabel,...extra,for(final m in a.pickableModels(keep:selected))m.key:'${m.name} · ${a.providerLabel(m.provider)}'};
+    return SettingMenu<String>(key:ValueKey('model-menu-$label'),value:selected??'',choices:choices,label:model?.name??extra[selected]??(selected==null?inheritLabel:'暂不可用'),onSelected:(v)async{try{await onChanged(v.isEmpty?null:v);}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('未保存：${SessionRuntime.describeError(e)}')));}});
   }
 }

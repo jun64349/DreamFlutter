@@ -316,8 +316,14 @@ class _TextSegment extends _Segment {
   final String text;
 }
 
+/// What the model said between tool calls ("我先看一下目录……"): part of the work, not the reply (0.8.1 C.3).
+class NarrationStep {
+  NarrationStep(this.text);
+  final String text;
+}
+
 class _WorkSegment extends _Segment {
-  final steps = <Object>[]; // ThinkingPart or ToolRun
+  final steps = <Object>[]; // ThinkingPart, ToolRun or NarrationStep
   var waiting = false; // a message has started but shown nothing yet
 }
 
@@ -377,6 +383,16 @@ List<_Segment> _segments(ReplyRow row, Transcript transcript, AppColors colors) 
         break;
     }
   }
+  // Text followed by more work was said along the way: it moves into the process chain, just before the
+  // work that came after it, so the reply itself is only what the model said once the work was done.
+  final lastWork = segments.lastIndexWhere((s) => s is _WorkSegment && s.steps.isNotEmpty);
+  for (var i = lastWork - 1; i >= 0; i--) {
+    final segment = segments[i];
+    if (segment is! _TextSegment) continue;
+    final next = segments.skip(i + 1).whereType<_WorkSegment>().firstWhere((w) => w.steps.isNotEmpty);
+    next.steps.insert(0, NarrationStep(segment.text));
+    segments.removeAt(i);
+  }
   return segments;
 }
 
@@ -399,7 +415,16 @@ class _ReplyView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final segments = _segments(row, transcript, colors);
+    // A failed attempt that a later (automatic or manual) retry recovered from leaves no error card or
+    // retry notices behind; while the agent is still running, the retry is under way and gets no card yet.
+    final lastAssistant = row.assistants.lastOrNull;
+    final recovered = lastAssistant != null && !lastAssistant.failed && row.assistants.any((a) => a.failed);
+    final retrying = live && AgentScope.of(context).isRunning;
+    final failure = lastAssistant != null && lastAssistant.failed && !retrying ? lastAssistant : null;
+    final attempts = row.items.whereType<NoticeItem>().where((n) => n.kind == NoticeKind.retry).length;
+    final segments = _segments(row, transcript, colors)
+        .where((s) => !(recovered && s is _NoticeSegment && (s.notice.kind == NoticeKind.retry || s.notice.kind == NoticeKind.retryFailed)))
+        .toList();
     final lastText = segments.lastIndexWhere((s) => s is _TextSegment);
     final streaming = row.assistants.any((a) => a.streaming);
     final children = <Widget>[];
@@ -416,13 +441,12 @@ class _ReplyView extends StatelessWidget {
             ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ReplyMarkdown(text: text), const StreamingCaret()])
             : ReplyMarkdown(text: text),
         _WorkSegment() => WorkBlock(steps: segment.steps, active: live && isLast, waiting: segment.waiting),
-        _NoticeSegment(:final notice) => notice.kind == NoticeKind.retryFailed ? ConversationErrorCard(reason: notice.message, question: row.info.question) : _NoticeView(notice: notice),
+        _NoticeSegment(:final notice) => notice.kind == NoticeKind.retryFailed && failure == null && !retrying ? ConversationErrorCard(reason: notice.message, question: row.info.question, model: lastAssistant?.model, attempts: attempts) : _NoticeView(notice: notice),
         _CardSegment(:final run) => CardBlock(key: ValueKey('card-${run.id}'), run: run),
         _NoteSegment(:final icon, :final color, :final text) => _InlineNote(icon: icon, color: color, text: text),
       });
     }
-    final failure = row.assistants.where((a) => a.failed).lastOrNull;
-    if (failure != null) children.add(ConversationErrorCard(reason: failure.errorMessage ?? '模型没有返回回复，请重试或换个模型', question: row.info.question));
+    if (failure != null) children.add(ConversationErrorCard(reason: failure.errorMessage ?? '模型没有返回回复，请重试或换个模型', question: row.info.question, model: failure.model, attempts: attempts));
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [for (final child in children) Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: child)],
@@ -653,7 +677,7 @@ class _WorkBlockState extends State<WorkBlock> {
                     for (final step in steps)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 3),
-                        child: step is ThinkingPart ? _ThinkingStep(part: step) : ToolStep(run: step as ToolRun),
+                        child: switch (step) { ThinkingPart() => _ThinkingStep(part: step), NarrationStep(:final text) => _NarrationView(text: text), _ => ToolStep(run: step as ToolRun) },
                       ),
                   ],
                 ),
@@ -785,6 +809,18 @@ String toolSubject(ToolRun run) {
   }
   if (args.isEmpty && run.argsDraft.isNotEmpty) return run.argsDraft.replaceAll('\n', ' ');
   return args.isEmpty ? '' : formatArguments(args).replaceAll('\n', ' ');
+}
+
+/// A narration step in the opened process chain: the model's own words, a little quieter than the reply.
+class _NarrationView extends StatelessWidget {
+  const _NarrationView({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Padding(padding: const EdgeInsets.only(top: 3), child: Icon(Icons.chat_bubble_outline, size: 14, color: context.colors.muted)),
+    const SizedBox(width: 8),
+    Expanded(child: SelectableText(text.trim().replaceAll(RegExp(r'\*\*|__|`'), ''), style: context.text.bodySmall?.copyWith(color: context.colors.ink2, height: 1.65))),
+  ]);
 }
 
 class _ThinkingStep extends StatefulWidget {

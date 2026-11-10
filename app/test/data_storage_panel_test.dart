@@ -87,9 +87,9 @@ void main() {
       await tester.pumpWidget(frame('busy')); await tester.pumpAndSettle();
       expect(find.text(message), findsOneWidget, reason: 'persisted lastMove uses the same plain-language message');
       expect(find.textContaining('ERROR_SHARING_VIOLATION'), findsNothing);
-      final button = find.text('修改沙箱位置…');
-      await tester.ensureVisible(button); await tester.pumpAndSettle();
-      await tester.tap(button); await tester.pumpAndSettle();
+      // 0.8.1 S.5: moving is in the row's "⋯".
+      await tester.tap(find.byTooltip('更多')); await tester.pumpAndSettle();
+      await tester.tap(find.text('修改位置…')); await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '目标新目录（绝对路径）'), '${temporary.path}/new-sandbox');
       await tester.tap(find.text('搬迁并重启')); await tester.pump(const Duration(milliseconds: 700));
       expect(find.text('后台正在重启并验证搬迁，请稍候…'), findsOneWidget);
@@ -139,21 +139,20 @@ void main() {
         home: const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DataStoragePanel()))),
       )));
       await tester.pumpAndSettle();
-      expect(find.textContaining('产物（位于工作区'), findsOneWidget);
+      expect(find.textContaining('工作区里的产物'), findsOneWidget);
       expect(find.textContaining('修改产物位置'), findsNothing);
-      final button = find.text('修改记忆位置（随数据库）…');
-      await tester.ensureVisible(button); await tester.pumpAndSettle();
-      await tester.tap(button); await tester.pumpAndSettle();
+      Future<void> openMove() async { await tester.ensureVisible(find.byTooltip('更多')); await tester.tap(find.byTooltip('更多')); await tester.pumpAndSettle(); await tester.tap(find.text('修改位置（记忆跟着搬）…')); await tester.pumpAndSettle(); }
+      await openMove();
       await tester.tap(find.text('取消')); await tester.pumpAndSettle();
       await tester.pump(const Duration(milliseconds: 300));
       expect(backend.callsTo('storage.move'), isEmpty);
-      await tester.tap(button); await tester.pumpAndSettle();
+      await openMove();
       await tester.enterText(find.widgetWithText(TextField, '目标新目录（绝对路径）'), '${temporary.path}/new-db');
       fail = true;
       await tester.tap(find.text('搬迁并重启')); await tester.pumpAndSettle(); await tester.pump(const Duration(milliseconds: 300)); await tester.pumpAndSettle();
       expect(find.text('目标目录已存在，请选择新目录'), findsOneWidget);
       failureMessage = '数据库位置不支持网络路径，请选择本地磁盘上的新目录';
-      await tester.tap(button); await tester.pumpAndSettle();
+      await openMove();
       expect(find.textContaining('不支持网络路径或映射网络盘'), findsOneWidget);
       await tester.enterText(find.widgetWithText(TextField, '目标新目录（绝对路径）'), r'\\wsl.localhost\df-test\new-db');
       await tester.tap(find.text('搬迁并重启')); await tester.pumpAndSettle();
@@ -162,7 +161,7 @@ void main() {
       expect(find.text('后台正在重启并验证搬迁，请稍候…'), findsNothing);
       expect(backend.callsTo('storage.move').last['target'], r'\\wsl.localhost\df-test\new-db');
       fail = false;
-      await tester.tap(button); await tester.pumpAndSettle();
+      await openMove();
       await tester.enterText(find.widgetWithText(TextField, '目标新目录（绝对路径）'), '${temporary.path}/new-db');
       await tester.tap(find.text('搬迁并重启')); await tester.pump(const Duration(milliseconds: 600)); await tester.pump(const Duration(milliseconds: 100));
       expect(backend.callsTo('storage.move').last, {'kind': 'database', 'target': '${temporary.path}/new-db'});

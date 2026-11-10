@@ -225,7 +225,7 @@ class _BackupPanelState extends State<BackupPanel> {
       children: [
         if (_error != null) ...[Text(_error!, style: context.text.bodyMedium?.copyWith(color: context.colors.danger)), const SizedBox(height: AppTokens.gap)],
         if (_job != null) _JobView(job: _job!, onCancel: () => _call('backup.cancel'), onReveal: (p) => _agent!.revealInExplorer(p)),
-        Text('把全部数据存成一个 .dfbackup 文件，换电脑或重装时导入它。导入会先自动备份现在的数据，可以撤销。', style: muted),
+        Padding(padding: const EdgeInsets.only(top: 16), child: Text('备份', style: context.label)),
         const SizedBox(height: AppTokens.gap),
         Row(
           children: [

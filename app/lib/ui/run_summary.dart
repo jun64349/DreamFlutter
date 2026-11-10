@@ -10,6 +10,7 @@ import '../state/mentions.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'artifact_widgets.dart';
+import 'conversation_panel.dart';
 import 'message_widgets.dart' show ChatRow, ReplyRow, DiffView, editDiff;
 import 'side_chat_view.dart';
 import 'workspace_path.dart';
@@ -118,7 +119,7 @@ class _RunPanelState extends State<RunPanel> {
     changes.removeWhere((path, _) => products.any((product) => SessionStore.samePath(path, product)));
     return Material(color: context.colors.sidebar, child: SizedBox(width: widget.width, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(padding: const EdgeInsets.fromLTRB(16, 10, 6, 10), child: Row(children: [
-        Expanded(child: Text(side != null ? '问一下' : agent.sandbox ? '任务进度' : '本次改动', style: context.text.titleSmall)),
+        Expanded(child: Text(side != null ? '问一下' : agent.sandbox ? '任务进度' : '这个对话', style: context.text.titleSmall)),
         IconButton(tooltip: '收起详情', onPressed: () { if (side != null) agent.closeSideChat(); widget.onClose(); }, icon: const Icon(Icons.close, size: 18)),
       ])),
       Divider(height: 1, color: context.colors.border),
@@ -126,7 +127,7 @@ class _RunPanelState extends State<RunPanel> {
       else Expanded(child: ListView(padding: const EdgeInsets.all(14), children: [
         if (_error != null) Text(_error!, style: TextStyle(color: context.colors.danger)),
         if (agent.sandbox && _task?['title'] is String) ...[Text(_task!['title'] as String, style: context.text.titleSmall), if (_task?['currentStep'] is String) Padding(padding: const EdgeInsets.only(top: 6, bottom: 16), child: Text(_task!['currentStep'] as String))],
-        if (changes.isEmpty && products.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Text('还没有改动', textAlign: TextAlign.center, style: context.text.bodySmall?.copyWith(color: context.colors.muted))),
+        if (changes.isEmpty && products.isEmpty) Padding(padding: const EdgeInsets.only(bottom: 4), child: Text('这个对话还没改文件', style: context.text.bodySmall?.copyWith(color: context.colors.muted))),
         if (changes.isNotEmpty) ...[
           Text('改了的文件', style: context.label), const SizedBox(height: 8),
           for (final entry in changes.entries) ListTile(
@@ -144,8 +145,11 @@ class _RunPanelState extends State<RunPanel> {
           ]),
         ],
         if (_git?.isRepository == true && _git!.paths.isNotEmpty) ...[
-          const SizedBox(height: 20), OutlinedButton.icon(onPressed: agent.isRunning ? null : _commit, icon: const Icon(Icons.commit, size: 17), label: const Text('提交这些改动')),
+          const SizedBox(height: 20), Text('Git', style: context.label), const SizedBox(height: 8),
+          OutlinedButton.icon(onPressed: agent.isRunning ? null : _commit, icon: const Icon(Icons.commit, size: 17), label: const Text('提交这些改动')),
         ],
+        const SizedBox(height: 22), const ConversationContextSection(),
+        if (agent.active?.incognito != true) ...[const SizedBox(height: 22), const ConversationActionsSection()],
       ])),
     ])));
   }
