@@ -13,7 +13,12 @@ import { join } from "node:path";
 const root = mkdtempSync(join(tmpdir(), "dreamflutter-test-"));
 const files = process.argv.slice(2);
 const args = ["--disable-warning=ExperimentalWarning", "--test", "--test-concurrency=1", ...(files.length ? files : ["test/**/*.test.ts"])];
-const env = { ...process.env, TEMP: root, TMP: root, TMPDIR: root };
+// Model-provider credentials in the developer's environment (an ANTHROPIC_AUTH_TOKEN set by a coding
+// tool, say) make Pi pick a real provider, so a test sends a real request instead of using the fake
+// model, and fails or spends money depending on whose machine it runs on. Tests never see them.
+const providerEnv = /^(ANTHROPIC|OPENAI|AZURE_OPENAI|DEEPSEEK|GEMINI|GOOGLE_API|GOOGLE_CLOUD|VERTEX|OPENROUTER|MISTRAL|GROQ|XAI|CEREBRAS|OPENCODE|MOONSHOT|KIMI|ZAI|MINIMAX|DASHSCOPE|AWS_BEARER_TOKEN_BEDROCK|COPILOT|GITHUB_TOKEN|HF_TOKEN)/;
+const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !providerEnv.test(name.toUpperCase()) && !/_(API_KEY|AUTH_TOKEN)$/i.test(name)));
+Object.assign(env, { TEMP: root, TMP: root, TMPDIR: root });
 
 const result = spawnSync(process.execPath, args, { stdio: "inherit", env });
 

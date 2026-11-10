@@ -604,9 +604,10 @@ export class Gateway implements CoreModule {
 		if (!sourceOnly && override !== undefined) return override;
 		if (provider === GROUP_PROVIDER) {
 			const group = this.groups().find((g) => g.id === id);
-			const windows = group?.entries.map((e) => {
+			// Entries whose channel was deleted can never serve a request, so they don't narrow the group's window.
+			const windows = group?.entries.flatMap((e) => {
 				const channel = this.channel(e.channel);
-				return channel ? this.window(channel.provider, e.model) : null;
+				return channel ? [this.window(channel.provider, e.model)] : [];
 			}) ?? [];
 			return windows.length && windows.every((w) => w !== null) ? Math.min(...windows as number[]) : null;
 		}
@@ -627,9 +628,9 @@ export class Gateway implements CoreModule {
 		const known = this.window(provider, id, fallback);
 		if (known !== null) return known;
 		if (provider === GROUP_PROVIDER) {
-			const windows = this.groups().find((g) => g.id === id)?.entries.map((e) => {
+			const windows = this.groups().find((g) => g.id === id)?.entries.flatMap((e) => {
 				const channel = this.channel(e.channel);
-				return channel ? this.executionWindow(channel.provider, e.model) : 128_000;
+				return channel ? [this.executionWindow(channel.provider, e.model)] : [];
 			}) ?? [];
 			if (windows.length) return Math.min(...windows);
 		}

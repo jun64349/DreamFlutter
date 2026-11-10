@@ -97,6 +97,17 @@ describe("v0.6 model configuration", () => {
     assert.deepEqual(t.core.module(Gateway)!.groups().map((g) => g.id), ["c", "a", "b", "d"]);
   });
 
+  it("does not let a deleted channel shrink a group's window to the 128k fallback (0.8.1 F.2)", async () => {
+    await start();
+    const big = await channel([{ id: "deepseek-v4.1-flash", contextWindow: 1_000_000 }]);
+    const gone = await channel([{ id: "deepseek-flash", contextWindow: 64_000 }]);
+    await t.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: big, model: "deepseek-v4.1-flash", priority: 0 }, { channel: gone, model: "deepseek-flash", priority: 1 }] });
+    await t.core.call("gateway.removeChannel", { id: gone });
+    const gateway = t.core.module(Gateway)!;
+    assert.equal(gateway.window("dreamflutter", "main"), 1_000_000);
+    assert.equal(gateway.resolveModel({ provider: "dreamflutter", id: "main", contextWindow: 0 } as never).contextWindow, 1_000_000);
+  });
+
   it("keeps routed group and compression windows equal and clamps thinking to the actual member", async () => {
     t = await startTestCore(undefined, { gatewayTransport: (model, context, options) => t.faux.streamSimple(model as never, context as never, options) });
     const id = await channel([{ id: "large", contextWindow: 100_000, thinkingLevels: ["off"] }, { id: "small", contextWindow: 60_000, thinkingLevels: ["high"] }]);
