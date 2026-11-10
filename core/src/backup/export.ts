@@ -30,7 +30,7 @@ export const MIN_DB_VERSION = 8;
 export function excludedFromData(name: string): boolean {
 	const n = name.toLowerCase();
 	return (
-		["webview2", "core.json", "core.lock", "core.db", "core.db-wal", "core.db-shm", "sandbox", "backups", "trash", "secrets", "pi", "window", "cache", "migration.json"].includes(n) ||
+		["webview2", "core.json", "core.lock", "core-startup.json", "core.db", "core.db-wal", "core.db-shm", "sandbox", "backups", "trash", "secrets", "pi", "window", "cache", "migration.json"].includes(n) ||
 		n.startsWith("core.log") ||
 		["application-data", "user-content"].includes(n) || n.startsWith("storage-") ||
 		n === "updates" ||
@@ -149,6 +149,11 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 			dbVersion = Number((copy.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
 			counts = tableCounts(copy);
 			sessionFiles = (copy.prepare("SELECT path FROM session_meta").all() as { path: string }[]).map((r) => r.path);
+			if (copy.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_recycle'").get()) {
+				if (copy.prepare("SELECT 1 FROM session_recycle WHERE phase<>'stored' LIMIT 1").get()) throw new Error("回收站中有未完成的文件操作，请先完成恢复处理再备份");
+				const recycled = copy.prepare("SELECT stored_path FROM session_recycle WHERE phase='stored' AND expires_at>?").all(Date.now()) as { stored_path: string }[];
+				sessionFiles.push(...recycled.map((r) => r.stored_path));
+			}
 			materials = options.includeMaterials ? (copy.prepare("SELECT id, path FROM materials WHERE path IS NOT NULL AND path != ''").all() as { id: string; path: string }[]) : [];
 			workspaces = workspacesOf(copy, source.paths.dataDir, options.prefs);
 		} finally {

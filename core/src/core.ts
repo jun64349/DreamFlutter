@@ -8,10 +8,12 @@ import { SessionManager, type AgentSessionEvent, type AgentSessionRuntime, type 
 import type { BackupPart } from "./backup/parts.ts";
 import { ConfirmationStore } from "./confirmations.ts";
 import { Db, now } from "./db.ts";
+import { assertSessionAvailable } from "./sessions/recycle.ts";
 import { AGENT_MODES, type AgentMode } from "./agent/harness.ts";
 import { approvalExtension } from "./ext/approval.ts";
 import type { Logger } from "./log.ts";
-import type { Notifier } from "./notify.ts";
+import { NotificationCenter, type Notifier } from "./notify.ts";
+import { StartupProgress } from "./startup.ts";
 import type { CorePaths } from "./paths.ts";
 import { dialogKind } from "./pi/dialogs.ts";
 import { createSessionRuntime, isProjectTrusted, recordedSandbox, type PiHostConfig } from "./pi/host.ts";
@@ -28,6 +30,7 @@ import type { Ledger } from "./ledger/ledger.ts";
 export const CORE_VERSION = "0.7.0";
 
 export interface CoreOptions {
+	startup?: StartupProgress;
 	updates?: import("./update/module.ts").UpdateOptions;
 	piMigration?: import("./gateway/pi-migration.ts").PiMigrationOptions;
 	/** Test-only transport/limits for the independent official web tools. */
@@ -125,6 +128,9 @@ export class Core {
 	readonly db: Db;
 	readonly log: Logger;
 	readonly notifier: Notifier;
+	readonly notifications: NotificationCenter;
+	readonly startup: StartupProgress;
+	private readonly externalStartup: boolean;
 	readonly settings: SettingsStore;
 	readonly security: SecurityService;
 	readonly library: LibraryRegistry;
@@ -183,11 +189,17 @@ export class Core {
 	beforeOpenSlot?: () => void;
 	beforeModuleStart?: () => void;
 	private readonly shutdownListeners: (() => void)[] = [];
+	private readonly shutdownPreparations: (() => Promise<void>)[] = [];
+	private readonly broadcastListeners = new Set<(message: Record<string, unknown>) => void>();
 
 	constructor(options: CoreOptions) {
 		this.paths = options.paths;
 		this.log = options.log;
 		this.notifier = options.notifier;
+		this.notifications = new NotificationCenter(this);
+		this.startup = options.startup ?? new StartupProgress();
+		this.externalStartup = !!options.startup;
+		this.startup.onChange(state => this.broadcast({ event: "core.startup", ...state }));
 		this.agentDir = options.agentDir;
 		this.sessionDir = options.sessionDir;
 		mkdirSync(options.paths.dataDir, { recursive: true });
@@ -235,6 +247,7 @@ export class Core {
 			title: "设置、运行记录、确认记录",
 			tables: ["settings", "confirmations", "runs", "run_steps", "workspace_tool_rules", "app_flags"],
 			paths: {
+				settings: { value: "json" },
 				confirmations: { session_file: "path", cwd: "path" },
 				runs: { session_file: "path", cwd: "path", files: "json" },
 				workspace_tool_rules: { cwd: "key" },
@@ -300,6 +313,8 @@ export class Core {
 		const slow: string[] = [];
 		for (const module of this.modules) {
 			this.beforeModuleStart?.();
+			const label = module.constructor.name === "MemoryModule" ? "正在准备记忆……" : module.constructor.name === "Sandbox" ? "正在检查蝶君……" : "正在准备后台服务……";
+			this.startup.mark(module.constructor.name, label);
 			const at = performance.now();
 			await module.start?.();
 			const ms = performance.now() - at;
@@ -309,6 +324,7 @@ export class Core {
 		if (slow.length) this.log.info(`startup: slow modules: ${slow.join(", ")}`);
 		this.reaper = setInterval(() => void this.reapIdle(), 60_000);
 		this.reaper.unref();
+		if (!this.externalStartup) this.startup.mark("ready", "准备好了", true);
 	}
 
 	register(method: string, handler: Handler): void {
@@ -345,11 +361,17 @@ export class Core {
 
 	removeClient(client: Client): void {
 		this.clients.delete(client);
+		this.notifications.remove(client);
 	}
 
 	broadcast(message: Record<string, unknown>): void {
 		for (const client of this.clients) client.send(message);
+		for (const listener of this.broadcastListeners) listener(message);
 	}
+	onBroadcast(listener: (message: Record<string, unknown>) => void): () => void {
+		this.broadcastListeners.add(listener); return () => this.broadcastListeners.delete(listener);
+	}
+	beforeShutdown(listener: () => Promise<void>): void { this.shutdownPreparations.push(listener); }
 
 	private watched(slotId: string): boolean {
 		for (const client of this.clients) if (client.attached.has(slotId)) return true;
@@ -369,6 +391,7 @@ export class Core {
 
 	/** All task entry points share the same side-session exclusion. */
 	assertTaskSession(sessionFile: string): void {
+		assertSessionAvailable(this, sessionFile);
 		if (this.findSlotByFile(sessionFile)?.isSideConversation || (existsSync(sessionFile) && isSideFile(sessionFile))) throw new RpcError("bad_request", "侧边对话不能绑定任务或定时计划");
 	}
 
@@ -384,6 +407,7 @@ export class Core {
 		if (options.slotId && this.isSlotClosing(options.slotId)) throw new RpcError("conflict", "会话正在关闭，请稍后重试");
 		if (options.taskId && options.sessionFile) this.assertTaskSession(options.sessionFile);
 		if (options.sessionFile && this.deletingSessionFiles.has(normalizeCwd(options.sessionFile))) throw new RpcError("conflict", "会话正在删除");
+		if (options.sessionFile) assertSessionAvailable(this, options.sessionFile);
 		if (options.sessionFile && this.pendingSessionFiles.has(normalizeCwd(options.sessionFile))) throw new RpcError("conflict", "会话正在保存，请稍后重试");
 		if (!options.sessionFile) return this.openNewSlot(options);
 		const existing = this.findSlotByFile(options.sessionFile);
@@ -417,6 +441,7 @@ export class Core {
 		options.client?.attached.add(slotId);
 		const parentSlot = options.parentSlotId ? this.slot(options.parentSlotId) : undefined;
 		const parentFile = parentSlot?.info().sessionFile ?? options.forkOf;
+		if (parentFile) assertSessionAvailable(this, parentFile);
 		const isSide = !!(options.forkOf || options.parentSlotId);
 		if (isSide && options.taskId) throw new RpcError("bad_request", "侧边对话不能绑定任务");
 		if (isSide && !parentFile && !parentSlot?.incognito) throw new RpcError("bad_request", "主会话尚未保存");
@@ -550,11 +575,12 @@ export class Core {
 			dialogOpened: (slot, request) => {
 				this.confirmations.opened({ slotId: slot.slotId, sessionFile: slot.info().sessionFile ?? undefined, cwd: slot.cwd }, request);
 				this.broadcast({ event: "confirm.changed", confirmation: this.confirmations.get(request.id) });
-				if (!this.watched(slot.slotId) && this.settings.get().notifications) {
-					const kind = dialogKind(request.title);
-					const title = kind === "approval" ? "Agent 需要你批准一个操作" : kind === "trust" ? "需要确认是否信任工作区" : "Agent 需要你补充信息";
-					this.notifier.notify(title, slot.info().sessionName ?? slot.cwd);
-				}
+				const kind = dialogKind(request.title);
+				// Dialog owners (including T-85 pre-start intents) share this single notification path.
+				if (slot.sandboxed || kind === "approval" || kind === "trust") this.notifications.publish(slot.sandboxed ? "butterfly.waiting" : "workbench.approval", {
+					title: slot.sandboxed ? "蝶君有件事等你决定" : "工作台需要你批准", body: slot.info().sessionName ?? slot.cwd,
+					target: { page: "attention", slotId: slot.slotId, sessionFile: slot.info().sessionFile, itemId: request.id, runId: slot.currentRun?.id },
+				});
 			},
 			dialogClosed: (_slot, id, outcome, response) => {
 				this.confirmations.closed(id, outcome, response);
@@ -582,10 +608,10 @@ export class Core {
 			runFinished: (slot, run) => {
 				this.broadcast({ event: "run.finished", run });
 				for (const module of this.modules) module.onRunFinished?.(slot, run);
-				if (!this.watched(slot.slotId) && this.settings.get().notifications && run.status !== "aborted") {
-					const name = slot.info().sessionName ?? run.prompt ?? "任务";
-					this.notifier.notify(run.status === "failed" ? "任务失败" : "任务已完成", `${name}${run.error ? `：${run.error}` : ""}`);
-				}
+				if (run.status === "done" && !this.db.get("SELECT id FROM notices WHERE slot_id=? AND status='pending'", slot.slotId)) this.notifications.publish(slot.sandboxed ? "butterfly.done" : "workbench.done", {
+					title: slot.sandboxed ? "蝶君做完了" : "工作台回复完了", body: slot.info().sessionName ?? run.prompt ?? "任务",
+					target: { page: slot.sandboxed ? "butterfly" : "chat", slotId: slot.slotId, sessionFile: run.sessionFile, taskId: run.taskId, runId: run.id },
+				});
 			},
 		};
 	}
@@ -644,6 +670,13 @@ export class Core {
 		});
 
 		this.register("settings.get", () => this.settings.get());
+		this.register("core.startup", () => this.startup.snapshot());
+		this.register("core.activity", () => { const running = this.sessionSlots().filter(s => s.running || s.info().compacting || this.opening.has(s.slotId)).map(s => s.info()); return { running, count: running.length }; });
+		this.register("notifications.presence", (p, client) => {
+			if (!client || typeof p.foreground !== "boolean") throw new RpcError("bad_request", "需要窗口连接和前台状态");
+			this.notifications.setPresence(client, { foreground: p.foreground, slotId: str(p.slotId) ?? null });
+			return { ok: true };
+		});
 		this.register("settings.update", (params) => this.settings.update(params));
 
 		this.register("slot.open", async (params, client) => {
@@ -706,6 +739,7 @@ export class Core {
 		this.register("runs.steps", (params) => this.runs.steps(requireStr(params.runId, "runId")));
 		this.register("runs.acknowledge", (params) => {
 			this.runs.acknowledge(requireStr(params.id, "id"));
+			this.broadcast({ event: "runs.changed" });
 			return { ok: true };
 		});
 		this.register("workspace.toolRules", (params) =>
@@ -724,6 +758,9 @@ export class Core {
 		// Timed so a slow exit can be traced (V07-07).
 		const began = performance.now();
 		const slow: string[] = [];
+		for (const prepare of this.shutdownPreparations) {
+			try { await prepare(); } catch (error) { this.log.warn("shutdown preparation failed", error); }
+		}
 		for (const module of [...this.modules].reverse()) {
 			const at = performance.now();
 			try {

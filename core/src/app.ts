@@ -24,6 +24,9 @@ import { WebSearchModule } from "./modules/search.ts";
 import { PackageSourcesModule } from "./modules/package-sources.ts";
 import { Ledger } from "./ledger/ledger.ts";
 import { UpdateModule } from "./update/module.ts";
+import { AttentionModule } from "./modules/attention.ts";
+import { SetupModule } from "./modules/setup.ts";
+import { GitWindow } from "./git/window.ts";
 
 /** Builds the core with every feature module wired in. */
 export function buildCore(options: CoreOptions): Core {
@@ -31,6 +34,7 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new Ledger(core));
 	core.use(new PackageSourcesModule(core));
 	const llm = new Llm(core, options.modelRuntime);
+	core.use(new GitWindow(core, llm));
 	core.use(new SessionIndex(core));
 	const providers = new Providers(core, llm);
 	const gateway = new Gateway(core, providers, { transport: options.gatewayTransport });
@@ -44,7 +48,7 @@ export function buildCore(options: CoreOptions): Core {
 	const tasks = new TasksModule(core);
 	core.use(tasks);
 	core.use(new SchedulerModule(core, tasks));
-	core.use(new ButterflyModule(core, tasks));
+	core.use(new ButterflyModule(core, tasks, llm));
 	core.use(new VisionModule(core, llm));
 	core.use(new DocumentsModule(core));
 	core.use(new CardsModule(core));
@@ -56,5 +60,7 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new UpdateModule(core, options.updates));
 	registerRenderer(core);
 	core.use(new McpModule(core));
+	core.use(new AttentionModule(core, tasks));
+	core.use(new SetupModule(core, gateway));
 	return core;
 }

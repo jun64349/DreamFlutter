@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { backupBeforeUpgrade } from "./backup/backup.ts";
 import { applyPendingRestore } from "./backup/switch.ts";
@@ -13,10 +13,11 @@ import { configurePiNetworking } from "./pi/http.ts";
 import { startServer } from "./server.ts";
 import { CORE_VERSION } from "./core.ts";
 import { spawn } from "node:child_process";
-import { configureResourcePaths, initializeLocations, storageLocations } from "./storage/locations.ts";
+import { atomicJson, configureResourcePaths, initializeLocations, storageLocations } from "./storage/locations.ts";
 import { preparePendingMove, remapMovedDatabase, rollbackMove, validateMove, type MoveRecord } from "./storage/move.ts";
 import { recoverUpdateStartup } from "./update/startup.ts";
 import { buildInfo } from "./update/installation.ts";
+import { StartupProgress } from "./startup.ts";
 
 const { values: args } = parseArgs({
 	options: {
@@ -25,6 +26,7 @@ const { values: args } = parseArgs({
 		"session-dir": { type: "string" },
 		port: { type: "string" },
 		"echo-log": { type: "boolean" },
+		"startup-events": { type: "boolean" },
 		"update-test-source": { type: "string" },
 		"update-test-cert": { type: "string" },
 	},
@@ -46,24 +48,40 @@ if (!lock.ok) {
 const startedAt = performance.now();
 let phaseAt = startedAt;
 const phases: string[] = [];
+const startup = new StartupProgress();
+const startupFile = join(paths.dataDir, "core-startup.json");
+startup.onChange(state => {
+	const event = { event: "core.startup", ...state };
+	try { atomicJson(startupFile, event); } catch (error) { log.warn("startup progress file unavailable", error); }
+	if (args["startup-events"]) process.stdout.write(JSON.stringify(event) + "\n");
+});
+const clearStartup = (): void => { try { rmSync(startupFile, { force: true }); } catch (error) { log.warn("startup progress cleanup failed", error); } };
+const phaseText: Record<string, string> = {
+	"update check": "正在检查更新恢复……", "storage and restore": "正在准备数据……", "backup before upgrade": "正在检查备份……",
+	"network": "正在准备连接……", "open data and modules": "正在准备后台服务……", "server": "正在连接窗口……",
+	"start modules": "正在准备服务……", "check moved data": "正在验证数据位置……",
+};
 const phase = (name: string): void => {
 	const now = performance.now();
 	phases.push(`${name} ${Math.round(now - phaseAt)}ms`);
 	phaseAt = now;
 };
+const begin = (name: string): void => startup.mark(name, phaseText[name] ?? "正在准备……");
 
 process.on("uncaughtException", (error) => log.error("uncaught exception", error));
 process.on("unhandledRejection", (error) => log.error("unhandled rejection", error));
 
+begin("update check");
 try {
-	if (await recoverUpdateStartup(paths) === "guardian-active") { releaseLock(paths); process.exit(7); }
-	if ((args["update-test-source"] || process.env.DREAMFLUTTER_UPDATE_TEST_SOURCE) && (buildInfo() as unknown as { failStartup?: boolean }).failStartup) { releaseLock(paths); process.exit(42); }
-} catch (error) { log.error("update recovery: startup held to preserve data", error); releaseLock(paths); process.exit(8); }
+	if (await recoverUpdateStartup(paths) === "guardian-active") { clearStartup(); releaseLock(paths); process.exit(7); }
+	if ((args["update-test-source"] || process.env.DREAMFLUTTER_UPDATE_TEST_SOURCE) && (buildInfo() as unknown as { failStartup?: boolean }).failStartup) { clearStartup(); releaseLock(paths); process.exit(42); }
+} catch (error) { log.error("update recovery: startup held to preserve data", error); clearStartup(); releaseLock(paths); process.exit(8); }
 phase("update check");
 let migration: MoveRecord | undefined;
 let startingCore: ReturnType<typeof buildCore> | undefined;
 let startingServer: Awaited<ReturnType<typeof startServer>> | undefined;
 try {
+begin("storage and restore");
 if (!args["agent-dir"] && !args["session-dir"]) initializeLocations(paths.dataDir);
 migration = await preparePendingMove(paths.dataDir);
 Object.assign(paths, corePaths(paths.dataDir));
@@ -89,13 +107,17 @@ try {
 	process.exit(4);
 }
 phase("storage and restore");
+begin("backup before upgrade");
 await backupBeforeUpgrade(paths, agentDir, sessionDir, log);
 phase("backup before upgrade");
 
+begin("network");
 await configurePiNetworking(agentDir, log);
 phase("network");
 
+begin("open data and modules");
 const core = buildCore({
+	startup,
 	updates: { testSource: args["update-test-source"] ?? process.env.DREAMFLUTTER_UPDATE_TEST_SOURCE, testThumbprints: (args["update-test-source"] || process.env.DREAMFLUTTER_UPDATE_TEST_SOURCE) ? (args["update-test-cert"] ?? process.env.DREAMFLUTTER_UPDATE_TEST_CERT ?? "").split(",").filter(Boolean) : [] },
 	paths,
 	agentDir,
@@ -110,15 +132,18 @@ if (migration) remapMovedDatabase(core, migration);
 phase("open data and modules");
 
 const token = newToken();
+begin("server");
 const server = await startServer(core, { port: args.port ? Number(args.port) : 0, token });
 startingServer = server;
 phase("server");
+begin("start modules");
 await core.start();
 phase("start modules");
-if (migration) { await validateMove(core, migration); phase("check moved data"); }
+if (migration) { begin("check moved data"); await validateMove(core, migration); phase("check moved data"); }
 writeInfo(paths, { pid: process.pid, port: server.port, token, version: CORE_VERSION, startedAt: Date.now() });
 log.info(`core ${CORE_VERSION} listening on 127.0.0.1:${server.port} (pid ${process.pid})`);
 log.info(`startup ${Math.round(performance.now() - startedAt)}ms: ${phases.join(", ")}`);
+startup.mark("ready", "准备好了", true);
 process.stdout.write(JSON.stringify({ ready: true, pid: process.pid, port: server.port }) + "\n");
 
 let exiting = false;
@@ -128,6 +153,7 @@ async function exit(code: number): Promise<void> {
 	const began = performance.now();
 	log.info("shutting down");
 	removeInfo(paths);
+	clearStartup();
 	await server.close();
 	await core.shutdown();
 	releaseLock(paths);
@@ -137,6 +163,7 @@ async function exit(code: number): Promise<void> {
 
 core.onShutdown(() => {
 	removeInfo(paths);
+	clearStartup();
 	releaseLock(paths);
 	void server.close().then(() => process.exit(0));
 });
@@ -147,6 +174,7 @@ process.on("SIGTERM", () => void exit(0));
 	await startingServer?.close();
 	await startingCore?.shutdown();
 	removeInfo(paths);
+	clearStartup();
 	if (migration) {
 		if (migration.stage === "committed") {
 			// Never roll back to a source already cleaned after successful validation.

@@ -122,6 +122,7 @@ function builtInExtensions(agentDir: string, security?: SecurityService, context
 			return loaded;
 		}, createTransport: secureMcpFactory(security?.audit, undefined, context, library ? {
 			allowed: (entry) => library.mcpAllowed(entry, butterfly),
+			toolAllowed: (entry, tool) => library.mcpToolAllowed(entry, tool),
 			used: (entry, id) => library.used("mcp", library.mcpKey(entry), `${transportId}:${entry.name}:${String(id)}`),
 		} : undefined) }), replaceable: true, builtin: true },
 	] as InlineExtension[];

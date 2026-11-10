@@ -5,6 +5,7 @@ import type { Core } from "../core.ts";
 import { classifyFailure, isChannelFailure } from "../gateway/classify.ts";
 import { textOf } from "../runs.ts";
 import { withLedgerContext, type LedgerContext } from "../ledger/types.ts";
+import { purposeModel, type ModelPurpose } from "../settings.ts";
 
 /**
  * One-off model calls the core makes for itself (titles, memory extraction,
@@ -40,15 +41,21 @@ export class Llm {
 	}
 
 	/**
-	 * The auxiliary model: settings.auxModel, else the model of the session the
+	 * Small-task model (with the title override), else the model of the session the
 	 * call is for ([sessionModel], provider/id), else the default model, else
 	 * any available one. Only models with usable credentials count.
 	 */
 	async auxModel(runtime?: ModelRuntime, sessionModel?: string | null): Promise<Model<never> | undefined> {
+		return this.modelFor("title", runtime, sessionModel);
+	}
+
+	async modelFor(purpose: ModelPurpose, runtime?: ModelRuntime, sessionModel?: string | null): Promise<Model<never> | undefined> {
 		const rt = runtime ?? (await this.runtime());
-		const { auxModel, defaultModel } = this.core.settings.get();
+		const settings = this.core.settings.get();
+		const auxModel = purposeModel(settings, purpose), defaultModel = settings.defaultModel;
+		const roleModel = purpose === "compaction" || purpose === "analysis" ? settings.largeTaskModel : settings.smallTaskModel;
 		const available = (await rt.getAvailable()).map((m) => this.core.resolveModel(m)) as Model<never>[];
-		for (const key of [auxModel, sessionModel, defaultModel]) {
+		for (const key of [auxModel, settings.modelOverrides[purpose] === "session" ? null : roleModel, sessionModel, defaultModel]) {
 			if (!key) continue;
 			const slash = key.indexOf("/");
 			const model = available.find((m) => m.provider === key.slice(0, slash) && m.id === key.slice(slash + 1));
@@ -60,10 +67,10 @@ export class Llm {
 	/** Sends one user message and returns the text answer. */
 	async complete(
 		prompt: string | ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[],
-		options: { system?: string; model?: Model<never>; sessionModel?: string | null; maxTokens?: number; timeoutMs?: number; runtime?: ModelRuntime; context?: LedgerContext } = {},
+		options: { system?: string; model?: Model<never>; purpose?: ModelPurpose; sessionModel?: string | null; maxTokens?: number; timeoutMs?: number; runtime?: ModelRuntime; context?: LedgerContext } = {},
 	): Promise<string> {
 		const runtime = options.runtime ?? (await this.runtime());
-		const model = options.model ? this.core.resolveModel(options.model) as Model<never> : (await this.auxModel(runtime, options.sessionModel));
+		const model = options.model ? this.core.resolveModel(options.model) as Model<never> : (await this.modelFor(options.purpose ?? "title", runtime, options.sessionModel));
 		if (!model) throw new Error("没有可用的模型");
 		const signal = AbortSignal.timeout(options.timeoutMs ?? 60_000);
 		this.core.ledger?.install(runtime, () => ({ purpose: "auxiliary" }));

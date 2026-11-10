@@ -207,6 +207,15 @@ describe("T-07 side sessions / F-01 first-send transaction", () => {
 		if (shutdown) await t.waitFor(() => !t.core.slots.has("side"));
 		gate.release(); await Promise.all([sending, closing, stopping]); assert.equal(files().length, 1);
 	});
+	it("T85 deleting a parent during the side's first send joins its transaction and leaves no published side behind", async () => {
+		const p = await parent(); await open("side", { forkOf: p.sessionFile }); const gate = pauseBind("side");
+		const sending = t.send("side", { id: "concurrent-delete", type: "prompt", message: "must join deletion" }); await gate.ready;
+		const deleting = t.core.call("sessions.delete", { path: p.sessionFile });
+		await t.waitFor(() => !t.core.slots.has("side")); gate.release();
+		await sending; const deleted = await deleting as { batchId: string };
+		assert.equal(files().length, 0); assert.equal((await t.core.call("sessions.list", {}) as unknown[]).length, 0);
+		await t.core.call("sessions.restore", { batchId: deleted.batchId }); assert.equal(files().length, 1);
+	});
 	it("mode and sandbox come from the parent, and reused client request IDs after reattach are new sends", async () => {
 		t.core.settings.update({ agentMode: "minimal" });
 		const p = await parent();

@@ -22,7 +22,7 @@ export interface PiMigrationOptions {
 	oauthRuntime?: () => Promise<ModelRuntime>;
 }
 type State = { status?: "running" | "failed" | "done"; attempts?: number; version?: number; at?: number; backup?: string; error?: string; hashes?: PiJson; generatedHash?: string; generatedAt?: number; externalBackup?: string; unresolved?: string[]; oauthProviders?: string[]; oauthConfigs?: PiJson; rollbackState?: State; results?: { provider: string; status: string }[] };
-const REF_KEYS = ["defaultModel", "auxModel", "visionModel", "memoryModel", "fallbackModels", "modelContextWindows"];
+const REF_KEYS = ["defaultModel", "smallTaskModel", "largeTaskModel", "modelOverrides", "auxModel", "visionModel", "memoryModel", "fallbackModels", "modelContextWindows"];
 
 /** P1–P6: one app-owned migration, all model references and rows commit together. */
 export class PiMigration implements CoreModule {
@@ -206,7 +206,9 @@ export class PiMigration implements CoreModule {
 			for (const key of REF_KEYS) {
 				const row = this.core.db.get<{ value: string }>("SELECT value FROM settings WHERE key=?", key); if (!row) continue;
 				const value = JSON.parse(row.value);
-				const mapped = typeof value === "string" ? map(value) : Array.isArray(value) ? value.map(map) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([ref, n]) => [map(ref), n])) : value;
+				const mapped = key === "modelOverrides" && value && typeof value === "object"
+					? Object.fromEntries(Object.entries(value).map(([purpose, ref]) => [purpose, typeof ref === "string" && ref.includes("/") ? map(ref) : ref]))
+					: typeof value === "string" ? map(value) : Array.isArray(value) ? value.map(map) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([ref, n]) => [map(ref), n])) : value;
 				this.core.db.run("UPDATE settings SET value=? WHERE key=?", JSON.stringify(mapped), key);
 			}
 			for (const group of this.core.db.all<{ id: string; entries: string }>("SELECT id,entries FROM gateway_groups")) {

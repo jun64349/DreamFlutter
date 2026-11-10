@@ -11,6 +11,7 @@ import { RecordingNotifier } from "../src/notify.ts";
 import { corePaths, defaultAgentDir } from "../src/paths.ts";
 import { SecretStore, secretFileOf } from "../src/modules/secrets.ts";
 import { SkillsModule } from "../src/modules/skills.ts";
+import { SessionIndex } from "../src/modules/session-index.ts";
 import { CardsModule } from "../src/cards/cards.ts";
 import { initializeLocations, locationFile, storageLocations, type StorageKind } from "../src/storage/locations.ts";
 import { moveResultFile, pendingMoveFile, preparePendingMove, remapMovedDatabase, requestMove, rollbackMove, validateMove, type MoveHooks } from "../src/storage/move.ts";
@@ -22,6 +23,20 @@ import { stageBackup } from "../src/backup/restore.ts";
 import { applyPendingRestore, writeSwitchRecord } from "../src/backup/switch.ts";
 
 const roots: string[] = [], cores: Core[] = [];
+
+it("T85 moves the recycle resource, remaps both recovery paths and metadata, and restores with its original deadline", async () => {
+  const { root, dir } = fresh(); initializeLocations(root); let core = construct(root); await core.start();
+  const source = storageLocations(root).sessions, path = join(source, "recycled.jsonl");
+  writeFileSync(path, JSON.stringify({ type: "session", version: 3, id: "recycled", timestamp: new Date().toISOString(), cwd: dir }) + "\n");
+  const deleted = await core.call("sessions.delete", { path }) as { batchId: string; expiresAt: number };
+  core = await move(core, "sessions", join(dir, "moved-sessions"));
+  const [row] = core.module(SessionIndex)!.recycle.list();
+  assert.ok(row); assert.equal(row.expires_at, deleted.expiresAt);
+  assert.equal(row.original_path, join(dir, "moved-sessions", "recycled.jsonl")); assert.ok(existsSync(row.stored_path));
+  assert.equal(JSON.parse(row.metadata).path, row.original_path);
+  assert.equal((await core.call("sessions.list", {}) as unknown[]).length, 0);
+  await core.call("sessions.restore", { batchId: deleted.batchId }); assert.ok(existsSync(row.original_path));
+});
 afterEach(async () => {
   for (const core of cores.splice(0)) await core.shutdown();
   for (const root of roots.splice(0)) {

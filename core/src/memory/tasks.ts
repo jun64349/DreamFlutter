@@ -85,6 +85,32 @@ export class TaskViews {
 		return this.db.all<Row>("SELECT * FROM memory_task_views WHERE session_id = ? ORDER BY started_at DESC, rowid DESC", sessionId).map(toView);
 	}
 
+	decision(sessionId: string, reason: string, before: TaskView | undefined, after: TaskView, changed: boolean): string {
+		const id = `boundary_${randomUUID()}`;
+		this.db.run("INSERT INTO memory_boundary_decisions(id,session_id,at,reason,before_task,after_task,changed) VALUES(?,?,?,?,?,?,?)", id, sessionId, this.clock(), reason, before ? JSON.stringify(before) : null, JSON.stringify(after), Number(changed));
+		return id;
+	}
+
+	decisions(sessionId?: string) {
+		return this.db.all<{ id: string; session_id: string; reason: string; at: number; before_task: string | null; after_task: string; changed: number; undone_at: number | null }>(
+			`SELECT * FROM memory_boundary_decisions ${sessionId ? "WHERE session_id=?" : ""} ORDER BY rowid DESC LIMIT 200`, ...(sessionId ? [sessionId] : []),
+		).map((r) => ({ id: r.id, sessionId: r.session_id, reason: r.reason, at: r.at, before: r.before_task ? JSON.parse(r.before_task) as TaskView : null, after: JSON.parse(r.after_task) as TaskView, changed: !!r.changed, undone: r.undone_at !== null }));
+	}
+
+	undoDecision(id: string): { sessionId: string; task: TaskView | null } {
+		const row = this.db.get<{ session_id: string; before_task: string | null; after_task: string; undone_at: number | null; rowid: number }>("SELECT rowid,* FROM memory_boundary_decisions WHERE id=?", id);
+		if (!row || row.undone_at !== null) throw new Error("这次判断不存在或已经撤销");
+		const after = JSON.parse(row.after_task) as TaskView;
+		const before = row.before_task ? JSON.parse(row.before_task) as TaskView : null;
+		if (this.current(row.session_id)?.id !== after.id || this.db.get("SELECT 1 FROM memory_boundary_decisions WHERE session_id=? AND rowid>? AND undone_at IS NULL", row.session_id, row.rowid)) throw new Error("后面已有新的任务判断，请先处理最新的一条");
+		this.db.transaction(() => {
+			if (!before || before.id !== after.id) this.db.run("UPDATE memory_task_views SET status='ended', ended_at=?, end_reason='user_continued' WHERE id=?", this.clock(), after.id);
+			if (before) this.db.run("UPDATE memory_task_views SET status=?,ended_at=?,end_reason=?,last_active_at=? WHERE id=?", before.status, before.endedAt, before.endReason, before.lastActiveAt, before.id);
+			this.db.run("UPDATE memory_boundary_decisions SET undone_at=? WHERE id=?", this.clock(), id);
+		});
+		return { sessionId: row.session_id, task: before ? this.get(before.id)! : null };
+	}
+
 	/** Starts a task; the one going on (if any) becomes [previous] (ended, or suspended when the boundary was only guessed). */
 	start(input: { sessionId: string; scopeKey: string; reason: BoundaryReason; prompt: string | null; previous?: { status: "ended" | "suspended"; reason: string } }): TaskView {
 		return this.db.transaction(() => {
@@ -102,7 +128,9 @@ export class TaskViews {
 				at,
 				at,
 			);
-			return this.get(id)!;
+			const task = this.get(id)!;
+			this.decision(input.sessionId, input.reason, old, task, true);
+			return task;
 		});
 	}
 

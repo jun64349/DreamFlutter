@@ -46,7 +46,7 @@ export function scrubMcpTransport(transport: McpTransport, observe?: (direction:
 	};
 }
 
-export function secureMcpFactory(audit?: SecurityAudit, observe?: (name: string, direction: "send" | "receive", message: unknown) => void, context: () => AuditContext = () => ({ requestId: "mcp" }), policy?: { allowed: (entry: McpServerEntry) => boolean; used?: (entry: McpServerEntry, id: unknown) => void }): McpTransportFactory {
+export function secureMcpFactory(audit?: SecurityAudit, observe?: (name: string, direction: "send" | "receive", message: unknown) => void, context: () => AuditContext = () => ({ requestId: "mcp" }), policy?: { allowed: (entry: McpServerEntry) => boolean; toolAllowed?: (entry: McpServerEntry, tool: string) => boolean; used?: (entry: McpServerEntry, id: unknown) => void }): McpTransportFactory {
 	return (entry, cwd, authProvider) => {
 		const connectionId = randomUUID();
 		const authorize = () => { if (policy && !policy.allowed(entry)) { audit?.record("mcp", entry.name, "deny", "服务未信任、已停用、配置已变更或未授权给蝶君", context()); throw new Error("MCP 服务未获信任、已停用或未授权给蝶君，请在技能页确认并重新加载"); } };
@@ -70,7 +70,9 @@ export function secureMcpFactory(audit?: SecurityAudit, observe?: (name: string,
 		audit?.record("mcp", entry.name, "start", "url" in config ? "HTTP/OAuth 公共 transport" : "最小平台环境 + 服务显式变量", context());
 		const scrubbed = scrubMcpTransport(transport, (direction, message) => observe?.(entry.name, direction, message));
 		return { ...scrubbed, async start() { authorize(); await scrubbed.start(); }, async send(message, options) {
-			authorize(); await scrubbed.send(message, options);
+			authorize();
+			if ("method" in message && message.method === "tools/call" && policy?.toolAllowed && !policy.toolAllowed(entry, String((message.params as { name?: unknown })?.name ?? ""))) throw new Error("这个工具已停用，请在技能页重新启用");
+			await scrubbed.send(message, options);
 			if ("method" in message && message.method === "tools/call") policy?.used?.(entry, `${connectionId}:${"id" in message ? String(message.id) : "notification"}`);
 		} };
 	};

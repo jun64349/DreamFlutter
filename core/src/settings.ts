@@ -5,6 +5,8 @@ export type ApprovalMode = "off" | "changes" | "all";
 
 /** Agent mode of new sessions (see agent/harness.ts). */
 export type AgentModeSetting = "standard" | "minimal";
+export type ModelPurpose = "title" | "memory" | "compaction" | "analysis";
+export type ModelOverrides = Partial<Record<ModelPurpose, string | null>>;
 
 /** Agent-behaviour settings owned by the core so they also apply without a UI. */
 export interface CoreSettings {
@@ -35,6 +37,15 @@ export interface CoreSettings {
 	backgroundCompactionLeadPercent: number;
 	/** provider/id the UI preselects for new sessions; null lets Pi decide. */
 	defaultModel: string | null;
+	smallTaskModel: string | null;
+	largeTaskModel: string | null;
+	/** Advanced purpose overrides; compaction also accepts session/small. */
+	modelOverrides: ModelOverrides;
+	butterflyStartWaitSeconds: 0 | 10 | 60;
+	firstSetupComplete: boolean;
+	userName: string;
+	defaultWorkspace: string | null;
+	sandboxSetupChoice: "now" | "later";
 	defaultThinking: string | null;
 	/** Per-model context window overrides, keyed by provider/id. */
 	modelContextWindows: Record<string, number>;
@@ -96,6 +107,14 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	backgroundCompactionModel: "session",
 	backgroundCompactionLeadPercent: 85,
 	defaultModel: null,
+	smallTaskModel: null,
+	largeTaskModel: null,
+	modelOverrides: {},
+	butterflyStartWaitSeconds: 60,
+	firstSetupComplete: false,
+	userName: "",
+	defaultWorkspace: null,
+	sandboxSetupChoice: "later",
 	defaultThinking: null,
 	modelContextWindows: {},
 	auxModel: null,
@@ -132,7 +151,26 @@ export class SettingsStore {
 
 	constructor(db: Db) {
 		this.db = db;
+		this.migrateModelRoles();
 		this.cache = this.load();
+	}
+
+	/** Idempotent settings migration, deliberately independent of schema numbering. */
+	private migrateModelRoles(): void {
+		if (this.db.get("SELECT key FROM app_flags WHERE key='model_roles_v1'")) return;
+		const rows = this.db.all<{key: string; value: string}>("SELECT key,value FROM settings");
+		const old = Object.fromEntries(rows.map(r => [r.key, parseJson<unknown>(r.value, null)]));
+		const overrides: ModelOverrides = {};
+		if (typeof old.memoryModel === "string") overrides.memory = old.memoryModel;
+		// Old installations implicitly compacted with each session's own model.
+		if (rows.length) overrides.compaction = old.backgroundCompactionModel === "aux" ? "small" : "session";
+		this.db.transaction(() => {
+			for (const [key, value] of Object.entries({ smallTaskModel: typeof old.auxModel === "string" ? old.auxModel : null, largeTaskModel: null, modelOverrides: overrides })) {
+				this.db.run("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", key, json(value));
+			}
+			if (rows.length) this.db.run("INSERT OR IGNORE INTO settings(key,value) VALUES('firstSetupComplete','true')");
+			this.db.run("INSERT INTO app_flags(key,value,at) VALUES('model_roles_v1','1',?)", Date.now());
+		});
 	}
 
 	get(): CoreSettings {
@@ -141,6 +179,15 @@ export class SettingsStore {
 
 	/** Applies the known keys of [patch]; unknown keys and wrong types are ignored. */
 	update(patch: Record<string, unknown>): CoreSettings {
+		// Keep old windows/clients functional during the UI transition.
+		patch = { ...patch };
+		if ("auxModel" in patch && !("smallTaskModel" in patch)) patch.smallTaskModel = patch.auxModel;
+		if (!("modelOverrides" in patch)) {
+			const overrides = { ...this.cache.modelOverrides };
+			if ("memoryModel" in patch && (patch.memoryModel === null || typeof patch.memoryModel === "string")) overrides.memory = patch.memoryModel;
+			if (patch.backgroundCompactionModel === "aux" || patch.backgroundCompactionModel === "session") overrides.compaction = patch.backgroundCompactionModel === "aux" ? "small" : "session";
+			if (JSON.stringify(overrides) !== JSON.stringify(this.cache.modelOverrides)) patch.modelOverrides = overrides;
+		}
 		const changed: (keyof CoreSettings)[] = [];
 		const next = { ...this.cache } as Record<string, unknown>;
 		for (const [key, value] of Object.entries(patch)) {
@@ -195,6 +242,11 @@ function sameType(reference: unknown, value: unknown): boolean {
 
 function valid(key: keyof CoreSettings, value: unknown): boolean {
 	switch (key) {
+		case "modelOverrides":
+			return value !== null && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([purpose, ref]) =>
+				["title", "memory", "compaction", "analysis"].includes(purpose) && (ref === null || typeof ref === "string" && (ref.includes("/") || purpose === "compaction" && ["session", "small"].includes(ref))));
+		case "butterflyStartWaitSeconds": return value === 0 || value === 10 || value === 60;
+		case "sandboxSetupChoice": return value === "now" || value === "later";
 		case "closeBehavior":
 			return value === "tray" || value === "quit";
 		case "pythonPackageSource":
@@ -240,4 +292,13 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 		default:
 			return true;
 	}
+}
+
+/** null means inherit the session, then the conversation default. */
+export function purposeModel(settings: CoreSettings, purpose: ModelPurpose): string | null {
+	const override = settings.modelOverrides[purpose];
+	if (override === "session" && purpose === "compaction") return null;
+	if (override === "small" && purpose === "compaction") return settings.smallTaskModel;
+	if (override) return override;
+	return purpose === "compaction" || purpose === "analysis" ? settings.largeTaskModel : settings.smallTaskModel;
 }

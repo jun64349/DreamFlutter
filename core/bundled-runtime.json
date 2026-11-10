@@ -1880,7 +1880,7 @@
     }
   ],
   "python": "core\\python\\cpython-3.13.18-windows-x86_64-none\\python.exe",
-  "pythonBytes": 218205234,
+  "pythonBytes": 219168488,
   "pythonDistributions": {
     "contourpy": "1.4.0",
     "cycler": "0.12.1",
@@ -1906,5 +1906,5 @@
   },
   "fontSha256": "2420e8078af796b19a3f6ef13de527a1a91c1e7171eea115926c614ced1009b3",
   "gitBytes": 96237338,
-  "pythonAddedBytes": 155425175
+  "pythonAddedBytes": 156388429
 }

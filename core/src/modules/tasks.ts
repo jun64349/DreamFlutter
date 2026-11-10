@@ -299,6 +299,7 @@ export class TasksModule implements CoreModule {
 		if (slot.incognito || slot.isSideConversation) return null;
 		const file = slot.info().sessionFile;
 		if (!file) return null;
+		this.core.assertTaskSession(file);
 		const existing = this.db.get<{ id: string }>("SELECT id FROM tasks WHERE session_file = ? ORDER BY created_at DESC LIMIT 1", file);
 		if (existing) return existing.id;
 		const prompt = slot.lastPrompt ?? slot.info().sessionName ?? "对话";
@@ -364,7 +365,12 @@ export class TasksModule implements CoreModule {
 		if (event.type === "tool_execution_start" && run.taskId) {
 			const args = (event.args ?? {}) as Record<string, unknown>;
 			const target = ["path", "command", "pattern", "query", "url"].map((k) => args[k]).find((v) => typeof v === "string") as string | undefined;
-			this.db.run("UPDATE tasks SET current_step = ? WHERE id = ?", oneLine(`${event.toolName}${target ? `：${target}` : ""}`, 120), run.taskId);
+			const labels: Record<string, string> = { read: "正在读取文件", write: "正在写入文件", edit: "正在修改文件", web_search: "正在搜索资料", web_fetch: "正在阅读网页", skill: "正在使用技能", pwsh: "正在运行命令", bash: "正在运行命令" };
+			this.db.run("UPDATE tasks SET current_step = ? WHERE id = ?", oneLine(`${labels[event.toolName] ?? "正在执行步骤"}${target ? `：${target}` : ""}`, 120), run.taskId);
+			this.changed(run.taskId);
+		}
+		if (event.type === "tool_execution_end" && run.taskId) {
+			this.db.run("UPDATE tasks SET current_step=? WHERE id=?", "正在整理结果", run.taskId); this.changed(run.taskId);
 		}
 		if (event.type === "turn_start") this.checkLimits(slot, run);
 	}
@@ -626,6 +632,12 @@ export class TasksModule implements CoreModule {
 		);
 	}
 
+	recordArtifact(taskId: string, path: string): void {
+		const task = this.get(taskId);
+		if (!task || !existsSync(path) || !statSync(path).isFile()) return;
+		this.addArtifact(task, path); this.changed(taskId);
+	}
+
 	listArtifacts(filter: { cwd?: string; taskId?: string; noteId?: string; limit?: number }): Artifact[] {
 		const where: string[] = [];
 		const params: (string | number)[] = [];
@@ -730,6 +742,7 @@ export class TasksModule implements CoreModule {
 			if (slot.isSideConversation) throw new RpcError("bad_request", "侧边对话不参与任务");
 			slot.taskId = task.id;
 			const file = slot.info().sessionFile;
+			if (file) core.assertTaskSession(file);
 			if (file && !task.sessionFile) this.update(task.id, { session_file: file });
 			return { ok: true };
 		});

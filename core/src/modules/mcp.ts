@@ -80,6 +80,12 @@ export class McpModule implements CoreModule {
 		const servers = config.mcpServers;
 		return servers && typeof servers === "object" ? (servers as Record<string, Json>) : {};
 	}
+	private readonly toolNames = new Map<string, string[]>();
+	private tools(source: string, name: string, entry: Json): { name: string; enabled: boolean }[] {
+		const overrides = entry.toolExposure as Record<string, string> | undefined;
+		const names = new Set([...(this.toolNames.get(`${source}:${name}`) ?? []), ...Object.keys(overrides ?? {})]);
+		return [...names].map((tool) => ({ name: tool, enabled: (overrides?.[tool] ?? entry.exposure) !== "hidden" }));
+	}
 
 	/** Servers as form data: user-level ones are editable, project ones are shown read-only. */
 	list(cwd?: string): (McpServerForm & EntryMetadata & { scope: "user" | "project"; source: string })[] {
@@ -105,6 +111,7 @@ export class McpModule implements CoreModule {
 			headers: mask(entry.headers),
 			description: str(entry.description),
 			exposure: str(entry.exposure),
+				tools: this.tools(source, name, entry),
 			...meta,
 			enabled: entry.enabled !== false && meta.enabled && meta.trust === "trusted",
 			timeout: typeof entry.timeout === "number" ? entry.timeout : undefined,
@@ -227,6 +234,18 @@ export class McpModule implements CoreModule {
 		this.write({ ...config, mcpServers: servers });
 	}
 
+
+	private setToolEnabled(name: string, source: string, tool: string, enabled: boolean): void {
+		if (locator(source) !== locator(this.file)) throw new RpcError("read_only", "项目里的服务由项目配置管理");
+		if (!tool || tool.length > 256 || ["__proto__", "constructor", "prototype"].includes(tool)) throw new RpcError("bad_request", "工具名称无效");
+		const config = this.read(), servers = this.servers(config), entry = servers[name];
+		if (!entry) throw new RpcError("not_found", "没有这个服务");
+		if (!this.core.library.mcpTrusted({ name, source: this.file, config: entry as never })) throw new RpcError("untrusted", "请先到等你处理确认这个服务");
+		const toolExposure = { ...(entry.toolExposure as Json ?? {}) };
+		toolExposure[tool] = enabled ? entry.exposure === "hidden" ? "codemode" : entry.exposure ?? "codemode" : "hidden";
+		this.write({ ...config, mcpServers: { ...servers, [name]: { ...entry, toolExposure } } });
+	}
+
 	private removeSecrets(name: string, entry: Json | undefined): void {
 		for (const kind of ["env", "headers"] as const) {
 			for (const [key, value] of Object.entries((entry?.[kind] as Json | undefined) ?? {})) {
@@ -249,7 +268,10 @@ export class McpModule implements CoreModule {
 		if (!server) throw new RpcError("not_found", "没有这个服务，或工作区未获信任");
 		const result = await checkMcpServers(this.core.agentDir, cwd, this.core.security.audit, [server as unknown as Json], this.core.isProjectTrusted(cwd), { registry: this.core.library, name, source: server.source, testDisabled: true });
 		const report = result.servers[0]!;
-		return { ...report, ok: report.state === "connected", errors: result.errors };
+		const names = Array.isArray(report.tools) ? report.tools.filter((t): t is string => typeof t === "string") : [];
+		if (report.state === "connected") this.toolNames.set(`${server.source}:${name}`, names);
+		const literal = this.servers(this.read(server.source))[name] ?? {};
+		return { ...report, ok: report.state === "connected", errors: result.errors, toolStates: this.tools(server.source, name, literal) };
 	}
 
 	private acceptProposal(id: string): Json {
@@ -334,10 +356,13 @@ export class McpModule implements CoreModule {
 			);
 		});
 		core.register("mcp.setEnabled", (p) => {
+			if (str(p.source) && locator(p.source as string) !== locator(this.file)) throw new RpcError("read_only", "项目里的服务由项目配置管理");
 			this.setEnabled(requireStr(p.name, "name"), p.enabled === true);
 			return { ok: true };
 		});
+		core.register("mcp.setToolEnabled", (p) => { this.setToolEnabled(requireStr(p.name, "name"), str(p.source) ?? this.file, requireStr(p.tool, "tool"), p.enabled === true); return { ok: true }; });
 		core.register("mcp.remove", (p) => {
+			if (str(p.source) && locator(p.source as string) !== locator(this.file)) throw new RpcError("read_only", "项目里的服务由项目配置管理");
 			this.remove(requireStr(p.name, "name"));
 			return { ok: true };
 		});

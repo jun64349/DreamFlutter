@@ -16,8 +16,12 @@ import { skillNameErrors } from "./skill-name.ts";
 import { builtinSkillKey, builtinSkills, isBuiltinSkillPath, mergeBuiltinSkills } from "./builtin-skills.ts";
 import { skillBundle, trialSkill } from "./skill-trial.ts";
 import { SkillRouting } from "./skill-routing.ts";
+import { withSkillDownload } from "./skill-download.ts";
 
 export interface SkillInfo extends Partial<EntryMetadata> {
+	kind?: "skill" | "template";
+	command?: string;
+	params?: TemplateParam[];
 	name: string;
 	description: string;
 	filePath: string;
@@ -216,15 +220,23 @@ export class SkillsModule implements CoreModule {
 				modelInvocable: data["disable-model-invocation"] !== "true",
 			});
 		}
-		return [...found.values()].map((skill) => {
+		const skills: SkillInfo[] = [...found.values()].map((skill) => {
 			this.core.library.ensure("skill", locator(skill.filePath));
 			const allowed = this.core.library.fileAllowed("skill", skill.filePath);
 			const builtin = !!builtinSkillKey(skill.filePath);
 			return { ...skill, scope: builtin ? "builtin" : skill.scope, ...this.core.library.get("skill", locator(skill.filePath)), readOnly: builtin, nameDiagnostics: skillNameErrors(skill.name, basename(skill.filePath).toLowerCase() === "skill.md" ? basename(skill.baseDir) : undefined), enabled: skill.enabled && allowed };
-		}).sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name));
+		});
+		return [...skills.map((s) => ({ ...s, kind: "skill" as const, command: `/skill:${s.name}` })), ...this.listTemplates().map((t) => ({ ...t, kind: "template" as const, baseDir: dirname(t.filePath), scope: "user", modelInvocable: false, enabled: this.core.library.fileAllowed("template", t.filePath), command: `/${t.name}` }))]
+			.sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name));
 	}
 
 	setSkillEnabled(filePath: string, enabled: boolean): void {
+		const template = this.listTemplates().find((t) => samePath(t.filePath, filePath));
+		if (template) {
+			if (enabled && !this.core.library.fileTrusted("template", filePath)) throw new RpcError("untrusted", "模板已变化，请重新确认");
+			this.core.library.write("template", locator(filePath), { enabled });
+			this.core.broadcast({ event: "skills.changed" }); this.core.broadcast({ event: "templates.changed" }); return;
+		}
 		assertSkillFile(filePath);
 		const meta = this.core.library.ensure("skill", locator(filePath));
 		if (enabled && meta.trust !== "trusted") throw new RpcError("untrusted", "请先在待确认里审阅并确认此技能");
@@ -241,6 +253,8 @@ export class SkillsModule implements CoreModule {
 
 	/** Moves a skill folder into the core's trash (recoverable). */
 	removeSkill(filePath: string): void {
+		const template = this.listTemplates().find((t) => samePath(t.filePath, filePath));
+		if (template) { this.removeTemplate(template.name); return; }
 		if (isBuiltinSkillPath(filePath)) throw new RpcError("read_only", "内置技能随应用更新，不能删除；可以停用或复制为用户技能");
 		assertSkillFile(filePath);
 		if (!existsSync(filePath)) throw new RpcError("not_found", "这个技能文件不存在");
@@ -257,9 +271,11 @@ export class SkillsModule implements CoreModule {
 	}
 
 	readSkill(filePath: string): string {
+		if (this.listTemplates().some((t) => samePath(t.filePath, filePath))) return readFileSync(filePath, "utf8");
 		assertSkillFile(filePath);
 		return readFileSync(filePath, "utf8");
 	}
+
 
 	/** Copies a folder containing SKILL.md into the user's skills. */
 	importSkill(folder: string, sourceUrl?: string): SkillInfo {
@@ -539,6 +555,11 @@ export class SkillsModule implements CoreModule {
 			return { ok: true };
 		});
 		core.register("skills.import", (p) => this.importSkill(requireStr(p.folder, "folder"), str(p.sourceUrl)));
+		core.register("skills.importUrl", async (p) => {
+			if (core.maintenance) throw new RpcError("busy", "正在维护数据，请稍后导入");
+			const url = requireStr(p.url, "url");
+			return withSkillDownload(url, (folder) => { if (core.maintenance) throw new RpcError("busy", "正在维护数据，请稍后导入"); return this.importSkill(folder, url); });
+		});
 		core.register("skills.register", (p) => this.propose({ name: requireStr(p.name, "name"), description: requireStr(p.description, "description"), content: requireStr(p.content, "content"), scope: p.scope === "project" ? "project" : "user", files: p.files as Record<string, string> | undefined,
 			sourceKind: p.sourceKind === "community" ? "community" : p.sourceKind === "user" ? "user" : "agent", sourceUrl: str(p.sourceUrl) }, { cwd: str(p.cwd) }));
 		core.register("skills.test", (p) => {

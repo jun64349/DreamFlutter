@@ -1,7 +1,6 @@
 import { inheritedIds, readSessionEntries, sideFromEntries } from "../pi/session-metadata.ts";
-import { existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { SessionRecycle } from "../sessions/recycle.ts";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
 import { normalizeCwd, requireStr, samePath, str } from "../core.ts";
@@ -67,19 +66,28 @@ export class SessionIndex implements CoreModule {
 	private readonly db: Db;
 	private timer: NodeJS.Timeout | undefined;
 	private scanning: Promise<number> | undefined;
+	private deletions = new Set<Promise<unknown>>();
+	private stopping = false;
+	readonly recycle: SessionRecycle;
 
 	constructor(core: Core) {
 		this.core = core;
 		this.db = core.db;
+		this.recycle = new SessionRecycle(core, () => this.sessionsDir, (path) => this.forget(path), (path, meta) => {
+			const stat = statSync(path);
+			this.indexFile(path, Math.floor(stat.mtimeMs), stat.size);
+			this.db.run("UPDATE session_meta SET pinned=?,archived=? WHERE path=?", Number(meta.pinned ?? 0), Number(meta.archived ?? 0), path);
+		});
 		core.declareBackup({
 			id: "sessions",
 			title: "会话索引、用量",
-			tables: ["session_meta", "session_fts", "usage_records", "session_inherited_history"],
+			tables: ["session_meta", "session_fts", "usage_records", "session_inherited_history", "session_recycle"],
 			paths: {
 				session_meta: { path: "path", cwd: "path", parent_session: "path" },
 				session_inherited_history: { parent_session: "path" },
 				session_fts: { path: "path" },
 				usage_records: { path: "path", cwd: "path" },
+				session_recycle: { original_path: "path", stored_path: "path", metadata: "json" },
 			},
 		});
 		this.register();
@@ -95,8 +103,10 @@ export class SessionIndex implements CoreModule {
 		this.timer.unref();
 	}
 
-	stop(): void {
+	async stop(): Promise<void> {
+		this.stopping = true;
 		if (this.timer) clearInterval(this.timer);
+		await Promise.allSettled([...(this.scanning ? [this.scanning] : []), ...this.deletions]);
 	}
 
 	onRunFinished(): void {
@@ -127,12 +137,16 @@ export class SessionIndex implements CoreModule {
 	}
 
 	private scan(): number {
+		this.recycle.recover();
+		this.recycle.purgeExpired();
 		const files = listJsonl(this.sessionsDir);
+		const hidden = new Set(this.recycle.list().map((r) => normalizeCwd(r.original_path)));
 		const known = new Map(
 			this.db.all<{ path: string; indexed_mtime: number; indexed_size: number }>("SELECT path, indexed_mtime, indexed_size FROM session_meta").map((r) => [r.path, r]),
 		);
 		let changed = 0;
 		for (const file of files) {
+			if (hidden.has(normalizeCwd(file))) continue;
 			if (this.core.pendingSessionFiles.has(resolve(file).toLowerCase())) { known.delete(file); continue; }
 			let stat;
 			try {
@@ -311,7 +325,13 @@ export class SessionIndex implements CoreModule {
 		return out;
 	}
 
-	async deleteSession(path: string): Promise<{ deleted: string[]; sideCount: number }> {
+	deleteSession(path: string) {
+		const work = this.performDelete(path); this.deletions.add(work);
+		void work.finally(() => this.deletions.delete(work)).catch(() => {});
+		return work;
+	}
+	private async performDelete(path: string): Promise<{ deleted: string[]; sideCount: number; batchId: string; expiresAt: number }> {
+		if (this.stopping || this.core.maintenance) throw new Error("正在维护数据，请稍后删除");
 		await this.refresh();
 		let rows = this.deletionFiles(path);
 		const locks = new Set(rows.map((r) => normalizeCwd(r.path)));
@@ -324,15 +344,12 @@ export class SessionIndex implements CoreModule {
 			// Closing joins a first send already in progress; include its newly saved file.
 			await this.refresh();
 			rows = this.deletionFiles(path);
+			if (this.core.maintenance) throw new Error("正在维护数据，请稍后删除");
 			for (const row of rows) { const key = normalizeCwd(row.path); locks.add(key); this.core.deletingSessionFiles.add(key); }
-			const deleted: string[] = [];
-			for (const row of rows.slice().reverse()) {
-				await recycleSession(row.path);
-				this.forget(row.path);
-				deleted.push(row.path);
-				await this.core.call("cards.forgetSession", { sessionFile: row.path });
-			}
-			return { deleted, sideCount: rows.length - 1 };
+			const batchId = this.recycle.store(rows.slice().reverse());
+			const expiresAt = this.recycle.list().find((r) => r.batch_id === batchId)!.expires_at;
+			this.core.broadcast({ event: "sessions.changed", batchId });
+			return { deleted: rows.map((r) => r.path), sideCount: rows.length - 1, batchId, expiresAt };
 		} finally {
 			for (const p of locks) this.core.deletingSessionFiles.delete(p);
 		}
@@ -436,6 +453,30 @@ export class SessionIndex implements CoreModule {
 
 	private register(): void {
 		const core = this.core;
+		core.register("sessions.recycleBin", () => this.recycle.list().map((r) => ({ batchId: r.batch_id, originalPath: r.original_path, deletedAt: r.deleted_at, expiresAt: r.expires_at, phase: r.phase, session: JSON.parse(r.metadata) })));
+		core.register("sessions.restore", (p) => {
+			const result = this.recycle.restore(requireStr(p.batchId, "batchId"));
+			core.broadcast({ event: "sessions.changed" }); return result;
+		});
+		core.register("sessions.purgeExpired", () => this.recycle.purgeExpired());
+		core.register("search.all", async (p) => {
+			const query = requireStr(p.query, "query").trim();
+			const cwd = str(p.cwd);
+			const limit = typeof p.limit === "number" && Number.isFinite(p.limit) ? Math.min(100, Math.max(1, Math.trunc(p.limit))) : 30;
+			if (!query) return { conversations: [], files: [], memories: [] };
+			await this.refresh();
+			const content = this.search(query, { cwd, limit });
+			const titles = this.list({ cwd, archived: "include" }).filter((r) => r.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+			const seen = new Set(titles.map((r) => r.path));
+			const conversations = [...titles.map((r) => ({ path: r.path, title: r.title, snippet: r.title, entryId: null as string | null, cwd: r.cwd })), ...content.filter((r) => !seen.has(r.path))].slice(0, limit)
+				.map((r) => ({ ...r, target: { page: "conversation", sessionFile: r.path, entryId: r.entryId } }));
+			const artifacts = await core.call("artifacts.list", { cwd, limit: 10000 }) as { path: string; taskId: string | null; exists: boolean }[];
+			const files = artifacts.filter((r) => r.path.toLocaleLowerCase().includes(query.toLocaleLowerCase())).slice(0, limit)
+				.map((r) => ({ ...r, target: { page: "artifact", path: r.path, taskId: r.taskId } }));
+			const memories = (await core.call("memory.items", { cwd, query, status: ["active", "review"], limit }) as { id: string; content: string }[])
+				.map((r) => ({ ...r, target: { page: "memory", itemId: r.id } }));
+			return { conversations, files, memories };
+		});
 		core.register("sessions.deletePreview", async (params) => {
 			await this.refresh();
 			const rows = this.deletionFiles(requireStr(params.path, "path"));
@@ -529,6 +570,7 @@ function listJsonl(root: string): string[] {
 			return;
 		}
 		for (const entry of entries) {
+			if (entry.name.toLowerCase() === ".recycle") continue;
 			const path = join(dir, entry.name);
 			if (entry.isDirectory() && depth < 3) walk(path, depth + 1);
 			else if (entry.isFile() && entry.name.endsWith(".jsonl")) out.push(path);
@@ -557,14 +599,4 @@ function around(text: string, query: string, radius = 30): string {
 export function localDay(at: number): string {
 	const d = new Date(at);
 	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/** Matches the existing desktop deletion semantics, now owned by the core. */
-async function recycleSession(path: string): Promise<void> {
-	if (!existsSync(path)) return;
-	if (process.platform !== "win32") { rmSync(path); return; }
-	const literal = path.replaceAll("'", "''");
-	const command = `$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('${literal}', 'OnlyErrorDialogs', 'SendToRecycleBin')`;
-	await promisify(execFile)("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")], { windowsHide: true });
-	if (existsSync(path)) throw new Error("删除失败：文件可能正被占用");
 }

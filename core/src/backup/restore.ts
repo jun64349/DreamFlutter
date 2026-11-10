@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { Db } from "../db.ts";
+import { createHash } from "node:crypto";
 import type { CorePaths } from "../paths.ts";
 import { MIGRATIONS } from "../schema.ts";
 import { dpapiMany, isSecretReference, relocateSecretRef, secretFileOf } from "../modules/secrets.ts";
@@ -262,7 +263,7 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 		}
 		const map = new PathMap(
 			rules,
-			sessionTargets.map((s) => ({ from: join(manifest.source.sessionsDir, s.staged), to: s.target })),
+			[...sessionTargets.map((s) => ({ from: join(manifest.source.sessionsDir, s.staged), to: s.target })), ...recycleOriginalMappings(join(appdata, "core.db"), manifest.source.sessionsDir, target.sessionsDir, base)],
 		);
 		const sessionsOut = join(dir, "sessions");
 		for (const s of sessionTargets) {
@@ -295,6 +296,12 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 			db.transaction(() => {
 				remapColumns(db, options.parts, context);
 				for (const part of options.parts) part.onStage?.(db, context);
+				for (const row of db.all<{ original_path: string; stored_path: string; metadata: string }>("SELECT original_path,stored_path,metadata FROM session_recycle")) {
+					const staged = sessionTargets.find((s) => s.target === row.stored_path);
+					if (!staged) continue;
+					const file = join(sessionsOut, staged.staged);
+					db.run("UPDATE session_recycle SET metadata=? WHERE original_path=?", JSON.stringify({ ...JSON.parse(row.metadata), recycleSha256: createHash("sha256").update(readFileSync(file)).digest("hex") }), row.original_path);
+				}
 			});
 			// 蝶君's materials: where the original is gone, the copy in the package takes its place.
 			const materialsRoot = join(raw, "data", "materials");
@@ -368,6 +375,19 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 		await rm(dir, { recursive: true, force: true }).catch(() => {});
 		throw error;
 	}
+}
+
+/** Recycled files have a new storage path, but restoring still needs the original Pi path. */
+function recycleOriginalMappings(file: string, oldRoot: string, newRoot: string, map: PathMap): PathRule[] {
+	const db = new Db(file);
+	try {
+		return db.all<{ original_path: string; metadata: string }>("SELECT original_path,metadata FROM session_recycle").map((r) => {
+			const meta = JSON.parse(r.metadata) as { cwd?: string };
+			const parts = relative(oldRoot, r.original_path).split(sep);
+			if (meta.cwd && parts.length > 1 && parts[0] === basename(piSessionFolder(oldRoot, meta.cwd))) parts[0] = basename(piSessionFolder(newRoot, map.map(meta.cwd)));
+			return { from: r.original_path, to: join(newRoot, ...parts) };
+		});
+	} finally { db.close(); }
 }
 
 

@@ -14,6 +14,8 @@ import { buildSessionContext, estimateTokens, type SessionEntry } from "@earendi
 
 /** What the core gives the harness for one session's compactions. */
 export interface CompactionHooks {
+	/** T-83: purpose-selected writer for normal/manual summaries as well as background work. */
+	summaryModel?(sessionModel: Model<never>): Promise<Model<never> | undefined>;
 	/** Pi's compaction settings after the session's own threshold (a percentage of the window). */
 	settings?(model: { contextWindow: number; maxTokens: number } | undefined, base: { enabled: boolean; reserveTokens: number; keepRecentTokens: number }): { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
 	background?: BackgroundCompaction;

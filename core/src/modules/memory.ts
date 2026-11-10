@@ -158,6 +158,8 @@ export class MemoryModule implements CoreModule {
 				"memory_materials",
 				"memory_suppressions",
 				"memory_task_views",
+				"memory_boundary_decisions",
+				"memory_reply_receipts",
 				"memory_session_modes",
 				"memory_message_preparations",
 				"memory_deferred_extractions",
@@ -169,6 +171,7 @@ export class MemoryModule implements CoreModule {
 				memory_sources: { ref: "path" },
 				memory_deferred_extractions: { session_file: "path", cwd: "path" },
 				memory_batches: { session_ref: "path" },
+				memory_reply_receipts: { session_file: "path" },
 				memory_pending: { session_ref: "path", op: "json" },
 				memory_suppressions: { source_ref: "path" },
 			},
@@ -407,7 +410,8 @@ export class MemoryModule implements CoreModule {
 		const task = this.tasks.current(sessionId);
 		const fresh = (reason: TaskView["reason"], previous?: { status: "ended" | "suspended"; reason: string }) => {
 			const started = this.tasks.start({ sessionId, scopeKey: set.key, reason, prompt, previous });
-			this.core.broadcast({ event: "memory.task", sessionId, kind: reason, taskId: started.id, previousTaskId: task?.id ?? null });
+			const decisionId = this.tasks.decisions(sessionId)[0]!.id;
+			this.core.broadcast({ event: "memory.task", sessionId, kind: reason, taskId: started.id, previousTaskId: task?.id ?? null, decisionId });
 			return { task: started, fresh: true };
 		};
 		if (!task) return fresh(input.unattended ? "scheduled" : "session_start");
@@ -417,11 +421,14 @@ export class MemoryModule implements CoreModule {
 		if (this.newTaskRequested.delete(sessionId)) return fresh("user_marked");
 		if (saysNewTask(prompt)) return fresh("user_said");
 		const signal = boundarySignal(task, prompt, this.clock());
+		let decisionReason = signal ? "continue_background_off" : "continue";
 		if (signal && this.background) {
 			const verdict = await this.work.classifyBoundary({ taskPrompt: task.prompt ?? "", recent: input.recent, prompt, cwd: input.cwd });
 			if (verdict?.newTask && verdict.confidence >= NEW_TASK_CONFIDENCE) return fresh("guessed", { status: "suspended", reason: `guessed:${signal}` });
+			decisionReason = !verdict ? "continue_check_failed" : `continue_checked:${verdict.newTask}:${verdict.confidence}`;
 		}
 		this.tasks.touch(task.id);
+		this.tasks.decision(sessionId, decisionReason, task, this.tasks.get(task.id)!, false);
 		return { task, fresh: false };
 	}
 
@@ -621,6 +628,17 @@ export class MemoryModule implements CoreModule {
 			const readOnlyText = () => text(module.sessionMode(current()?.session.sessionId ?? "") === "off" ? "这个对话设成了「不记忆」，没有保存。" : "这个对话设成了「只读记忆」，不写入记忆，没有保存。");
 			/** 16.5's receipt: 「已保存」 only once the change is committed; waiting is said as waiting. */
 			const receipt = (result: CommitResult, done: (item: MemoryItem) => string): string => {
+				if (result.batchId && module.correction(result.batchId).changes.length) {
+					const live = current();
+					if (live) {
+						module.db.run("INSERT OR IGNORE INTO memory_reply_receipts(batch_id,session_id,session_file,run_id,at) VALUES(?,?,?,?,?)", result.batchId, live.session.sessionId, live.info().sessionFile, live.currentRun?.id ?? null, module.clock());
+						module.core.broadcast({ event: "memory.correction", sessionId: live.session.sessionId, runId: live.currentRun?.id ?? null, ...module.correction(result.batchId) });
+					}
+				}
+				for (const p of result.pending) {
+					const pending = module.store.getPending(p.pendingId), live = current();
+					if (live && pending?.op.kind === "edit" && pending.op.patch.content !== undefined) module.db.run("INSERT OR IGNORE INTO memory_reply_receipts(batch_id,session_id,session_file,run_id,at,pending_id) VALUES(?,?,?,?,?,?)", `pending:${p.pendingId}`, live.session.sessionId, live.info().sessionFile, live.currentRun?.id ?? null, module.clock(), p.pendingId);
+				}
 				module.noteSave(slot.slotId, result.applied.length > 0, result.pending.length > 0, result.pending.map(p => p.pendingId));
 				const applied = result.applied.find((a) => a.kind !== "status" || result.applied.length === 1) ?? result.applied[0];
 				if (result.pending.length) {
@@ -878,6 +896,11 @@ export class MemoryModule implements CoreModule {
 	/** A task ended: what was said goes to the memory agent's queue (it runs in the background, never waking the session: 16.7). */
 	onRunFinished(slot: Slot, run: Run): void {
 		if (slot.isSideConversation) return;
+		const reply = [...slot.session.sessionManager.getBranch()].reverse().find((e) => e.type === "message" && e.message.role === "assistant");
+		if (reply) {
+			this.db.run("UPDATE memory_reply_receipts SET entry_id=? WHERE run_id=? AND session_id=?", reply.id, run.id, slot.session.sessionId);
+			for (const r of this.db.all<{ batch_id: string }>("SELECT batch_id FROM memory_reply_receipts WHERE run_id=? AND session_id=?", run.id, slot.session.sessionId)) this.core.broadcast({ event: "memory.correction", sessionId: slot.session.sessionId, runId: run.id, entryId: reply.id, ...this.correction(r.batch_id) });
+		}
 		const settings = this.core.settings.get();
 		if (settings.memoryEnabled && !slot.incognito && !slot.unattended) this.checkClaim(slot, run);
 		else this.runSaves.delete(slot.slotId);
@@ -909,8 +932,17 @@ export class MemoryModule implements CoreModule {
 	// ---- methods -----------------------------------------------------------------------
 
 	/** An item for the window: with its workspace's folder. */
-	private decorate(item: MemoryItem): MemoryItem & { workspacePath: string | null } {
-		return { ...item, workspacePath: item.workspaceId ? (this.workspaces.get(item.workspaceId)?.path ?? null) : null };
+	private decorate(item: MemoryItem) {
+		const pending = this.store.pending().filter((p) => p.itemId === item.id);
+		return { ...item, workspacePath: item.workspaceId ? (this.workspaces.get(item.workspaceId)?.path ?? null) : null,
+			possiblyOutdated: item.status === "review" || item.validUntil !== null && item.validUntil <= this.clock(),
+			review: item.status === "review" ? { owner: pending.length ? "user" : "memory_agent", nextAt: item.nextReviewAt, pendingIds: pending.map((p) => p.id), lastVerifiedAt: item.lastVerifiedAt, cadence: "periodic", paused: !this.background } : null };
+	}
+
+	private correction(batchId: string) {
+		const opIds = this.db.all<{ id: string }>("SELECT id FROM memory_ops WHERE batch_id=?", batchId).map((r) => r.id);
+		const changes = this.store.log({ opIds }).flatMap((d) => d.entries).filter((e) => e.batchId === batchId && e.kind === "edit" && e.before?.content !== e.after.content);
+		return { batchId: batchId.startsWith("pending:") ? null : batchId, status: batchId.startsWith("pending:") ? "pending" : "applied", changes: changes.map((e) => ({ itemId: e.itemId, before: e.before, after: e.after, undoable: e.undoable })) };
 	}
 
 	/** The scope of a new item the user adds from the window. */
@@ -932,6 +964,16 @@ export class MemoryModule implements CoreModule {
 	}
 
 	private register(): void {
+		this.core.register("memory.corrections", (p) => this.db.all<{ batch_id: string; run_id: string | null; entry_id: string | null; at: number }>(
+			"SELECT * FROM memory_reply_receipts WHERE session_id=? AND (? IS NULL OR run_id=?) AND (? IS NULL OR entry_id=?) ORDER BY at", requireStr(p.sessionId, "sessionId"), str(p.runId) ?? null, str(p.runId) ?? null, str(p.entryId) ?? null, str(p.entryId) ?? null,
+		).map((r) => ({ ...this.correction(r.batch_id), runId: r.run_id, entryId: r.entry_id, at: r.at })));
+		this.core.register("memory.boundaries", (p) => this.tasks.decisions(requireStr(p.sessionId, "sessionId")));
+		this.core.register("memory.undoBoundary", (p) => {
+			const result = this.tasks.undoDecision(requireStr(p.id, "id"));
+			this.refreshRequested.add(result.sessionId);
+			this.core.broadcast({ event: "memory.task", sessionId: result.sessionId, kind: "user_continued", taskId: result.task?.id ?? null });
+			return result;
+		});
 		const core = this.core;
 		const store = this.store;
 		const many = <T extends string>(v: unknown, allowed: readonly T[]): T[] | undefined => {
@@ -1028,7 +1070,8 @@ export class MemoryModule implements CoreModule {
 			if (scope && !ITEM_SCOPES.includes(scope as ItemScope)) throw new RpcError("bad_request", "未知的记忆范围");
 			const cwd = str(p.cwd);
 			const page = store.logPage({ since, until:num(p.until),itemId:str(p.itemId),limit:num(p.limit),cursor:str(p.cursor),scope,workspaceId:cwd ? this.workspaces.byPath(cwd)?.id ?? "missing" : undefined });
-			return {...page,days:page.days.map(d => ({...d,entries:d.entries.map(e => ({...e,after:e.after && this.decorate(e.after),before:e.before && this.decorate(e.before)}))}))};
+			const boundaries = p.itemId || p.scope || cwd ? [] : this.tasks.decisions(str(p.sessionId)).filter((d) => (since === undefined || d.at >= since) && (num(p.until) === undefined || d.at < num(p.until)!));
+			return {...page,boundaries,days:page.days.map(d => ({...d,entries:d.entries.map(e => ({...e,after:e.after && this.decorate(e.after),before:e.before && this.decorate(e.before)}))}))};
 		});
 		core.register("memory.undo", (p) => this.currentTaskReceipt(store.undo(requireStr(p.opId, "opId"))));
 		core.register("memory.unsaved", (p) => this.unsaved.get(requireStr(p.sessionId, "sessionId")) ?? null);
@@ -1050,9 +1093,19 @@ export class MemoryModule implements CoreModule {
 		});
 		core.register("memory.undoBatch", (p) => this.currentTaskReceipt(store.undoBatch(requireStr(p.batchId, "batchId"))));
 		core.register("memory.pending", (p) => store.pending({ set: str(p.cwd) ? this.scopesFor(str(p.cwd)!) : undefined }));
-		core.register("memory.acceptPending", (p) => this.currentTaskReceipt(store.acceptPending(requireStr(p.id, "id"), { content: str(p.content) })));
+		core.register("memory.acceptPending", (p) => {
+			const id = requireStr(p.id, "id");
+			const result = store.acceptPending(id, { content: str(p.content) });
+			if (result.batchId) {
+				this.db.run("UPDATE memory_reply_receipts SET batch_id=?,pending_id=NULL WHERE pending_id=?", result.batchId, id);
+				const receipt = this.db.get<{ session_id: string; run_id: string | null; entry_id: string | null }>("SELECT * FROM memory_reply_receipts WHERE batch_id=?", result.batchId);
+				if (receipt) core.broadcast({ event: "memory.correction", sessionId: receipt.session_id, runId: receipt.run_id, entryId: receipt.entry_id, ...this.correction(result.batchId) });
+			}
+			return this.currentTaskReceipt(result);
+		});
 		core.register("memory.rejectPending", (p) => {
 			store.rejectPending(requireStr(p.id, "id"));
+			this.db.run("DELETE FROM memory_reply_receipts WHERE pending_id=?", requireStr(p.id, "id"));
 			return { ok: true };
 		});
 		core.register("memory.workspaces", () => this.workspaces.list());

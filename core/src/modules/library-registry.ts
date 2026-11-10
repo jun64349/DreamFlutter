@@ -158,6 +158,19 @@ export class LibraryRegistry {
 		const key = this.mcpKey(entry), meta = this.ensureMcp(entry), row = this.row("mcp", key)!;
 		return meta.trust === "trusted" && (!row.fingerprint || row.fingerprint === mcpFingerprint(entry.config));
 	}
+	/** Re-read tool policy on every call so an already open transport obeys it. */
+	mcpToolAllowed(entry: McpServerEntry, tool: string): boolean {
+		try {
+			const literal = JSON.parse(readFileSync(entry.source, "utf8").replace(/^\uFEFF/, "")).mcpServers?.[entry.name];
+			if (!literal) return false;
+			let effective = literal;
+			if (entry.override) {
+				const override = JSON.parse(readFileSync(entry.override, "utf8").replace(/^\uFEFF/, "")).mcpServers?.[entry.name];
+				if (override) effective = { ...literal, ...override };
+			}
+			return (effective.toolExposure?.[tool] ?? effective.exposure) !== "hidden";
+		} catch { return false; }
+	}
 	/** Guard literal host shell invocations of managed, unreviewed skill scripts. No script is run by tests. */
 	blockedHostScript(command: string, cwd: string): string | undefined {
 		const normalize = (value: string) => value.replaceAll("\\", "/").replace(/["'`]/g, "").toLowerCase();
@@ -174,6 +187,9 @@ export class LibraryRegistry {
 	/** This guard also runs in minimal mode, where management tools are deliberately absent. */
 	extension(sandboxed: boolean, resources: () => { skills: { name: string; filePath: string }[]; prompts: { name: string; filePath: string }[] }, usagePrefix: () => string): ExtensionFactory {
 		return (pi) => {
+			// Child runtimes may share a parent's run/slot prefix and tool-call ids.
+			// Deduplicate deliveries inside this runtime, never across actual loads.
+			const runtimeId = randomUUID();
 			let pendingCommand: { kind: "skill" | "template"; path: string } | undefined;
 			pi.on("input", (event, ctx) => {
 				pendingCommand = undefined;
@@ -209,7 +225,7 @@ export class LibraryRegistry {
 			});
 			pi.on("tool_result", (event, ctx) => {
 				if (event.isError) return;
-				const details = event.details as { path?: string } | undefined, id = `${usagePrefix()}:${event.toolCallId}`;
+				const details = event.details as { path?: string } | undefined, id = `${usagePrefix()}:${runtimeId}:${event.toolCallId}`;
 				if (event.toolName === "skill" && details?.path) this.used("skill", locator(details.path), id);
 				if (event.toolName === "read") {
 					const file = event.input.file_path ?? event.input.path;

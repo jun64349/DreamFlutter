@@ -206,6 +206,12 @@ export function remapMovedDatabase(core: Core, record: MoveRecord): void {
   core.db.transaction(() => remapColumns(core.db, core.backupParts, {
     map: new PathMap(record.rules), secretRef: (ref) => record.kind === "secrets" ? relocateSecretRef(ref, record.target) : ref,
   }, true));
+	if (record.kind === "sessions") {
+		for (const row of core.db.all<{ original_path: string; stored_path: string; metadata: string }>("SELECT original_path,stored_path,metadata FROM session_recycle")) {
+			if (!isInside(record.target, row.stored_path) || !existsSync(row.stored_path)) continue;
+			core.db.run("UPDATE session_recycle SET metadata=? WHERE original_path=?", JSON.stringify({ ...JSON.parse(row.metadata), recycleSha256: createHash("sha256").update(readFileSync(row.stored_path)).digest("hex") }), row.original_path);
+		}
+	}
 }
 
 /** Full normal module startup has succeeded. No ready/discovery is published before this. */

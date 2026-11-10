@@ -62,7 +62,7 @@ export class VisionModule implements CoreModule {
 			const slash = key.indexOf("/");
 			return available.find((m) => m.provider === key.slice(0, slash) && m.id === key.slice(slash + 1));
 		};
-		const { visionModel, defaultModel, auxModel } = this.core.settings.get();
+		const { visionModel, defaultModel, smallTaskModel: auxModel } = this.core.settings.get();
 		if (visionModel) return find(visionModel);
 		for (const key of [defaultModel, auxModel]) {
 			const model = find(key);

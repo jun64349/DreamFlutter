@@ -1,4 +1,5 @@
 import { isSideFile } from "../pi/session-metadata.ts";
+import { assertSessionAvailable } from "../sessions/recycle.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { withLedgerContext } from "../ledger/types.ts";
@@ -234,6 +235,7 @@ export class MemoryWork {
 
 	/** After a task: extract from what was said since the last extraction (§7: only when there is something new). */
 	queueExtraction(input: { sessionFile: string; sessionId: string; cwd: string; automatic?: boolean; throughEntryId?: string }): MemoryJob {
+		assertSessionAvailable(this.core, input.sessionFile);
 		const set = this.scopesFor(input.cwd);
 		return this.jobs.enqueue({ kind: "extract", scopeKey: set.key, payload: input, priority: PRIORITY.extract, dedupeKey: `extract:${input.sessionId}:${input.automatic ? "auto" : "manual"}:${input.throughEntryId ?? "latest"}` });
 	}
@@ -580,6 +582,7 @@ export class MemoryWork {
 		const ids = new Set(items.map((m) => m.id));
 		const changed = this.store.changedSince(since, REVIEW_BATCHES);
 		for (const m of items) {
+			if (m.status === "review" && !this.store.pending().some((p) => p.itemId === m.id)) out.add(m.id);
 			if (changed.has(m.id)) out.add(m.id);
 			if (m.nextReviewAt !== null && m.nextReviewAt <= now) out.add(m.id);
 			if (level === 1 && m.createdAt <= now - LEVEL1_DAYS * DAY && (m.lastVerifiedAt ?? 0) <= since) out.add(m.id);
@@ -641,6 +644,7 @@ export class MemoryWork {
 		const mode = this.db.get<{mode:string}>("SELECT mode FROM memory_session_modes WHERE session_id=?", sessionId)?.mode;
 		if (mode && mode !== "normal") return {status:"skipped",result:{why:"当前会话不允许提取记忆"}};
 		if (!sessionFile || !existsSync(sessionFile)) return { status: "skipped", result: { why: "会话文件不在了" } };
+		try { assertSessionAvailable(this.core, sessionFile); } catch { return { status: "skipped", result: { why: "会话在回收站中" } }; }
 		if (isSideFile(sessionFile)) return { status: "skipped", result: { why: "侧边对话不提取记忆" } };
 		const cursor = this.db.get<{ last_entry_id: string | null }>("SELECT last_entry_id FROM memory_extraction WHERE session_id = ?", sessionId)?.last_entry_id ?? null;
 		let entries = readMessages(sessionFile);
@@ -802,7 +806,7 @@ export class MemoryWork {
 	}
 
 	private async model(runtime: Awaited<ReturnType<Llm["runtime"]>>): Promise<Model<never> | undefined> {
-		const wanted = this.core.settings.get().memoryModel;
+		const wanted = this.core.settings.get().modelOverrides.memory;
 		if (wanted) {
 			const slash = wanted.indexOf("/");
 			const available = (await runtime.getAvailable()) as Model<never>[];
@@ -810,7 +814,7 @@ export class MemoryWork {
 			const model = available.find((m) => m.provider === wanted.slice(0, slash) && m.id === wanted.slice(slash + 1));
 			if (model) return model;
 		}
-		return this.llm.auxModel(runtime);
+		return this.llm.modelFor("memory", runtime);
 	}
 
 	/**
@@ -1004,12 +1008,18 @@ export class MemoryWork {
 				if (validUntil !== undefined) patch.validUntil = validUntil;
 				if (p.scope === "global") patch.scope = "global";
 				if (!Object.keys(patch).length) return "没有要改的内容";
-				return { ops: [{ kind: "edit", id: item.id, baseVersion: p.version as number, patch, sources, reason }] };
+				return { ops: [
+					{ kind: "edit", id: item.id, baseVersion: p.version as number, patch, sources, reason },
+					...(item.status === "review" ? [{ kind: "status" as const, id: item.id, baseVersion: item.version + 1, status: "active" as const, reason: "复核并修正后生效" }] : []),
+				] };
 			}
 			case "keep": {
 				const item = target(p.id, p.version);
 				if (typeof item === "string") return item;
-				return { ops: [{ kind: "edit", id: item.id, baseVersion: p.version as number, patch: { lastVerifiedAt: this.now() }, reason }] };
+				return { ops: [
+					{ kind: "edit", id: item.id, baseVersion: p.version as number, patch: { lastVerifiedAt: this.now(), ...(item.status === "review" ? { nextReviewAt: null } : {}) }, reason },
+					...(item.status === "review" ? [{ kind: "status" as const, id: item.id, baseVersion: item.version + 1, status: "active" as const, reason: "复核后仍然有效" }] : []),
+				] };
 			}
 			case "material":
 				return this.material(p, policy, content, target);

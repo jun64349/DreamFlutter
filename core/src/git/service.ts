@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { GitError, hostGitRunner, type GitOutput, type GitRunner } from "./process.ts";
 
 const PREFIX = "refs/dreamflutter/recovery/";
@@ -6,6 +6,7 @@ const ID = /^(switch|revert|recover)-\d{13}-[a-f0-9-]{36}$/;
 export interface GitFile { path: string; index: string; worktree: string; originalPath?: string; }
 export interface GitStatus { root: string; branch: string | null; head: string | null; files: GitFile[]; dirty: boolean; conflicts: string[]; operation: string | null; }
 export interface RecoveryPoint { id: string; commit: string; reason: string; createdAt: number; }
+export interface GitSelection { root: string; head: string | null; paths: string[]; diff: string; fingerprint: string; }
 export type GitResult = { ok: true; [key: string]: unknown } | { ok: false; code: string; reason: string; recoveryPoint?: RecoveryPoint; [key: string]: unknown };
 export const GIT_READ_TOOLS = ["git_status", "git_diff", "git_history", "git_branches", "git_recovery_points"];
 export const GIT_WRITE_TOOLS = ["git_stage", "git_commit", "git_branch_create", "git_switch", "git_revert", "git_recover"];
@@ -34,7 +35,7 @@ function failure(result: GitOutput): GitError {
 		: /dubious ownership/i.test(reason) ? "unsafe_repository"
 		: /unable to auto-detect email|identity unknown|empty ident|no email was given/i.test(reason) ? "identity_missing"
 		: /index.lock|cannot lock ref/i.test(reason) ? "repository_locked" : "git_failed";
-	return new GitError(code, code === "identity_missing" ? "未配置 Git 作者身份：请用户设置 user.name 和 user.email；不会伪造身份。" : reason || `Git 退出码 ${result.code}`);
+	return new GitError(code, code === "identity_missing" ? "未配置 Git 作者身份：请用户设置 user.name 和 user.email；不会伪造身份。" : code === "not_repository" ? "这个文件夹不是Git仓库。" : reason || `Git 退出码 ${result.code}`);
 }
 
 // Serialize complete mutations across sessions and worktree aliases of one repository.
@@ -52,6 +53,10 @@ export class GitService {
 	private runner: GitRunner;
 	constructor(cwd: string, runner: GitRunner = hostGitRunner()) { this.cwd = cwd; this.runner = runner; }
 	private run(args: string[], signal?: AbortSignal) { return this.runner.run(this.cwd, args, signal); }
+	private async lockKey(signal?: AbortSignal): Promise<string> {
+		const root = (await this.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], signal)).replace(/\r?\n$/, "");
+		return `${this.cwd.startsWith("/") ? "linux" : "host"}:${process.platform === "win32" && !this.cwd.startsWith("/") ? root.toLowerCase() : root}`;
+	}
 	private async git(args: string[], signal?: AbortSignal): Promise<string> {
 		const result = await this.run(args, signal);
 		if (result.code !== 0) throw failure(result);
@@ -90,6 +95,41 @@ export class GitService {
 		if (status.operation) throw new GitError("operation_in_progress", `仓库正在执行 ${status.operation}；请先完成或取消。`);
 		if (clean && status.dirty) throw new GitError("uncommitted_changes", "工作区有未提交改动或未跟踪文件；请先由用户决定如何保留，再切换、回退或恢复。");
 	}
+	/** A complete working-tree patch, including untracked/binary files, for exactly these files. */
+	private async selection(status: GitStatus, input: unknown, signal?: AbortSignal): Promise<GitSelection> {
+		this.idle(status);
+		const requested = paths(input).map((path) => path.replaceAll("\\", "/"));
+		const selected = new Set<string>();
+		for (const path of requested) {
+			const file = status.files.find((file) => file.path === path || file.originalPath === path);
+			if (!file) throw new GitError("invalid_selection", `文件没有可提交的改动：${path}；请刷新后重新选择。`);
+			selected.add(file.path);
+			if (file.originalPath) selected.add(file.originalPath);
+		}
+		const chosen = [...selected].sort();
+		const args = ["-C", status.root, "diff", "--binary", "--no-ext-diff", "--no-textconv"];
+		let patch = status.head ? await this.git([...args, status.head, "--", ...chosen], signal) : "";
+		for (const path of chosen) {
+			const file = status.files.find((file) => file.path === path);
+			if (!file || status.head && file.index !== "?") continue;
+			if (!status.head && (file.index === "D" || file.worktree === "D")) continue;
+			const out = await this.run([...args, "--no-index", "--", "/dev/null", path], signal);
+			if (out.code !== 0 && out.code !== 1) throw failure(out);
+			patch += out.stdout;
+			if (Buffer.byteLength(patch) > 2 * 1024 * 1024) throw new GitError("output_limit", "所选改动超过2MiB，请缩小提交文件范围。");
+		}
+		const diff = patch.split(/(?=^diff --git )/m).map((part) => part.includes("\nGIT binary patch\n") ? `${part.split("\nGIT binary patch\n")[0]}\n二进制文件已更改\n` : part).join("");
+		return { root: status.root, head: status.head, paths: chosen, diff, fingerprint: createHash("sha256").update(JSON.stringify([status.head, chosen, patch])).digest("hex") };
+	}
+	async prepareCommit(selected: unknown, signal?: AbortSignal): Promise<GitResult> {
+		try {
+			return await locked(await this.lockKey(signal), async () => ({ ok: true, ...await this.selection(await this.status(signal), selected, signal) }));
+		} catch (error) { return { ok: false, code: error instanceof GitError ? error.code : "git_failed", reason: error instanceof Error ? error.message : "无法读取Git改动。" }; }
+	}
+	/** Direct window confirmation is approval. The model tool retains its normal approval path. */
+	commitSelected(selected: unknown, message: unknown, expected: { head?: string | null; fingerprint?: string; paths?: string[] } = {}, signal?: AbortSignal): Promise<GitResult> {
+		return this.execute("git_commit", { paths: selected ?? [], message, ...(expected.head !== undefined ? { expectedHead: expected.head } : {}), ...(expected.fingerprint !== undefined ? { expectedFingerprint: expected.fingerprint } : {}), ...(expected.paths !== undefined ? { expectedPaths: expected.paths } : {}) }, signal);
+	}
 	private async commitId(value: unknown, signal?: AbortSignal): Promise<string> {
 		const ref = text(value, "commit");
 		if (ref.startsWith("-") || /[\r\n]/.test(ref)) throw new GitError("invalid_input", "无效的提交引用。");
@@ -120,9 +160,9 @@ export class GitService {
 		let point: RecoveryPoint | undefined;
 		try {
 			if (!GIT_TOOLS.includes(tool)) throw new GitError("unsupported_operation", "不支持此 Git 操作；不提供推送或改写已有历史的工具。");
-			const allowed: Record<string, string[]> = { git_diff: ["staged", "paths"], git_history: ["limit"], git_stage: ["paths"], git_commit: ["message"], git_branch_create: ["name"], git_switch: ["name"], git_revert: ["commit"], git_recover: ["id", "abortRevert"] };
+			const allowed: Record<string, string[]> = { git_diff: ["staged", "paths"], git_history: ["limit"], git_stage: ["paths"], git_commit: ["message", "paths", "expectedHead", "expectedFingerprint", "expectedPaths"], git_branch_create: ["name"], git_switch: ["name"], git_revert: ["commit"], git_recover: ["id", "abortRevert"] };
 			if (Object.keys(input).some((key) => !(allowed[tool] ?? []).includes(key))) throw new GitError("invalid_input", "包含此 Git 工具不支持的参数。");
-			const root = (await this.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], signal)).replace(/\r?\n$/, "");
+			const lockKey = await this.lockKey(signal);
 			const perform = async (): Promise<GitResult> => {
 				const status = await this.status(signal);
 				switch (tool) {
@@ -149,9 +189,18 @@ export class GitService {
 					case "git_commit": {
 						const message = text(input.message, "message");
 						if (message.length > 20_000) throw new GitError("invalid_input", "提交信息过长。");
-						if (!status.files.some((file) => file.index !== " " && file.index !== "?")) throw new GitError("nothing_staged", "没有已暂存改动；请先明确暂存所需文件。");
+						const selected = input.paths === undefined ? null : await this.selection(status, input.paths, signal);
+						const reviewed = selected && input.expectedPaths !== undefined ? await this.selection(status, input.expectedPaths, signal) : selected;
+						if (selected && reviewed && selected.paths.some((path) => !reviewed.paths.includes(path))) throw new GitError("invalid_selection", "只能提交本次预览中勾选的文件。");
+						if (reviewed && (input.expectedHead !== undefined && input.expectedHead !== reviewed.head || input.expectedFingerprint !== undefined && input.expectedFingerprint !== reviewed.fingerprint)) throw new GitError("changed_since_prepare", "所选文件或仓库已变化，请重新检查改动后再提交。");
+						if (selected ? !selected.diff.trim() : !status.files.some((file) => file.index !== " " && file.index !== "?")) throw new GitError("nothing_staged", "没有可提交的所选改动。");
 						await this.git(["var", "GIT_AUTHOR_IDENT"], signal); await this.git(["var", "GIT_COMMITTER_IDENT"], signal);
-						await this.git(["-c", "commit.gpgSign=false", "commit", "--no-verify", "-m", message], signal); break;
+						if (selected) {
+							// A staged rename/deletion has already removed its old path from the index.
+							const toStage = selected.paths.filter((path) => status.files.some((file) => file.path === path && file.index !== "D"));
+							if (toStage.length) await this.git(["-C", status.root, "add", "--", ...toStage], signal);
+						}
+						await this.git(["-C", status.root, "-c", "commit.gpgSign=false", "commit", "--no-verify", ...(selected ? ["--only"] : []), "-m", message, ...(selected ? ["--", ...selected.paths] : [])], signal); break;
 					}
 					case "git_branch_create": await this.git(["branch", "--no-track", "--", await this.branch(input.name, signal)], signal); break;
 					case "git_switch": {
@@ -189,8 +238,7 @@ export class GitService {
 				}
 				return { ok: true, ...(point ? { recoveryPoint: point } : {}), ...await this.status(signal) };
 			};
-			const lockRoot = process.platform === "win32" && !this.cwd.startsWith("/") ? root.toLowerCase() : root;
-			return GIT_WRITE_TOOLS.includes(tool) ? await locked(`${this.cwd.startsWith("/") ? "linux" : "host"}:${lockRoot}`, perform) : await perform();
+			return GIT_WRITE_TOOLS.includes(tool) ? await locked(lockKey, perform) : await perform();
 		} catch (error) {
 			let code = error instanceof GitError ? error.code : "git_failed";
 			const reason = error instanceof Error ? error.message : "Git 操作失败。";

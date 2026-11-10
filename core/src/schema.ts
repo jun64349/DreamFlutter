@@ -2,6 +2,8 @@
  * Forward-only schema migrations; index i upgrades user_version i → i+1.
  * Never edit a shipped entry, append a new one.
  */
+import { T85_MIGRATION } from "./t85-migration.ts";
+
 export const MIGRATIONS: string[] = [
 	// 1: settings, persisted dialogs, run log.
 	`
@@ -747,4 +749,6 @@ export const MIGRATIONS: string[] = [
 	UPDATE library_usage SET locator=(SELECT 'mcp:v1:'||json_array(substr(original,1,pos-1),tail) FROM pieces WHERE id=library_usage.rowid AND instr(tail,'#')=0)
 	WHERE kind='mcp' AND locator NOT LIKE 'mcp:v1:%' AND instr(locator,'#')>0;
 	`,
+	// 16: T-85 boundary receipts, reply corrections, recycle bin and butterfly intents.
+	T85_MIGRATION,
 ];

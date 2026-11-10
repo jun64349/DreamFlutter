@@ -472,6 +472,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			const model = ctx.model as Model<never> | undefined;
 			if (!model) return undefined;
 			const hooks = options.compaction?.();
+			const writer = await hooks?.summaryModel?.(model) ?? model;
 			const began = Date.now();
 			const kind = event.reason === "manual" ? "manual" : "normal";
 			// A candidate still being written is not waited for (its cost is counted when it ends).
@@ -486,7 +487,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				const branch = ctx.sessionManager.getBranch() as SessionEntry[];
 				const cut = branch.findIndex((e) => e.id === preparation.firstKeptEntryId);
 				const originals = (cut < 0 ? branch : branch.slice(0, cut)).filter((e) => e.type !== "compaction").flatMap((e) => sessionEntryToContextMessages(e) as unknown[]);
-				const fits = estimateAll(originals) < (model.contextWindow || 128_000) * 0.7;
+				const fits = estimateAll(originals) < (writer.contextWindow || 128_000) * 0.7;
 				// After branching before the replaced checkpoint, preparation no
 				// longer contains that summary. For oversized originals use the
 				// saved checkpoint and its retained tail, not the oversized raw text.
@@ -497,8 +498,8 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				hooks?.regenerated?.(fits ? "original" : "previous_summary");
 				const focus = `The user reported the previous checkpoint as wrong: "${regenerate.note}". ${fits ? "Rebuild it from the original conversation above." : "Correct it."}`;
 				try {
-					const result = await summarize(ctx, model, fits ? originals : fallback, fits ? undefined : regenerate.checkpoint?.summary ?? preparation.previousSummary, [event.customInstructions?.trim(), focus].filter(Boolean).join("\n"), event.signal);
-					hooks?.record?.({ kind: "regenerate", outcome: "done", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, cost: result.usage?.cost?.total ?? 0, model: `${model.provider}/${model.id}` });
+					const result = await summarize(ctx, writer, fits ? originals : fallback, fits ? undefined : regenerate.checkpoint?.summary ?? preparation.previousSummary, [event.customInstructions?.trim(), focus].filter(Boolean).join("\n"), event.signal);
+					hooks?.record?.({ kind: "regenerate", outcome: "done", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, cost: result.usage?.cost?.total ?? 0, model: `${writer.provider}/${writer.id}` });
 					return { compaction: { summary: result.summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, usage: result.usage } };
 				} catch (error) {
 					// Pi catches extension errors and otherwise falls through to its
@@ -527,8 +528,8 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				}
 				hooks?.record?.({ kind: "background", outcome: "dropped", reason: problem });
 			}
-			const result = await summarize(ctx, model, [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages], preparation.previousSummary, event.customInstructions?.trim(), event.signal);
-			hooks?.record?.({ kind, outcome: "done", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, cost: result.usage?.cost?.total ?? 0, model: `${model.provider}/${model.id}` });
+			const result = await summarize(ctx, writer, [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages], preparation.previousSummary, event.customInstructions?.trim(), event.signal);
+			hooks?.record?.({ kind, outcome: "done", waitMs: Date.now() - began, tokensBefore: preparation.tokensBefore, cost: result.usage?.cost?.total ?? 0, model: `${writer.provider}/${writer.id}` });
 			return { compaction: { summary: result.summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, usage: result.usage } };
 		});
 

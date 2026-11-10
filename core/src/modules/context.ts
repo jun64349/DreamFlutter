@@ -28,6 +28,7 @@ export class ContextModule implements CoreModule {
 	private readonly regenerate = new Map<string, { note: string; checkpoint?: { summary: string; firstKeptEntryId: string } }>();
 	private readonly regenerationSource = new Map<string, "original" | "previous_summary">();
 	private readonly regenerationErrors = new Map<string, unknown>();
+	private readonly summaryWriters = new Map<string, string>();
 
 	constructor(core: Core, llm: Llm) {
 		this.core = core;
@@ -80,7 +81,12 @@ export class ContextModule implements CoreModule {
 
 	private hooks(slot: Slot): CompactionHooks {
 		const sessionId = () => (slot.started ? slot.session.sessionId : undefined);
+		const writer: NonNullable<CompactionHooks["summaryModel"]> = async sessionModel => {
+			if (this.core.settings.get().modelOverrides.compaction === "session") return sessionModel;
+			return (await this.llm.modelFor("compaction", undefined, `${sessionModel.provider}/${sessionModel.id}`)) ?? sessionModel;
+		};
 		return {
+			summaryModel: writer,
 			invalidatedFacts: () => slot.incognito || slot.isSideConversation ? "" : this.core.module(MemoryModule)?.compactionExclusions(slot.cwd, sessionId()) ?? "",
 			regenerated: source => this.regenerationSource.set(slot.slotId, source),
 			regenerateFailed: error => this.regenerationErrors.set(slot.slotId, error),
@@ -88,10 +94,7 @@ export class ContextModule implements CoreModule {
 			background: {
 				enabled: () => this.core.settings.get().autoCompaction && this.backgroundOn(slot),
 				lead: () => this.core.settings.get().backgroundCompactionLeadPercent / 100,
-				model: async (sessionModel) => {
-					if (this.core.settings.get().backgroundCompactionModel !== "aux") return sessionModel;
-					return (await this.llm.auxModel()) ?? sessionModel;
-				},
+				model: writer,
 				allowed: () => this.budgetLeft(),
 				charge: (usage, model) => this.charge(slot, usage, model),
 			},
@@ -136,6 +139,7 @@ export class ContextModule implements CoreModule {
 	// ---- records --------------------------------------------------------------------------------
 
 	private record(slot: Slot, entry: CompactionRecord): void {
+		if (["normal", "manual", "regenerate"].includes(entry.kind) && entry.outcome === "done" && entry.model) this.summaryWriters.set(slot.slotId, entry.model);
 		const id = `cc_${randomUUID().replaceAll("-", "").slice(0, 10)}`;
 		const session = slot.started ? slot.session : undefined;
 		this.db.run(
@@ -163,7 +167,8 @@ export class ContextModule implements CoreModule {
 	onSlotEvent(slot: Slot, event: AgentSessionEvent): void {
 		if (event.type !== "compaction_end") return;
 		const usage = event.result?.usage;
-		if (usage) this.account(slot, usage, "compaction", slot.session.model ? `${slot.session.model.provider}/${slot.session.model.id}` : null);
+		if (usage) this.account(slot, usage, "compaction", this.summaryWriters.get(slot.slotId) ?? (slot.session.model ? `${slot.session.model.provider}/${slot.session.model.id}` : null));
+		this.summaryWriters.delete(slot.slotId);
 		if (event.result && !event.aborted) {
 			this.core.broadcast({ event: "context.available", slotId: slot.slotId, sessionId: slot.started ? slot.session.sessionId : null, reason: event.reason, tokensBefore: event.result.tokensBefore });
 		}

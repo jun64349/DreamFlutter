@@ -705,6 +705,11 @@ export class MemoryStore {
 		const pending = this.getPending(id);
 		if (!pending || pending.status !== "pending") return;
 		this.resolvePending(id, "rejected");
+		const item = pending.itemId ? this.get(pending.itemId) : undefined;
+		const original = item && pending.baseVersion !== null ? this.version(item.id, pending.baseVersion) : undefined;
+		if (pending.why === "locked" && item?.status === "review" && original?.status === "active" && item.version === pending.baseVersion! + 1 && !this.pending().some((p) => p.itemId === item.id)) {
+			this.commit({ actor: "user", ops: [{ kind: "status", id: item.id, status: "active", reason: "用户拒绝修改建议，保留原记忆" }], batchKind: "confirm", sessionRef: pending.sessionRef });
+		}
 		this.changed(null);
 	}
 

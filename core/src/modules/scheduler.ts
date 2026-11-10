@@ -883,6 +883,15 @@ export class SchedulerModule implements CoreModule {
 		};
 		const withRuns = (s: Schedule) => ({ ...s, describe: this.describeTrigger(s.trigger), lastRun: this.runs(s.id, 1)[0] ?? null });
 		core.register("schedules.list", () => this.list().map(withRuns));
+		core.register("schedules.fromSession", (p) => {
+			const slot = core.slot(requireStr(p.slotId, "slotId"));
+			const file = slot.info().sessionFile;
+			if (slot.incognito || !file) throw new RpcError("bad_request", "请先保存这个对话再安排定时任务");
+			core.assertTaskSession(file);
+			const prompt = str(p.prompt)?.trim() || slot.lastPrompt?.trim();
+			if (!prompt) throw new RpcError("bad_request", "这个对话还没有要重复的任务");
+			return withRuns(this.save({ name: str(p.name) || slot.info().sessionName || "再做一次", prompt, cwd: slot.cwd, trigger: trigger(p.trigger), sessionMode: "bound", sessionFile: file }));
+		});
 		core.register("schedules.get", (p) => {
 			const s = this.get(requireStr(p.id, "id"));
 			if (!s) throw new RpcError("not_found", "这个定时任务不存在");

@@ -105,4 +105,35 @@ describe("core process", () => {
 		assert.equal(existsSync(join(dataDir, "core.json")), false);
 		assert.equal(existsSync(join(dataDir, "core.lock")), false);
 	});
+
+	it("offers opt-in early progress and an atomic snapshot before WebSocket discovery", async () => {
+		const child = spawn(process.execPath,["--disable-warning=ExperimentalWarning",main,"--data-dir",dataDir,"--agent-dir",join(dataDir,"agent"),"--startup-events"],{stdio:["ignore","pipe","pipe"]});
+		const events: Record<string,unknown>[] = [];
+		let buffer = "";
+		try {
+			await new Promise<void>((resolve,reject) => {
+				child.once("exit",code => reject(new Error(`early exit ${code}`)));
+				child.stdout.on("data",chunk => {
+					buffer += String(chunk);
+					let end: number;
+					while ((end=buffer.indexOf("\n"))>=0) {
+						const line=buffer.slice(0,end); buffer=buffer.slice(end+1);
+						if (!line) continue;
+						const event=JSON.parse(line); events.push(event);
+						if (event.ready === true && !event.event) resolve();
+					}
+				});
+			});
+			assert.equal(events[0]!.event,"core.startup"); assert.equal(events[0]!.ready,false);
+			const snapshot = JSON.parse(readFileSync(join(dataDir,"core-startup.json"),"utf8"));
+			assert.equal(snapshot.ready,true); assert.ok(snapshot.phases.some((p:{name:string})=>p.name==="MemoryModule"));
+			const info=JSON.parse(readFileSync(join(dataDir,"core.json"),"utf8"));
+			const socket=await connect(info.port,{Authorization:`Bearer ${info.token}`});
+			const exited=new Promise(resolve=>child.once("exit",resolve));
+			await call(socket,"core.shutdown"); assert.equal(await exited,0);
+			assert.equal(existsSync(join(dataDir,"core-startup.json")),false);
+		} finally {
+			if (child.exitCode===null) { const exited=new Promise(resolve=>child.once("exit",resolve)); child.kill(); await exited; }
+		}
+	});
 });
