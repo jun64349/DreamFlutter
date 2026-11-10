@@ -6,6 +6,8 @@ import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
+import 'package:dreamflutter/ui/sidebar.dart';
+import 'package:dreamflutter/ui/motion.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,6 +62,7 @@ void main() {
       },
       'skills.list': (_) => [
         {'name': 'pdf-tools', 'description': '处理 PDF', 'filePath': r'C:\skills\pdf-tools\SKILL.md', 'scope': 'user', 'enabled': true},
+        {'kind':'template','name':'周报','filePath':r'C:\prompts\weekly.md','description':'整理周报','body':'把 {{文件}} 整理成周报','params':[{'name':'文件'}],'trust':'trusted','enabled':true},
       ],
       'templates.list': (_) => [
         {
@@ -93,80 +96,39 @@ void main() {
     sessions.deleteSync(recursive: true);
   });
 
-  testWidgets('the rail shows pending counts and the memory page confirms candidates', (tester) async {
+  testWidgets('the memory page shows active sentences and adds without exposing candidates or blocks', (tester) async {
     await startApp(tester);
     await settle(tester);
-    expect(agent.pendingMemories, 1);
-    expect(agent.pendingProposals, 1);
-
-    await tester.tap(find.byTooltip(RegExp('^记忆')));
-    await settle(tester);
-    // Candidates open first while there are any.
-    expect(find.text('用户在杭州工作'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, '同意').first);
-    await settle(tester);
-    expect(backend.callsTo('memory.acceptPending').single, {'id': 'c1'});
+    expect(agent.pendingMemories, 1); expect(agent.pendingProposals, 1);
+    await tester.tap(find.byTooltip(RegExp('^记忆'))); await settle(tester);
     expect(find.text('用户在杭州工作'), findsNothing);
-
-    await tester.tap(find.text('记忆库'));
-    await settle(tester);
     expect(find.text('回答用中文，先给结论'), findsOneWidget);
-
-    // Add a memory through the dialog.
-    await tester.tap(find.text('添加记忆'));
-    await tester.pumpAndSettle();
+    expect(find.text('同意'), findsNothing); expect(find.text('常驻记忆块'), findsNothing);
+    backend.handlers['memory.save'] = (p) {
+      final item = {'id': 'm2', 'version': 1, 'updatedAt': 3, ...p}; memories.add(item);
+      return {'item': item, 'applied': [{'itemId': 'm2'}], 'rejected': []};
+    };
+    await tester.tap(find.text('添加记忆')); await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, '周报每周五交');
-    await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, '保存').last);
-    await settle(tester);
-    expect(backend.callsTo('memory.save').single, {'content': '周报每周五交', 'kind': 'preference', 'scope': 'global', 'cwd': null});
-
-    // Editing a block enables its save button.
-    await tester.tap(find.text('常驻记忆块'));
-    await settle(tester);
-    expect(find.text('偏好与习惯'), findsOneWidget);
-    expect(find.text('已锁定'), findsOneWidget);
-    final blockField = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('例如：我叫'));
-    await tester.enterText(blockField, '我是产品经理');
-    await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, '保存').first);
-    await settle(tester);
-    expect(backend.callsTo('memory.setBlock').single, {'key': 'about_me', 'content': '我是产品经理'});
+    await tester.tap(find.widgetWithText(FilledButton, '添加')); await settle(tester);
+    expect(backend.callsTo('memory.save').single, {'content': '周报每周五交', 'kind': 'background', 'scope': 'global'});
+    expect(find.text('周报每周五交'), findsOneWidget);
+    expect(backend.callsTo('memory.acceptPending'), isEmpty);
+    expect(backend.callsTo('memory.setBlock'), isEmpty);
   });
 
-  testWidgets('skills, templates and proposals', (tester) async {
-    await startApp(tester);
-    await settle(tester);
-    await tester.tap(find.byTooltip(RegExp('^技能')));
-    await settle(tester);
-
-    // Pending proposals open first.
-    expect(find.text('等你确认的技能'), findsOneWidget);
-    await tester.tap(find.text('保存技能'));
-    await settle(tester);
-    expect(backend.callsTo('proposals.accept').single, {'id': 'p1'});
-
-    await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('技能')));
-    await settle(tester);
-    expect(find.text('pdf-tools'), findsOneWidget);
-    await tester.tap(find.byType(Switch).first);
-    await settle(tester);
+  testWidgets('skills and reusable commands share the garden; pending work routes to attention', (tester) async {
+    await startApp(tester); await settle(tester);
+    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.byTooltip(RegExp('^技能')))); await settle(tester);
+    expect(find.text('蝶园'),findsOneWidget); expect(find.text('任务模板'),findsNothing);
+    await tester.tap(find.text('weekly-report')); await settle(tester);
+    expect(find.text('去等你处理'),findsOneWidget); expect(find.text('保存技能'),findsNothing);
+    await tester.tap(find.text('pdf-tools').first); await settle(tester);
+    await tester.tap(find.text('停用')); await settle(tester);
     expect(backend.callsTo('skills.setEnabled').single, {'filePath': r'C:\skills\pdf-tools\SKILL.md', 'enabled': false});
-
-    await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('任务模板')));
-    await settle(tester);
-    expect(find.text('/周报'), findsOneWidget);
-    await tester.tap(find.widgetWithText(OutlinedButton, '运行'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'a.md');
-    await tester.tap(find.widgetWithText(FilledButton, '运行').last);
-    await settle(tester);
-    expect(backend.callsTo('templates.command').single, {
-      'name': '周报',
-      'values': {'文件': 'a.md'},
-    });
-    expect(agent.section, AppSection.chat, reason: 'running a template goes back to the chat');
-    expect(backend.pis.single.sent('prompt').single, contains(r'/周报 \"a.md\"'));
+    await tester.tap(find.text('周报').first); await settle(tester); await tester.tap(find.text('试一下')); await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last,'a.md'); await tester.tap(find.widgetWithText(FilledButton,'开始')); await settle(tester);
+    expect(backend.callsTo('templates.command').single, {'name':'周报','values':{'文件':'a.md'}}); expect(agent.section,AppSection.chat);
   });
 
   testWidgets('a memory.changed event refreshes the badges', (tester) async {
@@ -178,122 +140,38 @@ void main() {
     expect(agent.pendingMemories, 0);
   });
 
-  testWidgets('MCP section shows provenance, tests one service and grants butterfly separately', (tester) async {
+  testWidgets('service details show provenance and grant butterfly independently', (tester) async {
     await startApp(tester);
-    backend.handlers['mcp.list'] = (_) => {
-      'servers': [
-        {
-          'name': 'docs',
-          'scope': 'user',
-          'source': r'C:\data\pi\mcp.json',
-          'enabled': true,
-          'trust': 'trusted',
-          'sourceKind': 'community',
-          'sourceUrl': 'https://example.invalid/docs',
-          'usageCount': 7,
-          'url': 'https://example.invalid/mcp',
-          'butterflyAllowed': false,
-        },
-      ],
-    };
-    backend.handlers['mcp.test'] = (_) => {
-      'ok': true,
-      'durationMs': 34,
-      'tools': ['search', 'read'],
-      'errors': [],
-    };
-    await tester.tap(find.byTooltip(RegExp('^技能')));
-    await settle(tester);
-    await tester.tap(find.text('MCP 服务'));
-    await settle(tester);
-    expect(find.textContaining('社区安装 · 已信任 · 使用 7 次'), findsOneWidget);
-    expect(find.textContaining('https://example.invalid/docs'), findsOneWidget);
-    await tester.tap(find.widgetWithText(OutlinedButton, '测试'));
-    await settle(tester);
-    expect(backend.callsTo('mcp.test').single, {'name': 'docs', 'source': r'C:\data\pi\mcp.json', 'cwd': agent.workspace});
-    expect(find.text('测试通过'), findsOneWidget);
-    expect(find.textContaining('search、read'), findsOneWidget);
-    await tester.tap(find.text('关闭'));
-    await settle(tester);
-    await tester.tap(find.byType(Switch).first);
-    await settle(tester);
-    expect(backend.callsTo('mcp.setEnabled').single, {'name': 'docs', 'enabled': false});
-    await tester.tap(find.byType(Switch).last);
-    await settle(tester);
-    expect(backend.callsTo('mcp.setButterflyAllowed').single['allowed'], true);
-    expect(backend.callsTo('mcp.setButterflyAllowed').single['name'], 'docs');
+    backend.handlers['mcp.list']=(_) => {'servers':[{'name':'docs','description':'读取资料','scope':'user','source':r'C:\data\pi\mcp.json','enabled':true,'trust':'trusted','sourceKind':'community','sourceUrl':'https://example.invalid/docs','usageCount':7,'butterflyAllowed':false}]};
+    backend.handlers['mcp.test']=(_) => {'ok':true,'tools':['search','read'],'errors':[]};
+    await tester.tap(find.descendant(of:find.byType(Sidebar),matching:find.byTooltip(RegExp('^技能')))); await settle(tester);
+    await tester.tap(find.text('docs')); await settle(tester);
+    expect(find.text('7 次'),findsOneWidget); expect(find.text('从社区导入'),findsOneWidget);
+    await tester.tap(find.text('测试连接')); await settle(tester);
+    expect(backend.callsTo('mcp.test').single,{'name':'docs','source':r'C:\data\pi\mcp.json','cwd':agent.workspace}); expect(find.text('连接成功'),findsOneWidget);
+    await tester.tap(find.widgetWithText(MotionSwitchTile,'蝶君能用')); await settle(tester);
+    expect(backend.callsTo('mcp.setButterflyAllowed').single['allowed'],true);
   });
 
-  testWidgets('MCP proposals are confirmed through the shared pending queue', (tester) async {
-    await startApp(tester);
-    proposals = [
-      {
-        'id': 'mcp1',
-        'kind': 'mcp',
-        'title': 'docs',
-        'createdAt': 4,
-        'payload': {'name': 'docs', 'content': '{"url":"https://example.invalid/mcp"}', 'sourceKind': 'agent'},
-      },
-    ];
-    await tester.tap(find.byTooltip(RegExp('^技能')));
-    await settle(tester);
-    expect(find.text('等你确认的技能与 MCP'), findsOneWidget);
-    expect(find.textContaining('Agent 建立 · 未信任'), findsOneWidget);
-    expect(find.text('修改后保存'), findsNothing);
-    await tester.tap(find.text('确认 MCP'));
-    await settle(tester);
-    expect(backend.callsTo('proposals.accept').single, {'id': 'mcp1'});
+  testWidgets('service proposals route to the shared attention page without accepting here', (tester) async {
+    await startApp(tester); proposals=[{'id':'mcp1','kind':'mcp','title':'docs','payload':{'name':'docs','description':'读取资料'}}];
+    await tester.tap(find.descendant(of:find.byType(Sidebar),matching:find.byTooltip(RegExp('^技能')))); await settle(tester);
+    await tester.tap(find.text('docs')); await settle(tester); await tester.tap(find.text('去等你处理')); await settle(tester);
+    expect(agent.section,AppSection.tasks); expect(backend.callsTo('proposals.accept'),isEmpty);
   });
 
-  testWidgets('skill static check explains that scripts have not run', (tester) async {
-    await startApp(tester);
-    backend.handlers['skills.test'] = (_) => {
-      'ok': true,
-      'durationMs': 2,
-      'errors': [],
-      'scriptTrial': {'reason': '仅静态检查，脚本没有执行'},
-    };
-    await tester.tap(find.byTooltip(RegExp('^技能')));
-    await settle(tester);
-    await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('技能')));
-    await settle(tester);
-    await tester.tap(find.text('检查'));
-    await settle(tester);
-    expect(backend.callsTo('skills.test').single, {'filePath': r'C:\skills\pdf-tools\SKILL.md'});
-    expect(find.textContaining('脚本没有执行'), findsOneWidget);
+  testWidgets('skill trial explains that the static checker has not run scripts', (tester) async {
+    await startApp(tester); backend.handlers['skills.test']=(_) => {'ok':true,'errors':[],'scriptTrial':{'reason':'仅静态检查，脚本没有执行'}};
+    await tester.tap(find.descendant(of:find.byType(Sidebar),matching:find.byTooltip(RegExp('^技能')))); await settle(tester);
+    await tester.tap(find.text('试一下')); await settle(tester);
+    expect(backend.callsTo('skills.test').single,{'filePath':r'C:\skills\pdf-tools\SKILL.md'}); expect(find.textContaining('脚本没有执行'),findsOneWidget);
   });
 
-  testWidgets('builtin skills show read-only origin and copy into a user skill', (tester) async {
-    await startApp(tester);
-    backend.handlers['skills.list'] = (_) => [
-      {
-        'name': 'skill-builder',
-        'description': '创建技能',
-        'filePath': r'C:\app\core\assets\skills\skill-builder\SKILL.md',
-        'scope': 'builtin',
-        'sourceKind': 'builtin',
-        'trust': 'trusted',
-        'enabled': true,
-        'readOnly': true,
-        'usageCount': 1,
-      },
-    ];
-    backend.handlers['skills.copyBuiltin'] = (_) => {'path': r'C:\data\pi\skills\custom-builder\SKILL.md'};
-    await tester.tap(find.byTooltip(RegExp('^技能')));
-    await settle(tester);
-    await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('技能')));
-    await settle(tester);
-    expect(find.text('随版本更新 · 修改请先复制为用户技能'), findsOneWidget);
-    expect(find.textContaining('内置 · 已信任'), findsOneWidget);
-    await tester.tap(find.byTooltip('操作').first);
-    await tester.pumpAndSettle();
-    expect(find.text('删除'), findsNothing);
-    await tester.tap(find.text('复制为用户技能'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'custom-builder');
-    await tester.tap(find.widgetWithText(FilledButton, '复制').last);
-    await settle(tester);
-    expect(backend.callsTo('skills.copyBuiltin').single, {'filePath': r'C:\app\core\assets\skills\skill-builder\SKILL.md', 'name': 'custom-builder'});
+  testWidgets('builtin skills show their origin and cannot be deleted', (tester) async {
+    await startApp(tester); backend.handlers['skills.list']=(_) => [{'kind':'skill','name':'skill-builder','description':'创建技能','filePath':r'C:\app\core\assets\skills\skill-builder\SKILL.md','scope':'builtin','sourceKind':'builtin','trust':'trusted','enabled':true,'readOnly':true,'usageCount':1}];
+    await tester.tap(find.descendant(of:find.byType(Sidebar),matching:find.byTooltip(RegExp('^技能')))); await settle(tester);
+    expect(find.text('随软件提供'),findsOneWidget); expect(tester.widget<TextButton>(find.widgetWithText(TextButton,'删除')).onPressed,isNull);
+    expect(backend.callsTo('library.remove'),isEmpty);
   });
 
   for (final brightness in Brightness.values) {
@@ -359,9 +237,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('MCP 服务'));
+      await tester.tap(find.text('knowledge-library').first);
       await tester.pumpAndSettle();
-      expect(find.text('允许蝶君使用'), findsNWidgets(2));
+      expect(find.text('蝶君能用'), findsOneWidget);
       expect(tester.takeException(), isNull);
       if (capture) await expectLater(find.byType(Scaffold), matchesGoldenFile('../../Claude Codex Bridge/T73-mcp-${brightness.name}-150.png'));
     });

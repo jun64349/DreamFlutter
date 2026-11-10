@@ -1,724 +1,255 @@
-// End-to-end acceptance: the real app UI driving a real core (Pi sessions
-// hosted in the background service) and a real model. Run with:
-//   flutter test integration_test/e2e_test.dart -d windows
-// Screenshots are written to build/e2e_shots/. Keep the test window visible
-// (it may be covered, but not minimized: a minimized window renders no frames).
-// The model is deepseek-v4.1-flash on the OpenCode Go channel configured in the
-// app (copied into the test's own core with core/scripts/copy-channels.ts); without
-// one, or with --dart-define=E2E_MODEL=provider/id, a model of the user's Pi config.
-
-import 'dart:async';
-import 'dart:convert';
+// v0.8 / T91: nine design flows, production UI + Core + scripted Faux model.
+// No channel/key copying, public network, paid model, user data, or real WSL.
+// PowerShell (app/): ./tool/test.ps1 integration_test/e2e_test.dart --device-id=windows
 import 'dart:io';
-import 'dart:ui' as ui;
-
-import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
-import 'package:dreamflutter/theme.dart' show AppColors;
-import 'package:dreamflutter/ui/dashboard_page.dart' show DashboardPage;
-import 'package:dreamflutter/ui/library_page.dart' show LibraryPage;
-import 'package:dreamflutter/ui/memory_page.dart' show MemoryPage;
-import 'package:dreamflutter/ui/motion.dart' show BreathingDot;
-import 'package:dreamflutter/ui/schedules.dart' show SchedulesTab;
-import 'package:dreamflutter/ui/settings_page.dart' show SettingsPage;
-import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
-import 'package:dreamflutter/ui/tasks_page.dart' show TasksPage;
+import 'package:dreamflutter/ui/conversation_cards.dart';
+import 'package:dreamflutter/ui/conversation_controls.dart';
+import 'package:dreamflutter/ui/garden_page.dart';
+import 'package:dreamflutter/ui/memory_details.dart';
+import 'package:dreamflutter/ui/motion.dart' show MotionSwitchTile;
+import 'package:dreamflutter/ui/sidebar.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-/// A model of the user's Pi configuration, when asked for (`--dart-define=E2E_MODEL=provider/id`)
-/// or when no OpenCode Go channel is configured in the app.
-const piModel = String.fromEnvironment('E2E_MODEL', defaultValue: Preferences.defaultModelKey);
-
-/// Tests run on OpenCode Go (the user's choice, 2026-11-01): the channel configured in the app.
-const goModel = 'deepseek-v4.1-flash';
-
-/// Copies the app's OpenCode Go channels (keys stay encrypted) into the test core's
-/// data dir; returns the channel offering [goModel], if any. Nothing is created.
-Future<String?> copyGoChannel(String toDataDir) async {
-  final main = CoreLocator.findMain([Directory.current.path]);
-  final node = PiRuntimeLocator.findOnPath('node');
-  if (main == null || node == null) return null;
-  final coreDir = p.dirname(p.dirname(main));
-  // The app's data: this checkout's, the package's (where the user usually works), or v0.3.1's.
-  final sources = [CoreLocator.defaultDataDir(), p.join(p.dirname(coreDir), 'dist', 'DreamFlutter', 'data'), CoreLocator.legacyDataDir()];
-  for (final source in sources) {
-    if (!File(p.join(source, 'core.db')).existsSync()) continue;
-    final result = await Process.run(node, [
-      '--disable-warning=ExperimentalWarning',
-      p.join(coreDir, 'scripts', 'copy-channels.ts'),
-      source,
-      toDataDir,
-    ], workingDirectory: coreDir);
-    if (result.exitCode != 0) continue;
-    for (final channel in jsonDecode((result.stdout as String).trim()) as List) {
-      if ((channel['models'] as List).contains(goModel)) return channel['channel'] as String;
-    }
-  }
-  return null;
-}
+import 'support/t91_harness.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
-  final shotKey = GlobalKey();
-  final shotsDir = Directory(p.join(Directory.current.path, 'build', 'e2e_shots'))..createSync(recursive: true);
-
-  Future<void> idle(WidgetTester tester, [Duration d = const Duration(milliseconds: 200)]) async {
-    await tester.runAsync(() => Future<void>.delayed(d));
-    await tester.pump();
-  }
-
-  /// Snapshot of the agent for failure messages (app stdout is not captured).
-  String describe(AgentController agent) {
-    final lines = ['status=${agent.status} running=${agent.isRunning} runtimes=${agent.runtimes.length} session=${agent.currentSessionPath}'];
-    for (final item in agent.transcript.items) {
-      lines.add(switch (item) {
-        UserItem(:final text) => '  user: $text',
-        AssistantItem(:final parts, :final stopReason, :final errorMessage) =>
-          '  assistant[$stopReason${errorMessage == null ? '' : ' $errorMessage'}]: ${parts.map((p) => switch (p) {
-                TextPart(:final text) => 'text(${text.length})',
-                ThinkingPart(:final text) => 'thinking(${text.length})',
-                ToolCallPart(:final toolCallId) => 'tool(${agent.transcript.tool(toolCallId)?.name}:${agent.transcript.tool(toolCallId)?.status.name})',
-              }).join(' ')}',
-        NoticeItem(:final kind, :final message) => '  notice($kind): $message',
-      });
-    }
-    return lines.join('\n');
-  }
-
-  Future<void> waitFor(WidgetTester tester, String what, bool Function() condition, AgentController agent,
-      {Duration timeout = const Duration(minutes: 3)}) async {
-    // ignore: avoid_print
-    print('E2E waiting: $what');
-    final deadline = DateTime.now().add(timeout);
-    while (!condition()) {
-      if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime) {
-        fail('Pi is not running while waiting for "$what":\n${agent.statusDetail}');
-      }
-      if (DateTime.now().isAfter(deadline)) {
-        // What the window showed, for diagnosis.
-        await tester.runAsync(() async {
-          final boundary = shotKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-          final png = await (await boundary?.toImage(pixelRatio: 1))?.toByteData(format: ui.ImageByteFormat.png);
-          if (png != null) File(p.join(shotsDir.path, 'zz_timeout.png')).writeAsBytesSync(png.buffer.asUint8List());
-        });
-        fail('timed out waiting for "$what"\n${describe(agent)}');
-      }
-      await idle(tester);
-    }
-  }
-
-  Future<void> shot(WidgetTester tester, String name) async {
-    await tester.pump();
-    await tester.runAsync(() async {
-      final boundary = shotKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-      final image = await boundary.toImage(pixelRatio: 1);
-      final png = await image.toByteData(format: ui.ImageByteFormat.png);
-      File(p.join(shotsDir.path, '$name.png')).writeAsBytesSync(png!.buffer.asUint8List());
+  void scenario(String id,String title,Future<void> Function(WidgetTester,T91Harness) body) {
+    testWidgets('T91-$id $title',(tester) async {
+      final h=(await tester.runAsync(T91Harness.start))!;
+      addTearDown(()=>h.close(tester));
+      await h.mount(tester);
+      try {await body(tester,h);await h.shot(tester,'${id}_passed');}
+      catch(e) {await h.shot(tester,'${id}_failed');rethrow;}
     });
   }
+  Finder nav(String text)=>['工作台','蝶君','等你处理','新对话'].contains(text)?find.descendant(of:find.byType(Sidebar),matching:find.text(text)).first:find.byTooltip(text).first;
+  Json tool(String name,Json args)=>{'name':name,'arguments':args};
+  Future<void> menu(WidgetTester tester,T91Harness h,String label) async {await h.tap(tester,find.byTooltip('对话菜单'));await h.tap(tester,find.text(label));}
+  String reply(AgentController a)=>a.transcript.items.whereType<AssistantItem>().lastOrNull?.parts.whereType<TextPart>().map((p)=>p.text).join()??'';
 
-  final composer = find.byWidgetPredicate((w) {
-    final hint = w is TextField ? (w.decoration?.hintText ?? '') : '';
-    return hint.contains('Enter 发送') || hint.contains('插进');
+  scenario('4.3','工作台开始：工作区、新对话、输入、模型及无痕',(tester,h) async {
+    await h.tap(tester,find.byTooltip(RegExp('^工作区：')).first);
+    await h.tap(tester,find.text(p.basename(h.info['other'] as String)).last);
+    expect(h.agent.workspace,h.info['other']);
+    await h.tap(tester,find.byTooltip(RegExp('^工作区：')).first);
+    await h.tap(tester,find.text(p.basename(h.workspace)).last);
+    await h.tap(tester,nav('新对话'));
+    expect(h.composer,findsOneWidget);expect(find.byTooltip('无痕'),findsOneWidget);expect(find.byTooltip('操作前问我'),findsOneWidget);
+    expect(find.text('标准模式'),findsNothing);expect(find.text('极简模式'),findsNothing);
+    h.agent.dropFiles([p.join(h.workspace,'notes.md')]);await h.settle(tester);
+    expect(find.textContaining('notes.md'),findsWidgets);
+    await h.script([{'tools':[tool('read',{'file_path':'notes.md'})]},{'text':'我看到了实验记录，可以开始整理。'}]);await h.send(tester,'读取附件，告诉我能不能开始整理。');
+    expect(reply(h.agent),contains('可以开始整理'));expect(h.agent.currentSessionPath,isNotNull);
+    await h.tap(tester,find.byTooltip('无痕'));await h.wait(tester,()=>h.agent.active?.incognito==true);
+    await h.script([{'text':'这次只在无痕对话里回答。'}]);await h.send(tester,'只回答这一次。');
+    expect(h.agent.currentSessionPath,isNull);expect(h.agent.active!.incognito,true);
   });
 
-  Future<void> sendMessage(WidgetTester tester, String text) async {
-    // Click into the composer first, like a user would: an earlier click
-    // elsewhere moves focus away from it.
-    await tester.tap(composer);
-    await tester.pump();
-    await tester.enterText(composer, text);
-    await tester.pump();
-    expect(tester.widget<TextField>(composer).controller!.text, text, reason: 'text reached the composer');
-    await tester.tap(find.byTooltip('发送'));
-    await tester.pump();
-  }
+  scenario('4.4','过程、允许/拒绝、停止及出错重试',(tester,h) async {
+    await h.agent.setApprovalMode(ApprovalMode.changes);
+    await h.script([{'tools':[tool('write',{'file_path':'approved.txt','content':'批准后的内容'})]},{'text':'已按允许写入。'}]);
+    await h.send(tester,'请写 approved.txt。',finish:false);
+    await h.wait(tester,()=>find.byType(ConversationApprovalCard).evaluate().isNotEmpty);
+    expect(File(p.join(h.workspace,'approved.txt')).existsSync(),false);
+    expect(find.text('拒绝'),findsWidgets);await h.shot(tester,'4.4_approval');
+    await h.tap(tester,find.widgetWithText(FilledButton,'允许'));
+    await h.wait(tester,()=>!h.agent.isRunning&&reply(h.agent).contains('已按允许'));
+    expect(File(p.join(h.workspace,'approved.txt')).readAsStringSync(),'批准后的内容');
+    await h.script([{'tools':[tool('write',{'file_path':'rejected.txt','content':'不该出现'})]},{'text':'这次没有写入。'}]);
+    await h.send(tester,'尝试写 rejected.txt。',finish:false);
+    await h.wait(tester,()=>h.agent.active!.pendingDialogs.isNotEmpty);
+    await h.tap(tester,find.widgetWithText(OutlinedButton,'拒绝').last);await h.wait(tester,()=>!h.agent.isRunning);
+    expect(File(p.join(h.workspace,'rejected.txt')).existsSync(),false);
+    await h.script([{'delayMs':10000,'text':'这段应被停止'}]);await h.send(tester,'慢一点回答。',finish:false);
+    await h.wait(tester,()=>h.agent.isRunning);await h.tap(tester,find.byTooltip('停止'));await h.wait(tester,()=>!h.agent.isRunning);
+    await h.script([{'error':'T91 模型连接中断，请重试'}]);await h.send(tester,'试一下错误回执。');
+    await h.wait(tester,()=>find.byType(ConversationErrorCard).evaluate().isNotEmpty);
+    expect(find.text('重试'),findsWidgets);expect(find.byTooltip('发送'),findsOneWidget);
+    await h.script([{'text':'重试后恢复。'}]);await h.tap(tester,find.text('重试').last);await h.wait(tester,()=>reply(h.agent).contains('重试后恢复')&&!h.agent.isRunning);
+  });
 
-  /// A category in the settings page's left column.
-  Finder settingsCategory(String name) => find.descendant(of: find.byType(SettingsPage), matching: find.widgetWithText(ListTile, name));
+  scenario('4.5','拿结果：回复操作、本次改动、真实隔离Git提交及对话菜单',(tester,h) async {
+    await h.script([{'tools':[tool('read',{'file_path':'report.md'})]},{'tools':[tool('write',{'file_path':'report.md','content':'# 实验小结\n\n三组实验结果一致。\n'})]},{'text':'小结已经完成。'}]);
+    await h.send(tester,'将实验记录整理成 report.md。');
+    await h.hoverAnswer(tester);
+    for(final label in ['复制','重新生成','从这里重来']){expect(find.byTooltip(label),findsWidgets);}
+    await h.tap(tester,find.byTooltip(RegExp('^详情')).first);
+    expect(find.text('本次改动'),findsWidgets);expect(find.textContaining('report.md'),findsWidgets);
+    await h.script([{'text':'整理实验小结'}]);await h.tap(tester,find.text('提交这些改动'));
+    await h.wait(tester,()=>find.text('确认提交').evaluate().isNotEmpty);
+    final draft=find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.labelText=='提交说明');
+    await h.wait(tester,()=>tester.widget<TextField>(draft).enabled==true);
+    await tester.enterText(draft,'T91 isolated result');await h.tap(tester,find.text('确认提交'));
+    await h.wait(tester,()=>find.textContaining('已提交').evaluate().isNotEmpty);
+    expect(asJsonMap(await h.rpc('test.inspect'))['head'],'T91 isolated result');
+    await h.tap(tester,find.widgetWithText(TextButton,'关闭').last);
+    await h.tap(tester,find.byTooltip('对话菜单'));
+    for(final text in ['把这次做法存成技能','定时再做一次','这段对话不记忆','导出','归档','删除']){expect(find.text(text),findsOneWidget);}
+    await h.tap(tester,find.text('这段对话不记忆'));
+    expect(asJsonMap(await h.rpc('memory.sessionMode',{'sessionId':h.agent.activeSessionId}))['mode'],'off');
+    // Reuse is the new conversation-menu entry, not the removed right-panel actions.
+    await menu(tester,h,'定时再做一次');await h.tap(tester,find.text('创建'));
+    final schedules=await h.rpc('schedules.list') as List;
+    expect(schedules,hasLength(1));expect((schedules.single as Map)['sessionFile'],h.agent.currentSessionPath);
+  });
 
-  List<AssistantItem> assistants(AgentController agent) => agent.transcript.items.whereType<AssistantItem>().toList();
-  String lastText(AgentController agent) =>
-      assistants(agent).lastOrNull?.parts.whereType<TextPart>().map((t) => t.text).join() ?? '';
-  /// A navigation-rail button (pages may show the same word, the rail comes first).
-  /// A place in the window's sidebar: 工作台, 蝶君 and 任务 by name, the rest by the foot icons' tooltips (0.4).
-  Finder nav(String label) => const {'工作台', '蝶君', '任务', '搜索'}.contains(label)
-      ? find.descendant(of: find.byType(Sidebar), matching: find.text(label)).first
-      : find.byTooltip(RegExp('^$label')).first;
-
-  Finder sidebarTile(String titleStart) => find.descendant(
-    of: find.byType(ListView).first,
-    matching: find.textContaining(titleStart),
-  );
-
-  testWidgets('v0.1.1 acceptance against the real core', (tester) async {
-    final temp = Directory.systemTemp.createTempSync('df_e2e_');
-    final workspace = Directory(p.join(temp.path, 'workspace'))..createSync();
-    final otherWorkspace = Directory(p.join(temp.path, 'other'))..createSync();
-    final sessionsDir = p.join(temp.path, 'sessions');
-    File(p.join(workspace.path, 'hello.txt')).writeAsStringSync('hello from dreamflutter\n');
-    // Project config (needs a trust decision): keep almost nothing recent, so
-    // even a short session has something to compact.
-    File(p.join(workspace.path, '.pi', 'settings.json'))
-      ..createSync(recursive: true)
-      ..writeAsStringSync('{"compaction": {"keepRecentTokens": 20}}');
-
-    final goChannel = const bool.hasEnvironment('E2E_MODEL') ? null : await copyGoChannel(p.join(temp.path, 'core'));
-    final model = goChannel != null ? 'df-$goChannel/$goModel' : piModel;
-    // ignore: avoid_print
-    print('E2E model: $model');
-    SharedPreferences.setMockInitialValues({
-      'workspace': workspace.path,
-      'modelKey': model,
-      'recentWorkspaces': [otherWorkspace.path],
-    });
-    // An isolated core: own data dir and session dir, the user's Pi agent dir
-    // (for model credentials).
-    CoreBackend newBackend() => CoreBackend(dataDir: p.join(temp.path, 'core'), extraArgs: ['--session-dir', sessionsDir]);
-    var agent = AgentController(
-      preferences: await Preferences.load(),
-      sessionStore: SessionStore(sessionsDir: sessionsDir),
-      backend: newBackend(),
-    );
-
-    // Templates belong to the isolated core's Pi folder, never the user's CLI config.
-    addTearDown(() {
-      final leftover = File(p.join(temp.path, 'core', 'pi', 'prompts', 'e2e周报.md'));
-      if (leftover.existsSync()) leftover.deleteSync();
-    });
-    // Stop this test's core even when a step fails.
-    addTearDown(() => agent.shutdownCore());
-    await tester.pumpWidget(RepaintBoundary(key: shotKey, child: DreamFlutterApp(controller: agent)));
-    unawaited(agent.init());
-    // The workspace has project config: the core asks through the window.
-    await waitFor(tester, 'trust prompt', () => find.text('信任这个工作区的配置吗？').evaluate().isNotEmpty, agent);
-    await shot(tester, '00_trust_prompt');
-    await tester.tap(find.text('仅这次信任'));
-    await tester.pump();
-    await waitFor(tester, 'ready', () => agent.isReady, agent);
-    expect(agent.model?.key, model);
-    expect(agent.approvalMode, ApprovalMode.changes);
-    await shot(tester, '00_ready');
-
-    // 1. Read-only tools run without asking: prompt -> read -> reply.
-    await sendMessage(tester, '请用 read 工具读取 hello.txt，然后只回复文件内容，不要别的文字。');
-    await waitFor(tester, 'reply', () => !agent.isRunning && lastText(agent).isNotEmpty, agent);
-    expect(lastText(agent), contains('hello from dreamflutter'));
-    expect(agent.transcript.tools.values.singleWhere((r) => r.name == 'read').status, ToolStatus.done);
-    final sessionA = agent.currentSessionPath!;
-    final runtimeA = agent.active!;
-    await shot(tester, '01_read_reply');
-
-    // 1b. A side conversation about part of the reply (0.4, 4.7): answered by the real model in the
-    // details, from an in-memory copy of the session; the main conversation and its file stay as they were.
-    final mainItems = agent.transcript.items.length;
-    final mainFile = File(sessionA).readAsStringSync();
-    await tester.runAsync(() => agent.openSideChat('hello from dreamflutter'));
-    await waitFor(tester, 'side chat ready', () => agent.sideChat?.isReady ?? false, agent);
-    // The details slide in: let them come to rest before clicking in them.
-    for (var i = 0; i < 10; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
+  scenario('4.6','选中文字引用与问一下，主对话隔离、带回和侧栏缩进',(tester,h) async {
+    await h.script([{'text':'第一段：实验结果需要复测。\n\n第二段：请保留原始数据。'}]);await h.send(tester,'给我两段实验建议。');
+    final original=h.agent.currentSessionPath!;final before=File(original).readAsStringSync();
+    Future<void> select() async {
+      final text=find.textContaining('第一段：实验结果需要复测',findRichText:true).last;await tester.ensureVisible(text);
+      final box=tester.getRect(text);final mouse=await tester.startGesture(box.topLeft+const Offset(2,9),kind:PointerDeviceKind.mouse);
+      await mouse.moveTo(box.topLeft+const Offset(220,9));await mouse.up();await h.settle(tester);
     }
-    await shot(tester, '01b_side_chat_open');
-    await tester.enterText(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('问问这段内容')), '这段文字是从哪个文件读出来的？只回答文件名。');
-    await tester.pump();
-    await tester.tap(find.byTooltip('在侧边对话里发送'));
-    await waitFor(tester, 'side question sent', () => agent.sideChat!.items.isNotEmpty, agent, timeout: const Duration(seconds: 20));
-    await waitFor(tester, 'side answer', () => !(agent.sideChat!.runtime.isRunning) && (agent.sideChat!.lastAnswer ?? '').isNotEmpty, agent);
-    expect(agent.sideChat!.lastAnswer, contains('hello.txt'), reason: 'the side conversation sees the main one so far');
-    expect(agent.transcript.items.length, mainItems, reason: 'nothing is added to the main conversation');
-    expect(File(sessionA).readAsStringSync(), mainFile, reason: 'the session file is only read');
-    await shot(tester, '01b_side_chat');
-    await tester.tap(find.text('带回主对话'));
-    await tester.pumpAndSettle();
-    final mainInput = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('说点什么'));
-    expect(tester.widget<TextField>(mainInput).controller!.text, startsWith('侧边对话的结论：'));
-    await tester.tap(find.text('结束'));
-    await tester.pumpAndSettle();
-    expect(agent.sideChat, isNull);
-    if (find.byTooltip('收起详情').evaluate().isNotEmpty) {
-      await tester.tap(find.byTooltip('收起详情').first);
-      await tester.pumpAndSettle();
-    }
-    await tester.enterText(mainInput, '');
+    await select();await h.tap(tester,find.text('引用').last);expect(find.byType(ComposerQuote),findsOneWidget);
+    await h.tap(tester,find.byTooltip('移除引用'));await select();await h.tap(tester,find.text('问一下').last);
+    await h.wait(tester,()=>h.agent.sideChat?.isReady==true);
+    await h.script([{'text':'复测能排除偶然误差。'}]);
+    final input=find.byWidgetPredicate((w)=>w is TextField&&(w.decoration?.hintText??'').startsWith('就这段问点什么'));
+    await tester.enterText(input,'为什么需要复测？');await h.tap(tester,find.byTooltip('在问一下里发送'));
+    await h.wait(tester,()=>h.agent.sideChat!.items.whereType<AssistantItem>().isNotEmpty&&!h.agent.sideChat!.runtime.isRunning);
+    expect(File(original).readAsStringSync(),before);expect(h.agent.sideChat!.runtime.sessionPath,isNotNull);
+    await h.tap(tester,find.text('带回去'));expect(find.byType(ComposerQuote),findsOneWidget);
+    await h.tap(tester,find.text('关掉'));expect(h.agent.sideChat,isNull);
+    await h.agent.refreshSessions();await h.settle(tester);
+    expect(h.agent.sidebar.any((entry)=>entry.isSideConversation),true);
+  });
 
-    // 2. Background run: start a long answer, open a new session meanwhile.
-    final turnsBefore = assistants(agent).length;
-    await sendMessage(tester, '写一篇 1500 字关于大海的散文。直接在回复里写，不要使用任何工具。');
-    await waitFor(tester, 'A running', () => agent.isRunning && assistants(agent).length > turnsBefore, agent);
-    await tester.tap(find.text('新建对话'));
-    await waitFor(tester, 'B active', () => agent.active != runtimeA && agent.isReady, agent);
-    expect(runtimeA.isRunning, isTrue, reason: 'A keeps running in the background');
-    expect(runtimeA.transcript.items.whereType<AssistantItem>().last.aborted, isFalse);
-    expect(find.descendant(of: find.byType(Sidebar), matching: find.byType(BreathingDot)), findsOneWidget, reason: 'A runs in the background');
-    await shot(tester, '02_background_running');
+  scenario('4.7','蝶君交办、真实复述、按截止时间仅开工一次',(tester,h) async {
+    await h.tap(tester,nav('蝶君'));await h.wait(tester,()=>h.agent.butterfly?.isReady==true);
+    final worker=h.agent.butterfly!;
+    await h.script([{'text':'{"restatement":"我会汇总实验记录","plan":"先读取记录，再整理结论","missing":[]}'},{'delayMs':900,'text':'任务已经汇总完成。'}]);
+    await h.send(tester,'汇总本周的实验记录。',finish:false,owner:worker);
+    await h.wait(tester,()=>find.text('我会汇总实验记录').evaluate().isNotEmpty);
+    expect(find.text('可以，开始吧'),findsOneWidget);expect(asJsonMap(await h.rpc('test.inspect'))['requests'],1);
+    final tasks=(await h.rpc('butterfly.tasks') as List).cast<Map>();final intent=asJsonMap(tasks.single['intent']);
+    expect((intent['start_at'] as num)-(intent['created_at'] as num),greaterThanOrEqualTo(9900));
+    await h.shot(tester,'4.7_plan');await h.rpc('test.deadline',{'id':intent['id']});
+    await h.wait(tester,()=>reply(worker).contains('任务已经汇总完成')&&!worker.isRunning);
+    await h.rpc('butterfly.tick');expect(asJsonMap(await h.rpc('test.inspect'))['requests'],2);
+    expect(((await h.rpc('butterfly.tasks') as List).single as Map)['status'],'completed');
+  });
 
-    // 3. Work in B while A runs: a command that writes needs approval in "changes" mode.
-    await sendMessage(tester, '用 pwsh 工具运行这条命令：Set-Content approval.txt approval-ok; Get-Content approval.txt ，然后告诉我输出。');
-    await waitFor(tester, 'approval dialog', () => find.text('Agent 请求执行操作').evaluate().isNotEmpty, agent);
-    expect(find.textContaining('Set-Content approval.txt'), findsWidgets);
-    await shot(tester, '03_approval_dialog');
-    await tester.tap(find.widgetWithText(FilledButton, '允许'));
-    await tester.pump();
-    await waitFor(tester, 'B reply', () => !agent.isRunning && lastText(agent).contains('approval-ok'), agent);
-    expect(agent.transcript.tools.values.firstWhere((r) => r.name == 'pwsh').status, ToolStatus.done);
-    await shot(tester, '04_parallel_sessions');
+  scenario('4.8','蝶君缺信息、交付、继续修改与定时详情',(tester,h) async {
+    await h.tap(tester,nav('蝶君'));await h.wait(tester,()=>h.agent.butterfly?.isReady==true);final worker=h.agent.butterfly!;
+    await h.script([{'text':'{"restatement":"我会整理指定资料","plan":"读取后生成小结","missing":["资料在哪里？"]}'}]);
+    await h.send(tester,'帮我整理那份资料。',finish:false,owner:worker);
+    await h.wait(tester,()=>find.textContaining('资料在哪里').evaluate().isNotEmpty);
+    var tasks=(await h.rpc('butterfly.tasks') as List).cast<Map>();expect(tasks.single['status'],'waiting');
+    final attention=asJsonMap(await h.rpc('attention.list'));expect((attention['now'] as List).any((row)=>row['kind']=='question'),true);
+    await h.shot(tester,'4.8_waiting');
+    await h.script([{'text':'{"restatement":"我会整理本周实验资料","plan":"生成一份实验小结","missing":[]}'}]);
+    final next=asJsonMap(await h.rpc('butterfly.answer',{'id':asJsonMap(tasks.single['intent'])['id'],'answer':'本周的实验记录。'}));
+    await h.wait(tester,()=>find.text('我会整理本周实验资料').evaluate().isNotEmpty);
+    final out=p.join(h.home,'t91-delivery.md');
+    await h.script([{'tools':[tool('write',{'file_path':out,'content':'# 交付小结\n\n三组结果一致。'})]},{'text':'已交付实验小结，保留了复测待办。'}]);
+    await h.tap(tester,find.text('可以，开始吧'));await h.wait(tester,()=>!worker.isRunning&&reply(worker).contains('已交付'));
+    tasks=(await h.rpc('butterfly.tasks') as List).cast<Map>();expect(tasks.single['status'],'completed');expect(asJsonMap(tasks.single['delivery'])['files'],isNotEmpty);
+    await h.wait(tester,()=>find.text('交付').evaluate().isNotEmpty);expect(File(out).existsSync(),true);
+    expect(asJsonMap(await h.rpc('test.inspect'))['notifications'],isNotEmpty);
+    final path=worker.currentSessionPath;await h.script([{'text':'已在原小结补充下一步复测计划。'}]);await h.send(tester,'在原来的基础上补上复测计划。',owner:worker);expect(worker.currentSessionPath,path);
+    // Arrange an existing approved, bound schedule via the real contract.
+    // Adopting a new model-proposed schedule belongs to the T88 workflow.
+    final schedule=asJsonMap(await h.rpc('schedules.fromSession',{'slotId':worker.active!.slotId,'trigger':{'type':'interval','everyMs':3600000}}));
+    expect(schedule['sessionFile'],path);
+    expect(next['task_id'],tasks.single['id']);
+    await h.shot(tester,'4.8_delivery_and_continue');
+    expect(find.byTooltip('详情：任务进度'),findsOneWidget,reason:'T91-P04: removed exchange/work tabs must not hide the task-progress entry');
+    await h.tap(tester,find.byTooltip('详情：任务进度'));
+    await h.wait(tester,()=>find.textContaining('下次 ').evaluate().isNotEmpty);
+    await h.shot(tester,'t93_4.8_details_light');
+    await h.agent.setThemeMode(ThemeMode.dark);await h.shot(tester,'t93_4.8_details_dark');
+    await h.agent.setThemeMode(ThemeMode.light);
+    await h.tap(tester,find.text('暂停').last);expect(((await h.rpc('schedules.list') as List).single as Map)['status'],'paused');
+    await h.tap(tester,find.text('删除').last);await h.tap(tester,find.widgetWithText(FilledButton,'删除'));
+    expect(await h.rpc('schedules.list'),isEmpty);
+  });
 
-    // 4. Back to A: same process, still running or finished; stop it if needed.
-    // By its current title: the auxiliary model may have renamed it by now.
-    final titleA = agent.sidebar.firstWhere((e) => SessionStore.samePath(e.path, sessionA)).title;
-    await tester.tap(sidebarTile(titleA).first);
-    await waitFor(tester, 'A active', () => agent.active == runtimeA, agent);
-    await idle(tester, const Duration(milliseconds: 500));
-    expect(agent.runtimes.length, greaterThanOrEqualTo(2));
-    // The model may have reached for a tool while writing; decline it.
-    if (find.text('Agent 请求执行操作').evaluate().isNotEmpty) {
-      await tester.tap(find.widgetWithText(OutlinedButton, '拒绝'));
-      await tester.pump();
-    }
-    if (agent.isRunning) {
-      await tester.tap(find.byTooltip('停止'));
-      await waitFor(tester, 'A stopped', () => !agent.isRunning, agent);
-    }
-    expect(
-      assistants(agent).skip(turnsBefore).expand((a) => a.parts),
-      isNotEmpty,
-      reason: 'A kept working while in the background\n${describe(agent)}',
-    );
-    await shot(tester, '05_back_to_a');
+  scenario('4.10','统一搜索三类、归档、回收站及恢复',(tester,h) async {
+    await h.script([{'tools':[tool('write',{'file_path':'找回实验.md','content':'# 找回实验\n\n保留第二组复测结果。'})]},{'text':'找回实验的结果已经保存。'}]);await h.send(tester,'整理找回实验的记录。');
+    await h.rpc('memory.save',{'content':'找回实验要保留原始数据','scope':'workspace','cwd':h.workspace});
+    final path=h.agent.currentSessionPath!;
+    final search=find.descendant(of:find.byType(Sidebar),matching:find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.hintText=='搜索'));
+    await tester.enterText(search,'找回实验');await h.wait(tester,()=>find.text('产物').evaluate().isNotEmpty);
+    for(final group in ['对话','产物','记忆']){expect(find.descendant(of:find.byType(Sidebar),matching:find.text(group)),findsWidgets);}
+    final results=asJsonMap(await h.rpc('search.all',{'query':'找回实验','cwd':h.workspace}));for(final key in ['conversations','files','memories']){expect(results[key],isNotEmpty);}
+    await h.tap(tester,find.byTooltip('清除搜索'));
+    await menu(tester,h,'归档');await h.tap(tester,find.text('已归档').last);
+    await h.wait(tester,()=>h.agent.archivedSessions.any((entry)=>SessionStore.samePath(entry.path,path)));
+    await h.agent.setArchived(path,false);await h.agent.openSession(path);await h.settle(tester);
+    await menu(tester,h,'删除');
+    if(find.widgetWithText(FilledButton,'删除').evaluate().isNotEmpty)await h.tap(tester,find.widgetWithText(FilledButton,'删除'));
+    await h.wait(tester,()=>!File(path).existsSync());await h.tap(tester,find.text('回收站').last);
+    await h.wait(tester,()=>find.text('恢复').evaluate().isNotEmpty);await h.tap(tester,find.text('恢复').first);
+    await h.wait(tester,()=>File(path).existsSync());
+  });
 
-    // 5. Fork from the essay request: a new session that keeps the first
-    //    exchange, with the essay request back in the input box.
-    // The long essay pushed the request off screen; scroll up to it first.
-    final messages = find.descendant(of: find.byType(SelectionArea), matching: find.byType(Scrollable)).first;
-    // With a long essay the question may not be built yet: drag up until its
-    // fork button is, then bring the essay request's (the last one) into view.
-    final forkQuestion = find.byTooltip('分叉为新会话：保留这条消息之前的内容，并把这条消息放回输入框供你修改');
-    for (var i = 0; i < 50 && forkQuestion.evaluate().isEmpty; i++) {
-      await tester.drag(messages, const Offset(0, 300));
-      await tester.pump();
-    }
-    await tester.ensureVisible(forkQuestion.last);
-    await tester.pump();
-    await tester.tap(forkQuestion.last);
-    await waitFor(tester, 'forked', () => agent.currentSessionPath != sessionA && agent.active == runtimeA, agent);
-    await idle(tester);
-    expect(tester.widget<TextField>(composer).controller!.text, contains('大海'));
-    expect(agent.transcript.items.whereType<UserItem>().single.text, contains('hello.txt'));
-    await shot(tester, '06_forked');
+  scenario('4.11','记忆三组、原地编辑、删除撤销、最近与对话纠正回执',(tester,h) async {
+    final saved=asJsonMap(await h.rpc('memory.save',{'content':'实验周报每周三发','scope':'workspace','cwd':h.workspace,'kind':'background'}));final item=asJsonMap(saved['item']);
+    await h.rpc('memory.save',{'content':'偏好简短回答','scope':'global','kind':'background'});
+    await h.tap(tester,nav('记忆'));await h.wait(tester,()=>find.byKey(ValueKey('memory-content-${item['id']}')).evaluate().isNotEmpty);
+    for(final group in ['关于你','关于这个项目','蝶君自己的']){expect(find.text(group),findsOneWidget);}
+    final input=find.byKey(ValueKey('memory-content-${item['id']}'));
+    await tester.enterText(input,'实验周报每周五发');await h.tap(tester,find.text('记下的事'));
+    await h.wait(tester,()=>tester.widget<TextField>(input).controller!.text=='实验周报每周五发');
+    expect(asJsonMap(asJsonMap(await h.rpc('memory.item',{'id':item['id']}))['item'])['content'],'实验周报每周五发');
+    final row=find.ancestor(of:input,matching:find.byType(MemoryEditableEntry));
+    await h.tap(tester,find.descendant(of:row,matching:find.byIcon(Icons.delete_outline)));
+    await h.tap(tester,find.text('撤销').last);await h.wait(tester,()=>input.evaluate().isNotEmpty);
+    await h.tap(tester,find.text('最近'));await h.wait(tester,()=>find.textContaining('实验周报').evaluate().isNotEmpty);
+    await h.tap(tester,nav('工作台'));
+    await h.script([{'tools':[tool('memory_update',{'id':item['id'],'content':'实验周报每周四发','explicit':true})]},{'text':'已改为每周四发实验周报。'}]);await h.send(tester,'这条不对，我的实验周报每周四发。');
+    await h.hoverAnswer(tester);await h.wait(tester,()=>find.text('已更新记忆').evaluate().isNotEmpty);
+    final receipts=(await h.rpc('memory.corrections',{'sessionId':h.agent.activeSessionId}) as List).cast<Map>();expect(receipts.single['status'],'applied');
+    final receiptRow=find.ancestor(of:find.text('已更新记忆'),matching:find.byType(Row)).first;
+    await h.tap(tester,find.descendant(of:receiptRow,matching:find.text('撤销')));
+    expect(asJsonMap(asJsonMap(await h.rpc('memory.item',{'id':item['id']}))['item'])['content'],'实验周报每周五发');
+  });
 
-    // 6. Context panel and manual compaction in the fork. Pi summarizes whole
-    //    earlier turns, so give it a second turn first.
-    await sendMessage(tester, '只回复两个字：好的');
-    await waitFor(tester, 'second turn', () => !agent.isRunning && agent.transcript.items.whereType<UserItem>().length == 2 && lastText(agent).isNotEmpty, agent);
-    await tester.tap(find.byKey(const ValueKey('context-ring')));
-    await tester.pumpAndSettle();
-    expect(find.text('立即压缩'), findsOneWidget);
-    await shot(tester, '07_context_dialog');
-    await tester.enterText(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText?.contains('重点保留') ?? false)), '保留文件内容');
-    await tester.tap(find.widgetWithText(FilledButton, '压缩'));
-    await waitFor(tester, 'compacted', () => find.textContaining('压缩完成').evaluate().isNotEmpty, agent);
-    await shot(tester, '08_compacted');
-    await tester.tap(find.byTooltip('关闭'));
-    await tester.pumpAndSettle();
-    expect(agent.transcript.items.whereType<NoticeItem>().where((n) => n.kind == NoticeKind.compaction), isNotEmpty);
-
-    // 7. Skills panel, settings page and workspace menu render.
-    await tester.tap(find.byTooltip('Skills 与命令'));
-    await tester.pumpAndSettle();
-    await shot(tester, '09_skills');
-    await tester.tap(find.byTooltip('关闭'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byTooltip(RegExp('^设置')));
-    await tester.pumpAndSettle();
-    await tester.tap(settingsCategory('外观'));
-    await tester.pumpAndSettle();
-    expect(find.text('界面缩放'), findsOneWidget);
-    await tester.tap(settingsCategory('安全与审批'));
-    await tester.pumpAndSettle();
-    expect(find.text('修改和命令需确认'), findsOneWidget);
-    await shot(tester, '10_settings');
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byTooltip(RegExp('^工作区：')));
-    await tester.pumpAndSettle();
-    expect(find.text(p.basename(otherWorkspace.path)), findsOneWidget);
-    await shot(tester, '11_workspace_menu');
-    await tester.tap(find.text(p.basename(otherWorkspace.path)));
-    await waitFor(tester, 'other workspace', () => SessionStore.samePath(agent.workspace, otherWorkspace.path) && agent.isReady, agent);
-    expect(agent.transcript.items, isEmpty);
-    await shot(tester, '12_other_workspace');
-
-    // 8. Close the window mid-run: the session keeps running in the core, and
-    //    a new window attaches to it and sees it finish.
-    await sendMessage(tester, '写一段 300 字左右关于星空的文字。直接写，不要使用任何工具。');
-    await waitFor(tester, 'C running', () => agent.isRunning, agent);
-    final sessionC = agent.currentSessionPath!;
-    agent.dispose(); // the window goes away; the core keeps the session
-    // Paper, not an empty widget: a bare window paints black, which looked
-    // like a flash when switching workspaces (the step before).
-    await tester.pumpWidget(ColoredBox(color: AppColors.light.background));
-    await idle(tester, const Duration(seconds: 1));
-
-    agent = AgentController(
-      preferences: await Preferences.load(),
-      sessionStore: SessionStore(sessionsDir: sessionsDir),
-      backend: newBackend(),
-    );
-    await tester.pumpWidget(RepaintBoundary(key: shotKey, child: DreamFlutterApp(controller: agent)));
-    unawaited(agent.init());
-    final reattached = await (() async {
-      await waitFor(tester, 'reattached', () => agent.runtimes.any((r) => r.sessionPath != null && SessionStore.samePath(r.sessionPath!, sessionC)), agent);
-      return agent.runtimes.firstWhere((r) => SessionStore.samePath(r.sessionPath!, sessionC));
-    })();
-    await tester.runAsync(() => agent.openSession(sessionC));
-    await waitFor(tester, 'C finished in the new window', () => !reattached.isRunning && reattached.transcript.items.whereType<AssistantItem>().isNotEmpty, agent);
-    expect(reattached.transcript.items.whereType<UserItem>().last.text, contains('星空'));
-    expect(lastText(agent), isNotEmpty);
-    await shot(tester, '13_reattached_after_window_closed');
-
-    // 9. Edit the message in place: the new version sits next to the old one.
-    final starRequest = agent.transcript.items.whereType<UserItem>().last;
-    await tester.runAsync(() => agent.editMessage(starRequest));
-    await idle(tester);
-    expect(tester.widget<TextField>(composer).controller!.text, contains('星空'));
-    await sendMessage(tester, '改成写月亮，100 字以内，直接写，不要使用任何工具。');
-    await waitFor(tester, 'moon reply', () => !agent.isRunning && lastText(agent).isNotEmpty && agent.transcript.items.whereType<UserItem>().last.text.contains('月亮'), agent);
-    await waitFor(tester, 'version switcher', () => find.text('2/2').evaluate().isNotEmpty, agent);
-    await shot(tester, '14_versions');
-    // The switcher shows under the question and under its reply.
-    await tester.tap(find.byTooltip('上一个版本').first);
-    await waitFor(tester, 'back to version 1', () => agent.transcript.items.whereType<UserItem>().last.text.contains('星空') && find.text('1/2').evaluate().isNotEmpty, agent);
-    await shot(tester, '15_version_1');
-
-    // 9b. The run panel's branch tab: the star request and its moon rewrite
-    //     both hang under the same point, and the star version is shown.
-    await tester.tap(find.byTooltip(RegExp('^详情'))); // the details open on request (0.4)
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('分支'));
-    await waitFor(
-      tester,
-      'branch tree',
-      () => find.textContaining('改成写月亮').evaluate().isNotEmpty && find.textContaining('1 处分支').evaluate().isNotEmpty,
-      agent,
-      timeout: const Duration(seconds: 30),
-    );
-    await shot(tester, '15b_branch_tree');
-    await tester.tap(find.text('概览'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('收起详情').first);
-    await tester.pumpAndSettle();
-
-    // 10. Full-text search across sessions.
-    await tester.tap(nav('搜索')); // the sidebar's search opens the box (0.4)
-    await tester.pumpAndSettle();
-    final searchBox = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '搜索所有会话');
-    await tester.enterText(searchBox, '星空');
-    await waitFor(tester, 'search hit', () => find.textContaining('我：', findRichText: true).evaluate().isNotEmpty, agent);
-    await shot(tester, '16_search');
-    await tester.enterText(searchBox, '');
-    await idle(tester);
-    await tester.tap(find.byTooltip('关闭搜索'));
-    await tester.pumpAndSettle();
-
-    // 11. The configured channel (app-owned or Pi) is listed and answers a test.
-    await tester.tap(find.byTooltip(RegExp('^设置')));
-    await tester.pumpAndSettle();
-    await tester.tap(settingsCategory('模型与网关'));
-    await tester.pumpAndSettle();
-    final testChannel = find.widgetWithText(TextButton, '测试').first;
-    await waitFor(tester, 'channels listed', () => testChannel.evaluate().isNotEmpty, agent, timeout: const Duration(seconds: 30));
-    await tester.ensureVisible(testChannel);
-    await tester.tap(testChannel);
-    await waitFor(tester, 'channel ok', () => find.textContaining('可用 · ').evaluate().isNotEmpty, agent);
-    await shot(tester, '17_channels');
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    // 12. The dashboard counts today's model responses and shows the channel.
-    await tester.tap(nav('仪表盘'));
-    await waitFor(tester, 'dashboard loaded', () => find.textContaining('次回复').evaluate().isNotEmpty && find.textContaining('今天').evaluate().isNotEmpty, agent);
-    await tester.tap(find.text('模型').last); // the breakdown by model
-    await tester.pumpAndSettle();
-    // The table is below the spending chart: scroll it into view (lists build only what is visible).
-    final dashboardList = find.descendant(of: find.byType(DashboardPage), matching: find.byType(Scrollable)).first;
-    await tester.scrollUntilVisible(find.text('花费按模型价格计算；没有填写价格的模型算 \$0，可以在渠道里补上价格。'), 200, scrollable: dashboardList);
-    // The breakdown comes from the usage index, which may still be catching up with the session files.
-    await waitFor(tester, 'model breakdown', () => find.textContaining('deepseek').evaluate().isNotEmpty, agent, timeout: const Duration(seconds: 30));
-    await shot(tester, '18_dashboard');
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    // 13. A temporary chat says so and is not saved.
-    await tester.tap(find.byTooltip('无痕对话：极简模式，不保存记录，也不读写记忆'));
-    await waitFor(tester, 'temporary chat', () => agent.active?.incognito == true && agent.isReady, agent);
-    expect(find.textContaining('无痕对话：极简模式，不保存记录'), findsOneWidget);
-    await shot(tester, '19_temporary_chat');
-
-    // 14. "Remember ..." saves a memory right away; the memory page lists it.
-    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.byIcon(Icons.add)));
-    await waitFor(tester, 'normal session', () => agent.active?.incognito == false && agent.isReady, agent);
-    await sendMessage(tester, '请记住：我写周报喜欢用表格。记住后只回复「好的」。');
-    await waitFor(tester, 'remembered', () => !agent.isRunning && lastText(agent).isNotEmpty, agent);
-    expect(agent.transcript.tools.values.where((r) => r.name == 'memory_save'), isNotEmpty, reason: describe(agent));
-    await tester.tap(nav('记忆'));
-    // Candidates from automatic extraction open first: switch to the library.
-    Finder onMemoryPage(Finder f) => find.descendant(of: find.byType(MemoryPage), matching: f);
-    await tester.pumpAndSettle();
-    await tester.tap(onMemoryPage(find.text('记忆库')).first); // the panel entry; the section heading says it too
-    await waitFor(tester, 'memory listed', () => onMemoryPage(find.textContaining('表格')).evaluate().isNotEmpty, agent);
-    await tester.pumpAndSettle();
-    await shot(tester, '20_memory_page');
-
-    // 15. Save the request as a task template (drafted by the model), see it on the skills page.
-    await tester.tap(nav('工作台'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(RegExp('^详情'))); // the actions are in the details since 0.4
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('存为模板'));
-    await waitFor(tester, 'template draft', () => find.text('保存任务模板').evaluate().isNotEmpty, agent, timeout: const Duration(minutes: 2));
-    final nameField = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.labelText ?? '').startsWith('模板名'));
-    await tester.enterText(nameField, 'e2e周报');
-    await tester.pump();
-    await shot(tester, '21_template_draft');
-    await tester.tap(find.widgetWithText(FilledButton, '保存'));
-    await waitFor(tester, 'template saved', () => find.text('保存任务模板').evaluate().isEmpty, agent);
-    await tester.tap(find.byTooltip('收起详情').first);
-    await tester.pumpAndSettle();
-    await tester.tap(nav('技能'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.descendant(of: find.byType(LibraryPage), matching: find.text('任务模板')));
-    await waitFor(tester, 'template listed', () => find.descendant(of: find.byType(LibraryPage), matching: find.text('/e2e周报')).evaluate().isNotEmpty, agent);
-    await shot(tester, '22_templates');
-    await agent.backend.call('templates.remove', {'name': 'e2e周报'});
-    await tester.tap(nav('工作台'));
-    await tester.pumpAndSettle();
-
-    // 16. 蝶君: the test's core has no sandbox (setting one up takes minutes), so
-    // both halves wait for it; the hand-off is covered by core/test/butterfly.test.ts
-    // and, in a real sandbox, by core/test/sandbox-live.test.ts.
-    await tester.tap(nav('蝶君'));
-    await tester.pumpAndSettle();
-    await waitFor(tester, 'sandbox setup', () => find.text('先给蝶君建一个沙箱').evaluate().isNotEmpty, agent);
-    expect(find.byTooltip('新写笺'), findsNothing, reason: '「工作」 runs in the sandbox too');
-    await shot(tester, '23_butterfly_setup');
-    await tester.tap(nav('任务'));
-    await waitFor(tester, 'tasks page', () => find.text('全部任务').evaluate().isNotEmpty, agent);
-    await tester.tap(find.text('全部任务'));
-    await waitFor(tester, 'task listed', () => find.descendant(of: find.byType(TasksPage), matching: find.text('完成')).evaluate().isNotEmpty, agent);
-    await shot(tester, '26_tasks');
-    await tester.tap(nav('工作台'));
-    await tester.pumpAndSettle();
-
-    // 17. A scheduled task run on demand: it runs in the background (its own
-    // session), the run record shows the result and the delivery.
-    final schedule = asJsonMap(await agent.backend.call('schedules.save', {
-      'name': 'e2e 报时',
-      'prompt': '用一句话说出现在大概是一天中的什么时段（上午、下午或晚上）。不要使用任何工具。',
-      'cwd': agent.workspace,
-      'kind': 'report',
-      'trigger': {'type': 'interval', 'everyMs': 24 * 3600 * 1000},
-    }));
-    await tester.tap(nav('任务'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('定时'));
-    await waitFor(tester, 'schedule listed', () => find.text('e2e 报时').evaluate().isNotEmpty, agent);
-    await tester.pumpAndSettle(); // the tab switch animates
-    await tester.tap(find.widgetWithText(OutlinedButton, '立即运行'));
-    String? runStatus;
-    await waitFor(tester, 'scheduled run done', () {
-      unawaited(agent.backend.call('schedules.get', {'id': schedule['id']}).then((v) {
-        final runs = asJsonMap(v)['runs'] as List? ?? const [];
-        runStatus = runs.isEmpty ? null : (runs.first as Map)['status'] as String?;
-      }));
-      return runStatus == 'done' || runStatus == 'failed';
-    }, agent);
-    expect(runStatus, 'done');
-    await idle(tester, const Duration(seconds: 1));
-    await shot(tester, '27_schedules');
-    await tester.tap(find.descendant(of: find.byType(SchedulesTab), matching: find.byTooltip('操作')).first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('执行记录'));
-    await waitFor(tester, 'history', () => find.text('「e2e 报时」的执行记录').evaluate().isNotEmpty, agent);
-    await tester.pumpAndSettle();
-    await shot(tester, '28_schedule_history');
-    await tester.tap(find.widgetWithText(TextButton, '关闭'));
-    await tester.pumpAndSettle();
-    await agent.backend.call('schedules.remove', {'id': schedule['id']});
-
-    // 18. web_fetch reads a page without asking for approval.
-    await tester.tap(nav('工作台'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.byIcon(Icons.add)));
-    await waitFor(tester, 'fresh session', () => agent.isReady && agent.transcript.items.isEmpty, agent);
-    await sendMessage(tester, '用 web_fetch 工具读取 https://example.com ，然后直接根据读到的内容只回复页面的标题，不要运行命令。');
-    // The model may still want a command afterwards (it asks, as it should):
-    // decline it, but web_fetch itself must never ask.
-    final asking = find.text('Agent 请求执行操作');
-    while (agent.isRunning || asking.evaluate().isNotEmpty || lastText(agent).isEmpty) {
-      await waitFor(tester, 'fetched', () => asking.evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
-      if (asking.evaluate().isNotEmpty) {
-        expect(find.textContaining('web_fetch'), findsNothing, reason: 'web_fetch asked for approval');
-        await tester.tap(find.widgetWithText(OutlinedButton, '拒绝').first);
-        await tester.pump();
-      }
-    }
-    expect(agent.transcript.tools.values.where((r) => r.name == 'web_fetch' && r.status == ToolStatus.done), isNotEmpty, reason: describe(agent));
-    // The title is "Example Domain"; the model sometimes translates it anyway.
-    expect(lastText(agent).toLowerCase(), anyOf(contains('example'), contains('示例')));
-    await shot(tester, '29_web_fetch');
-
-    // 19. Images reach the model (v0.1.1 bug: Pi's "block images" setting
-    //     replaced them with a note), and the reply has its own actions.
-    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.byIcon(Icons.add)));
-    await waitFor(tester, 'fresh session for the image', () => agent.isReady && agent.transcript.items.isEmpty, agent);
-    final red = await tester.runAsync(() async {
-      final recorder = ui.PictureRecorder();
-      Canvas(recorder).drawRect(const Rect.fromLTWH(0, 0, 64, 64), Paint()..color = const Color(0xFFDC1414));
-      final image = await recorder.endRecording().toImage(64, 64);
-      final png = await image.toByteData(format: ui.ImageByteFormat.png);
-      return base64Encode(png!.buffer.asUint8List());
-    });
-    await tester.runAsync(() => agent.send('这张图片是什么颜色？只回复颜色的中文名称。', images: [ImageBlock(data: red!, mimeType: 'image/png')]));
-    await waitFor(tester, 'image reply', () => !agent.isRunning && lastText(agent).isNotEmpty, agent);
-    expect(lastText(agent), contains('红'), reason: describe(agent));
-    await tester.pumpAndSettle();
-    expect(find.byTooltip('复制回复（Markdown 原文）'), findsOneWidget, reason: 'the latest reply shows its actions');
-    await shot(tester, '30_image_reply_actions');
-
-    // 20. Ctrl + plus zooms the whole window; Ctrl + 0 restores it.
-    Future<void> ctrl(LogicalKeyboardKey key) async {
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-      await tester.sendKeyEvent(key);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-      await idle(tester);
-    }
-
-    await ctrl(LogicalKeyboardKey.equal);
-    await ctrl(LogicalKeyboardKey.equal);
-    expect(agent.zoom, 1.25);
-    await shot(tester, '31_zoom_125');
-    await ctrl(LogicalKeyboardKey.digit0);
-    expect(agent.zoom, 1.0);
-
-    // 21. Minimal mode: a new session with only the persistent PowerShell; state
-    // persists between commands; a read-only command needs no approval.
-    await agent.selectAgentMode('minimal');
-    await waitFor(tester, 'minimal session', () => agent.isReady && agent.agentMode == 'minimal' && agent.transcript.items.isEmpty, agent);
-    await sendMessage(tester, r'先用 pwsh 执行 $n = 6 * 7 ，再用另一次 pwsh 调用输出 $n 的值，最后只回复这个数字。');
-    // Assigning a variable is not read-only, so the commands may ask first.
-    final approve21 = find.widgetWithText(FilledButton, '允许');
-    while (agent.isRunning || approve21.evaluate().isNotEmpty || lastText(agent).isEmpty) {
-      await waitFor(tester, 'approval or minimal reply', () => approve21.evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
-      if (approve21.evaluate().isNotEmpty) {
-        await tester.tap(approve21.first);
-        await tester.pump();
-        await idle(tester);
-      }
-    }
-    expect(lastText(agent), contains('42'), reason: describe(agent));
-    expect(agent.transcript.tools.values.every((r) => r.name == 'pwsh'), isTrue, reason: describe(agent));
-    await shot(tester, '32_minimal_mode');
-
-    // 22. Plan mode (standard): the agent presents a plan for review instead of acting.
-    await agent.selectAgentMode('standard');
-    await waitFor(tester, 'standard session', () => agent.isReady && agent.agentMode == 'standard' && agent.transcript.items.isEmpty, agent);
-    await idle(tester); // let the composer redraw with the plan-mode button
-    await tester.tap(find.byTooltip('计划模式：先让 Agent 给出计划，你批准后再动手'));
-    await waitFor(tester, 'plan mode on', () => agent.planMode, agent);
-    await sendMessage(tester, '在工作区新建 plan-demo.txt，内容是 hello。');
-    // Not 'not running' alone: right after sending, the run has not started yet.
-    // While planning the model may look around with a command that asks first: allow it.
-    final reviewing = find.text('请审阅 Agent 的计划');
-    final approvePlanning = find.widgetWithText(FilledButton, '允许');
-    while (reviewing.evaluate().isEmpty && (agent.isRunning || lastText(agent).isEmpty)) {
-      await waitFor(tester, 'plan review', () => reviewing.evaluate().isNotEmpty || approvePlanning.evaluate().isNotEmpty || (!agent.isRunning && lastText(agent).isNotEmpty), agent);
-      if (approvePlanning.evaluate().isNotEmpty) {
-        await tester.tap(approvePlanning.first);
-        await tester.pump();
-        await idle(tester);
-      }
-    }
-    expect(find.text('请审阅 Agent 的计划'), findsOneWidget, reason: describe(agent));
-    await shot(tester, '33_plan_review');
-    await tester.tap(find.widgetWithText(FilledButton, '批准，开始执行'));
-    await tester.pump();
-    final approve22 = find.widgetWithText(FilledButton, '允许');
-    while (agent.isRunning || approve22.evaluate().isNotEmpty) {
-      await waitFor(tester, 'approval or done', () => approve22.evaluate().isNotEmpty || !agent.isRunning, agent);
-      if (approve22.evaluate().isNotEmpty) {
-        await tester.tap(approve22.first);
-        await tester.pump();
-        await idle(tester);
-      }
-    }
-    expect(agent.planMode, isFalse);
-    expect(File(p.join(agent.workspace, 'plan-demo.txt')).existsSync(), isTrue, reason: describe(agent));
-    await shot(tester, '34_plan_done');
-
-    // 23. A model group: its first channel has an invalid key, so the
-    //     conversation moves on to DeepSeek and the window says so.
-    final slash = model.indexOf('/');
-    final modelId = model.substring(slash + 1);
-    final bad = asJsonMap(
-      await agent.backend.call('gateway.saveChannel', {
-        'name': '坏 Key 渠道',
-        'platform': 'deepseek',
-        'api': 'openai-completions',
-        'baseUrl': 'https://api.deepseek.com/v1',
-        'models': [
-          {'id': modelId},
-        ],
-        'keys': [
-          {'secret': 'sk-invalid-dreamflutter-e2e'},
-        ],
-      }),
-    );
-    await agent.backend.call('gateway.saveGroup', {
-      'id': 'e2e',
-      'name': '实测组',
-      'entries': [
-        {'channel': bad['id'], 'model': modelId, 'priority': 0},
-        {'channel': goChannel ?? 'pi:${model.substring(0, slash)}', 'model': modelId, 'priority': 1},
-      ],
-    });
-    await waitFor(tester, 'group in the model menu', () => agent.models.any((m) => m.key == 'dreamflutter/e2e'), agent);
-    await tester.tap(find.byWidgetPredicate((w) => w is Tooltip && (w.message ?? '').startsWith('模型：')).first);
-    await tester.pumpAndSettle();
-    expect(find.text('模型组'), findsOneWidget, reason: 'groups come first, under their own heading');
-    await shot(tester, '35_model_menu');
-    await tester.tap(find.text('实测组').last);
-    await waitFor(tester, 'group selected', () => agent.model?.key == 'dreamflutter/e2e', agent);
-    // Toasts as sent (a snackbar can wait behind earlier ones).
-    final toasts = <String>[];
-    final toastSub = agent.toasts.listen(toasts.add);
-    final answersBefore = assistants(agent).where((a) => a.stopReason != 'error').length;
-    await sendMessage(tester, '只回复两个字：你好');
-    // A new answer, not the previous step's: right after sending, the run has not started yet.
-    await waitFor(
-      tester,
-      'answer through the group',
-      () => !agent.isRunning && assistants(agent).where((a) => a.stopReason != 'error').length > answersBefore && lastText(agent).isNotEmpty,
-      agent,
-    );
-    await toastSub.cancel();
-    expect(toasts.any((t) => t.startsWith('已从「坏 Key 渠道')), isTrue, reason: 'the window announces the switch: $toasts');
-    expect(assistants(agent).last.stopReason, isNot('error'), reason: describe(agent));
-    await shot(tester, '36_model_group');
-
-    await agent.shutdownCore();
-    agent.dispose();
-    await idle(tester, const Duration(seconds: 2));
-  }, timeout: const Timeout(Duration(minutes: 15)));
+  scenario('4.12','蝶园合并技能、服务测试与工具开关、链接待确认及新对话草稿',(tester,h) async {
+    final seeded=asJsonMap(await h.rpc('test.library'));
+    await h.tap(tester,nav('技能'));await h.wait(tester,()=>find.text('实验周报').evaluate().isNotEmpty);
+    expect(find.text('任务模板'),findsNothing);expect(find.text('MCP 服务'),findsNothing);expect(find.text('可用'),findsNothing);expect(find.text('已停用'),findsNothing);
+    final list=find.descendant(of:find.byType(GardenPage),matching:find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(find.text('lab-notes'),220,scrollable:list);
+    await h.tap(tester,find.text('lab-notes').first);await h.tap(tester,find.text('测试连接'));
+    await h.wait(tester,()=>find.text('连接成功').evaluate().isNotEmpty);expect(find.text('read_notes'),findsOneWidget);
+    await h.tap(tester,find.text('read_notes'));
+    final servers=asJsonMap(await h.rpc('mcp.list',{'cwd':h.workspace}))['servers'] as List;expect((((servers.single as Map)['tools'] as List).single as Map)['enabled'],false);
+    final toolTile=find.ancestor(of:find.text('read_notes'),matching:find.byType(MotionSwitchTile));
+    final displayedAfterDisable=tester.widget<MotionSwitchTile>(toolTile).value;
+    await h.shot(tester,'4.12_tool_after_disable');
+    await h.agent.setThemeMode(ThemeMode.dark);await h.shot(tester,'t93_4.12_tool_dark');
+    expect(tester.widget<MotionSwitchTile>(toolTile).value,false);
+    await h.agent.setThemeMode(ThemeMode.light);
+    await h.tap(tester,find.text('read_notes'));
+    expect(tester.widget<MotionSwitchTile>(toolTile).value,true);
+    final enabledServers=asJsonMap(await h.rpc('mcp.list',{'cwd':h.workspace}))['servers'] as List;
+    expect((((enabledServers.single as Map)['tools'] as List).single as Map)['enabled'],true);
+    await h.tap(tester,find.text('蝶君能用'));
+    expect(((asJsonMap(await h.rpc('mcp.list',{'cwd':h.workspace}))['servers'] as List).single as Map)['butterflyAllowed'],true);
+    await h.tap(tester,find.text('新建'));await h.tap(tester,find.text('从链接导入'));
+    await tester.enterText(find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.labelText=='链接'),seeded['url'] as String);await h.tap(tester,find.widgetWithText(FilledButton,'导入'));
+    await h.wait(tester,()=>find.byType(AlertDialog).evaluate().isEmpty);
+    await tester.scrollUntilVisible(find.text('link-check'),-220,scrollable:list);await h.tap(tester,find.text('link-check').first);
+    expect(find.text('去等你处理'),findsOneWidget);expect(find.text('采用'),findsNothing);expect(find.text('等你确认'),findsWidgets);
+    final imported=(await h.rpc('skills.list',{'cwd':h.workspace}) as List).cast<Map>().firstWhere((row)=>row['name']=='link-check');expect(imported['enabled'],false);expect(imported['trust'],'untrusted');
+    await h.rpc('skills.import',{'folder':seeded['folder']});
+    expect((await h.rpc('proposals.list',{'status':'pending'}) as List),hasLength(2));
+    await h.tap(tester,find.text('新建'));await h.tap(tester,find.text('让它帮我做'));
+    expect(h.agent.section,AppSection.chat);expect(h.agent.active!.editorText,'帮我做一个技能：');
+    expect(h.agent.active!.isPristine,true);
+    await h.script([{'tools':[tool('skill_register',{'name':'agent-check','description':'核对实验引用','content':'---\nname: agent-check\ndescription: 核对实验引用\n---\nCheck references.'})]},{'text':'已准备好技能，等你确认后再启用。'}]);
+    await h.send(tester,'帮我做一个核对实验引用的技能。');
+    expect((await h.rpc('proposals.list',{'status':'pending'}) as List),hasLength(3));
+    expect(displayedAfterDisable,false,reason:'T91-P05: the tool switch must reflect the saved disabled state, not stale connection-test results');
+    // The sandbox script trial and adopting the proposal remain explicit T88/WSL boundaries.
+  });
 }

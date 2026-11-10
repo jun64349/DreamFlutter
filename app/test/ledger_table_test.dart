@@ -30,6 +30,7 @@ void main() {
             'allowance': {'USD:provider': 0.12, 'GLM_POINTS:local_estimate': 15.75}, 'historical': 1, 'missingUsage': 1, 'ttftMs': 321, 'latencyCount': 1},
         ]};
       };
+      backend.handlers['ledger.entries']=(_)=>empty?<Json>[]:[{'requested_at':DateTime(2026,11,7).millisecondsSinceEpoch,'purpose':'compaction','provider':'synthetic','model':'model','amount':0.00412,'currency':'USD','amount_source':'price_estimate'}];
       final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: root.path), backend: backend);
       addTearDown(() { agent.dispose(); root.deleteSync(recursive: true); });
       const capture = bool.fromEnvironment('T68_CAPTURE');
@@ -43,8 +44,10 @@ void main() {
         home: const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: LedgerTable()))),
       )));
       await tester.pumpAndSettle();
-      expect(find.text('压缩（含候选）'), findsOneWidget); expect(find.text('USD 0.00412\nCNY 0.005'), findsOneWidget);
-      expect(find.textContaining('按价格估算 1 笔'), findsOneWidget); expect(find.textContaining('1 次 usage 缺失'), findsOneWidget);
+      expect(find.byType(DataTable),findsOneWidget);expect(tester.widget<DataTable>(find.byType(DataTable)).columns.length,4);expect(find.text('输入'),findsNothing);expect(find.text('时间归组'),findsNothing);
+      await tester.ensureVisible(find.text('高级'));await tester.tap(find.text('高级'));await tester.pumpAndSettle();
+      expect(find.text('整理上下文'), findsWidgets); expect(find.text('USD 0.00412\nCNY 0.005'), findsOneWidget);
+      expect(find.textContaining('按价格估算 1 笔'), findsOneWidget); expect(find.textContaining('1 次计量缺失'), findsOneWidget);
       expect(find.textContaining('GLM_POINTS 15.75'), findsOneWidget); expect(find.text('历史导入'), findsOneWidget);
       if (capture) { await expectLater(find.byType(Scaffold), matchesGoldenFile('../../Claude Codex Bridge/T68-ledger-${brightness.name}-150.png')); }
       await tester.drag(find.byKey(const ValueKey('ledger-horizontal')), const Offset(-2300, 0)); await tester.pumpAndSettle();
@@ -53,9 +56,9 @@ void main() {
       expect(backend.callsTo('ledger.summary').last['period'], 'month');
       await tester.tap(find.byType(DropdownButtonFormField<String>).last); await tester.pumpAndSettle(); await tester.tap(find.text('模型').last); await tester.pumpAndSettle();
       expect(backend.callsTo('ledger.summary').last['groupBy'], 'model');
-      fail = true; await tester.tap(find.text('刷新账本')); await tester.pumpAndSettle();
+      fail = true; await tester.tap(find.text('刷新账目')); await tester.pumpAndSettle();
       expect(find.textContaining('合成查询失败'), findsOneWidget);
-      fail = false; empty = true; await tester.tap(find.text('刷新账本')); await tester.pumpAndSettle();
+      fail = false; empty = true; await tester.tap(find.text('刷新账目')); await tester.pumpAndSettle();
       expect(find.text('这个时间范围内没有请求记录'), findsOneWidget); expect(tester.takeException(), isNull);
     });
   }

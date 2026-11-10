@@ -44,14 +44,14 @@ void main() {
 
   testWidgets('default thinking can return to following the model; session selection does not overwrite it', (tester) async {
     await start(tester, const SettingsPage(category: '模型与网关'));
-    await tester.tap(find.byTooltip('选择默认思考级别'));
+    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'思考深度');await tester.pumpAndSettle();await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(DropdownButton<String>)));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<String>, '高'));
+    await tester.tap(find.text('高').last);
     await tester.pumpAndSettle();
     expect(agent.defaultThinkingLevel, 'high');
-    await tester.tap(find.byTooltip('选择默认思考级别'));
+    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'思考深度');await tester.pumpAndSettle();await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(DropdownButton<String>)));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<String>, '默认（中等，按模型支持范围自动调整）'));
+    await tester.tap(find.text('自动').last);
     await tester.pumpAndSettle();
     expect(agent.defaultThinkingLevel, isNull);
     await tester.runAsync(() => agent.selectThinkingLevel('low'));
@@ -69,13 +69,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('${agent.providerLabel(agent.models.first.provider)} · ${agent.models.first.name}').last);
     await tester.pumpAndSettle();
-    final input = find.widgetWithText(TextField, '手动覆盖（tokens）');
+    final input = find.widgetWithText(TextField, '手动覆盖（单位）');
     await tester.enterText(input, '0');
-    await tester.tap(find.text('保存窗口'));
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     expect(find.text('请输入大于 0 的整数'), findsOneWidget);
     await tester.enterText(input, '64000');
-    await tester.tap(find.text('保存窗口'));
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     expect(backend.settings['modelContextWindows'], {'another/model': 32000, agent.models.first.key: 64000});
     await tester.tap(find.text('恢复为目录默认（未知）'));
@@ -117,10 +117,10 @@ void main() {
       await tester.pumpAndSettle();
     }
     await select();
-    expect(find.text('恢复为渠道设置（77000 tokens）'), findsOneWidget);
+    expect(find.text('恢复为渠道设置（77000 单位）'), findsOneWidget);
     failing.failSave = true;
-    await tester.enterText(find.widgetWithText(TextField, '手动覆盖（tokens）'), '88000');
-    await tester.tap(find.text('保存窗口'));
+    await tester.enterText(find.widgetWithText(TextField, '手动覆盖（单位）'), '88000');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     expect(find.text('保存失败，请重试'), findsOneWidget);
     expect((backend.settings['modelContextWindows'] as Map)[key], 64000);
@@ -130,7 +130,7 @@ void main() {
     await select();
     expect(find.text('64000'), findsOneWidget);
     failing.failSave = false;
-    await tester.tap(find.text('恢复为渠道设置（77000 tokens）'));
+    await tester.tap(find.text('恢复为渠道设置（77000 单位）'));
     await tester.pumpAndSettle();
     expect(backend.settings['modelContextWindows'], isEmpty);
     expect(tester.takeException(), isNull);

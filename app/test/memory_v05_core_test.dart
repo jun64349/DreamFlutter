@@ -6,16 +6,15 @@ import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/memory_chat_controls.dart';
-import 'package:dreamflutter/ui/memory_details.dart';
 import 'package:dreamflutter/ui/memory_log.dart';
 import 'package:dreamflutter/ui/memory_page.dart';
-import 'package:dreamflutter/ui/context_controls.dart';
 import 'package:dreamflutter/ui/side_chat_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'v05_harness.dart' show settleV05;
+import 'support/clean_env.dart';
 
 class _RealBackend implements AgentBackend {
   _RealBackend(this.client);
@@ -38,7 +37,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1200,1600));
     final errors = <String>[];
     final launched = (await tester.runAsync(() async {
-      final process = await Process.start('node',['--disable-warning=ExperimentalWarning','test/support/t10_core.ts']);
+      final process = await Process.start('node',['--disable-warning=ExperimentalWarning','test/support/t10_core.ts'],environment:testCoreEnvironment(),includeParentEnvironment:false);
       process.stderr.transform(utf8.decoder).listen(errors.add);
       final ready = Completer<Json>();
       process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
@@ -94,34 +93,34 @@ void main() {
     final claim=(await tester.runAsync(()=>client.call('memory.unsaved',{'sessionId':sid})) as Map).cast<String,dynamic>();
     expect(claim['replyEntryId'],isA<String>());
     await mount(UnsavedMemoryNote(replies:agent.transcript.items.whereType<AssistantItem>().toList()));
-    expect(find.textContaining('其实没有保存'),findsOneWidget);
+    expect(find.text('这件事还没记下'),findsOneWidget);
     await tester.tap(find.text('保存'));
     await settleV05(tester);
     await tester.tap(find.widgetWithText(FilledButton,'保存'));
     await settleV05(tester);
-    expect(find.textContaining('已保存到工作区'),findsOneWidget);
+    expect(find.text('这件事还没记下'),findsNothing);
     expect(received.any((e)=>e['event']=='memory.unsaved' && e['cleared']==true && e['runId']==claim['runId']),isTrue);
     expect(await tester.runAsync(()=>client.call('memory.unsaved',{'sessionId':sid})),isNull);
     expect(agent.memoryUi.unsaved,isEmpty);
 
     final seed=(await tester.runAsync(()=>client.call('test.seed',{'slotId':agent.active!.slotId})) as Map).cast<String,dynamic>();
     await mount(const MemoryPage());
-    expect(find.textContaining('所有工作区都能看到'),findsOneWidget);
-    await tester.tap(find.text('同意'));
-    await settleV05(tester);
+    expect(find.text('同意'),findsNothing);
+    await tester.runAsync(() async {
+      final pending = await client.call('memory.pending') as List;
+      for (final item in pending) { await client.call('memory.acceptPending', {'id': (item as Map)['id']}); }
+    });
     expect(await tester.runAsync(()=>client.call('memory.pending')),isEmpty);
     await mount(const SingleChildScrollView(child:MemoryLog()));
-    await tester.ensureVisible(find.text('加载更多'));
-    await tester.tap(find.text('加载更多'));
+    await tester.ensureVisible(find.text('更早的记录'));
+    await tester.tap(find.text('更早的记录'));
     await settleV05(tester);
     final pages=backend.calls.where((c)=>c.method=='memory.log').toList();
     expect(pages.last.params['cursor'],isA<String>());
     expect(find.byWidgetPredicate((w)=>w.key is ValueKey<String> && (w.key as ValueKey<String>).value.startsWith('memory-log-entry-')),findsNWidgets(56));
     expect(find.byType(ExpansionTile),findsNothing);
-    expect(find.text('加载更多'),findsNothing);
+    expect(find.text('更早的记录'),findsNothing);
     await tester.runAsync(() async {await expectLater(client.call('memory.log',{'cursor':'invalid'}),throwsA(isA<CoreException>()));});
-    await mount(const ContextControls());
-    expect(find.text('当前分支还没有压缩记录。'),findsOneWidget);
     await tester.runAsync(()=>client.call('context.setSession',{'slotId':agent.active!.slotId,'thresholdPercent':72,'background':true}));
     final contextInfo=await tester.runAsync(()=>client.call('context.info',{'slotId':agent.active!.slotId})) as Map;
     expect(contextInfo['ownThreshold'],72);
@@ -140,9 +139,9 @@ void main() {
     expect(side.runtime.slotId,sideSlot,reason:'first-send persistence retains the slot connection');
     expect(side.runtime.pendingDialogs.single.title,contains('tool_search'));
     final approvalId=side.runtime.pendingDialogs.single.id;
-    final card=find.descendant(of:find.byType(SideChatView),matching:find.byType(AlertDialog));
-    expect(card,findsOneWidget);
-    await tester.tap(find.descendant(of:card,matching:find.widgetWithText(FilledButton,'允许')));
+    final allow=find.descendant(of:find.byType(SideChatView),matching:find.widgetWithText(FilledButton,'允许'));
+    expect(allow,findsOneWidget);
+    await tester.tap(allow);
     await tester.runAsync(() async {
       for(var i=0;i<100 && (side.runtime.isRunning || side.runtime.sessionPath==null);i++) {await Future<void>.delayed(const Duration(milliseconds:30));}
     });
@@ -167,22 +166,19 @@ void main() {
     agent.closeSideChat();
     await settleV05(tester);
 
-    await mount(Builder(builder:(context)=>TextButton(onPressed:()=>showMemoryDetails(context,seed['sourceId'] as String),child:const Text('详情'))));
-    await tester.tap(find.text('详情'));await settleV05(tester);
-    await tester.tap(find.text('更多 ▾'));await settleV05(tester);
-    await tester.tap(find.text('彻底删除').last);await settleV05(tester);
-    await tester.tap(find.widgetWithText(FilledButton,'彻底删除'));await settleV05(tester);
-    expect(find.text('来源会话仍存在'),findsOneWidget);
-    expect(File(seed['sourcePath'] as String).existsSync(),isTrue);
-    await tester.tap(find.text('删除这个会话'));await settleV05(tester);
-    expect(find.textContaining('同时删除 1 条侧边对话'),findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton,'删除'));
-    for(var i=0;i<60 && find.text('已删除').evaluate().isEmpty;i++) {await settleV05(tester);}
-    expect(find.text('已删除'),findsOneWidget);
-    expect(File(sidePath).existsSync(),isFalse);
-    expect(File(seed['sourcePath'] as String).existsSync(),isFalse);
-    expect(backend.calls.any((c)=>c.method=='sessions.deletePreview'),isTrue);
-    expect(backend.calls.any((c)=>c.method=='sessions.delete'),isTrue);
+    // Advanced purge is a backend capability; v0.8's memory page only has
+    // recoverable deletion. Preserve real RPC/cascade/privacy coverage here.
+    await tester.runAsync(() async {
+      await expectLater(client.call('memory.purge', {'id': seed['sourceId']}), throwsA(isA<CoreException>()));
+      final receipt = await client.call('memory.purge', {'id': seed['sourceId'], 'confirm': true}) as Map;
+      expect(receipt['sessions'], isNotEmpty);
+      expect(File(seed['sourcePath'] as String).existsSync(), isTrue);
+      final preview = await client.call('sessions.deletePreview', {'path': seed['sourcePath']}) as Map;
+      expect(preview['sideCount'], 1);
+      await client.call('sessions.delete', {'path': seed['sourcePath']});
+    });
+    expect(File(sidePath).existsSync(), isFalse);
+    expect(File(seed['sourcePath'] as String).existsSync(), isFalse);
     final log=await tester.runAsync(()=>client.call('memory.log',{'itemId':seed['sourceId']})) as Map;
     final purge=((log['days'] as List).single['entries'] as List).single as Map;
     expect(purge['kind'],'purge');expect(purge['after'],isNull);expect(purge['undoable'],isFalse);

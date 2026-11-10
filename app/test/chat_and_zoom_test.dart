@@ -20,7 +20,7 @@ void main() {
 
   Future<void> startApp(WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(1400, 900));
-    SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path});
+    SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path, 'onboarded': true});
     sessions = Directory.systemTemp.createTempSync('df_chat_');
     backend = FakeBackend();
     agent = AgentController(
@@ -66,18 +66,19 @@ void main() {
       return null;
     });
     // 0.4 (test 21): the buttons and numbers stay out of sight until the mouse is over the reply.
-    double shown() => tester.widget<AnimatedOpacity>(find.ancestor(of: find.byTooltip('复制回复（Markdown 原文）'), matching: find.byType(AnimatedOpacity)).first).opacity;
+    double shown() => tester.widget<AnimatedOpacity>(find.ancestor(of: find.byTooltip('复制').last, matching: find.byType(AnimatedOpacity)).first).opacity;
     expect(shown(), 0);
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await mouse.addPointer(location: tester.getCenter(find.textContaining('是 42', findRichText: true)));
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(tester.getCenter(find.textContaining('是 42', findRichText: true)));
     await tester.pumpAndSettle();
     expect(shown(), 1);
-    await tester.tap(find.byTooltip('复制回复（Markdown 原文）'));
+    await tester.tap(find.byTooltip('复制').last);
     await tester.pump();
     expect(copied, '**答案**是 42');
-    expect(find.byTooltip('重新生成（原来的回复会保留，可以切换回去）').evaluate().isNotEmpty || find.byTooltip('这条回复对应的问题已被压缩，无法重新生成').evaluate().isNotEmpty, isTrue);
+    expect(find.byTooltip('重新生成'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('从这里分叉：新开一个会话，保留到这条回复为止的内容'));
+    await tester.tap(find.byTooltip('从这里重来').last);
     await settle(tester);
     expect(pi.sent('clone'), hasLength(1));
   });
@@ -129,14 +130,18 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
-  testWidgets('the rail opens the appearance controls', (tester) async {
+  testWidgets('settings opens the appearance controls', (tester) async {
     await startApp(tester);
-    await tester.tap(find.byTooltip('外观'));
+    await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
+
+    // 界面缩放 sits under 通用 › 高级 (1.0 prototype); searching shows it.
+    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'缩放');await tester.pumpAndSettle();
     expect(find.text('界面缩放'), findsOneWidget);
     await tester.tap(find.byTooltip('放大（Ctrl + +）'));
     await settle(tester);
     expect(agent.zoom, 1.1);
+    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'文字大小');await tester.pumpAndSettle();
     await tester.tap(find.text('小'));
     await settle(tester);
     expect(agent.textScale, 0.9);

@@ -7,7 +7,7 @@ import 'package:dreamflutter/state/side_chat.dart';
 import 'package:dreamflutter/ui/side_chat_view.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/zoom.dart';
-import 'package:dreamflutter/ui/extension_dialogs.dart';
+import 'package:dreamflutter/ui/conversation_cards.dart';
 import 'package:dreamflutter/theme.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -66,9 +66,9 @@ void main() {
       ..finishRun();
   }
 
-  Finder input() => find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送，'));
+  Finder input() => find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…');
 
-  Finder sideInput() => find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('问问这段内容'));
+  Finder sideInput() => find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('就这段问点什么'));
   Json approval(String id, String tool) => {
     'type': 'extension_ui_request', 'id': id, 'method': 'select',
     'title': 'Agent 请求执行操作\n\n执行工具：\n$tool',
@@ -96,15 +96,15 @@ void main() {
     final runtime = agent.sideChat!.runtime;
     expect(runtime.sessionPath, isNull);
     await tester.enterText(sideInput(), '请查工具');
-    await tester.tap(find.byTooltip('在侧边对话里发送'));
+    await tester.tap(find.byTooltip('在问一下里发送'));
     await settle(tester);
     expect(runtime.sessionPath, side.sessionFile);
     expect(runtime.slotId, side.slotId);
     expect(runtime.pendingDialogs.single.id, 'same-id');
-    final card = find.descendant(of: find.byType(SideChatView), matching: find.byType(AlertDialog));
+    final card = find.descendant(of: find.byType(SideChatView), matching: find.byType(ConversationApprovalCard));
     expect(card, findsOneWidget);
-    expect(find.byType(AlertDialog), findsOneWidget, reason: 'no main modal for a side request');
-    expect(tester.getBottomLeft(find.byType(SideExtensionDialog)).dy, lessThanOrEqualTo(tester.getTopLeft(sideInput()).dy));
+    expect(find.byType(AlertDialog), findsNothing, reason: 'approvals are inline');
+    expect(tester.getBottomLeft(find.byType(ConversationApprovalLane).last).dy, lessThanOrEqualTo(tester.getTopLeft(sideInput()).dy));
 
     // A same-id close event from another slot must not dismiss this card.
     backend.push({'event': 'confirm.changed', 'confirmation': {'id': 'same-id', 'slotId': main.slotId, 'status': 'answered'}});
@@ -113,7 +113,7 @@ void main() {
     main.emit(approval('same-id', 'main-tool'));
     await settle(tester);
     expect(find.descendant(of: find.byType(SideChatView), matching: find.text('main-tool')), findsNothing);
-    final mainCard = find.byWidgetPredicate((w) => w is AlertDialog).last;
+    final mainCard = find.byType(ConversationApprovalCard).first;
     await tester.tap(find.descendant(of: mainCard, matching: find.widgetWithText(OutlinedButton, '拒绝')));
     await settle(tester);
     expect(answers(main).single['value'], '拒绝');
@@ -152,7 +152,7 @@ void main() {
     expect(find.text('old-tool'), findsNothing);
     reopened.emit(approval('fresh-request', 'fresh-tool'));
     await settle(tester);
-    final card = find.descendant(of: find.byType(SideChatView), matching: find.byType(AlertDialog));
+    final card = find.descendant(of: find.byType(SideChatView), matching: find.byType(ConversationApprovalCard));
     expect(card, findsOneWidget);
     final allow = find.descendant(of: card, matching: find.widgetWithText(FilledButton, '允许'));
     await tester.ensureVisible(allow);
@@ -190,7 +190,7 @@ void main() {
     if (closePanel) {
       await tester.runAsync(() => agent.setRunPanelOpen(false));
     } else {
-      await tester.tap(find.widgetWithText(TextButton, '结束'));
+      await tester.tap(find.widgetWithText(TextButton, '关掉'));
     }
     await settle(tester);
     expect(responsesAtClose.map((r) => r['id']), ['close-1', 'close-2']);
@@ -222,7 +222,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(allow.hitTestable(), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, '拒绝').hitTestable(), findsOneWidget);
-      expect(tester.getBottomLeft(find.byType(SideExtensionDialog)).dy, lessThanOrEqualTo(tester.getTopLeft(sideInput()).dy));
+      expect(tester.getBottomLeft(find.byType(ConversationApprovalLane).last).dy, lessThanOrEqualTo(tester.getTopLeft(sideInput()).dy));
     }
     await tester.tap(find.widgetWithText(FilledButton, '允许'));
     await tester.pumpAndSettle();
@@ -260,15 +260,15 @@ void main() {
     await tester.pump();
     await mouse.up();
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(TextButton, '回复'), findsOneWidget);
-    expect(find.widgetWithText(TextButton, '侧边对话'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, '引用'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, '问一下'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, '回复'));
+    await tester.tap(find.widgetWithText(TextButton, '引用'));
     await tester.pumpAndSettle();
     final typed = tester.widget<TextField>(input()).controller!.text;
-    expect(typed, startsWith('我想问\n\n> '), reason: 'the quote goes after what was typed');
-    expect(typed, contains('结论是 A'));
-    expect(find.widgetWithText(TextButton, '侧边对话'), findsNothing, reason: 'the box goes away');
+    expect(typed, '我想问', reason: 'the quote card preserves typed input');
+    expect(agent.active!.composerQuote, contains('结论是 A'));
+    expect(find.widgetWithText(TextButton, '问一下'), findsNothing, reason: 'the box goes away');
   });
 
   testWidgets('a side conversation forks the session in memory, answers in the details, and brings its answer back', (tester) async {
@@ -288,8 +288,8 @@ void main() {
     expect(find.byType(SideChatView), findsOneWidget, reason: 'the details open on the side conversation');
     expect(find.text('结论是 A'), findsWidgets);
 
-    await tester.enterText(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('问问这段内容')), 'A 是什么意思');
-    await tester.tap(find.byTooltip('在侧边对话里发送'));
+    await tester.enterText(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('就这段问点什么')), 'A 是什么意思');
+    await tester.tap(find.byTooltip('在问一下里发送'));
     await settle(tester);
     final asked = side.commands.lastWhere((c) => c['type'] == 'prompt')['message'] as String;
     expect(asked, '${SideChat.lead}\n> 结论是 A\n\nA 是什么意思');
@@ -300,11 +300,12 @@ void main() {
     expect(find.text('A 是什么意思'), findsOneWidget, reason: 'the question without the quoted passage');
     expect(find.textContaining('第一种方案', findRichText: true), findsWidgets);
 
-    await tester.tap(find.text('带回主对话'));
+    await tester.tap(find.text('带回去'));
     await tester.pumpAndSettle();
-    expect(tester.widget<TextField>(input()).controller!.text, '侧边对话的结论：\n> A 指的是第一种方案。\n\n');
+    expect(tester.widget<TextField>(input()).controller!.text, '');
+    expect(agent.active!.composerQuote, 'A 指的是第一种方案。');
 
-    await tester.tap(find.text('结束'));
+    await tester.tap(find.text('关掉'));
     await settle(tester);
     expect(agent.sideChat, isNull);
     expect(backend.callsTo('slot.close').map((c) => c['slotId']), [side.slotId], reason: 'its session in the core closes too (e2e 1b)');
@@ -320,15 +321,15 @@ void main() {
     final side = backend.pis.last;
     final baseline = agent.sideChat!.baseline;
     side.failures['prompt'] = '保存失败';
-    final field = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('问问这段内容'));
+    final field = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').startsWith('就这段问点什么'));
     await tester.enterText(field, '保留这个问题');
-    await tester.tap(find.byTooltip('在侧边对话里发送'));
+    await tester.tap(find.byTooltip('在问一下里发送'));
     await settle(tester);
     expect(tester.widget<TextField>(field).controller!.text, '保留这个问题');
     expect(agent.sideChat!.baseline, baseline);
     final failed = side.commands.lastWhere((c) => c['type'] == 'prompt')['message'];
     side.failures.clear();
-    await tester.tap(find.byTooltip('在侧边对话里发送'));
+    await tester.tap(find.byTooltip('在问一下里发送'));
     await settle(tester);
     expect(side.commands.lastWhere((c) => c['type'] == 'prompt')['message'], failed);
     expect(tester.widget<TextField>(field).controller!.text, isEmpty);

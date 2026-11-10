@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'composer_layout_fixture.dart';
 
 void main() {
-  testWidgets('composer at 1000x800 / 150% shrinks model then thinking and keeps fixed buttons and menus', (tester) async {
+  testWidgets('composer at 1000x800 / 150% wraps controls and keeps fixed buttons and menus', (tester) async {
     final h = await startComposerLayout(tester);
     final model = find.byKey(const ValueKey('composer-model'));
     final thinking = find.byKey(const ValueKey('composer-thinking'));
@@ -43,16 +43,16 @@ void main() {
     // Sweep only the composer width, so font differences cannot skip either
     // stage. The production window/zoom combination above is tested intact.
     bool sawTruncatedModel = false;
-    bool sawIconThinking = false;
+    bool sawTwoRows = false;
     for (final width in [700.0, 600.0, 500.0, 450.0, 400.0, 360.0]) {
       await tester.pumpWidget(AgentScope(controller: h.agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: Center(child: SizedBox(width: width, child: const Composer()))))));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'composer width $width');
       final compact = find.descendant(of: thinking, matching: find.byIcon(Icons.psychology_outlined)).evaluate().isNotEmpty;
+      if (tester.getTopLeft(thinking).dy < tester.getTopLeft(find.byTooltip('发送')).dy) sawTwoRows = true;
       if (!compact && tester.renderObject<RenderParagraph>(find.descendant(of: model, matching: find.text(composerModelName))).didExceedMaxLines) sawTruncatedModel = true;
       if (compact) {
         expect(sawTruncatedModel, isTrue, reason: 'truncate model before hiding thinking text');
-        sawIconThinking = true;
         await tester.tap(thinking);
         await tester.pumpAndSettle();
         await tester.tap(find.text('高').last);
@@ -63,6 +63,9 @@ void main() {
       }
     }
     expect(sawTruncatedModel, isTrue);
-    expect(sawIconThinking, isTrue);
+    expect(sawTwoRows, isTrue);
+    await tester.tap(thinking); await tester.pumpAndSettle();
+    await tester.tap(find.text('高').last); await tester.pumpAndSettle();
+    expect(h.backend.pis.single.commands.any((c) => c['type'] == 'set_thinking_level' && c['level'] == 'high'), isTrue);
   });
 }

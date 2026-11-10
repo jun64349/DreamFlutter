@@ -165,7 +165,7 @@ void main() {
     expect(find.textContaining('想要读取文件'), findsNothing, reason: 'closing the enlarged card does not run it again');
     // This step tests cards, not approvals: let the agent act without asking.
     await tester.runAsync(() => agent.updateCoreSettings({'approvalMode': 'off'}));
-    final composer = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送'));
+    final composer = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…');
     await tester.tap(composer);
     await tester.enterText(composer, '请做两件事，不要写任何文件：1. 直接调用 show_card 工具（卡片内容写在 html 参数里）做一张「番茄钟」卡片，有开始和重置按钮，用 card.state 记住完成次数；2. 在回复里用 ```mermaid 画一个三步的流程图，再用 ```chart 画一个三根柱子的柱状图。');
     await tester.pump();

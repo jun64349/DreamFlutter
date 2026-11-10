@@ -341,7 +341,7 @@ void main() {
     final position = listPosition(tester);
     position.jumpTo(position.maxScrollExtent - 1500);
     await tester.pump();
-    final input = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送'));
+    final input = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…');
     await tester.enterText(input, 'a new question');
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await settle(tester);

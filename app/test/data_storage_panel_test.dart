@@ -40,11 +40,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('15 个历史版本'), findsOneWidget);
       await tester.enterText(find.byType(TextField), '-1');
-      await tester.tap(find.text('保存阈值')); await tester.pumpAndSettle();
+      await tester.testTextInput.receiveAction(TextInputAction.done); await tester.pumpAndSettle();
       expect(find.textContaining('请输入有效'), findsOneWidget);
       expect(backend.callsTo('settings.update'), isEmpty);
       await tester.enterText(find.byType(TextField), '2.5');
-      await tester.tap(find.text('保存阈值')); await tester.pumpAndSettle();
+      await tester.testTextInput.receiveAction(TextInputAction.done); await tester.pumpAndSettle();
       expect(backend.callsTo('settings.update').last['memoryMinFreeBytes'], 2684354560);
       await tester.ensureVisible(find.text('压缩历史…'));
       await tester.tap(find.text('压缩历史…')); await tester.pumpAndSettle();

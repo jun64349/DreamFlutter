@@ -26,7 +26,7 @@ Future<void> show(WidgetTester tester, Widget child, {Brightness brightness = Br
 }
 
 void main() {
-  testWidgets('while it runs the block stays folded: what it is doing, and the latest three steps in one line each', (tester) async {
+  testWidgets('while it runs the block is one line and opens every step', (tester) async {
     final steps = <Object>[
       ThinkingPart('先看看数据\n再说'),
       tool('read', {'path': 'a.xlsx'}),
@@ -36,8 +36,8 @@ void main() {
     ];
     await show(tester, WorkBlock(steps: steps, active: true));
     expect(find.textContaining('正在读取'), findsOneWidget, reason: 'the header says what it is doing');
-    expect(find.text('前面还有 2 步'), findsOneWidget);
-    expect(find.text('python make_chart.py'), findsOneWidget, reason: 'the command, in one line');
+    expect(find.text('前面还有 2 步'), findsNothing);
+    expect(find.text('python make_chart.py'), findsNothing, reason: 'all steps stay folded');
     expect(find.textContaining('chart saved'), findsNothing, reason: 'its output only when opened');
     expect(find.text('a.xlsx'), findsNothing, reason: 'older steps are behind 「前面还有」');
 
@@ -72,9 +72,9 @@ void main() {
     Color groundOf() => (tester.widget<Container>(find.ancestor(of: find.textContaining('python ok.py', findRichText: true), matching: find.byType(Container)).first).decoration! as BoxDecoration).color!;
     final run = tool('bash', {'command': 'python ok.py'}, status: ToolStatus.error, output: 'x');
     await show(tester, ToolStep(run: run));
-    expect(groundOf(), AppColors.light.codeBackground);
+    expect(groundOf(), AppColors.warmPaper.codeBackground);
     await show(tester, ToolStep(run: run), brightness: Brightness.dark);
-    expect(groundOf(), AppColors.dark.terminal);
+    expect(groundOf(), AppColors.twilight.terminal);
   });
 
   testWidgets('a picture the agent looked at shows small and opens in full', (tester) async {
@@ -90,6 +90,6 @@ void main() {
 
   testWidgets('an MCP tool says which server and tool', (tester) async {
     await show(tester, ToolStep(run: tool('mcp__github__create_issue', {'title': 'x'})));
-    expect(find.text('MCP · github · create_issue'), findsOneWidget);
+    expect(find.text('连接的服务 · github · create_issue'), findsOneWidget);
   });
 }

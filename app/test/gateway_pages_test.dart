@@ -159,13 +159,13 @@ void main() {
 
     await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('模型与网关'));
+    await tester.tap(find.widgetWithText(ListTile,'模型'));
     await tester.pumpAndSettle();
     expect(find.text('智谱套餐'), findsOneWidget);
     expect(find.textContaining('额度用完'), findsOneWidget, reason: 'a resting channel says why and until when');
-    expect(find.text('来自 Pi 配置'), findsOneWidget);
 
-    final settingsScroll = find.descendant(of: find.byKey(const ValueKey('settings-模型与网关')), matching: find.byType(Scrollable)).first;
+    final settingsScroll = find.descendant(of: find.byKey(const ValueKey('settings-模型')), matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(find.text('高级'),250,scrollable:settingsScroll);await tester.tap(find.text('高级'));await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('新建模型组'), 250, scrollable: settingsScroll);
     await tester.ensureVisible(find.text('新建模型组'));
     await tester.pumpAndSettle();
@@ -195,25 +195,16 @@ void main() {
     expect([for (final e in entries) e['weight']], [0.0, 1.0, 1.0], reason: 'weights only in the split tier');
   });
 
-  testWidgets('the dashboard shows channels, allowances and the period totals', (tester) async {
+  testWidgets('spending shows month, today and truthful request ledger', (tester) async {
     await startApp(tester);
-    await tester.tap(find.byTooltip(RegExp('^仪表盘')));
-    await settle(tester);
-    expect(find.byType(DashboardPage), findsOneWidget);
-    expect(find.text('5 小时'), findsOneWidget);
-    expect(find.text('100%'), findsOneWidget);
-    expect(find.text('账户余额 5.27 CNY'), findsOneWidget);
-    expect(find.textContaining('今天 30 次请求'), findsOneWidget);
-    expect(find.text('\$0.50'), findsWidgets);
-    await tester.ensureVisible(find.text('模型').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('模型').last);
-    await tester.pumpAndSettle();
-    expect(find.text('deepseek-flash · DeepSeek'), findsOneWidget, reason: 'models carry their channel name');
-
-    backend.push({'event': 'gateway.switched', 'from': '智谱套餐 · glm-5.3', 'to': 'DeepSeek · deepseek-flash', 'reason': '额度用完', 'toPaid': true});
-    await settle(tester);
-    expect(find.textContaining('已转到付费渠道「DeepSeek · deepseek-flash」'), findsOneWidget);
+    backend.handlers['ledger.summary']=(_)=>{'rows':[{'period':'2026-11','key':'conversation','requests':4,'amounts':{'USD':0.5},'amountSources':{'price_estimate':4}}]};
+    await tester.tap(find.byTooltip(RegExp('^花费')));await settle(tester);
+    expect(find.byType(DashboardPage),findsOneWidget);
+    expect(find.text('本月'),findsOneWidget);expect(find.text('今天'),findsWidgets);
+    expect(find.text('本月按用途'),findsOneWidget);expect(find.text('账目'),findsOneWidget);
+    expect(find.text('\$0.50'),findsWidgets);expect(find.textContaining('含估算'),findsWidgets);
+    backend.push({'event':'gateway.switched','from':'智谱套餐 · glm-5.3','to':'DeepSeek · deepseek-flash','reason':'额度用完','toPaid':true});await settle(tester);
+    expect(find.textContaining('已转到付费渠道「DeepSeek · deepseek-flash」'),findsOneWidget);
   });
 
   testWidgets('the settings search looks through every category', (tester) async {
@@ -223,9 +214,9 @@ void main() {
     expect(find.text('每月花费上限'), findsNothing, reason: 'the general category opens first');
     await tester.enterText(find.widgetWithText(TextField, '搜索设置'), '花费上限');
     await tester.pumpAndSettle();
-    expect(find.text('每天花费上限'), findsOneWidget);
-    expect(find.text('每月花费上限'), findsOneWidget);
-    expect(find.text('运行上限'), findsWidgets);
+    expect(find.text('每天花费上限（美元）'), findsOneWidget);
+    expect(find.text('每月花费上限（美元）'), findsOneWidget);
+    expect(find.text('工作台 · 高级'), findsWidgets);
     await tester.enterText(find.widgetWithText(TextField, '搜索设置'), '没有这一项');
     await tester.pumpAndSettle();
     expect(find.textContaining('没有找到'), findsOneWidget);

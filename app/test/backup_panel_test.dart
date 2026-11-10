@@ -73,7 +73,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('数据与迁移'));
+    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'备份');
     await settle(tester);
   }
 
@@ -122,7 +122,7 @@ void main() {
     await tester.tap(find.text('导入备份…'));
     await settle(tester);
     expect(find.textContaining('OLD-PC'), findsOneWidget);
-    expect(find.textContaining('会话 12'), findsOneWidget);
+    expect(find.textContaining('对话 12'), findsOneWidget);
     await tester.enterText(find.widgetWithText(TextField, r'D:\work'), r'E:\work');
     await tester.enterText(find.widgetWithText(TextField, '迁移密码'), 'secret1');
     await tester.tap(find.text('检查并准备'));

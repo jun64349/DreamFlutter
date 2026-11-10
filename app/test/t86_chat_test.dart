@@ -1,0 +1,255 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:dreamflutter/main.dart';
+import 'package:dreamflutter/state/agent_controller.dart';
+import 'package:dreamflutter/state/conversation_git.dart';
+import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/theme.dart';
+import 'package:dreamflutter/ui/agent_scope.dart';
+import 'package:dreamflutter/ui/chat_view.dart';
+import 'package:dreamflutter/ui/conversation_actions.dart';
+import 'package:dreamflutter/ui/conversation_controls.dart';
+import 'package:dreamflutter/ui/conversation_memory.dart';
+import 'package:dreamflutter/ui/run_summary.dart';
+import 'package:dreamflutter/ui/message_widgets.dart' show ChatRowView;
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pi_rpc/pi_rpc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'fake_backend.dart';
+
+class TestGitBridge implements ConversationGitBridge {
+  final commits = <Json>[];
+  bool fail = false;
+  @override
+  Future<ConversationGitState> inspect(String cwd, List<String> paths) async => const ConversationGitState(isRepository: true, head: 'before', paths: ['report.md'], suggestedMessage: '整理报告');
+  @override
+  Future<ConversationGitState> prepare(String cwd, List<String> paths) => inspect(cwd, paths);
+  @override
+  Future<String> diff(String cwd, String path) async => '-旧内容\n+新内容';
+  @override
+  Future<String> commit(String cwd, {required List<String> paths, required String message, required String? expectedHead, String? expectedFingerprint, List<String>? expectedPaths}) async {
+    commits.add({'cwd': cwd, 'paths': paths, 'message': message, 'head': expectedHead});
+    if (fail) throw StateError('文件已变化，请重新检查');
+    return 'abcdef1';
+  }
+}
+
+void main() {
+  late Directory root;
+  late FakeBackend backend;
+  late AgentController agent;
+  Future<void> start(WidgetTester tester, {Widget? child}) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 900));
+    root = Directory.systemTemp.createTempSync('df_t86_');
+    SharedPreferences.setMockInitialValues({'workspace': root.path, 'onboarded': true});
+    backend = FakeBackend()..butterflyHome = '${root.path}/butterfly'..sessionRows = [];
+    agent = AgentController(preferences: await tester.runAsync(Preferences.load) as Preferences, backend: backend, sessionStore: SessionStore(sessionsDir: root.path));
+    await tester.pumpWidget(DreamFlutterApp(controller: agent));
+    await tester.runAsync(agent.init);
+    await tester.pumpAndSettle();
+  }
+  Future<void> settle(WidgetTester tester) async {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+    await tester.pumpAndSettle();
+  }
+  Future<void> mount(WidgetTester tester, Widget child, {AgentController? owner}) async {
+    await tester.pumpWidget(AgentScope(controller: owner ?? agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: child))));
+    await tester.pumpAndSettle();
+  }
+  tearDown(() { ConversationGitAdapters.resolve = null; agent.dispose(); root.deleteSync(recursive: true); });
+
+  testWidgets('optional ChatView builders receive the scoped controller and preserve composer and close behavior', (tester) async {
+    await start(tester);
+    AgentController? emptyOwner, panelOwner;
+    agent.setRunPanelOpen(true);
+    await mount(tester, ChatView(
+      emptyStateBuilder: (_, owner) { emptyOwner = owner; return const Center(child: Text('自定义首页')); },
+      detailsPanelBuilder: (_, owner) { panelOwner = owner; return TextButton(onPressed: () => owner.setRunPanelOpen(false), child: const Text('自定义右栏')); },
+    ));
+    expect(emptyOwner, same(agent)); expect(panelOwner, same(agent));
+    expect(find.text('自定义首页'), findsOneWidget); expect(find.byType(ComposerQuote), findsNothing);
+    expect(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…'), findsOneWidget);
+    await tester.tap(find.text('自定义右栏')); await settle(tester);
+    expect(find.text('自定义右栏'), findsNothing);
+    final butterfly = (await tester.runAsync(agent.ensureButterfly))!;
+    await mount(tester, ChatView(emptyStateBuilder: (_, owner) { emptyOwner = owner; return const Text('蝶君首页'); }), owner: butterfly);
+    expect(emptyOwner, same(butterfly)); expect(find.text('蝶君首页'), findsOneWidget);
+  });
+
+  testWidgets('default ChatView keeps the workbench body and details', (tester) async {
+    await start(tester); agent.setRunPanelOpen(true);
+    await mount(tester, const ChatView());
+    expect(find.byType(RunPanel), findsOneWidget); expect(find.text('本次改动'), findsOneWidget);
+    expect(find.text('标准模式'), findsNothing); expect(find.text('下一条作为新任务'), findsNothing);
+    expect(find.byTooltip('操作前问我'), findsOneWidget);
+    expect(find.text('提交这些改动'), findsNothing, reason:'no invented Git RPC or repository state');
+  });
+
+  testWidgets('composer and side panel fit at 1000 by 800 and 150 percent', (tester) async {
+    await start(tester);
+    await tester.runAsync(() => agent.openSideChat('需要核对的一段文字')); await settle(tester);
+    await tester.binding.setSurfaceSize(const Size(1000,800)); await agent.setZoom(1.5); await settle(tester);
+    expect(tester.takeException(), isNull);
+    agent.closeSideChat(); await settle(tester);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('conversation menu follows design order and schedule binds to the originating slot', (tester) async {
+    await start(tester); backend.pis.single..startRun('整理报告')..finishRun(); await settle(tester);
+    await tester.tap(find.byTooltip('对话菜单')); await settle(tester);
+    final labels=['把这次做法存成技能','定时再做一次','这段对话不记忆','导出','归档','删除'];
+    final positions=[for(final label in labels) tester.getTopLeft(find.text(label)).dy];
+    expect(positions, orderedEquals([...positions]..sort()));
+    await tester.tap(find.text('定时再做一次')); await settle(tester);
+    await tester.tap(find.text('创建')); await settle(tester);
+    final params=backend.callsTo('schedules.fromSession').single;
+    expect(params['slotId'], agent.active!.slotId); expect((params['trigger'] as Map)['type'], 'once');
+    expect((params['trigger'] as Map)['at'], greaterThan(DateTime.now().millisecondsSinceEpoch));
+  });
+
+  testWidgets('error card retries the actual question and composer can send again', (tester) async {
+    await start(tester); final pi=backend.pis.single;
+    pi.startRun('核对实验记录');
+    final error={'role':'assistant','content':<Json>[],'timestamp':2,'stopReason':'error','errorMessage':'连接中断，请重试'};
+    pi.emit({'type':'message_start','message':error}); pi.emit({'type':'message_end','message':error}); pi.finishRun(); await settle(tester);
+    expect(find.text('连接中断，请重试'), findsOneWidget); expect(find.text('去设置'), findsOneWidget);
+    await tester.enterText(find.byWidgetPredicate((w)=>w is TextField && w.decoration?.hintText=='说点什么…'),'补充信息'); await tester.pump();
+    expect(tester.widget<IconButton>(find.byWidgetPredicate((w)=>w is IconButton && w.tooltip=='发送')).onPressed, isNotNull);
+    await tester.tap(find.text('重试')); await settle(tester);
+    expect(pi.commands.lastWhere((c)=>c['type']=='prompt')['message'], '核对实验记录');
+  });
+
+  testWidgets('quote card preserves typed text and sends real quoted content', (tester) async {
+    await start(tester);
+    final input = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…');
+    await tester.enterText(input, '请解释'); agent.quoteInComposer('结论 A'); await settle(tester);
+    expect(tester.widget<TextField>(input).controller!.text, '请解释'); expect(find.byType(ComposerQuote), findsOneWidget);
+    await tester.tap(find.byTooltip('发送')); await settle(tester);
+    final message = backend.pis.single.commands.lastWhere((c) => c['type'] == 'prompt')['message'];
+    expect(message, contains('> 结论 A')); expect(message, contains('请解释')); expect(agent.active!.composerQuote, isNull);
+  });
+
+  testWidgets('unified search groups real results and discards a response after clear', (tester) async {
+    await start(tester);
+    final delayed = Completer<Object?>();
+    backend.handlers['search.all'] = (_) => delayed.future;
+    final input = find.byKey(const ValueKey('sidebar-search'));
+    expect(find.byTooltip('清除搜索'), findsNothing);
+    await tester.enterText(input, '旧查询'); await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.byTooltip('清除搜索')); await tester.pump();
+    delayed.complete({'conversations': [{'title': '过期结果'}]}); await settle(tester);
+    expect(find.text('过期结果'), findsNothing); expect(find.byTooltip('清除搜索'), findsNothing);
+    backend.handlers['search.all'] = (_) => {'conversations': [{'title': '报告对话', 'path': 'report.jsonl', 'snippet': '【报告】'}], 'files': [{'title': '报告.md', 'path': 'report.md'}], 'memories': [{'id': 'm1', 'title': '报告偏好', 'target': {'itemId': 'm1', 'page': 'memory'}}]};
+    await tester.enterText(input, '报告'); await tester.pump(const Duration(milliseconds: 350)); await settle(tester);
+    for (final title in ['对话','产物','记忆','报告对话','报告.md','报告偏好']) { expect(find.text(title), findsWidgets); }
+    expect(backend.callsTo('search.all').last, {'query': '报告', 'cwd': root.path});
+    await tester.tap(find.text('报告偏好')); await settle(tester);
+    expect(agent.section, AppSection.memory);
+  });
+
+  testWidgets('delete receipt undo and recycle restore send the owning batch', (tester) async {
+    await start(tester);
+    backend.handlers['sessions.delete'] = (_) => {'deleted': true, 'batchId': 'batch-1'};
+    Future<void>? deletion;
+    await mount(tester, Builder(builder: (context) => TextButton(onPressed: () { deletion = deleteConversation(context, agent, 'old.jsonl'); }, child: const Text('删除测试'))));
+    await tester.tap(find.text('删除测试')); await settle(tester);
+    expect(deletion, isNotNull);
+    await tester.tap(find.text('撤销')); await settle(tester);
+    expect(backend.callsTo('sessions.restore').last['batchId'], 'batch-1');
+    backend.handlers['sessions.recycleBin'] = (_) => [{'batchId': 'batch-2', 'session': {'title': '已删除的报告'}}];
+    await mount(tester, Builder(builder: (context) => TextButton(onPressed: () => showConversationRecycleBin(context), child: const Text('打开回收站'))));
+    await tester.tap(find.text('打开回收站')); await settle(tester);
+    await tester.tap(find.text('恢复')); await settle(tester);
+    expect(backend.callsTo('sessions.restore').last['batchId'], 'batch-2');
+  });
+
+  testWidgets('a persisted search target scrolls a long scaled conversation to the matching entry', (tester) async {
+    await start(tester);
+    final history=<Json>[
+      for(var i=0;i<30;i++) ...[
+        {'role':'user','content': i==0?'目标问题':'后续问题 $i','timestamp':i*2+1,'entryId':'q-$i'},
+        {'role':'assistant','content':[{'type':'text','text': List.filled(5,'第 $i 次回复，保留阅读位置与上下文。').join('\n\n')}],'stopReason':'stop','timestamp':i*2+2,'entryId':'a-$i'},
+      ],
+    ];
+    backend.pis.single.messages=history;
+    agent.transcript.loadHistory(history.map(AgentMessage.fromJson));
+    await tester.runAsync(agent.active!.refreshEntryIds);
+    await agent.setZoom(1.25); agent.setRunPanelOpen(false); await settle(tester);
+    final list=find.descendant(of:find.byType(SelectionArea),matching:find.byType(ListView));
+    final position=tester.state<ScrollableState>(find.descendant(of:list,matching:find.byType(Scrollable)).first).position;
+    expect(position.maxScrollExtent,greaterThan(position.viewportDimension*3),reason:'the fixture must require real scrolling');
+    expect(position.pixels,closeTo(position.maxScrollExtent,2),reason:'a newly opened conversation starts at its end');
+    final viewport=tester.getRect(list);
+    Finder target() => find.descendant(of:find.byType(ChatRowView), matching:find.text('目标问题'));
+    // The title bar and sidebar legitimately repeat the first question. A lazy
+    // row may also stay built in the cache: construction is not visibility.
+    bool targetVisible() => target().evaluate().isNotEmpty && tester.getRect(target()).overlaps(viewport);
+    expect(targetVisible(),isFalse,reason:'the target message must start outside the viewport');
+    agent.entryTarget.value='q-0'; await tester.pumpAndSettle();
+    expect(target(), findsOneWidget);
+    expect(position.pixels,lessThan(position.viewportDimension),reason:'the jump must move away from the end to the persisted first entry');
+    expect(viewport.contains(tester.getCenter(target())),isTrue,reason:'the message itself, not its title, must be visible at 125 percent');
+  });
+
+  testWidgets('historical memory references use the version before this reply', (tester) async {
+    await start(tester); backend.pis.single.sessionId = 'session-memory';
+    await tester.runAsync(agent.active!.refreshEntryIds);
+    backend.handlers['memory.snapshots'] = (_) => [{'createdAt': 500, 'itemVersions': {'m1': 2}}, {'createdAt': 2000, 'itemVersions': {'m1': 3}}];
+    backend.handlers['memory.item'] = (_) => {'item': {'version': 3, 'content': '今天的内容'}, 'versions': [{'version': 2, 'item': {'content': '当时的内容'}}]};
+    final reply = AssistantItem('historical')..timestamp = 1000;
+    final rows = await tester.runAsync(() => replyMemoryReferences(agent, [reply]));
+    expect(rows!.map((row) => row['content']), ['当时的内容']);
+  });
+
+  testWidgets('memory correction receipt belongs to this reply, pending stays hidden and undo conflict stays visible', (tester) async {
+    await start(tester);
+    backend.handlers['memory.corrections'] = (_) => [
+      {'entryId':'answer-1','status':'applied','batchId':'correct-batch','changes':[{'before':{'content':'旧内容'},'after':{'content':'更正后的内容'},'undoable':true}]},
+      {'entryId':'another-answer','status':'applied','batchId':'wrong-batch','changes':[]},
+      {'entryId':'answer-1','status':'pending','batchId':null,'changes':[]},
+    ];
+    backend.handlers['memory.undoBatch'] = (_) => {'batchId':null,'undone':[],'conflicts':[{'itemId':'m1','reason':'这条记忆之后又改过，没有覆盖'}]};
+    await mount(tester, ReplyMemoryCorrections(replies:[AssistantItem('answer')..entryId='answer-1'])); await settle(tester);
+    expect(find.text('已更新记忆'), findsOneWidget);
+    await tester.tap(find.text('查看')); await settle(tester);
+    expect(find.text('旧内容'), findsOneWidget); expect(find.text('更正后的内容'), findsOneWidget);
+    await tester.tap(find.text('关闭')); await settle(tester);
+    await tester.tap(find.text('撤销')); await settle(tester);
+    expect(backend.callsTo('memory.undoBatch').single['batchId'], 'correct-batch');
+    expect(find.textContaining('不能撤销'), findsOneWidget); expect(find.text('已更新记忆'), findsOneWidget);
+    backend.handlers['memory.undoBatch'] = (_) => {'batchId':'undo-1','undone':['op-1'],'conflicts':[]};
+    await tester.tap(find.text('撤销')); await settle(tester);
+    expect(find.text('已更新记忆'), findsNothing);
+  });
+
+  testWidgets('Git never commits until confirmation and keeps the prepared head and selected paths', (tester) async {
+    await start(tester); final bridge = TestGitBridge(); final prepared = await bridge.inspect(root.path, []);
+    await mount(tester, ConversationCommitEditor(bridge: bridge, prepared: prepared, cwd: root.path));
+    expect(bridge.commits, isEmpty);
+    await tester.enterText(find.byType(TextField), '修改后的说明');
+    await tester.tap(find.text('确认提交')); await settle(tester);
+    expect(bridge.commits.single, {'cwd': root.path, 'paths': ['report.md'], 'message': '修改后的说明', 'head': 'before'});
+    expect(find.text('已提交 abcdef1'), findsOneWidget);
+  });
+
+  testWidgets('Git error keeps editable confirmation and never claims success', (tester) async {
+    await start(tester); final bridge = TestGitBridge()..fail = true;
+    await mount(tester, ConversationCommitEditor(bridge: bridge, prepared: await bridge.inspect(root.path, []), cwd: root.path));
+    await tester.tap(find.text('确认提交')); await settle(tester);
+    expect(find.textContaining('文件已变化'), findsOneWidget); expect(find.textContaining('已提交'), findsNothing);
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('presence reports the viewed slot, another page and loss of foreground without repeats', (tester) async {
+    await start(tester); agent.reportConversationPresence();
+    expect(backend.callsTo('notifications.presence').last['slotId'], agent.active!.slotId);
+    final count = backend.callsTo('notifications.presence').length;
+    agent.reportConversationPresence(); expect(backend.callsTo('notifications.presence').length, count);
+    agent.showSection(AppSection.memory); await settle(tester);
+    expect(backend.callsTo('notifications.presence').last['slotId'], isNull);
+    agent.setWindowFocused(false); expect(backend.callsTo('notifications.presence').last['foreground'], false);
+  });
+}

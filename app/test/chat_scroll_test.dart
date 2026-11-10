@@ -88,7 +88,7 @@ void main() {
     return gaps;
   }
 
-  Finder input() => find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送'));
+  Finder input() => find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…');
 
   testWidgets('typing, sending and the reply never paint the conversation away from its end', (tester) async {
     await startApp(tester);

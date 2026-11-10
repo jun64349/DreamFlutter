@@ -55,14 +55,15 @@ void main() {
   testWidgets('answering an approval closes only the dialog', (tester) async {
     await startApp(tester);
     await requestApproval(tester);
-    expect(find.text('Agent 请求执行操作'), findsOneWidget);
+    expect(find.text('执行命令：'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('rm -rf build'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(FilledButton, '允许'));
     await tester.pumpAndSettle();
 
     expect(find.text('Agent 请求执行操作'), findsNothing);
-    expect(find.text('新会话'), findsWidgets, reason: 'the main page must still be there');
+    expect(find.text('新对话'), findsWidgets, reason: 'the main page must still be there');
     expect(pis.single.commands.last, {'type': 'extension_ui_response', 'id': 'ui-1', 'value': '允许'});
   });
 
@@ -76,15 +77,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Agent 请求执行操作'), findsNothing);
-    expect(find.text('新会话'), findsWidgets);
+    expect(find.text('新对话'), findsWidgets);
   });
 
-  testWidgets('the workspace-wide allow option is offered and sent back', (tester) async {
+  testWidgets('only conversation-wide permission is offered and sent back exactly', (tester) async {
     await startApp(tester);
     await requestApproval(tester);
-    await tester.tap(find.widgetWithText(TextButton, '在此工作区总是允许「bash」'));
+    expect(find.text('在此工作区总是允许「bash」'), findsNothing);
+    await tester.tap(find.widgetWithText(TextButton, '这个对话里都允许这类操作'));
     await tester.pumpAndSettle();
-    expect(pis.single.commands.last['value'], '在此工作区总是允许「bash」');
+    expect(pis.single.commands.last['value'], '本会话内总是允许「bash」');
   });
 
   testWidgets('the trust prompt from the core gets the trust layout', (tester) async {

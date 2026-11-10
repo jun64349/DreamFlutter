@@ -66,12 +66,13 @@ void main() {
       ],
     };
     WebSurfaces.create = () async => null;
+    final sessions = Directory.systemTemp.createTempSync('df_cards_');
     final agent = AgentController(
       preferences: await tester.runAsync(Preferences.load) as Preferences,
-      sessionStore: SessionStore(sessionsDir: Directory.systemTemp.createTempSync('df_cards_').path),
+      sessionStore: SessionStore(sessionsDir: sessions.path),
       backend: backend,
     );
-    addTearDown(agent.dispose);
+    addTearDown(() { agent.dispose(); sessions.deleteSync(recursive: true); });
     final run = ToolRun('t1', 'show_card')
       ..args = {'title': '计数器'}
       ..status = ToolStatus.done

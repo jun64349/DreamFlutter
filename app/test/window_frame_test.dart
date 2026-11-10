@@ -63,8 +63,8 @@ void main() {
     await startApp(tester);
     expect(inTitleBar(find.text('工作台')), findsOneWidget);
     expect(inTitleBar(find.text('毕设论文')), findsOneWidget);
-    expect(inTitleBar(find.text('新会话')), findsOneWidget, reason: 'the conversation\'s title');
-    expect(find.text('毕设论文 的对话'), findsOneWidget, reason: 'the sidebar names the workspace its list belongs to');
+    expect(inTitleBar(find.text('新对话')), findsOneWidget, reason: 'the conversation\'s title');
+    expect(find.text('毕设论文 的对话'), findsNothing, reason: 'the workspace is already named in the top bar');
     // The buttons sit at the right edge, whatever the breadcrumb's length (v0.4.0: a gap of a sixth of the window after them).
     final bar = tester.getRect(find.byType(AppTitleBar));
     expect(tester.getRect(find.byTooltip(RegExp('^详情')).first).right, greaterThan(bar.right - 16));
@@ -104,7 +104,9 @@ void main() {
     await settle(tester);
     expect(agent.section, AppSection.memory);
     expect(inTitleBar(find.text('记忆')), findsOneWidget);
-    await tester.tap(find.byTooltip('切换工作区（Ctrl O）'));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyO);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle();
     expect(agent.section, AppSection.chat);
     expect(find.text('切换工作区'), findsOneWidget);
@@ -117,17 +119,17 @@ void main() {
     await tester.tap(find.byTooltip(RegExp('^详情')));
     await settle(tester);
     expect(find.byType(RunPanel), findsOneWidget);
-    expect(find.text('常用操作'), findsOneWidget, reason: 'the actions of the old 「⋯」 menu are in plain sight');
-    expect(find.text('存成技能'), findsOneWidget);
-    expect(find.text('刷新记忆快照'), findsOneWidget);
+    expect(find.text('本次改动'), findsOneWidget);
+    expect(find.text('常用操作'), findsNothing);
+    expect(find.text('刷新记忆快照'), findsNothing);
     final panel = tester.getRect(find.byType(RunPanel));
-    final input = tester.getRect(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送')));
+    final input = tester.getRect(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…'));
     expect(input.right, lessThanOrEqualTo(panel.left), reason: 'a wide window docks the panel beside the conversation');
 
     await tester.binding.setSurfaceSize(const Size(1000, 800));
     await tester.pumpAndSettle();
     final narrowPanel = tester.getRect(find.byType(RunPanel));
-    final narrowInput = tester.getRect(find.byWidgetPredicate((w) => w is TextField && (w.decoration?.hintText ?? '').contains('Enter 发送')));
+    final narrowInput = tester.getRect(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…'));
     expect(narrowInput.right, greaterThan(narrowPanel.left), reason: 'a narrow one lays it over the conversation');
 
     await tester.tap(find.byTooltip('收起详情').first);
@@ -146,43 +148,28 @@ void main() {
     ];
     await tester.tap(find.byTooltip(RegExp('^详情')));
     await settle(tester);
-    for (final block in ['步骤', '产物与改动', '上下文与花费', '常用操作']) {
-      expect(find.text(block), findsOneWidget, reason: block);
-    }
-    // Nine steps: the latest five, and a button for the rest.
-    expect(find.text('读取  报告9.md'), findsOneWidget);
-    expect(find.text('读取  报告4.md'), findsNothing);
-    await tester.tap(find.text('显示前面的 4 步'));
-    await settle(tester);
-    expect(find.text('读取  报告1.md'), findsOneWidget);
-    expect(find.text('对比.docx'), findsOneWidget);
-    expect(find.text('\$0.03'), findsOneWidget, reason: 'the last run\'s cost');
-
-    // A folded block stays folded when the panel is built again.
-    await tester.tap(find.text('步骤'));
-    await settle(tester);
-    expect(find.text('读取  报告9.md'), findsNothing);
+    expect(find.text('改了的文件'), findsOneWidget);
+    expect(find.textContaining('对比.docx'), findsOneWidget);
+    expect(find.text('上下文与花费'), findsNothing);
     await tester.tap(find.byTooltip('收起详情').first);
     await settle(tester);
     await tester.tap(find.byTooltip(RegExp('^详情')));
     await settle(tester);
-    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('改了的文件'), findsOneWidget);
     expect(find.text('读取  报告9.md'), findsNothing);
   });
 
   testWidgets('无痕 is picked in the input box, next to the two modes (0.4, roadmap 4.6)', (tester) async {
     await startApp(tester);
-    await tester.tap(find.byTooltip(RegExp('^模式：')));
-    await tester.pumpAndSettle();
-    expect(find.text('标准模式'), findsOneWidget);
-    expect(find.text('极简模式'), findsOneWidget);
-    await tester.tap(find.text('无痕对话（新会话）'));
+    expect(find.text('标准模式'), findsNothing);
+    expect(find.text('极简模式'), findsNothing);
+    await tester.tap(find.byTooltip('无痕'));
     await settle(tester);
     expect(agent.active!.incognito, isTrue);
     expect(backend.pis.last.target.agentMode, 'minimal');
-    expect(find.textContaining('无痕对话：极简模式，不保存记录'), findsOneWidget);
+    expect(find.textContaining('无痕对话：极简模式，不保存记录'), findsNothing);
     expect(find.byTooltip('无痕对话没有详情'), findsOneWidget);
-    expect(find.descendant(of: find.byTooltip(RegExp('^模式：')), matching: find.text('无痕')), findsOneWidget);
+    expect(find.descendant(of: find.byTooltip('无痕'), matching: find.text('无痕')), findsOneWidget);
   });
 
   testWidgets('a new conversation shows the butterfly and one greeting, nothing else (0.4, v0.3.1 test 5)', (tester) async {

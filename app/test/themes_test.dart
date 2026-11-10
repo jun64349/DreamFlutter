@@ -20,9 +20,9 @@ void main() {
     expect({for (final t in PaintingTheme.all) t.id}.length, PaintingTheme.all.length);
     expect(PaintingTheme.byId('caodie', Brightness.light), PaintingTheme.caodie);
     expect(PaintingTheme.byId('youhua', Brightness.dark), PaintingTheme.youhua);
-    expect(PaintingTheme.byId('youhua', Brightness.light), PaintingTheme.jiadie, reason: 'a night theme is never used by day');
-    expect(PaintingTheme.byId(null, Brightness.dark), PaintingTheme.moye);
-    expect(PaintingTheme.byId('gone', Brightness.light), PaintingTheme.jiadie);
+    expect(PaintingTheme.byId('youhua', Brightness.light), PaintingTheme.warmPaper, reason: 'a night theme is never used by day');
+    expect(PaintingTheme.byId(null, Brightness.dark), PaintingTheme.twilight);
+    expect(PaintingTheme.byId('gone', Brightness.light), PaintingTheme.warmPaper);
   });
 
   test('every theme keeps its text readable', () {

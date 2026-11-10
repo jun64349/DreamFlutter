@@ -43,13 +43,13 @@ void main() {
         home: Scaffold(body: SingleChildScrollView(child: PiCompatibilityPanel(pickFolder: (initial) async { expect(initial, '${root.path}/import'); return initial; }))),
       )));
       await tester.pumpAndSettle();
-      expect(find.text('迁移失败 · 原 Pi 配置页仍可用'), findsOneWidget);
-      expect(find.text('打开原 Pi 配置页'), findsOneWidget);
+      expect(find.text('迁移失败 · 原有配置页仍可用'), findsOneWidget);
+      expect(find.text('打开原有配置页'), findsOneWidget);
       await tester.tap(find.text('重试迁移')); await tester.pumpAndSettle();
       expect(find.text('已迁入渠道 · 兼容配置由渠道生成'), findsOneWidget);
-      expect(find.text('打开原 Pi 配置页'), findsNothing);
+      expect(find.text('打开原有配置页'), findsNothing);
       expect(find.text('unknown/missing'), findsOneWidget);
-      await tester.ensureVisible(find.text('从 Pi 配置导入')); await tester.tap(find.text('从 Pi 配置导入')); await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('从原配置导入')); await tester.tap(find.text('从原配置导入')); await tester.pumpAndSettle();
       expect(backend.callsTo('piMigration.import'), hasLength(1));
       expect(find.textContaining('已有映射，跳过'), findsOneWidget);
       external = true;
@@ -58,7 +58,7 @@ void main() {
       await tester.ensureVisible(find.text('重新生成')); await tester.tap(find.text('重新生成')); await tester.pumpAndSettle();
       expect(find.textContaining('检测到外部修改，已备份到'), findsOneWidget);
       if (capture) {
-        await tester.ensureVisible(find.text('Pi 兼容配置')); await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('原有连接配置')); await tester.pumpAndSettle();
         await expectLater(find.byType(Scaffold), matchesGoldenFile('../../Claude Codex Bridge/T66-pi-${brightness.name}-150.png'));
       }
       expect(tester.takeException(), isNull);
@@ -85,8 +85,7 @@ void main() {
     await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: const ProvidersPage())));
     await tester.pumpAndSettle();
     expect(find.byType(ChannelManagementPage), findsOneWidget);
-    expect(find.text('来自 cc-switch'), findsOneWidget);
-    expect(find.text('Pi 登录（暂不支持迁移）· 只读服务商'), findsOneWidget);
+    expect(find.text('Imported'), findsOneWidget);
     await tester.ensureVisible(find.text('管理 ChatGPT 登录')); await tester.tap(find.text('管理 ChatGPT 登录')); await tester.pumpAndSettle();
     await tester.tap(find.text('重新登录')); await tester.pumpAndSettle();
     expect(find.text('https://example.invalid/login'), findsOneWidget);

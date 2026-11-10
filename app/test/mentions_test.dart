@@ -1,4 +1,5 @@
 import 'package:dreamflutter/state/mentions.dart';
+import 'package:dreamflutter/state/work_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -29,5 +30,18 @@ void main() {
   test('plain messages are left alone', () {
     expect(composeWithMentions('你好', const []), '你好');
     expect(splitMentions('a <b> c'), ('a <b> c', const <Mention>[]));
+  });
+
+  test('T93 legacy note tags remain readable and serializable with current display names', () {
+    const saved='按这个做\n\n<写笺 标题="旧任务">\n保留旧内容\n</写笺>';
+    final (text, mentions)=splitMentions(saved);
+    expect(text,'按这个做');
+    expect(mentions.single.kind,MentionKind.note);
+    expect(mentions.single.content,'保留旧内容');
+    expect(composeWithMentions(text,mentions),saved);
+    final note=TaskInfo.fromJson({'source':'note','noteId':'old-note'});
+    expect(note.source,'note'); expect(note.noteId,'old-note'); expect(note.sourceLabel,'任务');
+    final template=TaskInfo.fromJson({'source':'template'});
+    expect(template.source,'template'); expect(template.sourceLabel,'技能');
   });
 }
