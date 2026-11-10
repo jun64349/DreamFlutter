@@ -1,24 +1,98 @@
-# 全场景测试清单
+# 全场景测试清单（v0.8，2026-11-10 T-91 / T-93）
 
-v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实测时不再碰到「用不了」的问题。
-每一行写清楚由哪个自动测试覆盖；只能手动验证的标「手动」，发布前由 Claude 在安装包上走一遍，走不了的写进发布说明请用户试。
+本版以交互设计第四节和40项概念表为准。T-88 修复轮已由 Claude 关闭，首次向导、统一处理、设置和花费补入对应测试/截图。T-93 修复 P04 / P05 并获准删除九个不可达旧文件及三个空壳。下方旧版清单仅供追溯。
 
-## 一、怎么跑
+## 一、当前命令与证据边界
 
-| 层 | 命令（PowerShell，先 `cd` 到目录） | 用时 | 说明 |
+PowerShell先切到仓库对应目录。真窗口一次只跑一个，不能最小化，也不能在运行时改源文件；`app/tool/test.ps1`会创建并清理本轮TEMP。
+
+| 验证层 | 命令 | 本轮口径 |
+|---|---|---|
+| 后台 | core目录：`npm test`、`npx tsc --noEmit` | 真实Core/假模型；T91不改后台，旧计数不冒充本轮全量 |
+| 窗口组件 | app目录：`./tool/test.ps1` | 付费入口默认跳过；失败需区分页面问题和过期选择器 |
+| 协议 | packages/pi_rpc目录：`dart test` | 按本机条件记录跳过，不能当作原生页面测试 |
+| v0.8九流程 | app目录：`./tool/test.ps1 integration_test/e2e_test.dart --device-id=windows --timeout=120s` | 真实UI→WebSocket→Core/Pi/SQLite→脚本Faux，无付费模型/用户渠道；蝶君OS传输是本地fixture |
+| 阅读/交互巡检 | app目录：`./tool/test.ps1 integration_test/scenarios_test.dart --device-id=windows` | 假后台，真窗口/字体；阅读、选字、拖放、已完成页面和名画主题；T-88 页面另有专用测试 |
+| 已完成页浅深视觉 | app目录：`./tool/test.ps1 integration_test/look_test.dart --device-id=windows` | 汇总T86/T87/T89；图在build/t86_shots、t87_shots、t89_shots，要实际看图 |
+| 卡片 | app目录：`./tool/test.ps1 integration_test/cards_test.dart --device-id=windows` | 真WebView2；内容权限与对话批准是不同机制 |
+| T-88 新页面浅深视觉 | app目录：`./tool/test.ps1 integration_test/t88_pages_look_test.dart --device-id=windows` | T-88 已关闭；修复轮图 build/t88_review_shots 含1000×800/150%，非本窗口重跑 |
+| 旧原生命令兼容 | memory_v05_look_test.dart → T87视觉；memory_v05_live_test.dart → 当前九流程 | 旧live入口现在也是Faux，不再表示付费模型验收；历史T11实测仍只是历史证据 |
+| 真实模型付费验证 | `app/test/memory_v05_live_test.dart`仍须显式T11_LIVE | T91不执行、不复制真实密钥；真实模型质量/供应商连通另验 |
+| 真实WSL/安装包 | core/scripts/live-sandbox.ts及安装包手测 | 不由Faux或本地目录替代；T91不建发行版、不改用户安装版 |
+
+历史发现与原始失败见 [T91任务文件](../../Claude%20Codex%20Bridge/2026-11-10-02-T-91场景与概念表核对.md)，修复与最新验证见 [T93任务文件](../../Claude%20Codex%20Bridge/2026-11-10-04-T-93清旧入口.md)。[40项落实清单](../../Claude%20Codex%20Bridge/2026-11-10-01-v0.8概念表落实清单.md)已补 T-88 的最终源码/测试/截图和 L01～L11 清理结果。
+
+2026-11-10 T-93 最新结果：analyze 无问题；全量 Flutter **257 通过 / 1 付费跳过 / 0 失败**；原生九流程 **同一轮 9/9 通过（2分32秒，另构建22.1秒）**，4.8 / P04 与 4.12 / P05 已修复，4.12 增加关闭后重新开启及后台值断言。导入图 **83个 lib Dart文件全部可达**。T-91 巡检五项的既有结果仍是原轮次证据，不冒充本轮重跑。
+
+## 二、设计第四节流程
+
+测试名表示执行入口，实际结果以 T-91 / T-88 / T-93 各自回执为准，不因脚本存在就写通过。九个场景各自启动隔离Core并清理临时数据。
+
+| 设计流程 | 自动场景 | 操作→应看到什么 | 验证边界 |
 |---|---|---|---|
-| 后台 | `cd core; npm test; npx tsc --noEmit` | 约 3 分钟 | T-11复验：347 个通过，假模型 |
-| 窗口组件 | `cd app; flutter test test` | 约 30 秒 | T-11复验：151 通过，付费入口默认跳过1条 |
-| 协议层 | `cd packages/pi_rpc; dart test` | 约 15 秒 | T-11：51 个通过，2 个按环境跳过（含启动真后台的 core_test） |
-| 场景巡检（真窗口） | `cd app; flutter test integration_test/scenarios_test.dart -d windows` | 约 1 分钟 | 假后台、真字体真窗口：阅读、选字、拖放、全部页面和主题 |
-| 视觉检查 | `cd app; flutter test integration_test/look_test.dart -d windows` | 约 40 秒 | 截图在 `app/build/look_shots/`，要看一遍 |
-| 卡片 | `cd app; flutter test integration_test/cards_test.dart -d windows` | 约 10 秒 | 真 WebView2 |
-| 真实模型端到端 | `cd app; flutter test integration_test/e2e_test.dart -d windows` | 约 3–5 分钟 | 走用户配好的 OpenCode Go 渠道；用户的应用要先退出 |
-| v0.5真实组件/后台/模型集成 | `cd app; flutter test test/memory_v05_live_test.dart --dart-define=T11_LIVE=true` | 随模型响应 | T-11隔离数据、付费opt-in；F01/C01定向真实复验通过，筛选命令及历史样本见报告第13节 |
-| v0.5原生浅深视觉 | `cd app; flutter test integration_test/memory_v05_look_test.dart -d windows` | 约1分钟 | T-11：2/2，32张图已检查，app/build/t10_shots |
-| 沙箱（真 WSL） | `cd core; node --disable-warning=ExperimentalWarning scripts/live-sandbox.ts` | 约 1 分钟（有随附镜像） | 会建一个临时发行版，跑完删除 |
+| 4.1 安装、首次启动 | t88_pages_test：wizard tests once…；t88_bootstrap_notifications_test：new install… / existing data… | 欢迎、五步向导、推荐值、进度、上一步 | 安装位置、磁盘空间、OS权限另验 |
+| 4.2 再次打开 | t88_bootstrap_notifications_test：existing root is read only；t84_window_behavior_test；T-92 耗时回执另记 | 单实例、启动进度、托盘、忙时退出确认 | 冷启动/再次启动/退出耗时要实际测 |
+| 4.3 开始一件事 | T91-4.3 | 顶栏换项目、新对话、附件、输入、Faux回复、无痕不保存 | 文件事件注入，不冒充外部系统拖放；真实图片理解另验 |
+| 4.4 看过程、批准 | T91-4.4 | 真工具写前批准、允许才写/拒绝不写、停止、错误卡和重试恢复 | 统一处理页由 t88_pages_test 覆盖；系统通知真实呈现另验 |
+| 4.5 拿结果 | T91-4.5 | 回复悬停操作、本次改动、隔离Git确认提交、对话⋯、定时绑定和记忆开关 | 只提交测试自建仓库，工作树不提交；OS导出选择器另验 |
+| 4.6 选中追问 | T91-4.6 | 真选区→引用/问一下；侧边回复不写父文件，带回引用，侧栏保留父子关系 | 外部剪贴板、中文IME、OS选区另验 |
+| 4.7 交办蝶君 | T91-4.7 | 真实Faux复述；开始前不执行；按真实deadline只开始一次 | 测试推进已存deadline，不等待10秒；不证明真实WSL隔离 |
+| 4.8 卡住、交付、继续 | T91-4.8 | 缺资料→waiting和后台问题；回答后真实工具写文件、交付、原对话继续和定时绑定 | 本场景回答经所属Core接口；统一页另有 T-88 组件/截图证据，未声称此处真 Core 全链；通知只查事件；另存/真实WSL另验 |
+| 4.9 等你处理 | t88_pages_test：attention immediate…；t88_bootstrap_notifications_test：failed delayed action… / four native notifications… | 两组、now立即处理、later5秒撤销、去看看定位 | 真实侧栏原生图 t88_review_shots/attention_100_light.png / attention_100_dark.png；通道模拟不等于 OS 弹窗点击 |
+| 4.10 找回东西 | T91-4.10 | 三类搜索、归档、回收站、恢复 | 30天到期清理由core t85-recycle-backup覆盖，不在窗口里等30天 |
+| 4.11 偶尔看记忆 | T91-4.11 | 三组、失焦保存、删/撤、最近、真实memory_update回执和撤销 | 真实模型去重/推断质量另验 |
+| 4.12 加技能、接服务 | T91-4.12 | 模板并技能；服务测试/工具开关/蝶君权限；URL默认待确认；新对话草稿；模型登记提案 | 文件夹导入查真Core；OS选择器、真实沙箱试用另验；采用界面另有 T-88 组件/截图覆盖，不冒充九流程的真 Core 采用全链 |
 
-真窗口测试（`-d windows`）一个一个跑，不要同时跑两个（共用一个 exe）；跑的时候不要最小化窗口，也不要改源文件。
+## 三、当前界面及重点回归
+
+「组件」指app/test，「场景」指scenarios_test.dart，「e2e」指上述T91设计编号。原生截图使用各任务的look脚本；假后台截图不算真实Core端到端。
+
+| 范围 | 当前入口和预期 | 自动覆盖 |
+|---|---|---|
+| 首页/工作区 | 蝴蝶+问候+三个示例+文选；顶栏当前项目、最近项目、打开文件夹 | t84_shell、window_frame、T91-4.3 |
+| 输入框 | 模型、思考深度、无痕、操作前问我；不再有标准/极简模式菜单 | composer_layout、t86_chat、T91-4.3 |
+| 输入键盘 | Shift+Enter换行、Enter发送；生成中可以排队插话 | 场景、chat_scroll |
+| 过程 | 默认一行收起，点击看步骤，命令/改动样式；状态短句下有实际工作说明 | work_block、t86_chat、T91-4.4 |
+| 批准/出错 | 卡片允许/拒绝/本对话同类允许；错误有重试/换模型/去设置，恢复发送 | t86_chat、T91-4.4；统一落点待T88 |
+| 回复操作 | 悬停复制/重新生成/从这里重来/⋯，模型·耗时·花费及参考了哪些记忆 | chat_and_zoom、t86_chat、T91-4.5 |
+| 本次改动 | 顶栏按需打开；文件差异、产物；Git选文件→说明可编辑→确认提交 | t90_git、T91-4.5；无旧概览/分支/常用操作页签 |
+| 对话复用 | 对话⋯：把这次做法存成技能、定时再做一次、这段对话不记忆、导出、归档、删除 | t86_chat、T91-4.5/4.10 |
+| 上下文 | 输入框圆环打开上下文→整理上下文；高级机制参数不再摆在对话里 | t86_chat；core checkpoints；高级参数在 settings_workspace.dart；t88_pages_test 七组/搜索/保存 |
+| 问一下 | 选区引用/问一下；右侧小对话带回去/关掉；父对话不写，侧栏子对话缩进 | side_chat、core side-sessions、T91-4.6 |
+| 阅读稳定 | 一格滚轮就放开跟随；回到底部才跟随；发/排队/折叠不抖；旧行不重播入场 | chat_reading、chat_scroll、场景 |
+| 锚定/卡片 | 视口上方行增高不挪阅读位置；卡片回来不先白屏，图片ImageProvider不变 | chat_reading、场景、cards |
+| 选区/复制 | 100/110/125/150%长对话，工作台/蝶君；行内代码、跨消息、文件名链接跟选区 | chat_reading、markdown_view、场景 |
+| 视觉/缩放 | 暖纸/暮色和名画主题，1000×800、150%，导航可收起/滚动，减少动画 | t84_shell、t86_chat、t87_memory/butterfly、t89_garden、场景 |
+| 蝶君交办 | 无交流/工作/写笺页；首页任务，复述/缺信息、按钮真实等待进度、只开工一次 | t87_butterfly、T91-4.7 |
+| 蝶君结果 | 四种状态、真实进度、交付卡/文件/时间花费，同一对话继续，定时详情 | t87_butterfly、T91-4.8 |
+| 拖放隔离 | 隐藏工作台/蝶君的DropTarget不接收；系统截图Ctrl卡键须另手测 | work_pages、场景 |
+| 记忆 | 关于你/关于这个项目/蝶君自己的；来源可查；原地失焦保存、删除撤销、最近 | t87_memory、T91-4.11 |
+| 记忆简化 | 无层级/类别/常驻块/待确认标签，只可能过时了；自动记忆开关；高级设置待T88 | t87_memory；core t85-backend |
+| 对话记忆纠正 | 已更新记忆·查看·撤销，对应真实批次与版本；旧刷新快照/任务按钮退场 | t86_chat、core t85-backend、T91-4.11 |
+| 蝶园 | 列表→详情，普通状态只用开关，只有等你确认有文字，来源/次数在详情 | t89_garden、library_pages、T91-4.12 |
+| 模板/服务 | 模板并入技能、斜杠调用；首次接服务才露分区；逐工具及蝶君授权独立 | t89_garden、core t85-backend/t89-library、T91-4.12 |
+| 技能待确认 | URL/文件夹/模型登记均不自动信任；本页只去等你处理，不直接采用 | T91-4.12；统一采用见 t88_pages_test 的类型按钮与延迟回执 |
+| 统一处理/通知 | 唯一入口两组、数字和跳转；四类Windows系统通知 | t88_pages_test、t88_bootstrap_notifications_test、t88_review_shots；真实 Windows 通知人工点击另验 |
+| 设置/花费/向导 | 七组、搜索、高级、三种模型用途+看图，网络合并；时间范围/费用/默认四列账目；五步向导 | t88_pages_test、t88_bootstrap_notifications_test、t88_review_shots；模型/渠道/账本组件测试 |
+| 数据/更新/安装 | 备份导出/恢复/撤销、搬迁、启动单实例、安装无开发环境 | Core backup/storage/update与协议；新页面及安装包独立手测 |
+
+## 四、发布前人工验证
+
+1. T-88 组件与原生截图已补 4.1/4.2/4.9 对应入口；联合验收仍需安装后的首次/再次启动、实际系统通知和真实模型完整流程；冷启动、再次启动、退出耗时以 T-92 的独立测量为准。
+2. 安装包在无开发环境运行；不把build/windows的测试exe交给用户试用。
+3. 真实渠道、图片理解、模型错误/重试、供应商网络和账单口径另验；Faux不证明模型质量。
+4. 实际WSL隔离、离线安装、出图、outbox预览/打开/另存；本地角色fixture不证明沙箱安全。
+5. Ctrl+Alt+A/Win+Shift+S之后滚轮不被卡成缩放；真实剪贴板图片/文件、资源管理器与浏览器拖放。
+6. 真字体下125%和150%长对话选字、行内代码高亮、滚动阅读锚定、WebView卡片和用户主题。
+7. 系统通知的真实Windows呈现/聚焦跳转、托盘和正在执行时退出。
+8. OS文件选择/导出/另存、真实磁盘满、受限目录、用户会话/备份恢复；测试只操作隔离数据。
+
+## 五、历史回归记录（仅追溯）
+
+以下完整保留旧版清单和历次验收证据，不再是v0.8当前操作路径。旧按钮名、旧计数、历史付费结果不表示本轮已通过；旧原生live/visual入口已按第一节更新，不从此处运行旧步骤。
+
+<details>
+<summary>展开v0.7及之前的清单与历史验收</summary>
 
 ## 二、清单
 
@@ -278,3 +352,5 @@ v0.3.3 起，每个版本发布前按这份清单走一遍。目标：用户实�
 3. 然后跑全量core typecheck/test、Flutter analyze/test、既有runtime/备份归属等门禁；原生/真实模型串行避免抢应用，记录本次命令/环境/结果/成本；不扩新收费渠道，不将源码测试代替原生或最终包体验。
 4. 全部门禁通过且没有未处置阻断，由执行区3按正式流程打完整候选，记录版本/来源和包摘要、解压/ZIP/Setup体积、许可；干净PATH、新数据/新测试蝶君、中文图与真实文件重开，原生浅深/125%/150%复查，核对冻结摘要无漂移。T75/T78旧包仅前序快照。
 5. 用户决定目录/替换与备份；默认不覆盖`E:\DreamFlutter测试版`或个人数据。交定稿用户清单，v0.6真实账号项可选且密钥自填。用户问题先修复复测，再进入v0.8。测试副本按已给用户的清理清单处理，不绕过既有删除拦截。
+
+</details>

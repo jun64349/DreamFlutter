@@ -1,0 +1,1208 @@
+<title>梦蝶体验版</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;700&display=swap">
+<style>
+/* Layout: desktop app shell — sidebar | main conversation/page | optional right panel; tokens mirror app/lib/theme.dart (蛱蝶 / 墨夜) */
+:root{
+  --rail:#E8E0D3; --side:#F0EAE0; --bg:#F7F3EB; --card:#FDFBF7; --bubble:#EFE5D6;
+  --ink:#392F2A; --ink2:#52463E; --muted:#70665E; --line:#DED6C9; --line2:rgba(57,47,42,.07);
+  --accent:#A54C28; --on-accent:#FDFBF7; --accent-soft:#F0DFCF; --ok:#546C5D; --ok-soft:rgba(84,108,93,.12);
+  --ochre:#B5793F; --seal:#A8332A; --code:#F1EADF; --term:#2E2A24; --on-term:#E8DFCB;
+  --add:rgba(84,108,93,.16); --del:rgba(168,51,42,.12); --shadow:0 10px 30px rgba(57,47,42,.13);
+  --bf-bg:#F0EAE0; --bf-line:#392F2A; --bf-core:#FDFBF7; --bf-wing:#C96A3F; --bf-glow:#F0DFCF;
+  --art:"Ma Shan Zheng","KaiTi","STKaiti",serif; --serif:"Noto Serif SC","Songti SC","SimSun",serif; --sans:"Noto Sans SC","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  --mono:"Cascadia Mono",Consolas,"SFMono-Regular",monospace;
+  --t1:150ms; --t2:250ms; --t3:350ms; --ease:cubic-bezier(.2,.7,.2,1);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --rail:#1D1A17; --side:#221F1C; --bg:#27231F; --card:#302A25; --bubble:#3A322B;
+  --ink:#F0E5D6; --ink2:#DCCFBE; --muted:#B9AB9B; --line:#4C4238; --line2:rgba(240,229,214,.07);
+  --accent:#E6A17A; --on-accent:#27231F; --accent-soft:#49352B; --ok:#9EAF92; --ok-soft:rgba(158,175,146,.14);
+  --ochre:#D9A066; --seal:#E07A6C; --code:#1F1B18; --term:#14120F; --on-term:#E8DFCB;
+  --add:rgba(158,175,146,.18); --del:rgba(224,122,108,.18); --shadow:0 10px 30px rgba(0,0,0,.45);
+  --bf-bg:#221F1C; --bf-line:#FFFFFF; --bf-core:#302A25; --bf-wing:#E6A17A; --bf-glow:#49352B; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --rail:#1D1A17; --side:#221F1C; --bg:#27231F; --card:#302A25; --bubble:#3A322B;
+  --ink:#F0E5D6; --ink2:#DCCFBE; --muted:#B9AB9B; --line:#4C4238; --line2:rgba(240,229,214,.07);
+  --accent:#E6A17A; --on-accent:#27231F; --accent-soft:#49352B; --ok:#9EAF92; --ok-soft:rgba(158,175,146,.14);
+  --ochre:#D9A066; --seal:#E07A6C; --code:#1F1B18; --term:#14120F; --on-term:#E8DFCB;
+  --add:rgba(158,175,146,.18); --del:rgba(224,122,108,.18); --shadow:0 10px 30px rgba(0,0,0,.45);
+  --bf-bg:#221F1C; --bf-line:#FFFFFF; --bf-core:#302A25; --bf-wing:#E6A17A; --bf-glow:#49352B; color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.6;overflow:hidden}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+input,textarea,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.ic{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.bf{display:block}
+
+#app{height:100%;display:grid;grid-template-columns:248px minmax(0,1fr) auto;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+/* sidebar */
+#side{background:var(--side);border-right:1px solid var(--line2);display:flex;flex-direction:column;min-width:0;min-height:0}
+.brand{display:flex;align-items:center;gap:10px;padding:14px 16px 8px;font-family:var(--serif);font-size:17px;font-weight:700}
+.logo{display:inline-grid;place-items:center;flex:none;width:26px;height:26px;border-radius:7px;background:var(--bf-bg)}.logo svg{width:100%;height:100%}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--rail);border-radius:10px;padding:3px;margin:6px 12px 10px;position:relative}
+.seg button{position:relative;z-index:1;padding:6px 0;border-radius:8px;color:var(--muted);transition:color var(--t1) var(--ease)}
+.seg button.on{color:var(--ink);font-weight:500}
+.seg .knob{position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);background:var(--card);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);transition:transform var(--t2) var(--ease)}
+.seg.right .knob{transform:translateX(100%)}
+.seg .dot{position:absolute;top:7px;right:12px;width:6px;height:6px;border-radius:50%;background:var(--ochre);animation:breathe 1.8s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.25}}
+.nav{display:flex;flex-direction:column;gap:2px;padding:0 8px}
+.nav-i{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:var(--ink2);text-align:left;transition:background var(--t1) var(--ease)}
+.nav-i:hover{background:var(--line2)}
+.nav-i.on{background:var(--card);color:var(--ink)}
+.badge{margin-left:auto;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--seal);color:#fff;font-size:12px;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+.badge.pop{animation:pop var(--t3) var(--ease)}
+@keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.25)}100%{transform:scale(1)}}
+.search{margin:4px 8px 6px;display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line2);color:var(--muted)}
+.search input{border:0;background:none;outline:0;width:100%;min-width:0;color:var(--ink)}
+.list{flex:1;overflow:auto;padding:4px 8px 8px;min-height:0}
+.grp{font-size:12px;color:var(--muted);padding:12px 10px 4px;letter-spacing:.06em}
+.conv{display:flex;align-items:center;gap:6px;border-radius:8px;padding:6px 6px 6px 10px;color:var(--ink2);cursor:pointer;transition:background var(--t1) var(--ease)}
+.conv:hover{background:var(--line2)}
+.conv.on{background:var(--card);color:var(--ink)}
+.conv .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv.child{padding-left:26px;font-size:13px;color:var(--muted)}
+.conv .more{opacity:0;padding:3px;border-radius:6px;color:var(--muted);transition:opacity var(--t1)}
+.conv:hover .more,.conv.on .more{opacity:1}
+.conv .run{width:6px;height:6px;border-radius:50%;background:var(--ochre);animation:breathe 1.6s infinite}
+.side-foot{display:flex;gap:2px;padding:8px;border-top:1px solid var(--line2)}
+.side-foot button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;border-radius:8px;font-size:11px;color:var(--muted);transition:background var(--t1),color var(--t1)}
+.side-foot button:hover{background:var(--line2);color:var(--ink)}
+.side-foot button.on{color:var(--accent)}
+
+/* main */
+#main{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.top{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line2)}
+.crumb{display:flex;align-items:center;gap:8px;min-width:0;color:var(--muted);font-size:13px}
+.crumb b{color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ws-btn{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:3px 8px;color:var(--ink2);background:var(--card);white-space:nowrap}
+.top .sp{flex:1}
+.icon-btn{display:grid;place-items:center;width:32px;height:32px;border-radius:8px;color:var(--muted);transition:background var(--t1),color var(--t1)}
+.icon-btn:hover{background:var(--line2);color:var(--ink)}
+.icon-btn.on{color:var(--accent);background:var(--accent-soft)}
+#menuBtn{display:none}
+.view{flex:1;min-height:0;display:flex;flex-direction:column}
+.view.enter{animation:viewIn var(--t3) var(--ease)}
+@keyframes viewIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.scroll{flex:1;overflow:auto;min-height:0}
+.col{max-width:760px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-left,0px)) 24px max(16px,env(safe-area-inset-right,0px))}
+
+/* messages */
+.msg{margin:0 0 22px}
+.msg.enter{animation:rise var(--t2) var(--ease)}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.u{display:flex;justify-content:flex-end}
+.u .b{background:var(--bubble);border-radius:16px 16px 4px 16px;padding:10px 14px;max-width:80%}
+.quote{border-left:3px solid var(--accent);padding:2px 10px;margin-bottom:6px;color:var(--muted);font-size:13px}
+.proc{border:1px solid var(--line);border-radius:12px;background:var(--card);margin-bottom:12px;overflow:hidden}
+.proc-h{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;color:var(--ink2);font-size:13px;text-align:left}
+.proc-h .chev{margin-left:auto;transition:transform var(--t2) var(--ease)}
+.proc.open .chev{transform:rotate(180deg)}
+.proc-b{display:grid;grid-template-rows:0fr;transition:grid-template-rows var(--t2) var(--ease)}
+.proc.open .proc-b{grid-template-rows:1fr}
+.proc-b>div{overflow:hidden}
+.step{display:flex;gap:8px;align-items:flex-start;padding:5px 12px;font-size:13px;color:var(--ink2);border-top:1px solid var(--line2)}
+.step code,.reply code{font-family:var(--mono);font-size:12.5px;background:var(--code);padding:1px 5px;border-radius:5px}
+.step .ok,.proc-h .ok{color:var(--ok)}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ochre);animation:breathe 1.2s infinite;flex:none}
+.reply{font-family:var(--serif);font-size:15.5px;line-height:1.85;color:var(--ink)}
+.reply p{margin:0 0 10px}
+.reply table{border-collapse:collapse;font-family:var(--sans);font-size:13.5px;margin:6px 0 12px;font-variant-numeric:tabular-nums}
+.reply th,.reply td{border-bottom:1px solid var(--line);padding:5px 14px 5px 0;text-align:left}
+.reply th{color:var(--muted);font-weight:500}
+.tbl{overflow-x:auto}
+.ainfo{display:flex;align-items:center;gap:2px;margin-top:4px;color:var(--muted);font-size:12px;opacity:0;transition:opacity var(--t1)}
+.msg:hover .ainfo,.msg:focus-within .ainfo,.ainfo.show{opacity:1}
+.ainfo .icon-btn{width:30px;height:28px}
+.ainfo .meta{margin-left:8px}
+.memnote{display:inline-flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:3px 10px}
+.memnote button{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.approve h4{margin:0 0 2px;font-size:14px;font-weight:500;display:flex;gap:8px;align-items:center}
+.approve .why{color:var(--muted);font-size:13px;margin-bottom:10px}
+.diff{font-family:var(--mono);font-size:12.5px;border-radius:8px;overflow:auto;background:var(--code);margin-bottom:12px}
+.diff div{padding:1px 10px;white-space:pre}
+.diff .a{background:var(--add)} .diff .d{background:var(--del)}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{padding:6px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);transition:background var(--t1),transform var(--t1)}
+.btn:hover{background:var(--line2)} .btn:active{transform:scale(.97)}
+.btn.pri{background:var(--accent);color:var(--on-accent);border-color:transparent}
+.btn.pri:hover{filter:brightness(1.06)}
+.btn.ghost{border-color:transparent;color:var(--muted)}
+.btn.sm{padding:3px 10px;font-size:13px}
+.state{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.state.ok{color:var(--ok)} .state.no{color:var(--seal)}
+.err{border-color:color-mix(in srgb,var(--seal) 40%,transparent)}
+.err .why{color:var(--ink2)}
+
+/* composer */
+.composer-wrap{flex:none;padding:0 max(16px,env(safe-area-inset-right,0px)) calc(14px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.composer{max-width:760px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 12px 8px;box-shadow:0 2px 10px rgba(0,0,0,.04);transition:border-color var(--t1)}
+.composer:focus-within{border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+.composer textarea{width:100%;border:0;outline:0;background:none;resize:none;min-height:24px;max-height:160px;line-height:1.6}
+.qchip{display:flex;gap:8px;align-items:flex-start;background:var(--bg);border-radius:10px;padding:6px 10px;margin-bottom:6px;font-size:13px;color:var(--ink2)}
+.qchip .x{margin-left:auto;color:var(--muted)}
+.crow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;background:var(--bg);color:var(--ink2);font-size:12.5px;border:1px solid transparent;transition:background var(--t1),border-color var(--t1)}
+.chip:hover{border-color:var(--line)}
+.chip.on{background:var(--accent-soft);color:var(--accent)}
+.crow .sp{flex:1}
+.send{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--on-accent);transition:transform var(--t1),opacity var(--t1)}
+.send:disabled{opacity:.35;cursor:default}
+.send.stop{background:var(--ink2)}
+
+/* home */
+.home{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px 16px;text-align:center}
+.home svg.bf{width:72px;height:72px;border-radius:18px;animation:float 5s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-5px) rotate(-1.5deg)}}
+.greet{font-family:var(--art);font-weight:400;font-size:38px;letter-spacing:.12em;background:linear-gradient(90deg,var(--ink),var(--accent),var(--ochre));-webkit-background-clip:text;background-clip:text;color:transparent;text-wrap:balance}
+.examples{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:620px}
+.ex{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:8px 14px;color:var(--ink2);font-size:13.5px;transition:transform var(--t1),border-color var(--t1)}
+.ex:hover{transform:translateY(-2px);border-color:var(--accent)}
+
+/* pages */
+.page-h{display:flex;align-items:flex-end;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.page-h h1{font-family:var(--serif);font-size:24px;margin:0;font-weight:700}
+.page-h p{margin:0;color:var(--muted);font-size:13px;flex-basis:100%}
+.page-h .sp{flex:1}
+.sec{font-size:12px;color:var(--muted);letter-spacing:.08em;margin:22px 0 8px}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--line2);border-radius:12px;margin-bottom:8px;transition:opacity var(--t2) var(--ease),transform var(--t2) var(--ease),background var(--t1)}
+.row.enter{animation:rise var(--t2) var(--ease)}
+.row.leave{opacity:0;transform:translateX(24px)}
+.row .main{flex:1;min-width:0}
+.row .ttl{font-weight:500}
+.row .sub{color:var(--muted);font-size:12.5px}
+.row.click{cursor:pointer} .row.click:hover{background:color-mix(in srgb,var(--card) 85%,var(--accent-soft))}
+.row.sel{border-color:var(--accent)}
+.st{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:2px 9px;border-radius:999px;white-space:nowrap;background:var(--line2);color:var(--muted)}
+.st::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.st.ok{background:var(--ok-soft);color:var(--ok)}
+.st.wait{background:color-mix(in srgb,var(--ochre) 15%,transparent);color:var(--ochre)}
+.st.bad{background:color-mix(in srgb,var(--seal) 13%,transparent);color:var(--seal)}
+.st.run{background:color-mix(in srgb,var(--ochre) 12%,transparent);color:var(--ochre)}
+.st.run::before{animation:breathe 1.2s infinite}
+.from{font-size:12px;color:var(--muted)}
+.empty{text-align:center;color:var(--muted);padding:40px 0}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px;align-items:start}
+.detail{position:sticky;top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px;margin:10px 0 14px}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.tabs button{padding:8px 12px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--t1),border-color var(--t2)}
+.tabs button.on{color:var(--ink);border-color:var(--accent)}
+.mem{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;transition:background var(--t1),opacity var(--t2),transform var(--t2)}
+.mem:hover{background:var(--card)}
+.mem .txt{flex:1;min-width:0;outline:0;border-radius:6px;padding:1px 4px;margin:-1px -4px}
+.mem .txt:focus{background:var(--card);box-shadow:0 0 0 1px var(--accent)}
+.mem .src{font-size:12px;color:var(--muted)}
+.mem .src button{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+.mem .ops{opacity:0;display:flex;gap:2px;transition:opacity var(--t1)}
+.mem:hover .ops,.mem:focus-within .ops{opacity:1}
+.mem.leave,.row.leave{opacity:0;transform:translateX(24px)}
+.timeline .day{font-size:13px;color:var(--muted);margin:14px 0 6px}
+.tl{display:flex;gap:10px;padding:6px 0;font-size:13.5px}
+.tl .k{font-size:12px;padding:1px 8px;border-radius:6px;background:var(--line2);color:var(--muted);flex:none}
+.tl .k.add{background:var(--ok-soft);color:var(--ok)}
+.switch{width:38px;height:22px;border-radius:11px;background:var(--line);position:relative;flex:none;transition:background var(--t2) var(--ease)}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform var(--t2) var(--ease)}
+.switch.on{background:var(--accent)} .switch.on::after{transform:translateX(16px)}
+/* settings */
+.set{display:grid;grid-template-columns:180px minmax(0,1fr);gap:24px}
+.set-nav{display:flex;flex-direction:column;gap:2px;position:sticky;top:0}
+.set-nav button{text-align:left;padding:7px 12px;border-radius:8px;color:var(--ink2)}
+.set-nav button.on{background:var(--card);color:var(--ink);font-weight:500}
+.srow{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--line2)}
+.srow .main{flex:1;min-width:0}
+.srow .hint{font-size:12.5px;color:var(--muted)}
+.q{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);font-size:11px;color:var(--muted);margin-left:4px;cursor:help;position:relative}
+.q:hover::after{content:attr(data-tip);position:absolute;left:50%;bottom:130%;transform:translateX(-50%);width:220px;background:var(--ink);color:var(--bg);font-size:12px;line-height:1.5;padding:8px 10px;border-radius:8px;z-index:5;text-align:left}
+.segs{display:inline-flex;background:var(--bg);border-radius:8px;padding:2px;border:1px solid var(--line2);flex-wrap:wrap}
+.segs button{padding:4px 10px;border-radius:6px;font-size:13px;color:var(--muted);transition:background var(--t1),color var(--t1)}
+.segs button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+details.adv{margin-top:14px}
+details.adv summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 0;list-style:none;display:flex;gap:6px;align-items:center}
+details.adv summary::-webkit-details-marker{display:none}
+details.adv[open] summary .ic{transform:rotate(90deg)}
+details.adv summary .ic{transition:transform var(--t2) var(--ease);width:14px;height:14px}
+
+/* right panel */
+#right{width:0;overflow:hidden;transition:width var(--t3) var(--ease);background:var(--side);border-left:1px solid var(--line2);min-height:0}
+#right.open{width:340px}
+.rp{width:340px;height:100%;display:flex;flex-direction:column}
+.rp-h{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line2);font-weight:500}
+.rp-h .sp{flex:1}
+.rp-b{flex:1;overflow:auto;padding:12px 14px}
+.file{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:8px;background:var(--card);margin-bottom:6px;font-size:13px}
+.file .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12.5px}
+.file .p{color:var(--accent);font-size:12px} .file .m{color:var(--seal);font-size:12px}
+.commit textarea{width:100%;min-height:64px;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:8px;resize:vertical;font-family:var(--mono);font-size:12.5px}
+.deliver{border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--card) 80%,var(--accent-soft))}
+.deliver h4{margin:0 0 6px;font-family:var(--serif);font-size:16px}
+.mini{display:flex;flex-direction:column;gap:10px;font-size:13.5px}
+.mini .u .b{font-size:13px}
+.countdown{height:3px;background:var(--line2);border-radius:2px;overflow:hidden;margin:8px 0 10px}
+.countdown i{display:block;height:100%;background:var(--accent);transform-origin:left;animation:shrink linear forwards}
+@keyframes shrink{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+.prog{height:4px;border-radius:2px;background:var(--line2);overflow:hidden;margin-top:6px}
+.prog i{display:block;height:100%;background:var(--ochre);transition:width var(--t3) var(--ease)}
+
+/* popovers, menus, toast */
+.pop{position:fixed;z-index:50;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:4px;min-width:150px;animation:popIn var(--t1) var(--ease)}
+@keyframes popIn{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+.pop button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:7px 10px;border-radius:7px;font-size:13.5px}
+.pop button:hover{background:var(--line2)}
+.pop button.danger{color:var(--seal)}
+.pop hr{border:0;border-top:1px solid var(--line2);margin:4px 0}
+.pop .lbl{font-size:11.5px;color:var(--muted);padding:6px 10px 2px}
+.selpop{display:flex;gap:2px;padding:3px;min-width:0}
+.selpop button{width:auto;padding:5px 10px}
+#toasts{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;align-items:center;z-index:60;pointer-events:none;width:max-content;max-width:calc(100vw - 32px)}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:12px;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;box-shadow:var(--shadow);font-size:13.5px;animation:toastIn var(--t3) var(--ease)}
+.toast.out{animation:toastOut var(--t2) var(--ease) forwards}
+.toast button{color:var(--bf-glow);font-weight:500}
+@keyframes toastIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateY(8px)}}
+.notif{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));top:calc(16px + env(safe-area-inset-top,0px));z-index:61;width:300px;max-width:calc(100vw - 32px);background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:12px 14px;display:flex;gap:10px;animation:notifIn var(--t3) var(--ease);cursor:pointer}
+.notif .logo{width:30px;height:30px;border-radius:8px}
+.notif .from{margin-bottom:2px}
+.notif.out{animation:toastOut var(--t2) var(--ease) forwards}
+@keyframes notifIn{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
+
+/* wizard */
+#wiz{position:fixed;inset:0;z-index:80;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px));animation:fade var(--t3) var(--ease)}
+@keyframes fade{from{opacity:0}}
+.wz{width:min(520px,100%)}
+.wz-dots{display:flex;gap:6px;justify-content:center;margin-bottom:28px}
+.wz-dots i{width:8px;height:8px;border-radius:4px;background:var(--line);transition:width var(--t2) var(--ease),background var(--t2)}
+.wz-dots i.on{width:24px;background:var(--accent)} .wz-dots i.done{background:var(--accent)}
+.wz-step{animation:viewIn var(--t3) var(--ease)}
+.wz h2{font-family:var(--serif);font-size:24px;margin:0 0 6px;text-align:center}
+.wz .lead{color:var(--muted);text-align:center;margin:0 0 22px}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{font-size:13px;color:var(--ink2)}
+.field input,.field select{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 12px;outline:0;width:100%}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.field .hint{font-size:12px;color:var(--muted)}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);margin-bottom:8px;cursor:pointer;transition:border-color var(--t1)}
+.opt.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.opt .r{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line);margin-top:3px;flex:none;transition:border var(--t1)}
+.opt.on .r{border:5px solid var(--accent)}
+.wz-nav{display:flex;gap:8px;margin-top:22px}
+.wz-nav .sp{flex:1}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:rot .8s linear infinite;display:inline-block;vertical-align:-3px}
+@keyframes rot{to{transform:rotate(360deg)}}
+.splash{text-align:center}
+.splash svg{width:84px;height:84px;border-radius:20px;margin:0 auto 18px;animation:float 3s ease-in-out infinite}
+.bar{width:240px;height:4px;border-radius:2px;background:var(--line2);margin:14px auto 8px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .5s var(--ease)}
+
+/* demo guide */
+#guide{position:fixed;left:calc(260px + env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:40;background:var(--ink);color:var(--bg);border-radius:12px;padding:10px 12px;font-size:12.5px;max-width:280px;box-shadow:var(--shadow);transition:transform var(--t3) var(--ease),opacity var(--t3)}
+#guide.min{transform:translateY(calc(100% - 34px))}
+#guide b{display:flex;align-items:center;gap:6px;margin-bottom:6px;font-weight:500;cursor:pointer}
+#guide ol{margin:0;padding-left:18px;color:color-mix(in srgb,var(--bg) 80%,transparent)}
+#guide li{margin:2px 0}
+#guide li button{color:var(--bf-glow);text-decoration:underline;text-underline-offset:2px}
+#scrim{display:none}
+
+/* signature butterfly presence (from DreamFlutter Design Kit v0.1) */
+.avatar{width:84px;height:84px;flex:none;display:grid;place-items:center;filter:drop-shadow(0 6px 8px rgba(165,76,40,.14))}
+.avatar svg{width:84px;height:84px;transform-origin:50% 55%}
+.avatar[data-state="received"] svg{animation:flap .28s ease-in-out 3}
+.avatar[data-state="thinking"] svg{animation:flapSlow 2.4s ease-in-out infinite}
+.avatar[data-state="search"] svg{animation:seek 1.6s ease-in-out infinite}
+.avatar[data-state="reading"] svg{animation:flapSlow 1.8s ease-in-out infinite}
+.avatar[data-state="working"] svg,.avatar[data-state="writing"] svg{animation:flap .9s ease-in-out infinite,bob 2.2s ease-in-out infinite}
+.avatar[data-state="done"] svg{animation:settle .9s var(--ease) 1}
+.avatar[data-state="error"] svg{filter:saturate(.35);opacity:.8}
+.avatar[data-state="idle"] svg{animation:float 5s ease-in-out infinite}
+@keyframes flap{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.78)}}
+@keyframes flapSlow{0%,100%{transform:scaleX(1) translateY(0)}50%{transform:scaleX(.9) translateY(-2px)}}
+@keyframes seek{0%,100%{transform:rotate(-8deg) scaleX(1) translateX(0)}50%{transform:rotate(-12deg) scaleX(.84) translateX(4px)}}
+@keyframes bob{0%,100%{translate:0 0}50%{translate:0 -4px}}
+@keyframes settle{0%{transform:scaleX(1)}40%{transform:scaleX(.7)}100%{transform:scaleX(1)}}
+.presence{display:flex;align-items:center;gap:14px;margin:4px 0 10px;min-height:92px}
+.presence .copy{flex:1;min-width:0}
+.presence .by{font-size:11px;color:var(--accent);letter-spacing:.08em}
+.presence .by span{color:var(--muted);margin-left:8px}
+.art{font-family:var(--art);font-weight:400}
+.presence h3{font-family:var(--art);font-weight:400;font-size:28px;line-height:1.5;margin:0 0 2px;color:var(--ink)}
+.presence h3 span{display:inline-block;animation:inkIn .45s both;animation-delay:calc(var(--i) * 28ms)}
+@keyframes inkIn{from{opacity:0;transform:translateY(5px);filter:blur(2px)}to{opacity:1;transform:none;filter:none}}
+.presence .meta{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted)}
+.presence .meta time{font-variant-numeric:tabular-nums}
+.ink{height:10px;position:relative;margin-top:6px;overflow:hidden;border-bottom:1px solid var(--line);border-radius:0 0 40% 0}
+.ink span{position:absolute;width:35%;height:1px;bottom:0;left:-36%;background:var(--accent);border-radius:100%;opacity:0}
+.presence.active .ink span{opacity:1;animation:inkTravel 2.5s ease-in-out infinite}
+@keyframes inkTravel{0%{left:-36%;opacity:0}20%{opacity:1}80%{opacity:1}100%{left:100%;opacity:0}}
+.reply.stream::after{content:"";display:inline-block;width:.5em;height:1em;vertical-align:-.15em;border-left:2px solid var(--accent);animation:breathe 1s infinite}
+.quoteline{display:flex;gap:12px;align-items:baseline;justify-content:space-between;flex-wrap:wrap;max-width:560px;background:color-mix(in srgb,var(--accent-soft) 45%,transparent);border-left:3px solid var(--accent);border-radius:0 10px 10px 0;padding:10px 16px;font-family:var(--serif);font-size:15px;color:var(--ink2);text-align:left}
+.quoteline cite{font-style:normal;font-size:12px;color:var(--muted)}
+.page-h .eyebrow{flex-basis:100%;font-size:11px;letter-spacing:.18em;color:var(--accent)}
+.page-h h1.art{font-family:var(--art);font-weight:400;font-size:34px;line-height:1.3}
+@media (max-width:1000px){#right.open{position:absolute;right:0;top:0;bottom:0;z-index:30;box-shadow:var(--shadow)} #app{grid-template-columns:248px minmax(0,1fr) 0}}
+@media (max-width:760px){
+  #app{grid-template-columns:minmax(0,1fr) 0}
+  #side{position:fixed;left:0;top:0;bottom:0;width:260px;z-index:45;transform:translateX(-100%);transition:transform var(--t3) var(--ease);padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px)}
+  #app.drawer #side{transform:none;box-shadow:var(--shadow)}
+  #app.drawer #scrim{display:block;position:fixed;inset:0;z-index:44;background:rgba(0,0,0,.25)}
+  #menuBtn{display:grid}
+  #right.open{width:100%} .rp{width:100%}
+  .split,.set{grid-template-columns:minmax(0,1fr)}
+  .set-nav{flex-direction:row;overflow-x:auto;position:static}
+  #guide{left:calc(16px + env(safe-area-inset-left,0px));max-width:calc(100vw - 32px)}
+  .greet{font-size:24px;letter-spacing:.12em}
+  .crumb .ws-btn span{max-width:90px;overflow:hidden;text-overflow:ellipsis}
+}
+.page-h .plain{flex-basis:100%;font-size:13px;color:var(--muted);margin-top:-8px}
+.page-h .setq{margin:0;max-width:240px;flex:1 1 180px}
+.go-btn{position:relative;overflow:hidden}
+.go-btn i{position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--on-accent);opacity:.6;transform-origin:left;animation:shrink linear forwards}
+.cbox{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;flex:none;transition:background var(--t1),border-color var(--t1)}
+.cbox.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.cbox .ic{width:12px;height:12px;stroke-width:2.6}
+.cfile{border:1px solid var(--line2);border-radius:8px;margin-bottom:6px;background:var(--card);overflow:hidden}
+.cfile-h{display:flex;gap:8px;align-items:center;padding:7px 10px;font-family:var(--mono);font-size:12.5px}
+.cfile-h .open{flex:1;min-width:0;display:flex;gap:6px;align-items:center;text-align:left}
+.cfile-h .open .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cfile-h .ic{transition:transform var(--t2) var(--ease)}
+.cfile.open .cfile-h .open .ic{transform:rotate(180deg)}
+.cfile .diff{margin:0 8px 8px;animation:rise var(--t2) var(--ease)}
+.ring{width:20px;height:20px;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--line) 0);display:grid;place-items:center;transition:background var(--t3)}
+.ring::after{content:"";width:14px;height:14px;border-radius:50%;background:var(--card)}
+.side-arch{display:flex;flex-direction:column;gap:2px;padding:4px 8px 6px}
+.side-arch button{display:flex;gap:8px;align-items:center;padding:5px 8px;border-radius:8px;color:var(--muted);font-size:13px;transition:background var(--t1),color var(--t1)}
+.side-arch button:hover,.side-arch button.on{background:var(--line2);color:var(--ink)}
+.side-arch .ic{width:16px;height:16px}
+.tag-old{color:var(--ochre)}
+.ledger{width:100%;border-collapse:collapse;font-size:13px}
+.ledger th{font-weight:500;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.ledger td{padding:8px;border-bottom:1px solid var(--line2)}
+.ledger .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+#boot{position:fixed;inset:0;z-index:90;background:var(--bg);display:grid;place-items:center;transition:opacity var(--t3) var(--ease)}
+#boot .in{display:flex;flex-direction:column;align-items:center;gap:14px;color:var(--muted);font-size:13px}
+#boot.out{opacity:0;pointer-events:none}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="bf" viewBox="0 0 1024 1024">
+
+
+<defs>
+<linearGradient id="grad-band-right-forewing-outer" gradientUnits="userSpaceOnUse" x1="710.2" y1="333.1" x2="802.9" y2="328.0"><stop offset="0" stop-color="#D79C7A" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 46%)"/><stop offset="0.167" stop-color="#D79975" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 42%)"/><stop offset="0.333" stop-color="#D5926F" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 36%)"/><stop offset="0.5" stop-color="#D28A67" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 27%)"/><stop offset="0.667" stop-color="#CE8260" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 19%)"/><stop offset="0.833" stop-color="#CB7C58" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 12%)"/><stop offset="1" stop-color="#C97652" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 5%)"/></linearGradient>
+<linearGradient id="grad-band-right-hindwing" gradientUnits="userSpaceOnUse" x1="538.9" y1="641.5" x2="723.2" y2="680.5"><stop offset="0" stop-color="#D3A37B" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 50%)"/><stop offset="0.167" stop-color="#D3A079" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 47%)"/><stop offset="0.333" stop-color="#D19A73" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 41%)"/><stop offset="0.5" stop-color="#CE926D" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 33%)"/><stop offset="0.667" stop-color="#CB8B67" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 27%)"/><stop offset="0.833" stop-color="#C88460" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 19%)"/><stop offset="1" stop-color="#C6815D" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 16%)"/></linearGradient>
+<linearGradient id="grad-core-right-forewing-outer" gradientUnits="userSpaceOnUse" x1="705.4" y1="322.3" x2="546.9" y2="477.9"><stop offset="0" stop-color="#E8CCB0" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 100%)"/><stop offset="0.25" stop-color="#E5C4A9" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 92%)"/><stop offset="0.5" stop-color="#E0BB9C" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 80%)"/><stop offset="0.75" stop-color="#DEB192" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 70%)"/><stop offset="1" stop-color="#DBAC8B" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 63%)"/></linearGradient></defs>
+<g id="background"></g>
+<g id="wing-band-left"><path id="band-left-forewing-outer" style="fill:var(--bf-wing,#CA704D)" fill="#CA704D" d="M490.58 526.59C486.27 523.64 485.40 522.53 481.89 515.35C478.42 508.24 475.18 502.59 470.72 495.85C460.22 479.99 448.78 466.59 435.57 454.67C428.72 448.50 426.44 446.61 418.62 440.67C410.12 434.20 405.11 430.84 393.88 424.07C383.25 417.67 372.32 412.18 358.38 406.24C342.07 399.30 324.28 393.56 304.50 388.86C297.80 387.27 288.90 385.34 286.50 384.97C285.61 384.83 282.57 384.32 279.75 383.84C267.00 381.68 255.20 380.00 252.71 380.00C251.99 380.00 249.98 379.84 248.26 379.64C244.15 379.17 232.86 378.63 231.32 378.84C230.66 378.93 229.15 379.30 227.95 379.66C225.24 380.49 224.85 380.36 222.66 377.96C220.66 375.77 219.60 373.75 216.61 366.38C210.39 351.03 208.38 343.46 207.77 333.12C207.11 321.90 209.79 311.30 215.34 303.12C217.47 299.99 222.22 295.29 225.38 293.19C228.21 291.31 233.58 288.65 236.80 287.53C239.41 286.62 245.93 285.18 249.38 284.75C258.05 283.67 269.85 284.55 281.75 287.15C294.73 289.99 313.44 296.48 330.88 304.18C334.70 305.87 350.54 313.67 355.25 316.18C365.33 321.56 372.74 326.05 384.21 333.73C400.71 344.79 416.40 357.63 429.88 371.12C440.83 382.06 447.85 390.12 455.61 400.59C458.40 404.37 465.18 414.54 467.37 418.25C468.31 419.83 469.50 421.80 470.01 422.62C476.35 432.75 485.08 452.88 489.37 467.27C492.74 478.56 495.88 493.99 497.25 506.00C498.58 517.63 498.48 519.75 496.37 524.12C494.46 528.10 493.43 528.53 490.58 526.59Z"/><path id="band-left-forewing-inner" style="fill:var(--bf-wing,#CA704D)" fill="#C46647" d="M490.59 562.36C487.52 561.84 485.68 561.04 480.42 557.91C470.18 551.82 462.52 548.03 451.38 543.56C434.77 536.91 415.30 532.14 399.50 530.87C383.28 529.56 378.76 529.40 368.50 529.72C353.67 530.19 346.15 530.85 337.90 532.40C332.88 533.34 332.81 533.33 329.56 531.15C326.26 528.95 324.95 528.48 319.62 527.63C304.94 525.28 295.55 522.57 286.68 518.10C282.94 516.22 276.80 512.40 273.69 510.01C263.11 501.89 255.38 491.68 249.82 478.50C244.12 464.96 241.14 453.21 238.25 432.88C236.18 418.28 232.44 404.27 227.03 390.85C225.41 386.83 224.79 382.81 225.57 381.25C225.98 380.43 227.63 379.62 229.97 379.09C231.71 378.71 232.48 378.70 238.62 378.98C242.34 379.15 246.72 379.45 248.37 379.65C250.01 379.84 251.96 380.00 252.70 380.00C255.20 380.00 266.96 381.67 279.75 383.84C282.57 384.32 285.61 384.83 286.50 384.97C288.90 385.34 297.80 387.27 304.50 388.86C324.28 393.56 342.07 399.30 358.38 406.24C372.32 412.18 383.25 417.67 393.88 424.07C405.11 430.84 410.12 434.20 418.62 440.67C426.44 446.61 428.72 448.50 435.57 454.67C448.78 466.59 460.22 479.99 470.72 495.85C475.18 502.59 478.42 508.24 481.89 515.35C485.42 522.55 486.28 523.66 490.62 526.61C493.75 528.73 493.75 528.73 494.53 532.50C497.09 544.94 497.83 553.96 496.63 558.38C495.98 560.79 495.29 562.01 494.35 562.40C493.38 562.81 493.27 562.81 490.59 562.36Z"/><path id="band-left-hindwing" style="fill:var(--bf-wing,#CA704D)" fill="#CA704D" d="M379.12 739.35C373.39 738.66 372.40 738.50 368.44 737.61C364.29 736.69 356.52 734.24 352.73 732.67C339.41 727.16 326.03 717.84 314.36 705.96C306.65 698.11 302.95 693.58 297.24 685.01C292.29 677.57 287.54 668.62 284.81 661.62C280.77 651.23 278.05 642.13 276.67 634.38C275.38 627.08 275.14 624.34 275.16 616.75C275.18 607.45 275.66 603.50 277.76 595.21C279.60 587.95 283.21 580.25 288.28 572.75C291.13 568.53 293.16 566.09 297.49 561.66C305.65 553.32 312.07 548.43 321.52 543.36C323.50 542.30 325.64 541.06 326.26 540.61C327.77 539.51 329.66 537.48 330.96 535.56C331.54 534.70 332.27 533.84 332.57 533.64C333.32 533.16 340.24 531.90 346.38 531.13C352.39 530.37 356.78 530.09 368.50 529.72C378.76 529.40 383.28 529.56 399.50 530.87C415.30 532.14 434.77 536.91 451.38 543.56C462.52 548.03 470.18 551.82 480.42 557.91C486.03 561.25 487.46 561.83 491.57 562.49C494.33 562.93 494.69 563.05 495.28 563.71C496.19 564.72 496.95 566.88 497.44 569.83C497.82 572.14 497.81 572.70 497.41 577.97C496.89 584.59 495.89 593.92 495.35 597.12C491.89 617.59 488.25 630.51 480.62 649.38C475.82 661.25 471.73 669.59 464.56 682.12C459.11 691.65 451.01 703.04 444.94 709.72C431.78 724.17 419.84 732.42 405.83 736.71C397.49 739.27 387.03 740.30 379.12 739.35Z"/></g>
+<g id="wing-band-right"><path id="band-right-forewing-outer" fill="url(#grad-band-right-forewing-outer)" d="M529.36 527.44C528.48 526.40 527.13 523.55 526.61 521.62C526.06 519.63 525.86 513.77 526.23 510.88C526.39 509.64 526.68 507.11 526.87 505.25C527.81 496.08 530.19 483.67 533.15 472.50C536.27 460.72 542.12 445.23 547.52 434.47C550.89 427.73 556.97 417.43 562.38 409.25C573.44 392.55 585.47 378.77 604.14 361.38C614.45 351.78 629.91 339.99 644.88 330.33C657.69 322.05 665.07 317.85 678.50 311.21C697.46 301.82 715.77 294.48 731.25 290.03C742.38 286.84 749.60 285.42 758.75 284.63C776.96 283.05 791.86 286.95 802.50 296.08C810.19 302.68 815.03 312.84 816.13 324.75C816.57 329.43 816.59 331.18 816.24 335.25C815.37 345.40 812.28 355.92 805.86 370.47C803.52 375.80 801.18 379.25 799.34 380.13C798.50 380.52 798.39 380.51 795.80 379.71C793.15 378.88 793.08 378.88 788.88 378.95C786.54 378.99 783.27 379.12 781.62 379.24C779.98 379.36 776.88 379.58 774.75 379.74C768.39 380.20 754.42 382.01 746.75 383.38C744.89 383.71 742.36 384.15 741.12 384.36C739.89 384.57 737.58 385.03 736.00 385.37C734.42 385.72 730.42 386.57 727.12 387.26C710.88 390.69 692.52 396.09 676.00 402.30C661.50 407.75 641.92 417.11 630.38 424.11C629.41 424.69 627.78 425.66 626.75 426.27C623.04 428.44 614.32 434.19 609.75 437.47C594.32 448.56 578.59 463.27 567.24 477.23C556.86 489.99 548.84 502.31 542.00 516.00C540.87 518.27 539.45 520.87 538.84 521.79C537.57 523.72 535.47 525.74 533.21 527.22C531.21 528.52 530.32 528.57 529.36 527.44Z"/><path id="band-right-forewing-inner" style="fill:var(--bf-wing,#CA704D)" fill="#CA704D" d="M530.08 562.14C529.11 561.71 528.62 560.99 527.81 558.80C526.37 554.92 526.95 546.26 529.51 533.43C529.92 531.40 530.38 529.53 530.54 529.28C530.70 529.02 531.74 528.21 532.84 527.47C537.16 524.58 538.64 522.73 542.00 516.00C548.84 502.31 556.86 489.99 567.24 477.23C578.59 463.27 594.32 448.56 609.75 437.47C614.32 434.19 623.04 428.44 626.75 426.27C627.78 425.66 629.41 424.69 630.38 424.11C641.92 417.11 661.50 407.75 676.00 402.30C692.52 396.09 710.88 390.69 727.12 387.26C730.42 386.57 734.42 385.72 736.00 385.37C737.58 385.03 739.89 384.57 741.12 384.36C742.36 384.15 744.89 383.71 746.75 383.38C754.42 382.01 768.39 380.20 774.75 379.74C776.88 379.58 779.98 379.36 781.62 379.24C783.27 379.12 786.59 378.99 789.00 378.96C793.24 378.90 793.44 378.92 795.45 379.61C798.14 380.54 798.75 381.21 798.75 383.25C798.75 385.57 798.14 388.15 796.74 391.77C791.78 404.61 788.74 415.76 786.53 429.25C786.25 430.97 785.84 433.44 785.62 434.75C785.40 436.06 785.12 437.91 785.00 438.88C783.82 448.58 779.63 465.87 776.56 473.75C771.88 485.75 765.43 496.07 757.88 503.64C753.78 507.76 751.53 509.59 746.25 513.12C741.32 516.42 738.24 518.04 732.48 520.34C723.39 523.97 714.83 526.26 706.23 527.35C700.47 528.08 697.76 529.03 694.43 531.47C693.50 532.15 692.40 532.79 691.98 532.88C691.55 532.97 689.14 532.72 686.30 532.29C683.59 531.87 679.97 531.40 678.25 531.24C676.53 531.08 673.77 530.80 672.12 530.62C670.48 530.44 664.17 530.09 658.12 529.85C646.91 529.40 640.64 529.50 631.62 530.26C630.11 530.39 627.36 530.62 625.50 530.76C612.43 531.80 596.27 535.31 581.93 540.22C567.88 545.04 556.44 550.41 542.25 558.84C538.64 560.98 536.52 561.80 533.41 562.23C531.03 562.56 531.06 562.56 530.08 562.14Z"/><path id="band-right-hindwing" fill="url(#grad-band-right-hindwing)" d="M633.48 739.65C633.42 739.59 632.02 739.41 630.38 739.25C619.77 738.20 607.39 733.40 597.69 726.58C588.82 720.35 579.47 710.91 571.59 700.25C563.27 688.98 558.66 681.38 551.60 667.25C544.55 653.13 541.31 645.16 536.57 630.25C532.51 617.49 530.46 608.71 528.53 595.75C527.13 586.38 526.79 582.81 526.59 575.47C526.46 570.80 526.50 570.11 526.97 568.27C527.53 566.03 528.61 563.42 529.17 562.96C529.37 562.80 530.80 562.52 532.35 562.34C536.30 561.89 538.32 561.17 542.25 558.84C556.44 550.41 567.88 545.04 581.93 540.22C596.27 535.31 612.43 531.80 625.50 530.76C627.36 530.62 630.11 530.39 631.62 530.26C640.64 529.50 646.91 529.40 658.12 529.85C664.17 530.09 670.48 530.44 672.12 530.62C673.77 530.80 676.53 531.08 678.25 531.24C682.28 531.62 690.82 532.93 691.62 533.29C691.96 533.45 693.13 534.78 694.23 536.25C696.66 539.52 697.72 540.43 701.88 542.76C712.32 548.62 719.11 553.64 725.92 560.55C731.33 566.02 736.78 573.37 740.45 580.12C747.00 592.18 749.97 606.84 749.03 622.50C748.74 627.41 748.29 630.70 747.19 636.00C746.78 637.99 746.29 640.36 746.11 641.25C744.86 647.45 741.20 658.04 737.46 666.25C731.66 678.97 722.85 692.21 713.02 702.97C710.43 705.79 703.77 711.97 699.41 715.59C683.00 729.20 664.32 737.41 645.38 739.37C642.02 739.71 633.75 739.91 633.48 739.65Z"/></g>
+<g id="wing-core-left"><path id="core-left-forewing-outer" style="fill:var(--bf-core,#F3F0E4)" fill="#F3F0E5" d="M489.06 512.56C488.80 512.18 487.76 510.30 486.75 508.38C482.07 499.45 476.07 490.08 468.41 479.75C465.20 475.41 465.35 475.60 462.16 471.84C450.81 458.44 438.93 447.05 425.74 436.94C415.73 429.27 412.26 426.86 402.75 421.01C385.91 410.65 377.32 406.21 361.12 399.47C350.37 394.99 337.32 390.28 329.00 387.87C327.28 387.37 325.26 386.74 324.50 386.47C323.74 386.19 322.51 385.83 321.75 385.65C320.99 385.48 319.98 385.20 319.50 385.04C319.02 384.88 317.39 384.46 315.88 384.11C314.36 383.76 312.68 383.32 312.12 383.13C311.57 382.94 310.68 382.71 310.12 382.63C309.57 382.55 307.77 382.15 306.12 381.75C302.15 380.79 296.89 379.60 291.16 378.37C290.08 378.13 288.46 377.85 287.56 377.74C286.61 377.62 285.65 377.34 285.27 377.06C284.69 376.62 284.62 376.38 284.55 374.72C284.45 372.51 284.85 368.15 285.49 364.38C285.75 362.86 286.03 361.06 286.12 360.38C286.60 356.60 289.67 347.28 291.67 343.56C294.59 338.12 297.43 334.33 301.63 330.28C307.01 325.10 312.60 321.65 319.25 319.41C324.34 317.70 327.83 317.15 333.75 317.14C338.37 317.13 338.75 317.16 341.00 317.82C344.42 318.83 357.09 325.20 361.25 328.00C362.01 328.51 363.13 329.19 363.75 329.50C366.87 331.08 374.38 335.88 384.00 342.46C389.35 346.11 394.77 350.17 400.76 355.00C401.70 355.76 403.17 356.94 404.03 357.62C404.89 358.31 406.77 359.89 408.20 361.12C409.63 362.36 412.00 364.38 413.46 365.60C417.17 368.70 433.12 384.82 437.09 389.47C447.54 401.71 456.16 413.56 461.93 423.62C463.04 425.55 464.56 428.14 465.31 429.38C466.87 431.93 468.92 435.95 471.52 441.55C478.19 455.93 483.40 471.18 485.87 483.58C486.07 484.57 486.57 487.01 486.98 489.00C487.40 490.99 487.74 493.03 487.74 493.53C487.75 494.03 487.91 494.90 488.11 495.46C488.31 496.03 488.54 497.19 488.63 498.06C488.71 498.92 488.99 500.81 489.25 502.25C489.78 505.23 490.39 512.58 490.14 512.98C489.87 513.41 489.57 513.30 489.06 512.56Z"/><path id="core-left-forewing-inner" style="fill:var(--bf-core,#F3F0E4)" fill="#F3F0E4" d="M484.12 551.53C483.16 551.00 480.97 549.76 479.25 548.77C475.01 546.33 465.28 541.50 460.25 539.33C452.10 535.82 451.04 535.41 444.88 533.37C431.92 529.08 424.31 527.15 413.12 525.28C406.77 524.22 405.00 523.99 401.38 523.73C399.31 523.58 396.78 523.30 395.75 523.11C394.62 522.89 392.29 522.75 389.88 522.75C387.68 522.75 384.41 522.58 382.62 522.37C380.46 522.12 376.17 521.96 369.75 521.90C360.53 521.82 360.02 521.79 357.50 521.19C353.12 520.15 346.04 517.91 341.94 516.28C336.68 514.18 326.31 508.16 322.50 504.99C321.88 504.48 320.42 503.35 319.25 502.48C316.72 500.61 311.90 495.84 309.07 492.42C305.33 487.90 300.53 480.54 297.91 475.32C295.64 470.79 293.17 464.43 292.26 460.75C292.00 459.72 291.51 457.81 291.15 456.50C289.90 451.87 288.41 441.31 287.87 433.25C287.78 431.94 287.60 430.31 287.47 429.62C287.34 428.94 287.13 427.02 286.99 425.38C286.86 423.73 286.64 421.08 286.50 419.50C286.35 417.92 286.08 414.26 285.88 411.38C285.68 408.49 285.40 404.94 285.26 403.50C285.12 402.06 284.90 399.24 284.77 397.25C284.43 392.17 284.49 392.10 288.60 392.89C293.28 393.80 296.96 394.56 298.25 394.87C299.01 395.06 300.75 395.45 302.12 395.75C303.50 396.05 305.24 396.50 306.00 396.76C306.76 397.01 307.88 397.30 308.50 397.39C313.58 398.13 340.61 406.76 348.07 410.02C349.34 410.57 351.50 411.46 352.88 411.99C356.01 413.20 358.47 414.26 362.69 416.22C364.51 417.06 367.43 418.41 369.19 419.22C377.91 423.26 390.06 430.03 400.06 436.43C403.70 438.75 411.03 443.86 413.12 445.53C413.81 446.08 415.41 447.31 416.68 448.27C419.44 450.35 425.82 455.66 428.47 458.08C435.16 464.19 439.19 468.08 441.38 470.53C442.75 472.07 444.93 474.47 446.22 475.85C453.22 483.38 464.59 498.97 469.75 508.12C471.83 511.81 475.87 519.83 477.62 523.75C478.26 525.19 479.11 527.05 479.51 527.88C480.77 530.51 482.42 534.77 483.62 538.50C484.27 540.49 484.91 542.41 485.05 542.75C485.31 543.37 485.60 544.39 486.84 549.08C487.82 552.79 487.29 553.27 484.12 551.53Z"/><path id="core-left-hindwing" style="fill:var(--bf-core,#F3F0E4)" fill="#F3EFE4" d="M374.19 663.61C369.85 662.94 362.94 661.02 358.50 659.26C356.31 658.39 351.09 655.59 348.38 653.82C341.60 649.40 335.77 643.76 330.22 636.25C328.30 633.64 324.93 627.73 323.37 624.23C321.16 619.24 318.83 611.97 318.13 607.88C317.91 606.64 317.55 604.67 317.32 603.50C316.99 601.84 316.89 599.97 316.89 595.00C316.88 589.49 316.96 588.18 317.45 585.38C317.76 583.59 318.14 581.34 318.29 580.38C318.56 578.67 320.56 572.41 321.80 569.37C322.46 567.76 324.94 563.33 326.57 560.88C328.44 558.04 330.72 555.37 334.67 551.36C340.48 545.47 346.05 541.11 348.50 540.53C348.98 540.42 349.88 540.20 350.50 540.04C351.12 539.88 352.24 539.63 353.00 539.48C353.76 539.34 355.39 539.01 356.62 538.75C357.86 538.48 359.61 538.21 360.50 538.13C361.39 538.05 363.25 537.82 364.62 537.62C369.49 536.92 376.55 536.74 384.12 537.12C387.98 537.32 392.74 537.66 394.71 537.87C396.69 538.08 398.99 538.25 399.84 538.25C400.68 538.25 402.33 538.41 403.50 538.61C404.67 538.80 406.36 539.04 407.25 539.12C411.68 539.55 423.77 542.16 430.50 544.13C442.04 547.51 449.86 550.48 460.67 555.58C465.75 557.98 467.70 558.99 472.50 561.75C475.22 563.32 483.61 568.62 485.50 569.97C486.39 570.61 487.61 571.44 488.20 571.83C490.26 573.16 490.20 574.14 487.80 578.02C486.99 579.31 485.70 581.50 484.92 582.88C481.98 588.04 480.80 589.96 478.60 593.12C472.92 601.29 466.11 610.49 463.73 613.22C452.83 625.73 451.42 627.25 444.19 634.23C438.82 639.39 435.54 642.32 431.64 645.43C428.58 647.86 420.03 653.55 416.53 655.49C409.74 659.24 402.10 661.91 394.00 663.38C390.92 663.93 390.01 663.98 383.50 663.97C378.81 663.96 375.63 663.84 374.19 663.61Z"/></g>
+<g id="wing-core-right"><path id="core-right-forewing-outer" fill="url(#grad-core-right-forewing-outer)" d="M533.86 512.98C533.61 512.58 534.22 505.23 534.75 502.25C535.01 500.81 535.29 498.92 535.37 498.06C535.46 497.19 535.69 496.03 535.89 495.46C536.09 494.90 536.25 494.03 536.26 493.53C536.26 493.03 536.60 490.99 537.02 489.00C537.43 487.01 537.93 484.57 538.13 483.58C540.60 471.18 545.81 455.93 552.48 441.55C555.08 435.95 557.13 431.93 558.69 429.38C559.44 428.14 560.96 425.55 562.07 423.62C567.72 413.77 576.22 402.05 586.45 389.99C589.82 386.03 603.21 372.28 607.55 368.34C616.19 360.49 626.24 352.28 634.60 346.24C647.47 336.94 661.25 328.38 673.84 321.88C682.77 317.26 684.34 316.85 692.45 317.09C697.04 317.22 698.49 317.36 700.70 317.85C713.68 320.79 725.22 330.21 732.44 343.75C733.74 346.19 736.61 354.02 737.34 357.12C738.54 362.22 739.99 374.83 739.52 376.07C739.16 377.02 738.23 377.52 736.41 377.75C734.88 377.93 733.68 378.17 728.75 379.26C723.37 380.44 720.77 381.03 719.50 381.38C718.74 381.59 715.82 382.32 713.00 383.01C694.91 387.43 680.19 392.26 662.88 399.47C646.68 406.21 638.09 410.65 621.25 421.01C611.74 426.86 608.27 429.27 598.26 436.94C585.07 447.05 573.19 458.44 561.84 471.84C558.65 475.60 558.80 475.41 555.59 479.75C547.93 490.08 541.93 499.45 537.25 508.38C534.76 513.13 534.32 513.72 533.86 512.98Z"/><path id="core-right-forewing-inner" style="fill:var(--bf-core,#F3F0E4)" fill="#F3EFE4" d="M537.02 552.15C536.61 551.65 536.82 550.08 537.64 547.50C537.97 546.47 538.93 543.43 539.78 540.75C542.66 531.63 544.48 527.39 550.31 516.12C555.92 505.30 558.15 501.60 563.79 493.79C565.21 491.81 566.71 489.72 567.12 489.15C567.54 488.57 569.06 486.61 570.50 484.78C571.94 482.96 573.67 480.77 574.33 479.92C575.00 479.07 576.23 477.64 577.08 476.74C577.93 475.85 579.83 473.77 581.29 472.12C585.11 467.84 595.75 457.66 600.96 453.32C610.93 445.00 622.87 436.69 632.95 431.04C634.23 430.32 636.03 429.25 636.95 428.66C640.26 426.55 650.84 421.03 654.75 419.38C655.51 419.06 657.64 418.10 659.50 417.25C666.91 413.87 674.26 410.65 676.75 409.71C686.52 406.01 697.20 402.44 705.50 400.11C706.81 399.74 708.61 399.23 709.50 398.98C712.29 398.17 714.32 397.69 715.76 397.50C716.52 397.40 717.48 397.15 717.89 396.94C718.29 396.74 719.13 396.49 719.75 396.40C720.37 396.30 721.38 396.07 722.00 395.87C723.73 395.33 729.85 393.93 734.12 393.09C739.13 392.12 739.67 392.30 739.40 394.89C739.31 395.74 739.13 398.22 738.99 400.41C738.85 402.59 738.63 405.33 738.50 406.50C738.37 407.67 738.15 410.48 738.01 412.75C737.57 420.15 737.00 427.05 736.51 431.00C736.25 433.13 735.96 436.06 735.87 437.50C735.19 448.80 732.56 460.27 728.21 470.88C726.28 475.57 722.27 482.96 719.85 486.27C714.08 494.15 705.92 502.10 697.69 507.83C691.77 511.96 685.52 515.04 676.88 518.06C671.12 520.08 670.05 520.42 667.00 521.16C664.46 521.78 664.00 521.81 653.12 522.01C646.94 522.12 640.81 522.34 639.50 522.49C638.08 522.66 635.87 522.71 634.00 522.62C631.58 522.49 630.54 522.54 629.38 522.84C627.17 523.40 622.88 523.83 621.24 523.66C620.29 523.56 619.31 523.65 618.34 523.91C616.89 524.29 612.63 525.03 609.00 525.53C607.97 525.67 606.52 525.96 605.79 526.16C605.05 526.37 603.81 526.60 603.04 526.66C602.26 526.73 601.23 526.94 600.75 527.13C600.27 527.33 597.46 528.10 594.50 528.86C586.55 530.89 574.55 534.83 568.75 537.31C557.98 541.92 549.77 545.93 542.74 549.99C538.56 552.41 537.55 552.79 537.02 552.15Z"/><path id="core-right-hindwing" style="fill:var(--bf-core,#F3F0E4)" fill="#F3EFE4" d="M633.38 663.99C630.36 663.75 623.42 662.13 619.12 660.67C613.86 658.88 605.97 654.97 600.84 651.62C589.92 644.48 573.92 629.72 563.34 617.02C561.46 614.76 560.72 613.86 557.38 609.76C554.31 606.00 551.86 602.75 548.63 598.12C540.15 585.98 534.69 576.93 534.35 574.48C534.17 573.11 534.66 572.39 536.71 571.07C539.55 569.25 545.68 565.39 547.75 564.12C550.52 562.43 562.52 555.96 565.25 554.68C571.80 551.63 579.43 548.67 585.38 546.88C586.61 546.50 588.02 546.05 588.50 545.88C595.55 543.29 611.19 539.63 617.43 539.12C618.42 539.04 619.60 538.86 620.05 538.73C620.50 538.60 622.39 538.38 624.25 538.25C626.11 538.11 629.20 537.83 631.12 537.62C639.24 536.74 653.10 536.74 659.12 537.62C660.50 537.82 662.30 538.05 663.12 538.13C667.31 538.53 675.33 540.21 677.29 541.09C680.19 542.39 687.46 548.33 691.05 552.32C695.44 557.21 700.33 564.58 702.62 569.75C705.80 576.92 707.48 585.51 707.49 594.62C707.50 607.89 703.35 621.62 695.71 633.65C690.50 641.83 686.27 646.31 677.75 652.69C670.76 657.92 661.43 661.87 651.88 663.65C649.24 664.14 637.89 664.35 633.38 663.99Z"/></g>
+<g id="antennae" style="fill:var(--bf-line,#3F3B34)" fill="#3F3B34"><path id="antenna-left" d="M497.72 423.92C494.24 422.62 493.17 420.75 492.39 414.62C491.27 405.89 488.97 395.67 485.58 384.38C483.44 377.28 481.26 371.98 476.84 363.15C473.38 356.25 471.54 353.05 467.85 347.50C463.59 341.07 458.69 335.17 452.38 328.86C444.58 321.05 437.18 315.38 428.88 310.88C425.34 308.95 423.59 307.54 422.56 305.78C421.96 304.78 421.88 304.36 421.89 302.62C421.91 299.42 423.20 297.29 425.90 296.01C428.02 295.00 429.43 295.15 432.62 296.70C441.58 301.06 453.19 309.59 462.01 318.29C468.97 325.16 474.75 332.28 481.16 341.88C490.40 355.71 498.87 375.69 502.89 393.12C503.23 394.64 503.74 396.83 504.01 398.00C506.81 410.09 507.68 417.57 506.59 420.00C505.99 421.32 504.37 422.86 502.90 423.52C501.47 424.15 498.87 424.35 497.72 423.92Z"/><path id="antenna-right" d="M522.32 423.90C519.69 423.04 517.86 421.24 517.22 418.89C516.76 417.22 517.19 412.96 518.53 405.88C519.55 400.46 519.97 398.53 521.51 392.12C524.86 378.27 532.16 360.05 539.20 348.00C541.67 343.77 547.46 335.26 551.28 330.25C556.75 323.08 566.53 313.59 575.20 307.03C579.39 303.86 587.31 298.74 590.30 297.26C593.93 295.47 595.35 295.20 597.64 295.87C602.86 297.39 603.91 304.87 599.38 308.26C598.69 308.78 596.44 310.18 594.38 311.39C583.26 317.87 574.99 324.78 565.68 335.38C557.55 344.61 550.56 355.62 545.36 367.39C543.35 371.92 539.80 380.88 538.93 383.62C535.42 394.61 532.78 406.26 531.87 414.75C531.68 416.61 531.34 418.70 531.13 419.41C530.65 421.03 528.89 423.04 527.46 423.61C526.02 424.19 523.61 424.32 522.32 423.90Z"/></g>
+<g id="outline" style="fill:var(--bf-line,#3F3B34)" fill="#3F3B34" fill-rule="evenodd"><path id="outline-left" d="M377.12 746.33C365.67 745.00 354.08 741.55 343.71 736.38C335.27 732.18 328.46 727.73 320.12 720.97C311.60 714.06 301.28 703.24 295.48 695.12C290.71 688.43 285.62 680.01 282.11 673.00C276.53 661.82 271.69 647.32 269.52 635.25C268.18 627.77 267.94 625.02 267.94 616.75C267.94 609.49 267.99 608.52 268.60 604.41C270.14 594.15 272.24 587.24 276.25 579.23C279.74 572.27 283.95 565.81 288.22 560.89C292.87 555.53 299.44 549.43 304.34 545.93C305.32 545.23 306.66 544.24 307.32 543.72C308.61 542.70 314.20 539.24 317.31 537.53C320.63 535.71 320.38 535.05 316.12 534.36C299.57 531.71 285.79 526.69 274.39 519.15C268.99 515.58 265.66 512.92 261.85 509.13C254.85 502.16 249.13 494.12 244.99 485.40C240.04 474.96 236.46 463.69 233.55 449.38C232.91 446.20 231.34 436.60 230.89 433.12C230.57 430.62 229.64 425.25 228.84 421.25C226.18 407.97 223.89 401.55 211.31 372.12C208.23 364.93 206.99 361.73 205.16 356.25C202.30 347.69 201.50 343.86 200.73 335.12C200.26 329.67 200.25 329.16 200.62 325.25C201.30 318.09 203.07 311.13 205.57 305.75C206.18 304.44 207.58 302.02 208.69 300.38C213.47 293.22 218.92 288.32 226.35 284.49C233.50 280.81 239.88 278.91 249.12 277.72C257.03 276.70 270.43 277.49 280.00 279.54C283.41 280.28 290.76 282.11 293.38 282.88C294.61 283.25 296.34 283.76 297.22 284.01C305.83 286.55 324.99 293.79 334.38 298.07C345.25 303.03 360.37 310.70 367.73 314.98C373.69 318.45 388.38 327.90 394.38 332.13C403.68 338.68 415.49 348.11 424.55 356.22C432.80 363.60 446.40 377.61 452.00 384.48C462.56 397.45 467.66 404.80 476.89 420.38C486.12 435.94 495.75 460.45 499.61 478.19C499.82 479.18 500.16 480.76 500.37 481.69C501.08 484.97 501.97 489.67 502.50 492.88C502.79 494.66 503.20 497.05 503.39 498.18C503.59 499.31 503.87 501.39 504.01 502.80C504.15 504.22 504.37 505.99 504.50 506.75C504.72 508.02 505.14 512.49 505.73 519.88C506.09 524.42 506.62 538.08 506.62 542.88C506.62 550.80 505.59 569.39 504.48 581.38C503.54 591.55 502.87 596.16 500.47 609.00C499.13 616.13 496.87 624.81 493.94 634.00C492.13 639.69 486.37 654.61 484.05 659.62C479.73 668.96 472.60 682.76 469.13 688.50C464.40 696.32 457.47 706.04 452.28 712.12C449.47 715.42 440.97 724.04 438.12 726.48C424.54 738.15 410.46 744.42 393.50 746.37C389.39 746.84 381.38 746.82 377.12 746.33ZM388.88 732.50C397.36 731.74 398.13 731.61 403.68 729.97C411.85 727.57 419.72 723.16 427.92 716.39C431.34 713.57 439.78 705.10 442.27 701.99C445.07 698.50 450.69 690.96 452.42 688.38C454.14 685.81 460.60 674.88 463.11 670.31C467.19 662.87 473.99 647.41 477.71 637.12C483.48 621.16 488.07 601.76 489.00 589.39C489.14 587.61 489.35 585.53 489.49 584.76C489.83 582.74 490.29 574.38 490.10 573.57C490.01 573.19 489.81 572.71 489.65 572.52C489.28 572.03 480.37 566.19 475.25 563.06C464.65 556.60 450.96 550.37 438.12 546.18C424.36 541.68 410.45 538.76 398.00 537.75C395.06 537.51 393.32 537.39 383.38 536.75C381.18 536.61 378.35 536.49 377.09 536.50C373.82 536.50 364.74 537.19 362.25 537.63C361.08 537.83 359.76 538.00 359.32 538.00C358.25 538.00 350.28 539.60 348.25 540.23C347.35 540.50 346.07 540.85 345.40 541.00C342.96 541.54 331.69 546.15 326.77 548.62C317.44 553.29 309.27 559.47 301.77 567.50C296.44 573.21 292.76 578.31 289.65 584.26C286.20 590.88 283.61 599.22 282.99 605.75C282.85 607.19 282.61 609.11 282.46 610.00C282.11 612.07 282.11 622.11 282.46 624.25C282.61 625.14 282.84 627.00 282.98 628.38C284.01 638.50 289.69 656.40 295.66 668.32C299.66 676.32 305.60 685.19 312.24 693.11C319.10 701.28 326.28 707.99 334.90 714.28C340.28 718.21 344.13 720.58 349.43 723.22C359.96 728.48 370.18 731.46 380.38 732.25C382.44 732.41 384.35 732.57 384.62 732.61C385.63 732.76 386.18 732.74 388.88 732.50ZM487.75 552.75C488.08 552.14 487.29 548.80 485.10 541.62C482.63 533.49 476.02 518.75 470.25 508.48C466.96 502.63 460.36 492.86 455.15 486.12C443.93 471.62 429.54 457.55 413.88 445.78C396.69 432.85 378.07 422.33 354.75 412.37C345.71 408.51 332.92 403.98 321.88 400.72C312.31 397.89 308.11 396.80 298.75 394.66C295.09 393.82 284.45 391.74 282.00 391.37C280.56 391.16 278.19 390.77 276.75 390.52C266.53 388.69 257.04 387.38 251.12 387.00C249.06 386.86 246.41 386.65 245.23 386.52C244.05 386.39 241.10 386.21 238.67 386.11C232.72 385.87 232.84 385.74 234.63 390.37C236.75 395.87 239.97 406.03 241.35 411.58C242.77 417.34 244.86 427.36 245.13 429.75C245.22 430.51 245.44 431.97 245.62 433.00C245.81 434.03 246.20 436.51 246.50 438.50C249.05 455.66 252.76 468.29 258.90 480.75C261.58 486.21 262.62 487.94 265.38 491.62C270.50 498.46 275.44 502.94 283.50 508.06C289.95 512.16 292.99 513.64 299.21 515.72C303.40 517.12 313.01 519.38 316.88 519.87C317.56 519.96 318.86 520.19 319.75 520.38C320.64 520.57 322.89 520.85 324.75 521.00C326.61 521.15 328.86 521.39 329.75 521.53C331.22 521.77 355.36 522.25 371.25 522.36C377.25 522.40 383.82 522.69 391.88 523.27C405.74 524.27 408.44 524.62 420.62 527.04C434.09 529.72 449.10 534.64 463.81 541.21C468.67 543.38 476.45 547.42 481.00 550.14C483.59 551.68 486.62 553.24 487.05 553.25C487.29 553.25 487.60 553.03 487.75 552.75ZM490.60 514.35C490.84 513.71 490.77 511.85 490.39 508.90C490.19 507.37 489.91 505.06 489.77 503.75C489.39 500.23 488.64 495.74 487.52 490.12C484.97 477.40 483.70 472.44 480.72 463.62C477.67 454.64 472.58 442.59 468.24 434.12C462.28 422.52 452.62 407.88 443.44 396.56C435.01 386.18 423.36 373.97 414.12 365.85C401.48 354.73 392.16 347.56 378.62 338.52C365.11 329.49 359.97 326.53 342.64 317.75C324.71 308.67 309.05 302.23 293.75 297.66C279.05 293.26 268.24 291.38 257.62 291.38C246.40 291.37 236.78 294.00 229.08 299.16C226.62 300.82 223.09 304.40 221.27 307.10C218.65 310.97 216.63 316.02 215.48 321.50C215.01 323.80 214.94 324.87 214.96 330.12C214.99 338.42 215.69 342.52 218.62 351.38C220.22 356.22 224.84 368.08 225.81 369.80C226.70 371.38 226.95 371.43 236.50 371.74C241.24 371.90 246.08 372.14 247.25 372.28C248.42 372.42 251.01 372.68 253.00 372.86C254.99 373.05 257.81 373.37 259.25 373.59C260.69 373.80 263.56 374.21 265.62 374.50C273.47 375.59 279.51 376.55 284.38 377.49C285.75 377.75 288.23 378.21 289.88 378.51C292.68 379.02 297.08 379.94 299.38 380.50C299.93 380.63 303.24 381.42 306.75 382.26C315.34 384.30 322.41 386.18 328.44 388.02C329.30 388.29 330.76 388.72 331.69 389.00C337.50 390.72 350.12 395.25 357.12 398.12C377.11 406.33 388.18 412.06 406.60 423.75C413.94 428.41 422.44 434.55 430.62 441.10C437.86 446.89 450.03 458.48 456.50 465.75C468.42 479.13 479.58 495.14 486.83 509.25C489.47 514.39 490.20 515.39 490.60 514.35Z"/><path id="outline-right" d="M632.98 746.65C632.92 746.59 631.58 746.42 630.00 746.26C615.85 744.84 601.68 738.83 589.00 728.87C582.27 723.58 572.55 713.38 566.68 705.44C557.70 693.30 552.26 684.30 544.88 669.38C538.31 656.10 534.23 646.29 531.00 636.00C526.85 622.76 526.39 621.18 525.38 616.88C525.02 615.36 524.57 613.45 524.37 612.62C522.74 605.80 520.74 592.73 519.51 580.75C518.63 572.19 517.83 555.79 517.69 543.25C517.63 537.91 518.13 520.89 518.36 520.52C518.43 520.41 518.66 517.80 518.87 514.72C519.09 511.64 519.36 508.51 519.49 507.75C519.62 506.99 519.79 505.59 519.88 504.62C520.69 495.36 524.74 475.18 527.49 466.75C528.05 465.03 528.86 462.50 529.29 461.12C530.27 458.00 533.66 448.61 535.26 444.61C538.61 436.19 543.04 427.53 550.33 415.13C555.43 406.47 562.02 396.94 568.59 388.75C575.63 379.98 585.60 369.32 595.31 360.20C604.18 351.86 605.02 351.13 612.75 344.98C626.67 333.91 633.56 329.10 650.75 318.46C659.81 312.85 665.35 309.85 677.62 303.86C691.39 297.15 697.76 294.43 712.75 288.83C728.67 282.88 743.73 279.08 756.25 277.84C762.64 277.21 769.70 277.12 774.09 277.62C789.35 279.33 800.88 284.39 809.76 293.24C816.15 299.61 820.38 307.86 822.34 317.75C825.63 334.38 822.62 350.31 811.44 375.50C803.79 392.73 799.61 403.75 797.16 413.12C795.18 420.74 793.84 427.67 792.48 437.38C790.19 453.79 786.00 470.18 781.48 480.42C776.12 492.58 770.57 500.96 762.57 508.93C758.83 512.67 755.68 515.20 750.55 518.60C743.67 523.16 740.19 524.97 732.75 527.88C725.34 530.76 714.28 533.61 708.50 534.12C704.89 534.43 703.89 535.02 705.05 536.15C705.37 536.46 706.84 537.40 708.33 538.25C712.72 540.72 717.12 543.70 721.12 546.91C733.73 556.99 741.31 566.12 747.72 578.93C751.38 586.25 753.31 592.27 755.38 602.88C756.42 608.20 756.48 622.84 755.50 629.73C754.51 636.61 752.84 644.48 751.25 649.75C750.81 651.19 750.34 652.77 750.20 653.25C749.66 655.14 745.61 665.52 744.21 668.61C737.81 682.69 728.45 696.79 718.25 707.72C714.51 711.72 705.76 719.72 701.50 723.01C692.75 729.78 681.68 736.30 673.38 739.57C661.19 744.37 649.41 746.76 637.98 746.75C635.29 746.75 633.04 746.70 632.98 746.65ZM645.12 732.26C660.71 730.61 676.18 724.28 690.12 713.86C699.00 707.22 706.54 700.03 712.90 692.12C723.27 679.23 729.86 667.64 735.12 653.00C736.67 648.68 739.00 641.08 739.00 640.33C739.00 640.15 739.44 638.00 739.98 635.56C741.70 627.80 741.88 626.08 741.88 617.38C741.88 609.09 741.65 606.54 740.35 600.12C738.83 592.65 735.48 584.84 730.87 578.00C724.24 568.18 716.87 560.69 707.96 554.71C699.03 548.71 685.31 542.22 678.75 540.89C677.86 540.71 676.00 540.27 674.62 539.93C667.69 538.17 654.46 536.49 647.62 536.50C640.87 536.50 626.86 537.49 619.00 538.52C599.84 541.03 578.91 547.50 561.25 556.37C554.87 559.57 549.44 562.67 541.94 567.39C534.54 572.06 534.62 572.00 534.27 572.56C533.83 573.27 533.88 582.79 534.34 585.76C534.54 587.06 534.78 588.97 534.87 590.00C535.12 592.85 536.43 600.64 537.78 607.25C538.19 609.24 538.68 611.66 538.87 612.63C539.90 617.83 546.21 637.76 549.20 645.25C553.42 655.82 561.50 672.10 567.00 681.12C574.52 693.45 584.67 706.30 592.50 713.39C595.00 715.66 599.80 719.53 602.04 721.09C610.60 727.04 621.74 731.36 630.88 732.25C632.52 732.41 633.92 732.59 633.98 732.65C634.26 732.92 641.14 732.68 645.12 732.26ZM543.73 549.82C564.04 538.48 584.86 530.64 605.25 526.65C614.07 524.93 619.63 524.11 624.12 523.88C625.91 523.79 628.06 523.61 628.90 523.48C632.91 522.87 649.39 522.39 675.00 522.12C696.86 521.89 707.19 520.81 718.88 517.50C733.46 513.37 742.72 508.43 751.49 500.10C759.92 492.09 767.53 479.28 771.66 466.15C773.80 459.35 778.00 440.15 778.00 437.21C778.00 436.85 778.21 435.39 778.47 433.96C778.73 432.54 779.19 429.97 779.48 428.25C781.01 419.36 782.44 412.73 783.80 408.12C784.21 406.75 785.09 403.77 785.76 401.50C786.86 397.77 788.57 392.83 789.97 389.30C790.26 388.58 790.50 387.66 790.50 387.27C790.50 385.93 790.23 385.88 784.67 386.20C773.90 386.81 770.74 387.04 766.88 387.50C764.67 387.76 762.26 388.04 761.50 388.12C759.23 388.35 750.07 389.77 745.25 390.63C743.39 390.96 741.42 391.30 740.88 391.39C740.33 391.47 738.30 391.88 736.38 392.28C734.45 392.69 731.81 393.25 730.50 393.52C725.45 394.57 713.66 397.43 709.00 398.74C694.53 402.81 681.31 407.38 669.00 412.57C664.03 414.67 653.74 419.36 649.88 421.29C638.45 427.00 622.02 436.92 613.22 443.41C603.83 450.35 600.48 453.13 591.83 461.17C581.16 471.08 572.11 481.43 563.88 493.12C562.52 495.05 561.00 497.19 560.49 497.89C558.29 500.88 552.49 510.89 548.76 518.12C545.44 524.56 541.58 533.94 539.15 541.43C537.91 545.26 536.25 551.35 536.25 552.06C536.25 552.87 536.75 553.30 537.48 553.12C537.81 553.04 540.63 551.55 543.73 549.82ZM536.59 511.07C537.63 509.04 539.80 505.12 541.40 502.38C543.00 499.62 544.69 496.73 545.15 495.93C547.06 492.61 553.46 483.49 557.56 478.22C566.64 466.57 577.70 454.86 588.01 445.98C592.37 442.23 600.58 435.66 604.31 432.94C608.33 430.01 621.32 421.39 624.35 419.64C625.72 418.86 627.42 417.83 628.15 417.37C630.53 415.84 641.05 410.20 645.62 407.98C652.34 404.73 659.82 401.36 666.75 398.46C682.11 392.04 706.92 384.50 725.88 380.49C727.25 380.20 729.11 379.81 730.00 379.62C730.89 379.43 733.20 378.98 735.12 378.62C737.05 378.27 739.64 377.76 740.88 377.50C744.16 376.80 748.13 376.10 752.25 375.50C754.24 375.21 756.61 374.86 757.50 374.72C758.39 374.59 759.97 374.36 761.00 374.23C762.03 374.09 764.06 373.81 765.50 373.60C766.94 373.39 770.04 373.07 772.38 372.87C774.71 372.68 777.81 372.41 779.25 372.28C780.69 372.15 785.02 371.96 788.87 371.87C796.09 371.70 796.92 371.58 797.80 370.59C798.40 369.92 801.24 363.46 803.13 358.50C805.82 351.42 807.32 346.30 808.54 340.00C809.03 337.46 809.09 336.36 809.08 330.50C809.07 324.67 809.01 323.56 808.52 321.28C806.07 309.62 799.92 301.20 790.38 296.44C781.51 292.01 771.58 290.51 758.54 291.63C749.80 292.38 744.58 293.44 732.62 296.89C723.34 299.57 718.29 301.39 703.88 307.26C695.41 310.71 694.54 311.10 685.88 315.32C673.64 321.29 663.84 326.54 656.62 331.01C648.57 336.00 634.59 345.53 629.17 349.72C627.82 350.77 625.37 352.64 623.74 353.88C612.02 362.79 595.11 378.95 584.94 390.94C574.39 403.39 565.68 416.03 556.76 431.83C551.94 440.37 544.93 457.06 541.78 467.50C540.29 472.43 537.68 483.12 536.65 488.50C536.29 490.36 535.78 493.00 535.51 494.38C534.71 498.44 534.05 502.95 533.87 505.62C533.78 507.00 533.60 508.84 533.47 509.72C533.12 512.07 533.13 514.42 533.49 514.86C534.07 515.56 534.66 514.83 536.59 511.07Z"/></g>
+</symbol></svg>
+
+<div id="app">
+  <aside id="side"></aside>
+  <div id="scrim" data-act="closeDrawer"></div>
+  <main id="main"></main>
+  <aside id="right"></aside>
+</div>
+<div id="toasts" aria-live="polite"></div>
+<div id="guide"></div>
+
+<script>
+const ICON = {
+  plus:'<path d="M12 5v14M5 12h14"/>', search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
+  memory:'<path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3z"/><path d="M9.5 21h5M10 17v-3M14 17v-3"/>',
+  skills:'<path d="M14.5 3.5 20.5 9.5 9.5 20.5H3.5v-6z"/><path d="m12 6 6 6"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
+  panel:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>', chev:'<path d="m6 9 6 6 6-6"/>', right:'<path d="m9 6 6 6-6 6"/>',
+  more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  attach:'<path d="m21 11-8.6 8.6a5 5 0 0 1-7-7l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l8-8"/>',
+  send:'<path d="M12 19V5M5 12l7-7 7 7"/>', stop:'<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>', x:'<path d="M18 6 6 18M6 6l12 12"/>', file:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>', git:'<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="9" r="2.5"/><path d="M6 8.5v7M18 11.5c0 4-6 3-10 5"/>',
+  copy:'<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>', redo:'<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+  branch:'<path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/>',
+  edit:'<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>', trash:'<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
+  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>', eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  ghost:'<path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/>', bell:'<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', play:'<path d="m7 4 13 8-13 8z"/>', link:'<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  coin:'<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2M12 16v2"/>'
+};
+Object.assign(ICON, {
+  archive:'<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
+  shield:'<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>'
+});
+const ic = (n, cls='') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
+const bf = (cls='') => `<span class="logo ${cls}" aria-hidden="true"><svg viewBox="0 0 1024 1024"><use href="#bf"/></svg></span>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const $ = s => document.querySelector(s);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+let uid = 100; const nid = p => p + (++uid);
+
+/* ---------- sample data (示例数据) ---------- */
+const S = {
+  space:'wb', view:'chat', lastView:null, activeConv:'c1', activeTask:'t2', right:null, drawer:false,
+  ws:'毕设-传感器数据', workspaces:['毕设-传感器数据','iot-gateway','论文写作'],
+  model:'DeepSeek V4.1 Flash', think:'中', ghost:false, draft:'', quote:null, busy:false,
+  query:'', memTab:'all', setTab:'通用', selSkill:'s1', autoMem:true, theme:'system', closeTo:'ask', djWait:'1 分钟', approval:'修改和命令要我确认',
+  fresh:new Set(), guideMin:false, askFirst:true, ctx:38, setQ:'', commitSel:{}, openDiff:{}, cmsg:null,
+  archived:[{id:'c9', ws:'论文写作', title:'开题报告修改意见', when:'10月', msgs:[], changes:[], products:[], children:[]}],
+  recycle:[{id:'c8', ws:'iot-gateway', title:'试一下 LoRa 模块的发射功率', when:'10月', msgs:[], changes:[], products:[], children:[], left:'26 天'}],
+  convs:[
+    {id:'c1', ws:'毕设-传感器数据', title:'整理本周温湿度数据成周报', when:'今天', msgs:[
+      {id:'m1', r:'user', text:'把 data/raw 里这周的温湿度数据整理成周报，结论写进 reports/周报-W45.md'},
+      {id:'m2', r:'ai', proc:{label:'读取 3 个文件 · 运行 1 条命令 · 修改 1 个文件', steps:[['file','读取 <code>data/raw/1103.csv</code> 等 3 个文件'],['play','运行 <code>python scripts/summary.py --week 45</code>'],['edit','修改 <code>reports/周报-W45.md</code>（+12 −1）']]},
+        html:'<p>W45 周报已经写好。这周室内温度整体平稳，湿度在周三雨天明显升高，夜间露点接近 18 ℃，实验柜需要注意防潮。</p><div class="tbl"><table><tr><th>指标</th><th>本周均值</th><th>环比</th><th>超限次数</th></tr><tr><td>温度</td><td>22.4 ℃</td><td>+0.6</td><td>0</td></tr><tr><td>相对湿度</td><td>68.2 %</td><td>+9.1</td><td>14</td></tr><tr><td>露点</td><td>16.1 ℃</td><td>+1.8</td><td>3</td></tr></table></div><p>湿度超限主要集中在 11 月 5 日 02:00–07:00，对应的曲线图存在 <code>figures/温湿度-W45.png</code>。</p>',
+        meta:'DeepSeek V4.1 Flash · 38 秒 · ¥0.04'}],
+      changes:[{f:'reports/周报-W45.md', a:12, d:1, diff:['@@ 本周概况 @@',' 时间：11 月 3 日–11 月 9 日','-结论：待补充','+温度整体平稳，均值 22.4 ℃（+0.6）','+湿度周三夜间偏高，共 14 次超限','+建议：实验柜加干燥剂，周五复查']}], products:['figures/温湿度-W45.png'],
+      children:[{id:'c1a', title:'问一下：露点温度怎么算'}]},
+    {id:'c2', ws:'iot-gateway', title:'ESP32 MQTT 断线重连', when:'今天', running:true, msgs:[
+      {id:'m3', r:'user', text:'网关掉线以后 ESP32 不会自动重连，帮我看下 src/mqtt.cpp'},
+      {id:'m4', r:'ai', proc:{label:'读取 2 个文件 · 修改 1 个文件', steps:[['file','读取 <code>src/mqtt.cpp</code>、<code>platformio.ini</code>'],['edit','修改 <code>src/mqtt.cpp</code>（+18 −4）']]},
+        html:'<p>原来的 <code>loop()</code> 里只在启动时连一次 broker。我加了指数退避重连（1 s 起，最长 60 s），并在重连成功后重新订阅主题。改好了，要烧到板子上验证一下。</p>', meta:'DeepSeek V4.1 Flash · 21 秒 · ¥0.02'},
+      {id:'m5', r:'approve', title:'运行命令 pio run -t upload', why:'把改好的固件烧到开发板（COM5）', diff:null, state:'pending', inbox:'i2'}],
+      changes:[{f:'src/mqtt.cpp', a:18, d:4, diff:['@@ void loop() @@','-  if (!client.connected()) return;','+  if (!client.connected()) {','+    reconnectWithBackoff();  // 1 s 起，最长 60 s','+    return;','+  }']}], products:[], children:[]},
+    {id:'c3', ws:'论文写作', title:'第三章 文献综述润色', when:'昨天', msgs:[
+      {id:'m6', r:'user', text:'把第三章 3.2 节改得更学术一点，别改引用'},
+      {id:'m7', r:'ai', html:'<p>已按学术语体调整 3.2 节，保留全部 17 处引用标注，主要改了连接词和被动句式。改动在右栏可以逐段对比。</p>', meta:'DeepSeek V4.1 · 52 秒 · ¥0.09'}],
+      changes:[{f:'chapters/ch3.md', a:41, d:38}], products:[], children:[{id:'c3a', title:'问一下：综述和述评的区别'}]},
+    {id:'c4', ws:'论文写作', title:'复习：卡尔曼滤波推导', when:'本周', msgs:[
+      {id:'m8', r:'user', text:'从贝叶斯的角度给我讲一下卡尔曼滤波的预测和更新两步'},
+      {id:'m9', r:'ai', html:'<p>可以把卡尔曼滤波看成在高斯假设下反复做两件事：用运动模型把上一时刻的后验“推”成先验（预测），再用新观测按贝叶斯公式修正它（更新）。下面按这两步展开……</p>', meta:'DeepSeek V4.1 · 44 秒 · ¥0.03'}],
+      changes:[], products:[], children:[]},
+  ],
+  tasks:[
+    {id:'t2', title:'把 30 篇参考文献统一成 GB/T 7714 格式', status:'run', n:18, of:30, progress:'已整理 18 / 30 篇', msgs:null},
+    {id:'t3', title:'对比三款温湿度传感器的规格和价格', status:'wait', progress:'等你回答：预算上限是多少？', inbox:'i1'},
+    {id:'t1', title:'每周一整理上周的组会纪要', status:'done', progress:'每周一 9:00 · 上次 11 月 3 日完成', repeat:'每周一 9:00'},
+    {id:'t4', title:'把 MQTT 报文抓包整理成表', status:'fail', progress:'抓包文件 capture.pcapng 打不开，可能已损坏'},
+  ],
+  inbox:[
+    {id:'i1', grp:'now', from:'蝶君 · 对比三款温湿度传感器', what:'预算上限是多少？', why:'要先按价格筛掉不合适的型号', acts:['200 元以内','500 元以内','不限'], task:'t3'},
+    {id:'i2', grp:'now', from:'工作台 · ESP32 MQTT 断线重连', what:'允许运行 pio run -t upload？', why:'把改好的固件烧到开发板', acts:['允许','拒绝'], conv:'c2'},
+    {id:'i3', grp:'later', from:'技能', what:'采用技能「GB/T 7714 参考文献格式」？', why:'蝶君找到的社区技能，在沙箱里用 30 条样例试过，全部通过', acts:['采用','不要'], skill:'s4'},
+    {id:'i4', grp:'later', from:'记忆', what:'把「交流用简体中文」用到所有项目？', why:'现在只记在「毕设-传感器数据」里', acts:['用到所有项目','只留在这个项目']},
+  ],
+  memory:{
+    you:[{id:'k1',t:'交流用简体中文，思考和输出都是',s:'回复语言设置',d:'11月2日'},{id:'k2',t:'回复简练，普通问答不用做成卡片',s:'论文第三章 文献综述润色',d:'11月8日'},{id:'k3',t:'做实验数据分析偏好用 Python 画图',s:'整理本周温湿度数据成周报',d:'11月3日'}],
+    project:[{id:'k4',t:'原始数据在 data/raw，只读，不要改',s:'整理本周温湿度数据成周报',d:'11月3日'},{id:'k5',t:'周报写到 reports/，文件名带周次，比如 周报-W45.md',s:'整理本周温湿度数据成周报',d:'今天'},{id:'k6',t:'图表统一存到 figures/，PNG，300 dpi',s:'温湿度曲线图',d:'11月4日',old:true}],
+    dj:[{id:'k7',t:'组会纪要模板在 文档/模板/组会.md',s:'每周一整理上周的组会纪要',d:'10月27日'},{id:'k8',t:'参考文献统一用 GB/T 7714—2015',s:'把 30 篇参考文献统一格式',d:'今天'}]
+  },
+  recent:[{day:'今天',items:[['topic','换了话题','从「W45 周报」换到「ESP32 断线重连」'],['add','记住了','周报写到 reports/，文件名带周次'],['add','记住了','参考文献统一用 GB/T 7714—2015'],['mod','改了','回复简练，普通问答不用做成卡片']]},{day:'11月7日',items:[['del','忘了','用 Matlab 画曲线图（你后来改用 Python）']]}],
+  skills:[
+    {id:'s1',name:'周报卡片',st:'可用',desc:'把周报、简报做成排版好的卡片',src:'内置',used:12,last:'今天'},
+    {id:'s2',name:'Excel 表格处理',st:'可用',desc:'读写 xlsx、批量清洗和汇总表格',src:'内置',used:31,last:'昨天'},
+    {id:'s3',name:'PDF 合并拆分',st:'可用',desc:'合并、拆分、提取 PDF 页面',src:'内置',used:5,last:'11月5日'},
+    {id:'s4',name:'GB/T 7714 参考文献格式',st:'等你确认',desc:'把参考文献统一成国标格式',src:'社区 · 蝶君找到的',used:0,last:'—'},
+    {id:'s5',name:'论文降重改写',st:'已停用',desc:'换说法、调语序，保持原意',src:'你从文件夹导入',used:3,last:'10月30日'},
+  ],
+  services:[{id:'v1',name:'Zotero 文献库',st:'可用',desc:'读取文献条目和附件',src:'你添加的',used:23,last:'今天',dj:false,tools:[['搜索文献',true],['读取条目',true],['读取附件',true],['写入笔记',false]]},{id:'v2',name:'Home Assistant',st:'已停用',desc:'读取家里传感器的状态',src:'你添加的',used:4,last:'11月6日',dj:false,tools:[['读取状态',true],['控制设备',false]]}],
+};
+const conv = id => S.convs.find(c => c.id === id || c.children.some(k => k.id === id));
+const task = id => S.tasks.find(t => t.id === id);
+const nowCount = () => S.inbox.length;
+const timers = {};
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ST = {
+  received:{t:'接住你的念头', row:3, a:1}, thinking:{t:'让思绪慢慢成形', row:6, a:1}, search:{t:'循着线索探寻', row:1, a:1},
+  reading:{t:'翻阅字里行间', row:7, a:1}, working:{t:'让想法落地', row:9, a:1}, review:{t:'这一笔等你点头', row:0, a:0},
+  writing:{t:'将思绪写给你', row:9, a:1}, done:{t:'这一页写好了', row:3, a:0}, paused:{t:'在这里停一停', row:0, a:0},
+  error:{t:'这一笔暂未落下', row:0, a:0}, cancelled:{t:'先把这一页合上', row:0, a:0}, idle:{t:'念头在此停驻', row:0, a:0}
+};
+const sprite = (state, cls='') => { const k = ST[state] || ST.idle; return '<div class="avatar '+cls+'" data-state="'+(state in ST ? state : 'idle')+'" role="img" aria-label="蝴蝶：'+k.t+'"><svg viewBox="0 0 1024 1024" aria-hidden="true"><use href="#bf"/></svg></div>'; };
+setInterval(() => {
+  document.querySelectorAll('time[data-t0]').forEach(el => { el.textContent = Math.floor((Date.now() - +el.dataset.t0) / 1000) + 's'; });
+}, 160);
+function presence(x, who){
+  const k = ST[x.state] || ST.thinking;
+  const fresh = x._shown !== x.state; x._shown = x.state;
+  const title = fresh && !REDUCED ? [...k.t].map((c,i)=>'<span style="--i:'+i+'">'+esc(c)+'</span>').join('') : esc(k.t);
+  return '<div class="presence '+(k.a && !REDUCED ? 'active' : '')+'" data-mid="'+x.id+'">'+sprite(x.state)+'<div class="copy"><div class="by">'+who+'<span>'+(x.state==='review'?'等你决定':'正在做')+'</span></div><h3>'+title+'</h3><div class="meta"><span>'+esc(x.proc && x.proc.now || '')+'</span><time data-t0="'+(x.t0 || Date.now())+'">0s</time></div><div class="ink"><span></span></div></div></div>';
+}
+
+/* ---------- render ---------- */
+function render(){ renderSide(); renderMain(); renderRight(); renderGuide(); S.fresh.clear(); }
+
+function renderSide(){
+  const inSpace = S.space === 'wb' ? S.convs.filter(c => c.ws === S.ws) : [];
+  const groups = ['今天','昨天','本周'];
+  const djBusy = S.tasks.some(t => t.status === 'run');
+  let list = '';
+  if (S.space === 'wb'){
+    for (const g of groups){
+      const cs = inSpace.filter(c => c.when === g); if (!cs.length) continue;
+      list += `<div class="grp">${g}</div>`;
+      for (const c of cs){
+        list += `<div class="conv ${S.view==='chat'&&S.activeConv===c.id?'on':''} ${S.fresh.has(c.id)?'msg enter':''}" data-act="openConv" data-id="${c.id}" tabindex="0">${c.running?'<span class="run" title="在等你批准"></span>':''}<span class="t">${esc(c.title)}</span><button class="more" data-act="convMenu" data-id="${c.id}" aria-label="更多">${ic('more')}</button></div>`;
+        for (const k of c.children) list += `<div class="conv child ${S.activeConv===k.id&&S.view==='chat'?'on':''}" data-act="openConv" data-id="${c.id}"><span class="t">↳ ${esc(k.title)}</span></div>`;
+      }
+    }
+    if (!inSpace.length) list = `<div class="empty">这个工作区还没有对话</div>`;
+  } else {
+    list += `<div class="grp">蝶君的任务</div>`;
+    for (const t of S.tasks) list += `<div class="conv ${S.view==='task'&&S.activeTask===t.id?'on':''} ${S.fresh.has(t.id)?'msg enter':''}" data-act="openTask" data-id="${t.id}" tabindex="0">${stChip(t.status,true)}<span class="t">${esc(t.title)}</span></div>`;
+  }
+  $('#side').innerHTML = `
+    <div class="brand">${bf()}DreamFlutter<span style="font-size:13px;color:var(--muted);font-weight:500;margin-left:-4px">梦蝶</span></div>
+    <div class="seg ${S.space==='dj'?'right':''}"><span class="knob"></span>
+      <button class="${S.space==='wb'?'on':''}" data-act="space" data-v="wb">工作台</button>
+      <button class="${S.space==='dj'?'on':''}" data-act="space" data-v="dj">蝶君${djBusy&&S.space!=='dj'?'<span class="dot" title="蝶君在忙"></span>':''}</button></div>
+    <div class="nav">
+      <button class="nav-i" data-act="new">${ic('plus')}新对话</button>
+      <button class="nav-i ${S.view==='inbox'?'on':''}" data-act="view" data-v="inbox">${ic('inbox')}等你处理${nowCount()?`<span class="badge ${S.badgePop?'pop':''}">${nowCount()}</span>`:''}</button>
+    </div>
+    <label class="search">${ic('search')}<input id="q" placeholder="搜索" value="${esc(S.query)}" aria-label="搜索"></label>
+    <div class="list">${list}</div>
+    <div class="side-arch"><button class="${S.view==='archive'?'on':''}" data-act="view" data-v="archive">${ic('archive')}已归档</button><button class="${S.view==='recycle'?'on':''}" data-act="view" data-v="recycle">${ic('trash')}回收站</button></div>
+    <div class="side-foot">
+      <button class="${S.view==='memory'?'on':''}" data-act="view" data-v="memory">${ic('memory')}记忆</button>
+      <button class="${S.view==='skills'?'on':''}" data-act="view" data-v="skills">${ic('skills')}技能</button>
+      <button class="${S.view==='cost'?'on':''}" data-act="view" data-v="cost">${ic('coin')}花费</button>
+      <button class="${S.view==='settings'?'on':''}" data-act="view" data-v="settings">${ic('gear')}设置</button>
+    </div>`;
+  S.badgePop = false;
+}
+
+function stChip(s, dotOnly){
+  const m = {run:['run','进行中'], wait:['wait','等你'], done:['ok','已完成'], fail:['bad','没做成']}[s];
+  return dotOnly ? `<span class="st ${m[0]}" style="padding:0;background:none" title="${m[1]}"></span>` : `<span class="st ${m[0]}">${m[1]}</span>`;
+}
+
+function topBar(title, opts={}){
+  const crumbs = S.space==='wb'
+    ? `<span>工作台</span><span>/</span><button class="ws-btn" data-act="wsMenu">${ic('folder')}<span>${esc(S.ws)}</span>${ic('chev')}</button>${title?`<span>/</span><b>${esc(title)}</b>`:''}`
+    : `<span>蝶君</span>${title?`<span>/</span><b>${esc(title)}</b>`:''}`;
+  return `<div class="top"><button class="icon-btn" id="menuBtn" data-act="drawer" aria-label="打开侧栏">${ic('menu')}</button>
+    <div class="crumb">${opts.page?`<b>${esc(opts.page)}</b>`:crumbs}</div><span class="sp"></span>
+    ${opts.panel?`<button class="icon-btn ${S.right?'on':''}" data-act="togglePanel" title="${opts.panel}" aria-label="${opts.panel}">${ic('panel')}</button>`:''}</div>`;
+}
+
+function renderMain(){
+  const m = $('#main');
+  const changed = S.lastView !== S.view + S.space + S.activeConv + S.activeTask;
+  let html = '';
+  if (S.query.trim()) html = viewSearch();
+  else if (S.view === 'chat') html = S.space==='wb' ? viewChat() : viewDjHome();
+  else if (S.view === 'home') html = S.space==='wb' ? viewHome() : viewDjHome();
+  else if (S.view === 'task') html = viewTask();
+  else html = ({inbox:viewInbox, memory:viewMemory, skills:viewSkills, settings:viewSettings, cost:viewCost, archive:viewArchive, recycle:viewRecycle})[S.view]();
+  const scroller = m.querySelector('.scroll'); const keep = !changed && scroller ? scroller.scrollTop : null;
+  const hadFocus = document.activeElement && document.activeElement.id === 'box';
+  const keepAv = {}; m.querySelectorAll('.presence[data-mid]').forEach(el => { const av = el.querySelector('.avatar'); if (av) keepAv[el.dataset.mid] = av; });
+  m.innerHTML = html;
+  m.querySelectorAll('.presence[data-mid]').forEach(el => { const old = keepAv[el.dataset.mid], nu = el.querySelector('.avatar'); if (old && nu && old.dataset.state === nu.dataset.state) nu.replaceWith(old); });
+  const v = m.querySelector('.view'); if (changed && v){ v.classList.add('enter'); }
+  S.lastView = S.view + S.space + S.activeConv + S.activeTask;
+  const sc = m.querySelector('.scroll');
+  if (sc){ if (keep !== null && !S.stick) sc.scrollTop = keep; else if (S.view==='chat'||S.view==='task') sc.scrollTop = sc.scrollHeight; }
+  S.stick = false;
+  const box = $('#box'); if (box){ box.value = S.draft; autosize(box); if (hadFocus) box.focus(); }
+}
+
+function composer(ph){
+  return `<div class="composer-wrap"><div class="composer">
+    ${S.quote?`<div class="qchip">${ic('right')}<span>${esc(S.quote.slice(0,120))}${S.quote.length>120?'…':''}</span><button class="x" data-act="clearQuote" aria-label="去掉引用">${ic('x')}</button></div>`:''}
+    <textarea id="box" rows="1" placeholder="${S.ghost&&S.space==='wb'?'无痕':'说点什么…'}" aria-label="输入消息"></textarea>
+    <div class="crow">
+      <button class="icon-btn" title="添加文件（也可以直接拖进来）" data-act="attach">${ic('attach')}</button>
+      ${S.space==='wb'?`<button class="chip ${S.ghost?'on':''}" data-act="ghost" title="这次不保存、不记忆">${ic('ghost')}无痕</button><button class="icon-btn ${S.askFirst?'on':''}" data-act="askFirst" title="操作前问我：${S.askFirst?'开':'关'}" aria-pressed="${S.askFirst}">${ic('shield')}</button>`:''}
+      <span class="sp"></span>
+      ${S.space==='wb'?`<button class="icon-btn" data-act="ctxMenu" title="上下文 ${S.ctx}%" aria-label="上下文 ${S.ctx}%"><span class="ring" style="--p:${S.ctx}"></span></button>`:''}
+      <button class="chip" data-act="modelMenu">${esc(S.model)} ${ic('chev')}</button>
+      <button class="chip" data-act="thinkMenu">思考 · ${S.think} ${ic('chev')}</button>
+      ${S.busy?`<button class="send stop" data-act="stop" aria-label="停止">${ic('stop')}</button>`:`<button class="send" data-act="send" aria-label="发送" ${S.draft.trim()||S.quote?'':'disabled'}>${ic('send')}</button>`}
+    </div></div></div>`;
+}
+
+function viewHome(){
+  const g = ['让念头，开始飞翔','让想法，轻轻展开','今天也一起把事做完'][new Date().getMinutes()%3];
+  return `<section class="view">${topBar('', {panel:null})}
+    <div class="home">${sprite('idle')}<div class="greet">${g}</div><div class="quoteline">昔者庄周梦为胡蝶，栩栩然胡蝶也。<cite>《庄子·齐物论》</cite></div>
+    <div class="examples">${['把 data/raw 里这周的数据整理成周报','帮我看看 src/mqtt.cpp 为什么不重连','把这篇论文的摘要翻成英文'].map(e=>`<button class="ex" data-act="example" data-v="${esc(e)}">${esc(e)}</button>`).join('')}</div></div>
+    ${composer('说说要做什么，Enter 发送，Shift+Enter 换行')}</section>`;
+}
+
+function msgHTML(x, c){
+  const fresh = S.fresh.has(x.id) ? ' enter' : '';
+  if (x.r === 'user') return `<div class="msg u${fresh}"><div class="b">${x.quote?`<div class="quote">${esc(x.quote)}</div>`:''}${esc(x.text)}</div></div>`;
+  if (x.r === 'ai'){
+    const p = x.proc ? `<div class="proc ${x.proc.open?'open':''}"><button class="proc-h" data-act="toggleProc" data-id="${x.id}">${x.proc.running?'<span class="pulse"></span>':ic('check','ok')}<span>${x.proc.running?esc(x.proc.now):esc(x.proc.label)}</span>${x.proc.running&&x.proc.steps.length>1?`<span class="from">· 前面 ${x.proc.steps.length-1} 步</span>`:''}${ic('chev','chev')}</button>
+      <div class="proc-b"><div>${x.proc.steps.map(s=>`<div class="step">${ic(s[0])}<span>${s[1]}</span></div>`).join('')}</div></div></div>` : '';
+    const pres = x.proc && x.proc.running ? presence(x, S.space==='dj'?'蝶君':'工作台') : '';
+    return `<div class="msg${fresh}">${pres}${p}${x.html?`<div class="reply ${x.streaming?'stream':''}">${x.html}</div>`:''}
+      ${x.mem?`<div class="memnote" id="mn-${x.id}">${ic('memory')}已更新记忆：${esc(x.mem)} · <button data-act="view" data-v="memory">查看</button> · <button data-act="undoMem" data-id="${x.id}">撤销</button></div>`:''}
+      ${x.meta?`<div class="ainfo"><button class="icon-btn" title="复制" data-act="copy">${ic('copy')}</button><button class="icon-btn" title="重新生成" data-act="regen">${ic('redo')}</button><button class="icon-btn" title="从这里重来（分出一个新对话）" data-act="forkHere">${ic('branch')}</button><button class="icon-btn" title="它参考了哪些记忆" data-act="usedMem">${ic('memory')}</button><span class="meta">${esc(x.meta)}</span></div>`:''}</div>`;
+  }
+  if (x.r === 'approve'){
+    const st = x.state==='ok'?`<div class="state ok">${ic('check')}已允许</div>`:x.state==='no'?`<div class="state no">${ic('x')}已拒绝</div>`:
+      `<div class="acts"><button class="btn pri" data-act="approve" data-id="${x.id}" data-v="ok">允许</button><button class="btn" data-act="approve" data-id="${x.id}" data-v="no">拒绝</button><button class="btn ghost" data-act="approve" data-id="${x.id}" data-v="all">这个对话里都允许这类操作</button></div>`;
+    return `<div class="msg${fresh}"><div class="card approve"><h4>${ic('shield')}${esc(x.title)}</h4><div class="why">${esc(x.why)}</div>
+      ${x.diff?`<div class="diff">${x.diff.map(l=>`<div class="${l[0]==='+'?'a':l[0]==='-'?'d':''}">${esc(l)}</div>`).join('')}</div>`:''}${st}</div></div>`;
+  }
+  if (x.r === 'error') return `<div class="msg${fresh}"><div class="card err"><h4 style="margin:0 0 4px;font-weight:500">这次没能完成</h4><div class="why">${esc(x.why)}</div><div class="acts" style="margin-top:10px"><button class="btn pri" data-act="retry">重试</button><button class="btn" data-act="modelMenu">换个模型</button><button class="btn ghost" data-act="goSet" data-v="模型">去设置</button></div></div></div>`;
+  if (x.r === 'restate'){
+    return `<div class="msg${fresh}"><div class="reply"><p>${esc(x.text)}</p><ol style="font-family:var(--sans);font-size:14px;margin:0 0 6px">${x.plan.map(p=>`<li>${esc(p)}</li>`).join('')}</ol></div>
+      ${x.state==='wait'?`<div class="acts"><button class="btn pri go-btn" data-act="djStart" data-id="${x.id}">可以，开始吧${x.secs?`<i style="animation-duration:${x.secs}s;animation-delay:${-((Date.now()-x.t0)/1000)}s"></i>`:''}</button><button class="btn" data-act="djChange">改一下</button></div>`:`<div class="state ok">${ic('check')}已开始</div>`}</div>`;
+  }
+  if (x.r === 'deliver'){
+    return `<div class="msg${fresh}"><div class="card deliver"><h4>${esc(x.title)}</h4><div class="reply" style="font-size:14.5px"><p>${esc(x.summary)}</p></div>
+      ${x.files.map(f=>`<div class="file">${ic('file')}<span class="n">${esc(f)}</span><button class="btn sm" data-act="toast" data-v="已打开预览">预览</button><button class="btn sm ghost" data-act="toast" data-v="已用默认程序打开">打开</button><button class="btn sm ghost" data-act="toast" data-v="会弹出另存为窗口">另存</button></div>`).join('')}
+      <div class="from" style="margin-top:8px">用时 ${esc(x.time)} · 花费 ${esc(x.cost)}</div></div></div>`;
+  }
+  return '';
+}
+
+function viewChat(){
+  const c = conv(S.activeConv);
+  if (!c) return viewHome();
+  const ch = c.children.find(k => k.id === S.activeConv);
+  return `<section class="view">${topBar(ch ? ch.title : c.title, {panel:'本次改动'})}
+    <div class="scroll"><div class="col">${c.msgs.map(x=>msgHTML(x,c)).join('')}</div></div>
+    ${composer(S.ghost?'无痕：这次不保存、不记忆':'接着说，Enter 发送')}</section>`;
+}
+
+function viewDjHome(){
+  const t = S.tasks;
+  const rows = t.map(x => `<div class="row click ${S.fresh.has(x.id)?'enter':''}" data-act="openTask" data-id="${x.id}"><div class="main"><div class="ttl">${esc(x.title)}</div><div class="sub">${esc(x.progress)}</div>${x.status==='run'&&x.of?`<div class="prog"><i style="width:${Math.round(x.n/x.of*100)}%"></i></div>`:''}</div>${stChip(x.status)}</div>`).join('');
+  return `<section class="view">${topBar('')}
+    <div class="scroll"><div class="col">
+      <div class="home" style="padding:12px 0 6px;flex:none">${sprite(S.tasks.some(t=>t.status==='run')?'working':'idle')}<div class="greet" style="font-size:30px">交给我吧，你去忙别的</div><div class="quoteline">云无心以出岫，鸟倦飞而知还。<cite>陶渊明《归去来兮辞》</cite></div>
+      <div class="examples">${['每周一帮我整理上周的组会纪要','把这 30 篇文献统一成 GB/T 7714 格式','查一下三款温湿度传感器，列个对比表'].map(e=>`<button class="ex" data-act="example" data-v="${esc(e)}">${esc(e)}</button>`).join('')}</div></div>
+      <div class="sec">正在做和最近做完的</div>${rows}
+    </div></div>${composer('说说要交给蝶君什么事，可以拖文件进来')}</section>`;
+}
+
+function viewTask(){
+  const t = task(S.activeTask);
+  if (!t.msgs){
+    t.msgs = [{id:nid('m'), r:'user', text:t.title}];
+    if (t.status==='run') t.msgs.push({id:nid('m'), r:'ai', state:'working', t0:Date.now()-8*60000, proc:{running:true, now:t.progress, steps:[['file','读取 <code>参考文献.docx</code>，找到 30 条'],['play','逐条比对作者、题名、出处']]}, html:''});
+    if (t.status==='wait') t.msgs.push({id:nid('m'), r:'ai', html:'<p>我找到了 7 款候选，规格都差不多，差别主要在价格。<b>预算上限是多少？</b>我按这个先筛一遍。</p>'});
+    if (t.status==='done') t.msgs.push({id:nid('m'), r:'deliver', title:'10 月 27 日–11 月 2 日组会纪要', summary:'按模板整理了 3 次组会，共 11 个待办，其中 4 个已到期，已在文中标红。', files:['文档/组会/组会纪要-W44.md'], time:'6 分钟', cost:'¥0.05'});
+    if (t.status==='fail') t.msgs.push({id:nid('m'), r:'error', why:'capture.pcapng 打不开，文件头不完整，可能是抓包中途被打断。重新抓一份，或者把能打开的那段导出成 csv 给我。'});
+  }
+  const waitAct = t.status==='wait' && t.inbox ? `<div class="msg"><div class="acts">${['200 元以内','500 元以内','不限'].map(a=>`<button class="btn" data-act="inboxAct" data-id="${t.inbox}" data-v="${a}">${a}</button>`).join('')}</div></div>` : '';
+  return `<section class="view">${topBar(t.title, {panel:'任务进度'})}
+    <div class="scroll"><div class="col">
+      <div class="row" style="margin-bottom:20px"><div class="main"><div class="ttl">${esc(t.title)}</div><div class="sub">${esc(t.progress)}${t.repeat?` · 重复：${esc(t.repeat)}`:''}</div>${t.status==='run'&&t.of?`<div class="prog"><i style="width:${Math.round(t.n/t.of*100)}%"></i></div>`:''}</div>${stChip(t.status)}</div>
+      ${t.msgs.map(x=>msgHTML(x)).join('')}${waitAct}
+    </div></div>${composer(t.status==='done'?'不满意就接着说，它在原来的基础上改':'补充说明或者问问进度')}</section>`;
+}
+
+function viewInbox(){
+  const now = S.inbox.filter(i => i.grp==='now'), later = S.inbox.filter(i => i.grp==='later');
+  const row = i => `<div class="row ${S.fresh.has(i.id)?'enter':''}" id="row-${i.id}"><div class="main"><div class="from">${esc(i.from)}</div><div class="ttl">${esc(i.what)}</div><div class="sub">${esc(i.why)}</div>
+    <div class="acts" style="margin-top:8px">${i.acts.map((a,n)=>`<button class="btn sm ${n===0?'pri':''}" data-act="inboxAct" data-id="${i.id}" data-v="${esc(a)}">${esc(a)}</button>`).join('')}<button class="btn sm ghost" data-act="inboxGo" data-id="${i.id}">去看看</button></div></div></div>`;
+  return `<section class="view">${topBar('', {page:'等你处理'})}<div class="scroll"><div class="col">
+    <div class="page-h"><h1 class="art">这一笔等你点头</h1><span class="plain">等你处理</span></div>
+    <div class="sec">现在需要你</div>${now.length?now.map(row).join(''):'<div class="empty">没有急着要你处理的事</div>'}
+    <div class="sec">有空看看</div>${later.length?later.map(row).join(''):'<div class="empty">都处理完了</div>'}
+  </div></div></section>`;
+}
+
+function memList(arr, key){
+  return arr.map(k => `<div class="mem ${S.fresh.has(k.id)?'msg enter':''}" id="mem-${k.id}"><div style="flex:1;min-width:0"><div class="txt" contenteditable="true" spellcheck="false" data-mem="${k.id}" data-key="${key}">${esc(k.t)}</div>
+    <div class="src">来自 <button data-act="memSrc">${esc(k.s)}</button> · ${esc(k.d)}${k.old?' · <span class="tag-old">可能过时了</span>':''}</div></div>
+    <div class="ops"><button class="icon-btn" title="改" data-act="memEdit" data-id="${k.id}">${ic('edit')}</button><button class="icon-btn" title="删" data-act="memDel" data-id="${k.id}" data-key="${key}">${ic('trash')}</button></div></div>`).join('') || '<div class="empty" style="padding:12px 0">还没有</div>';
+}
+function viewMemory(){
+  const body = S.memTab==='all' ? `
+    <div class="sec">关于你</div>${memList(S.memory.you,'you')}
+    <div class="sec">关于这个项目 · ${esc(S.ws)}</div>${memList(S.memory.project,'project')}
+    <div class="sec">蝶君自己的</div>${memList(S.memory.dj,'dj')}` :
+    `<div class="timeline">${S.recent.map(d=>`<div class="day">${d.day}</div>${d.items.map(i=>`<div class="tl"><span class="k ${i[0]==='add'?'add':''}">${i[1]}</span><span style="flex:1">${esc(i[2])}</span><button class="btn sm ghost" data-act="toast" data-v="已撤销：${esc(i[2])}">撤销</button></div>`).join('')}`).join('')}</div>`;
+  return `<section class="view">${topBar('', {page:'记忆'})}<div class="scroll"><div class="col">
+    <div class="page-h"><h1 class="art">记下的事</h1><span class="sp"></span><span class="from">自动记忆</span><button class="switch ${S.autoMem?'on':''}" data-act="autoMem" role="switch" aria-checked="${S.autoMem}" aria-label="自动记忆"></button><span class="plain">记忆</span></div>
+    <div class="tabs" style="align-items:center"><button class="${S.memTab==='all'?'on':''}" data-act="memTab" data-v="all">全部</button><button class="${S.memTab==='recent'?'on':''}" data-act="memTab" data-v="recent">最近</button><span class="sp" style="flex:1"></span><button class="btn sm ghost" data-act="memAdd" style="display:inline-flex;gap:4px;align-items:center">${ic('plus')}添加记忆</button></div>
+    ${body}</div></div></section>`;
+}
+
+function viewSkills(){
+  const all = [...S.skills, ...S.services];
+  const sk = all.find(s => s.id === S.selSkill);
+  const on = s => s.st === '可用';
+  const row = s => `<div class="row click ${S.selSkill===s.id?'sel':''}" data-act="selSkill" data-id="${s.id}"><div class="main"><div class="ttl">${esc(s.name)}</div><div class="sub">${esc(s.desc)}</div></div>${s.st==='等你确认'?'<span class="st wait">等你确认</span>':`<button class="switch ${on(s)?'on':''}" data-act="toggleSkill" data-id="${s.id}" role="switch" aria-checked="${on(s)}" aria-label="${esc(s.name)}"></button>`}</div>`;
+  const isSvc = sk && sk.id[0] === 'v';
+  const detail = !sk ? '' : `<div class="card detail"><div style="display:flex;align-items:center;gap:10px"><h3 style="margin:0;font-family:var(--serif);font-size:18px;flex:1">${esc(sk.name)}</h3>${sk.st==='等你确认'?'<span class="st wait">等你确认</span>':''}</div>
+    <p style="color:var(--ink2);margin:6px 0 0">${esc(sk.desc)}</p>
+    <dl class="kv"><dt>来源</dt><dd>${esc(sk.src || '你添加的')}</dd><dt>用过</dt><dd>${sk.used || 0} 次</dd><dt>最后一次</dt><dd>${esc(sk.last || '—')}</dd></dl>
+    ${isSvc ? sk.tools.map((t,n) => `<div class="srow" style="padding:8px 0"><div class="main">${esc(t[0])}</div><button class="switch ${t[1]?'on':''}" data-act="toolFlip" data-id="${sk.id}" data-v="${n}" role="switch" aria-checked="${t[1]}" aria-label="${esc(t[0])}"></button></div>`).join('') + `<div class="srow" style="padding:8px 0;margin-bottom:12px"><div class="main">蝶君能用</div><button class="switch ${sk.dj?'on':''}" data-act="svcDj" data-id="${sk.id}" role="switch" aria-checked="${sk.dj}" aria-label="蝶君能用"></button></div>` : ''}
+    <div id="tryOut"></div>
+    <div class="acts">${sk.st==='等你确认' ? `<button class="btn pri" data-act="view" data-v="inbox">去等你处理</button><button class="btn" data-act="tryIt">在沙箱里试一下</button>` : `<button class="btn" data-act="tryIt">${isSvc?'测试连接':'试一下'}</button><button class="btn ghost" data-act="toggleSkill" data-id="${sk.id}">${on(sk)?'停用':'启用'}</button>`}<span class="sp" style="flex:1"></span><button class="btn ghost" data-act="delSkill" data-id="${sk.id}" style="color:var(--seal)">删除</button></div></div>`;
+  return `<section class="view">${topBar('', {page:'技能'})}<div class="scroll"><div class="col" style="max-width:980px">
+    <div class="page-h"><h1 class="art">蝶园</h1><span class="sp"></span><button class="btn pri" data-act="newSkill" style="display:inline-flex;gap:4px;align-items:center">${ic('plus')}新建</button><span class="plain">技能</span></div>
+    <div class="split"><div><div class="sec" style="margin-top:0">技能</div>${S.skills.map(row).join('')}${S.services.length ? `<div class="sec">连接的服务</div>${S.services.map(row).join('')}` : ''}</div>${detail}</div>
+  </div></div></section>`;
+}
+
+const segs = (opts, cur, act) => `<div class="segs">${opts.map(o => `<button class="${o===cur?'on':''}" data-act="${act}" data-v="${o}">${o}</button>`).join('')}</div>`;
+const sw = (on, act, label) => `<button class="switch ${on?'on':''}" data-act="${act}" role="switch" aria-checked="${on}" aria-label="${label}"></button>`;
+const SET = () => ({
+  '通用':[
+    ['明暗', `<div class="segs">${['跟随系统','浅色','深色'].map((v,i)=>`<button class="${['system','light','dark'][i]===S.theme?'on':''}" data-act="theme" data-v="${['system','light','dark'][i]}">${v}</button>`).join('')}</div>`],
+    ['主题', `<div class="segs">${['暖纸','蛱蝶','草蝶','羽化','神思'].map((v,i)=>`<button class="${i===0?'on':''}" data-act="toast" data-v="${i===0?'暖纸是默认主题，深色时是暮色':'原型里只演示暖纸 / 暮色'}">${v}</button>`).join('')}</div>`, '名画主题：颜色跟着一幅名画走'],
+    ['关窗口时', `<div class="segs"><button class="${S.closeTo==='tray'?'on':''}" data-act="closeTo" data-v="tray">缩到托盘</button><button class="${S.closeTo==='quit'?'on':''}" data-act="closeTo" data-v="quit">退出</button></div><button class="btn sm ghost" data-act="closeAsk">试一下</button>`, '没选过的话，第一次关窗口时会问你'],
+    ['系统通知', sw(S.notif !== false, 'notif', '系统通知'), '蝶君做完了、蝶君卡住等你、工作台要你批准、工作台回复完了'],
+    ['网络', `<button class="btn sm" data-act="toast" data-v="联网搜索、网页读取、软件源、代理都在这一项里">打开</button>`, '联网搜索、网页读取、软件源、代理']],
+  '模型':[
+    ['服务商', `<span class="from">DeepSeek · OpenCode Go</span><button class="btn sm" data-act="toast" data-v="会打开添加服务商的窗口">添加</button>`],
+    ['对话模型', `<button class="chip" data-act="modelMenu">${esc(S.model)} ${ic('chev')}</button>`],
+    ['小任务模型', `<button class="chip">DeepSeek V4.1 Flash ${ic('chev')}</button>`, '起标题、整理记忆'],
+    ['大任务模型', `<button class="chip">DeepSeek V4.1 ${ic('chev')}</button>`, '整理长对话、深度分析'],
+    ['看图模型', `<button class="chip">不设置 ${ic('chev')}</button>`, '可选；对话模型看不了图时用']],
+  '工作台':[
+    ['默认工作区', `<button class="ws-btn" data-act="wsMenu">${ic('folder')}${esc(S.ws)}</button>`],
+    ['操作前问我', segs(['都问','改文件和跑命令时问','都不问'], S.approval, 'approval'), '读文件和搜索不用问'],
+    ['默认模式', segs(['标准','极简'], S.mode || '标准', 'mode'), '输入框里不再选，只在这里定']],
+  '蝶君':[
+    ['沙箱', `<span class="from">已就绪</span><button class="btn sm" data-act="toast" data-v="自检通过，11 项都正常">重新自检</button>`],
+    ['联网', sw(S.djNet !== false, 'djNet', '联网')],
+    ['开工前等你', segs(['10 秒','1 分钟','一直等'], S.djWait, 'djWait'), '复述任务后，等这么久没回应就开始'],
+    ['每月预算', `<button class="chip">¥ 50 ${ic('chev')}</button>`, '超过就暂停，进等你处理']],
+  '记忆':[['自动记忆', sw(S.autoMem, 'autoMem', '自动记忆')]],
+  '数据与安全':[
+    ['数据位置', `<span class="from">E:\\DreamFlutter\\data</span><button class="btn sm" data-act="toast" data-v="会一类一类地搬，搬完重启">修改</button>`, '剩余 142 GB'],
+    ['备份', `<span class="from">今天 08:00</span><button class="btn sm" data-act="toast" data-v="已开始备份，完成后通知你">立即备份</button>`],
+    ['敏感文件保护', sw(S.guard !== false, 'guard', '敏感文件保护'), '密钥、浏览器数据等不让它碰']],
+  '关于与更新':[
+    ['版本', `<span class="from">0.8.0</span><button class="btn sm" data-act="toast" data-v="已是最新版本">检查更新</button>`],
+    ['首次启动向导', `<button class="btn sm" data-act="wizard">重新走一遍</button>`]]
+});
+const ADV = {'通用':[['动画','跟随系统'],['界面缩放','100%']],'模型':[['记忆用哪个模型','小任务模型'],['压缩用哪个模型','大任务模型']],'工作台':[['单次最多轮数','100'],['提前整理上下文','用到 85% 时']],'蝶君':[['同时最多分几路做','4']],'记忆':[['写入频率','每次回复后'],['详细程度','标准'],['容量','2000 条'],['后台预算','每天 ¥1.4']],'数据与安全':[['审计日志','保留 90 天']],'关于与更新':[['诊断信息','导出（已脱敏）']]};
+function viewSettings(){
+  const q = (S.setQ || '').trim(); const all = SET();
+  const rowHTML = (r, g) => `<div class="srow"><div class="main">${g?`<div class="from">${g}</div>`:''}<div>${esc(r[0])}${r[2]?`<span class="q" data-tip="${esc(r[2])}">?</span>`:''}</div></div><div class="acts">${r[1]}</div></div>`;
+  let body;
+  if (q){
+    const hits = Object.entries(all).flatMap(([g, items]) => items.filter(r => (r[0] + (r[2] || '')).includes(q)).map(r => rowHTML(r, g)))
+      .concat(Object.entries(ADV).flatMap(([g, items]) => items.filter(r => r[0].includes(q)).map(r => rowHTML([r[0], `<span class="from">${r[1]}</span>`], g + ' · 高级'))));
+    body = hits.join('') || '<div class="empty">没有这项设置</div>';
+  } else {
+    body = all[S.setTab].map(r => rowHTML(r)).join('') + `<details class="adv"><summary>${ic('right')}高级</summary>${ADV[S.setTab].map(a => `<div class="srow"><div class="main"><div>${a[0]}</div></div><span class="from">${a[1]}</span></div>`).join('')}</details>`;
+  }
+  return `<section class="view">${topBar('', {page:'设置'})}<div class="scroll"><div class="col" style="max-width:900px">
+    <div class="page-h"><h1 class="art">一方天地</h1><span class="sp"></span><label class="search setq">${ic('search')}<input id="setq" placeholder="搜索设置" value="${esc(q)}" aria-label="搜索设置"></label><span class="plain">设置</span></div>
+    <div class="set"><nav class="set-nav">${Object.keys(all).map(k => `<button class="${k===S.setTab&&!q?'on':''}" data-act="setTab" data-v="${k}">${k}</button>`).join('')}</nav><div>${body}</div></div>
+  </div></div></section>`;
+}
+
+function viewCost(){
+  const led = [['今天 14:02','工作台 · ESP32 MQTT 断线重连','DeepSeek V4.1 Flash','¥0.02'],['今天 11:40','蝶君 · 把 30 篇参考文献统一格式','DeepSeek V4.1','¥0.11'],['今天 09:00','蝶君 · 每周一整理组会纪要','DeepSeek V4.1 Flash','¥0.05'],['今天 08:12','记忆整理','DeepSeek V4.1 Flash','¥0.01'],['昨天 21:30','工作台 · 第三章 文献综述润色','DeepSeek V4.1','¥0.09'],['昨天 16:05','起标题、看图','DeepSeek V4.1 Flash','¥0.01']];
+  return `<section class="view">${topBar('', {page:'花费'})}<div class="scroll"><div class="col">
+    <div class="page-h"><h1>花费</h1></div>
+    <div class="split" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">${[['今天','¥0.31'],['本月','¥14.80'],['本月预算','¥50']].map(x=>`<div class="card"><div class="from">${x[0]}</div><div style="font-family:var(--serif);font-size:26px;font-variant-numeric:tabular-nums">${x[1]}</div></div>`).join('')}</div>
+    <div class="sec">本月按用途</div>${[['工作台对话','¥9.12',62],['蝶君任务','¥4.05',27],['记忆整理','¥0.96',7],['起标题、看图等','¥0.67',4]].map(x=>`<div class="row"><div class="main"><div class="ttl">${x[0]}</div><div class="prog"><i style="width:${x[2]}%;background:var(--accent)"></i></div></div><span style="font-variant-numeric:tabular-nums">${x[1]}</span></div>`).join('')}
+    <div class="sec">明细</div><div class="tbl"><table class="ledger"><tr><th>时间</th><th>用在哪</th><th>模型</th><th class="num">花费</th></tr>${led.map(r=>`<tr><td style="white-space:nowrap">${r[0]}</td><td>${esc(r[1])}</td><td>${r[2]}</td><td class="num">${r[3]}</td></tr>`).join('')}</table></div>
+  </div></div></section>`;
+}
+
+function viewArchive(){
+  return `<section class="view">${topBar('', {page:'已归档'})}<div class="scroll"><div class="col"><div class="page-h"><h1>已归档</h1></div>
+    ${S.archived.map(c=>`<div class="row ${S.fresh.has(c.id)?'enter':''}"><div class="main"><div class="ttl">${esc(c.title)}</div><div class="sub">${esc(c.ws)}</div></div><button class="btn sm" data-act="unarchive" data-id="${c.id}">放回列表</button></div>`).join('') || '<div class="empty">没有归档的对话</div>'}
+  </div></div></section>`;
+}
+function viewRecycle(){
+  return `<section class="view">${topBar('', {page:'回收站'})}<div class="scroll"><div class="col"><div class="page-h"><h1>回收站</h1></div>
+    ${S.recycle.map(c=>`<div class="row ${S.fresh.has(c.id)?'enter':''}"><div class="main"><div class="ttl">${esc(c.title)}</div><div class="sub">还能恢复 ${esc(c.left)}</div></div><button class="btn sm" data-act="restore" data-id="${c.id}">恢复</button><button class="btn sm ghost" data-act="purge" data-id="${c.id}" style="color:var(--seal)">彻底删除</button></div>`).join('') || '<div class="empty">回收站是空的</div>'}
+  </div></div></section>`;
+}
+
+function viewSearch(){
+  const q = S.query.trim();
+  const has = s => s.toLowerCase().includes(q.toLowerCase());
+  const cs = S.convs.filter(c => has(c.title) || c.msgs.some(m => has((m.text||'') + (m.html||''))));
+  const files = ['reports/周报-W45.md','figures/温湿度-W45.png','src/mqtt.cpp','chapters/ch3.md','文档/组会/组会纪要-W44.md'].filter(has);
+  const mem = [...S.memory.you,...S.memory.project,...S.memory.dj].filter(k => has(k.t));
+  const mark = s => esc(s).replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'), m => `<mark style="background:var(--accent-soft);color:var(--accent)">${m}</mark>`);
+  return `<section class="view">${topBar('', {page:'搜索'})}<div class="scroll"><div class="col">
+    <div class="page-h"><h1>“${esc(q)}”</h1></div>
+    <div class="sec">对话</div>${cs.map(c=>`<div class="row click" data-act="openConvAny" data-id="${c.id}"><div class="main"><div class="ttl">${mark(c.title)}</div><div class="sub">${esc(c.ws)} · ${c.when}</div></div></div>`).join('')||'<div class="empty" style="padding:8px 0">没有</div>'}
+    <div class="sec">文件</div>${files.map(f=>`<div class="file">${ic('file')}<span class="n">${mark(f)}</span><button class="btn sm" data-act="toast" data-v="已打开 ${esc(f)}">打开</button></div>`).join('')||'<div class="empty" style="padding:8px 0">没有</div>'}
+    <div class="sec">记忆</div>${mem.map(k=>`<div class="row"><div class="main"><div>${mark(k.t)}</div><div class="sub">来自 ${esc(k.s)}</div></div></div>`).join('')||'<div class="empty" style="padding:8px 0">没有</div>'}
+  </div></div></section>`;
+}
+
+function renderRight(){
+  const r = $('#right');
+  r.classList.toggle('open', !!S.right && !S.query.trim());
+  if (!S.right) return;
+  let head = '', body = '';
+    if (S.right === 'changes'){
+    const c = conv(S.activeConv) || {changes:[], products:[]};
+    head = '本次改动';
+    const sel = f => S.commitSel[c.id + f] !== false;
+    const nsel = c.changes.filter(f => sel(f.f)).length;
+    const draft = c.id === 'c2' ? 'fix(mqtt): 断线后按指数退避自动重连' : 'docs: 更新 W45 周报（结论和湿度超限说明）';
+    const files = c.changes.map(f => `<div class="cfile ${S.openDiff[f.f]?'open':''}"><div class="cfile-h"><button class="cbox ${sel(f.f)?'on':''}" data-act="cSel" data-v="${esc(f.f)}" role="checkbox" aria-checked="${sel(f.f)}" aria-label="提交 ${esc(f.f)}">${sel(f.f)?ic('check'):''}</button><button class="open" data-act="cOpen" data-v="${esc(f.f)}" aria-expanded="${!!S.openDiff[f.f]}"><span class="nm">${esc(f.f)}</span><span class="p">+${f.a}</span><span class="m">−${f.d}</span>${ic('chev')}</button></div>${S.openDiff[f.f]?`<div class="diff">${(f.diff || [' （这个文件没有可显示的改动）']).map(l=>`<div class="${l[0]==='+'?'a':l[0]==='-'?'d':''}">${esc(l)}</div>`).join('')}</div>`:''}</div>`).join('');
+    body = `${c.changes.length ? `<div class="sec" style="margin-top:0">改了的文件</div>${c.changes.map(f=>`<div class="file">${ic('file')}<span class="n">${esc(f.f)}</span><span class="p">+${f.a}</span><span class="m">−${f.d}</span></div>`).join('')}` : '<div class="empty">这个对话还没改文件</div>'}
+      ${c.products.length ? `<div class="sec">生成的文件</div>${c.products.map(f=>`<div class="file">${ic('eye')}<span class="n">${esc(f)}</span><button class="btn sm" data-act="toast" data-v="已打开预览">预览</button></div>`).join('')}` : ''}
+      ${c.changes.length ? `<div class="sec">Git</div><div class="commit" id="commit">${S.committed===c.id ? `<div class="state ok">${ic('check')}已提交 3f2a9c1</div>` : S.committing ? `${files}<textarea id="cmsg" aria-label="提交说明">${esc(S.cmsg ?? draft)}</textarea><div class="acts" style="margin-top:8px"><button class="btn pri" data-act="commit" ${nsel?'':'disabled'}>确认提交</button><button class="btn ghost" data-act="cancelCommit">取消</button></div>` : `<button class="btn" data-act="startCommit" style="width:100%">${ic('git')} 提交这些改动</button>`}</div>` : ''}`;
+  } else if (S.right === 'aside'){
+    head = '问一下';
+    body = `<div class="mini"><div class="quote">${esc(S.aside.q)}</div>${S.aside.msgs.map(m=>m.r==='user'?`<div class="u"><div class="b">${esc(m.t)}</div></div>`:`<div class="reply" style="font-size:14px">${m.t==='…'?'<span class="spin"></span>':esc(m.t)}</div>`).join('')}
+      <div class="composer" style="padding:6px 8px"><textarea id="abox" rows="1" placeholder="就这段问点什么" aria-label="侧边提问"></textarea></div>
+      <div class="acts"><button class="btn sm pri" data-act="asideBack">带回去</button><button class="btn sm" data-act="asideSave">存下来</button><button class="btn sm ghost" data-act="closePanel">关掉</button></div></div>`;
+  } else if (S.right === 'task'){
+    const t = task(S.activeTask); head = '任务进度';
+    body = `<div class="row"><div class="main"><div class="ttl">${esc(t.title)}</div><div class="sub">${esc(t.progress)}</div></div>${stChip(t.status)}</div>
+      <div class="sec">步骤</div>${(t.msgs||[]).filter(m=>m.proc).flatMap(m=>m.proc.steps).map(s=>`<div class="step" style="border:0;padding-left:0">${ic(s[0])}<span>${s[1]}</span></div>`).join('')||'<div class="empty" style="padding:8px">还没开始</div>'}
+      ${t.repeat?`<div class="sec">重复</div><div class="row"><div class="main"><div class="ttl">${esc(t.repeat)}</div><div class="sub">下次：11 月 10 日 9:00</div></div><button class="btn sm" data-act="toast" data-v="已暂停定时">暂停</button></div>`:''}`;
+  }
+  r.innerHTML = `<div class="rp"><div class="rp-h">${head}<span class="sp"></span><button class="icon-btn" data-act="closePanel" aria-label="关闭">${ic('x')}</button></div><div class="rp-b">${body}</div></div>`;
+}
+
+function renderGuide(){
+  const g = $('#guide');
+  g.className = S.guideMin ? 'min' : '';
+  g.innerHTML = `<b data-act="guide">${ic('chev')} 试试这些（示例数据）</b><ol>
+    <li>发一句话，看过程、批准卡；回复完打开右栏，试试「提交这些改动」</li>
+    <li>在回复里选中一段文字，点「问一下」</li>
+    <li>说一句「这条记错了，我用 Matlab」</li>
+    <li><button data-act="space" data-v="dj">切到蝶君</button>，交给它一件事，看开始按钮上的进度</li>
+    <li>去 <button data-act="view" data-v="inbox">等你处理</button>，比较两组点完后能不能撤销</li>
+    <li>点开 <button data-act="view" data-v="skills">技能</button>、<button data-act="view" data-v="settings">设置</button>、<button data-act="view" data-v="recycle">回收站</button></li>
+    <li>重走 <button data-act="wizard">首次启动</button></li></ol>`;
+}
+
+/* ---------- behaviour ---------- */
+function toast(text, undo){
+  const el = document.createElement('div'); el.className = 'toast';
+  el.innerHTML = `<span>${esc(text)}</span>${undo?'<button>撤销</button>':''}`;
+  $('#toasts').appendChild(el);
+  let done = false;
+  const close = () => { if (done) return; done = true; el.classList.add('out'); setTimeout(() => el.remove(), 260); };
+  if (undo) el.querySelector('button').onclick = () => { undo(); close(); };
+  setTimeout(close, undo ? 5000 : 2600);
+}
+function notify(from, text, go){
+  const el = document.createElement('div'); el.className = 'notif'; el.setAttribute('role','status');
+  el.innerHTML = `${bf()}<div><div class="from">${esc(from)}</div><div>${esc(text)}</div></div>`;
+  document.body.appendChild(el);
+  const close = () => { el.classList.add('out'); setTimeout(() => el.remove(), 260); };
+  el.onclick = () => { close(); go && go(); };
+  setTimeout(close, 5200);
+}
+function menu(anchor, items){
+  closePop();
+  const r = anchor.getBoundingClientRect();
+  const el = document.createElement('div'); el.className = 'pop'; el.id = 'pop';
+  el.innerHTML = items.map(i => i === '-' ? '<hr>' : i.lbl ? `<div class="lbl">${esc(i.lbl)}</div>` : `<button class="${i.danger?'danger':''}">${i.icon?ic(i.icon):''}${esc(i.t)}</button>`).join('');
+  document.body.appendChild(el);
+  const w = el.offsetWidth, hgt = el.offsetHeight;
+  el.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+  el.style.top = (r.bottom + 4 + hgt > innerHeight ? r.top - hgt - 4 : r.bottom + 4) + 'px';
+  const btns = [...el.querySelectorAll('button')]; const real = items.filter(i => i !== '-' && !i.lbl);
+  btns.forEach((b, n) => b.onclick = e => { e.stopPropagation(); closePop(); real[n].fn && real[n].fn(); });
+}
+function closePop(){ const p = $('#pop'); if (p) p.remove(); }
+function autosize(t){ t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 160) + 'px'; }
+function go(view){ S.view = view; S.query = ''; S.drawer = false; $('#app').classList.remove('drawer'); if (!['chat','task'].includes(view)) S.right = null; render(); }
+
+function setInbox(fn){ const before = nowCount(); fn(); if (nowCount() > before) S.badgePop = true; }
+
+async function wbReply(text, quote){
+  const c = conv(S.activeConv);
+  S.busy = true;
+  const u = {id:nid('m'), r:'user', text, quote}; c.msgs.push(u); S.fresh.add(u.id);
+  S.draft = ''; S.quote = null; S.stick = true; render();
+  if (/错|不对/.test(text)){
+    await wait(900);
+    const a = {id:nid('m'), r:'ai', html:'<p>明白，你现在画曲线图用的是 Matlab，不是 Python。我改好了，之后画图默认按 Matlab 来。</p>', mem:'做实验数据分析偏好用 Matlab 画图', meta:S.model+' · 4 秒 · ¥0.01'};
+    S.memory.you[2] = {...S.memory.you[2], t:'做实验数据分析偏好用 Matlab 画图', d:'今天'};
+    c.msgs.push(a); S.fresh.add(a.id); S.busy = false; S.stick = true; render(); return;
+  }
+  if (/出错|报错测试/.test(text)){
+    await wait(800);
+    const e = {id:nid('m'), r:'error', why:'DeepSeek 返回“余额不足”（402）。可以换一个模型继续，或者去充值后重试。'}; c.msgs.push(e); S.fresh.add(e.id); S.busy = false; S.stick = true; render(); return;
+  }
+  const a = {id:nid('m'), r:'ai', state:'received', t0:Date.now(), proc:{running:true, now:'收到了，马上开始', steps:[], label:''}, html:''};
+  c.msgs.push(a); S.fresh.add(a.id); S.stick = true; render();
+  await wait(800); if (!S.busy) return;
+  a.state = 'thinking'; a.proc.now = '想想先看哪些数据'; renderMain();
+  await wait(1500); if (!S.busy) return;
+  a.state = 'reading'; a.proc.steps.push(['file','读取 <code>data/raw/1110.csv</code>']); a.proc.now = '正在读取 data/raw/1110.csv'; renderMain();
+  await wait(1400); if (!S.busy) return;
+  a.proc.steps.push(['play','运行 <code>python scripts/summary.py --day 1110</code>']); a.proc.now = '正在运行 python scripts/summary.py'; a.state = 'working'; S.stick = true; renderMain();
+  await wait(1200); if (!S.busy) return;
+  a.proc.now = '要修改 reports/周报-W45.md，等你批准'; a.state = 'review';
+  const ap = {id:nid('m'), r:'approve', title:'修改 reports/周报-W45.md', why:'把 11 月 10 日的数据补进周报', diff:['@@ 本周概况 @@',' 温度：22.4 ℃（+0.6）','-湿度：待补充','+湿度：68.2 %，周三夜间 14 次超限','+补充：11 月 10 日数据已并入'], state:'pending'};
+  c.msgs.push(ap); S.fresh.add(ap.id);
+  setInbox(() => S.inbox.unshift({id:'ia'+ap.id, grp:'now', from:'工作台 · '+c.title, what:'允许修改 reports/周报-W45.md？', why:'把 11 月 10 日的数据补进周报', acts:['允许','拒绝'], conv:c.id, ap:ap.id}));
+  S.pending = {a, ap, c}; S.stick = true; render();
+}
+async function streamText(a, text){
+  for (let i = 4; i <= text.length + 3; i += 4){ a.html = '<p>' + esc(text.slice(0, i)) + '</p>'; S.stick = true; renderMain(); await wait(REDUCED ? 0 : 70); }
+}
+async function finishApprove(v){
+  const {a, ap, c} = S.pending || {}; if (!ap) return;
+  ap.state = v === 'no' ? 'no' : 'ok';
+  S.inbox = S.inbox.filter(i => i.ap !== ap.id); S.pending = null; render();
+  if (v === 'no'){ a.proc.running = false; a.proc.label = '读取 1 个文件 · 运行 1 条命令'; const r = {id:nid('m'), r:'ai', html:'<p>好的，没有改文件。汇总结果在上面的命令输出里，需要的话我可以换个写法再给你看。</p>', meta:S.model+' · 9 秒 · ¥0.01'}; c.msgs.push(r); S.fresh.add(r.id); S.busy=false; S.stick=true; render(); return; }
+  a.proc.steps.push(['edit','修改 <code>reports/周报-W45.md</code>（+2 −1）']); a.state = 'working'; a.proc.now = '正在修改 reports/周报-W45.md'; renderMain();
+  await wait(1000);
+  a.state = 'writing'; a.proc.now = '正在写回复'; a.streaming = true;
+  await streamText(a, '11 月 10 日的数据已经补进周报。当天湿度回落到 61 %，没有新的超限，本周超限次数仍是 14 次。曲线图也一并更新了。');
+  a.streaming = false; a.proc.running = false; a.proc.label = '读取 1 个文件 · 运行 1 条命令 · 修改 1 个文件';
+  a.meta = S.model + ' · 12 秒 · ¥0.02';
+  c.changes = [{f:'reports/周报-W45.md', a:14, d:2, diff:['@@ 本周概况 @@',' 温度：22.4 ℃（+0.6）','-湿度：待补充','+湿度：68.2 %，周三夜间 14 次超限','+补充：11 月 10 日数据已并入']}]; S.committed = null;
+  S.busy = false; S.stick = true; render();
+  if (!S.right){ S.right = 'changes'; setTimeout(renderRight, 200); }
+}
+
+async function djAssign(text){
+  const t = {id:nid('t'), title:text.length>28?text.slice(0,28)+'…':text, status:'run', progress:'正在确认要做什么', msgs:[]};
+  S.tasks.unshift(t); S.fresh.add(t.id); S.activeTask = t.id; S.view = 'task'; S.draft = '';
+  const u = {id:nid('m'), r:'user', text}; t.msgs.push(u);
+  render(); await wait(900);
+  const secs = S.djWait === '10 秒' ? 10 : S.djWait === '1 分钟' ? 60 : 0;
+  const rs = {id:nid('m'), r:'restate', text:'我理解是：'+text+'。打算这样做：', plan:['先找出相关文件和资料','逐项整理，遇到拿不准的先记下来','整理成一份文件交给你'], state:'wait', secs, t0:Date.now()};
+  t.msgs.push(rs); S.fresh.add(rs.id); t.progress = '复述了任务，等你说一声就开始'; S.stick = true; render();
+  if (secs) timers[rs.id] = setTimeout(() => djStart(t.id, rs.id), secs*1000);
+}
+async function djStart(tid, rid){
+  clearTimeout(timers[rid]);
+  const t = task(tid); const rs = t.msgs.find(m => m.id === rid); if (!rs || rs.state !== 'wait') return;
+  rs.state = 'go'; t.status = 'run'; t.progress = '正在找相关文件';
+  const a = {id:nid('m'), r:'ai', state:'search', t0:Date.now(), proc:{running:true, now:'在 文档/ 里找相关文件', steps:[['search','在 文档/ 里找相关文件，找到 4 个']]}, html:''};
+  t.msgs.push(a); S.fresh.add(a.id); S.stick = true; render();
+  await wait(1800);
+  a.proc.steps.push(['file','逐个读取并整理']); a.proc.now = '正在整理第 2 / 4 个文件'; a.state = 'reading'; t.progress = '正在整理第 2 / 4 个文件'; S.stick = true; render();
+  await wait(1800);
+  a.proc.running = false; a.proc.label = '找了 4 个文件 · 整理完成';
+  t.status = 'done'; t.progress = '刚刚完成';
+  const d = {id:nid('m'), r:'deliver', title:t.title, summary:'整理好了。4 个文件里有 1 处前后矛盾（11 月 2 日和 11 月 6 日的结论不一致），我在文中标了出来，等你定。', files:['蝶君/交付/'+t.title.replace(/[\\/:*?"<>|…]/g,'').slice(0,16)+'.md'], time:'4 分钟', cost:'¥0.06'};
+  t.msgs.push(d); S.fresh.add(d.id); S.stick = true; render();
+  notify('蝶君完成了', t.title, () => { S.space='dj'; S.activeTask=t.id; go('task'); });
+}
+
+function tickReferences(){
+  const t = task('t2'); if (!t || t.status !== 'run') return;
+  t.n = Math.min(t.of, t.n + 1); t.progress = `已整理 ${t.n} / ${t.of} 篇`;
+  if (t.msgs){ const a = t.msgs.find(m => m.proc && m.proc.running); if (a) a.proc.now = `正在整理第 ${t.n} 篇`; }
+  if (t.n >= t.of){
+    t.status = 'done'; t.progress = '刚刚完成 · 30 篇全部统一';
+    if (t.msgs){ const a = t.msgs.find(m => m.proc && m.proc.running); if (a){ a.proc.running=false; a.proc.label='读取 1 个文件 · 整理 30 条'; } t.msgs.push({id:nid('m'), r:'deliver', title:t.title, summary:'30 篇都改成了 GB/T 7714—2015。有 2 篇缺页码，我标了黄色，补上就完整了。', files:['论文写作/参考文献-国标.docx'], time:'14 分钟', cost:'¥0.11'}); }
+    notify('蝶君完成了', t.title, () => { S.space='dj'; S.activeTask='t2'; go('task'); });
+  }
+  if (S.space === 'dj' && !(document.activeElement && document.activeElement.id === 'box' && S.draft)) { renderMain(); renderSide(); if (S.right==='task') renderRight(); }
+  else renderSide();
+}
+setInterval(tickReferences, 2600);
+
+function inboxAct(id, v){
+  const i = S.inbox.find(x => x.id === id); if (!i) return;
+  const el = document.getElementById('row-'+id); if (el) el.classList.add('leave');
+  const idx = S.inbox.indexOf(i);
+  setTimeout(() => {
+    S.inbox = S.inbox.filter(x => x !== i);
+    let undo = () => { S.inbox.splice(idx, 0, i); S.fresh.add(i.id); render(); };
+    if (i.grp === 'now') undo = null;
+    if (i.task){ const t = task(i.task); t.status = 'run'; t.progress = `按「${v}」筛选型号`; t.inbox = null;
+      if (t.msgs) t.msgs.push({id:nid('m'), r:'user', text:v});
+      setTimeout(() => { if (t.status !== 'run') return; t.status='done'; t.progress='刚刚完成'; if (t.msgs) t.msgs.push({id:nid('m'), r:'deliver', title:t.title, summary:`按 ${v} 筛下来剩 3 款：SHT45、BME280、AHT20。精度 SHT45 最好，AHT20 最便宜，对比表里写了推荐理由。`, files:['蝶君/交付/温湿度传感器对比.xlsx'], time:'9 分钟', cost:'¥0.08'}); notify('蝶君完成了', t.title, () => { S.space='dj'; S.activeTask=t.id; go('task'); }); if (S.space==='dj') render(); else renderSide(); }, 4500);
+      undo = null; }
+    if (i.conv && !i.ap){ const c = S.convs.find(x => x.id === i.conv); const ap = c.msgs.find(m => m.r==='approve' && m.state==='pending'); if (ap) ap.state = v==='拒绝'?'no':'ok'; c.running = false; }
+    if (i.ap){ S.pending && finishApprove(v==='拒绝'?'no':'ok'); }
+    if (i.skill){ const s = S.skills.find(x => x.id === i.skill); const tm = setTimeout(() => { s.st = v==='采用'?'可用':'已停用'; if (S.view==='skills') renderMain(); }, 5000); const u0 = undo; undo = () => { clearTimeout(tm); u0(); }; }
+    render();
+    toast(`${v}：${i.what.replace(/？$/,'')}`, undo);
+  }, 230);
+}
+
+/* ---------- wizard ---------- */
+const W = {step:0, data:{where:'soft', name:'', prov:'DeepSeek', key:'', tested:false, testing:false, ws:'E:\\毕设\\传感器数据', dj:'now'}};
+function wizard(){ W.step = 0; W.data.tested = false; renderWiz(); }
+function renderWiz(){
+  let el = $('#wiz'); if (!el){ el = document.createElement('div'); el.id = 'wiz'; document.body.appendChild(el); }
+  const d = W.data, n = W.step;
+  const dots = n>=1 && n<=5 ? `<div class="wz-dots">${[1,2,3,4,5].map(i=>`<i class="${i===n?'on':i<n?'done':''}"></i>`).join('')}</div>` : '';
+  const opt = (k, v, t, s) => `<div class="opt ${d[k]===v?'on':''}" data-wz="${k}" data-v="${v}" tabindex="0"><span class="r"></span><div><div>${t}</div>${s?`<div class="from">${s}</div>`:''}</div></div>`;
+  const steps = [
+    `<div class="splash">${sprite('received')}<h2>你好，我是 DreamFlutter</h2><p class="lead">住在你电脑里的助手。花一分钟设好，就能开始。</p><button class="btn pri" data-wzgo="1" style="padding:9px 28px">开始</button></div>`,
+    `<h2>数据放在哪</h2><p class="lead">对话、记忆、设置都存在这里，以后可以搬。</p>${opt('where','soft','跟软件放在一起（推荐）','E:\\DreamFlutter\\data · 剩余 142 GB')}${opt('where','other','选别的文件夹…','')}`,
+    `<h2>怎么称呼你</h2><p class="lead">它会这样叫你，随时能改。</p><div class="field"><label for="wzName">称呼</label><input id="wzName" value="${esc(d.name)}" placeholder="比如：小周"></div>`,
+    `<h2>连接一个模型</h2><p class="lead">填服务商给你的密钥。只存在这台电脑上，加密保存。</p>
+      <div class="field"><label for="wzProv">服务商</label><select id="wzProv">${['DeepSeek','OpenCode Go','智谱','OpenAI 兼容（自定义地址）'].map(p=>`<option ${p===d.prov?'selected':''}>${p}</option>`).join('')}</select></div>
+      <div class="field"><label for="wzKey">密钥</label><input id="wzKey" type="password" value="${esc(d.key)}" placeholder="sk-…" autocomplete="off"><span class="hint">原型里随便填几个字就行，不会发送到任何地方。</span></div>
+      <div class="acts"><button class="btn" data-act="wzTest" ${d.testing?'disabled':''}>${d.testing?'<span class="spin"></span> 正在测试…':'测试连接'}</button>${d.tested?`<span class="state ok">${ic('check')}连接成功，已推荐三个模型</span>`:''}</div>
+      ${d.tested?`<div class="card" style="margin-top:12px;font-size:13px"><div class="kv" style="margin:0"><dt>对话</dt><dd>DeepSeek V4.1 Flash</dd><dt>小任务</dt><dd>DeepSeek V4.1 Flash</dd><dt>大任务</dt><dd>DeepSeek V4.1</dd></div></div>`:''}`,
+    `<h2>常用的项目文件夹</h2><p class="lead">工作台默认在这里干活。可以跳过，以后再选。</p><div class="field"><label for="wzWs">文件夹</label><input id="wzWs" value="${esc(d.ws)}"></div>`,
+    `<h2>蝶君</h2><p class="lead">蝶君能自己完成交给它的事，在一个隔离的沙箱里干活，碰不到你的系统。</p>${opt('dj','now','现在准备沙箱（推荐）','后台进行，大约 3 分钟，不影响你先用工作台')}${opt('dj','later','以后再说','第一次交给蝶君任务时再准备')}`,
+    `<div class="splash">${sprite('received')}<h2>正在准备</h2><div class="bar"><i id="wzBar"></i></div><p class="lead" id="wzMsg">正在建数据目录…</p></div>`
+  ];
+  const canNext = n===3 ? d.tested : n===2 ? true : true;
+  el.innerHTML = `<div class="wz">${dots}<div class="wz-step">${steps[n]}</div>${n>=1&&n<=5?`<div class="wz-nav">${n>1?'<button class="btn ghost" data-wzgo="-1">上一步</button>':''}<span class="sp"></span>${n===4?'<button class="btn ghost" data-wzgo="1">跳过</button>':''}<button class="btn pri" data-wzgo="1" ${canNext?'':'disabled'} title="${canNext?'':'先测试连接'}">${n===5?'完成':'下一步'}</button></div>`:''}</div>`;
+  const nm = $('#wzName'); if (nm){ nm.oninput = e => d.name = e.target.value; nm.focus(); }
+  const k = $('#wzKey'); if (k) k.oninput = e => d.key = e.target.value;
+  const p = $('#wzProv'); if (p) p.onchange = e => { d.prov = e.target.value; d.tested = false; renderWiz(); };
+  const w = $('#wzWs'); if (w) w.oninput = e => d.ws = e.target.value;
+  if (n === 6) runSplash();
+}
+async function runSplash(){
+  const msgs = ['正在建数据目录…','正在连接 DeepSeek…','正在准备记忆…','好了'];
+  for (let i = 0; i < msgs.length; i++){ await wait(650); const b = $('#wzBar'), m = $('#wzMsg'); if (!b) return; b.style.width = ((i+1)/msgs.length*100) + '%'; m.textContent = msgs[i]; }
+  await wait(450);
+  const el = $('#wiz'); el.style.transition = 'opacity 350ms'; el.style.opacity = '0';
+  setTimeout(() => { el.remove(); S.space = 'wb'; S.view = 'home'; S.right = null; render(); toast(W.data.name ? `欢迎，${W.data.name}` : '设置好了，开始吧'); if (W.data.dj==='now') setTimeout(() => toast('蝶君的沙箱在后台准备中'), 900); }, 360);
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click', e => {
+  const wz = e.target.closest('[data-wz]'); if (wz){ W.data[wz.dataset.wz] = wz.dataset.v; renderWiz(); return; }
+  const wg = e.target.closest('[data-wzgo]'); if (wg && !wg.disabled){ W.step = Math.max(0, W.step + Number(wg.dataset.wzgo)); renderWiz(); return; }
+  if (!e.target.closest('#pop')) closePop();
+  const b = e.target.closest('[data-act]'); if (!b) { hideSel(); return; }
+  const a = b.dataset.act, id = b.dataset.id, v = b.dataset.v;
+  if (a !== 'quoteSel' && a !== 'askSel') hideSel();
+  switch (a){
+    case 'space': S.space = v; S.query=''; S.view = v==='wb' ? (S.activeConv ? 'chat' : 'home') : 'chat'; S.right = null; S.drawer=false; $('#app').classList.remove('drawer'); render(); break;
+    case 'view': go(v); break;
+    case 'new': S.right = null; go(S.space==='wb' ? 'home' : 'chat'); S.activeConv = S.space==='wb' ? null : S.activeConv; render(); setTimeout(()=>$('#box')&&$('#box').focus(), 50); break;
+    case 'openConv': if (e.target.closest('.more')) return; S.activeConv = id; S.space='wb'; go('chat'); break;
+    case 'openConvAny': { const c = conv(id); S.ws = c.ws; S.activeConv = id; S.space='wb'; go('chat'); break; }
+    case 'openTask': S.activeTask = id; S.space='dj'; go('task'); break;
+    case 'convMenu': e.stopPropagation(); { const c = conv(id); menu(b, [
+      {t:'重命名', icon:'edit', fn:()=>toast('原型里不演示重命名')}, {t:'把这次做法存成技能', icon:'skills', fn:()=>toast('已放进「等你处理」：采用技能「'+c.title.slice(0,10)+'…」？')},
+      {t:'定时再做一次', icon:'clock', fn:()=>toast('已设好：每周一 9:00 再做一次')}, {t:'这段对话不记忆', icon:'memory', fn:()=>toast('这段对话之后不再写记忆')}, {t:'导出', icon:'file', fn:()=>toast('已导出为 Markdown')}, {t:'归档', icon:'archive', fn:()=>{ const i = S.convs.indexOf(c); S.convs.splice(i,1); S.archived.unshift(c); if (S.activeConv===c.id){ S.activeConv=null; S.view='home'; } render(); toast('已归档', ()=>{ S.archived.shift(); S.convs.splice(i,0,c); render(); }); }}, '-',
+      {t:'删除', icon:'trash', danger:true, fn:()=>{ const i = S.convs.indexOf(c); S.convs.splice(i,1); if (S.activeConv===c.id){ S.activeConv=null; S.view='home'; } S.recycle.unshift(Object.assign(c, {left:'30 天'})); render(); toast('已删除', ()=>{ S.recycle.shift(); S.convs.splice(i,0,c); render(); }); }}]); } break;
+    case 'wsMenu': menu(b, [{lbl:'切换工作区'}, ...S.workspaces.map(w => ({t:(w===S.ws?'✓ ':'　')+w, icon:'folder', fn:()=>{ S.ws=w; const first = S.convs.find(c=>c.ws===w); S.activeConv = first?first.id:null; S.view = first?'chat':'home'; S.right=null; render(); }})), '-', {t:'打开文件夹…', icon:'plus', fn:()=>toast('会弹出系统的选文件夹窗口')}]); break;
+    case 'modelMenu': menu(b, [{lbl:'这句话用哪个模型'}, ...['DeepSeek V4.1 Flash','DeepSeek V4.1','Kimi K3'].map(m => ({t:(m===S.model?'✓ ':'　')+m, fn:()=>{ S.model=m; render(); }}))]); break;
+    case 'thinkMenu': menu(b, ['低','中','高'].map(t => ({t:(t===S.think?'✓ ':'　')+t, fn:()=>{ S.think=t; render(); }}))); break;
+    case 'ghost': S.ghost = !S.ghost; render(); toast(S.ghost?'无痕：这次不保存、不记忆':'已关闭无痕'); break;
+    case 'attach': toast('会打开选文件窗口；也可以直接把文件拖进来'); break;
+    case 'send': send(); break;
+    case 'stop': S.busy = false; if (S.pending){ S.pending.a.proc.running=false; S.pending.a.proc.label='已停止'; } render(); toast('已停止'); break;
+    case 'example': S.draft = v; if (S.space==='wb' && S.view==='home'){ newConvFrom(v); } else send(); break;
+    case 'toggleProc': { const c = S.view==='task'?task(S.activeTask):conv(S.activeConv); const m = c.msgs.find(x=>x.id===id); m.proc.open = !m.proc.open; b.parentElement.classList.toggle('open'); break; }
+    case 'approve': if (v==='all') toast('这个对话里修改文件不再问你'); finishApprove(v==='no'?'no':'ok'); break;
+    case 'togglePanel': S.right = S.right ? null : (S.view==='task' ? 'task' : 'changes'); renderRight(); renderMain(); break;
+    case 'closePanel': S.right = null; renderRight(); renderMain(); break;
+    case 'startCommit': S.committing = true; S.cmsg = null; renderRight(); setTimeout(()=>$('#cmsg')&&$('#cmsg').focus(),50); break;
+    case 'cancelCommit': S.committing = false; renderRight(); break;
+    case 'commit': { const c = conv(S.activeConv); const n = c.changes.filter(f => S.commitSel[c.id + f.f] !== false).length; S.committing = false; S.committed = S.activeConv; renderRight(); toast(`已提交 ${n} 个文件`); break; }
+    case 'cSel': { const c = conv(S.activeConv); S.commitSel[c.id + v] = !(S.commitSel[c.id + v] !== false); renderRight(); break; }
+    case 'cOpen': S.openDiff[v] = !S.openDiff[v]; renderRight(); break;
+    case 'clearQuote': S.quote = null; renderMain(); break;
+    case 'inboxAct': inboxAct(id, v); break;
+    case 'inboxGo': { const i = S.inbox.find(x=>x.id===id); if (i.task){ S.activeTask=i.task; S.space='dj'; go('task'); } else if (i.conv){ S.activeConv=i.conv; S.space='wb'; const c=conv(i.conv); S.ws=c.ws; go('chat'); } else if (i.skill){ S.selSkill=i.skill; go('skills'); } else go('memory'); break; }
+    case 'memTab': S.memTab = v; renderMain(); break;
+    case 'memEdit': { const t = document.querySelector(`[data-mem="${id}"]`); t.focus(); document.getSelection().selectAllChildren(t); break; }
+    case 'memDel': { const arr = S.memory[b.dataset.key]; const i = arr.findIndex(k=>k.id===id); const k = arr[i]; const el = document.getElementById('mem-'+id); el.classList.add('leave'); setTimeout(()=>{ arr.splice(i,1); renderMain(); toast('已删除这条记忆', ()=>{ arr.splice(i,0,k); S.fresh.add(k.id); renderMain(); }); }, 230); break; }
+    case 'memSrc': toast('会跳到那次对话里说这句话的位置'); break;
+    case 'undoMem': { const el = document.getElementById('mn-'+id); S.memory.you[2] = {...S.memory.you[2], t:'做实验数据分析偏好用 Python 画图'}; if (el){ el.style.opacity='0'; el.style.transition='opacity 250ms'; } toast('已撤销这次记忆更新'); break; }
+    case 'usedMem': menu(b, [{lbl:'这次参考了 3 条记忆'}, ...[S.memory.you[0], S.memory.project[0], S.memory.project[1]].map(k=>({t:k.t.slice(0,22)+(k.t.length>22?'…':''), icon:'memory', fn:()=>go('memory')}))]); break;
+    case 'autoMem': S.autoMem = !S.autoMem; render(); toast(S.autoMem?'自动记忆已打开':'自动记忆已关闭，已有的记忆保留'); break;
+    case 'selSkill': S.selSkill = id; renderMain(); break;
+    case 'tryIt': { const o = $('#tryOut'); o.innerHTML = `<div class="state" style="margin-bottom:10px"><span class="spin"></span>正在蝶君沙箱里试运行…</div>`; setTimeout(()=>{ o.innerHTML = `<div class="state ok" style="margin-bottom:10px">${ic('check')}试运行通过：3 个样例都得到了预期结果（用时 4 秒）</div>`; }, 1300); break; }
+    case 'adoptSkill': { const s = S.skills.find(x=>x.id===id); s.st='可用'; S.inbox = S.inbox.filter(i=>i.skill!==id); render(); toast('已采用「'+s.name+'」', ()=>{ s.st='等你确认'; render(); }); break; }
+    case 'toggleSkill': { const s = S.skills.find(x=>x.id===id) || S.services.find(x=>x.id===id); s.st = s.st==='可用' ? '已停用' : '可用'; renderMain(); break; }
+    case 'toolFlip': { const s = S.services.find(x=>x.id===id); s.tools[+v][1] = !s.tools[+v][1]; renderMain(); break; }
+    case 'svcDj': { const s = S.services.find(x=>x.id===id); s.dj = !s.dj; renderMain(); toast(s.dj ? `蝶君现在能用「${s.name}」` : `蝶君不再能用「${s.name}」`); break; }
+    case 'askFirst': S.askFirst = !S.askFirst; renderMain(); toast(S.askFirst ? '改文件、跑命令前会先问你' : '这个对话里改文件、跑命令不再问你'); break;
+    case 'ctxMenu': menu(b, [{lbl:`上下文用了 ${S.ctx}%`}, {t:'整理上下文', icon:'redo', fn:()=>{ const was = S.ctx; S.ctx = 12; renderMain(); toast('整理好了，前面的内容留了摘要', ()=>{ S.ctx = was; renderMain(); }); }}]); break;
+    case 'memAdd': { const k = {id:nid('k'), t:'新的一条，点这里改', s:'你记下的', d:'刚刚'}; S.memory.you.unshift(k); S.fresh.add(k.id); S.memTab = 'all'; renderMain(); setTimeout(()=>{ const t = document.querySelector(`[data-mem="${k.id}"]`); if (t){ t.focus(); document.getSelection().selectAllChildren(t); } }, 30); break; }
+    case 'unarchive': { const i = S.archived.findIndex(x=>x.id===id); const c = S.archived.splice(i,1)[0]; S.convs.push(c); c.when = '本周'; render(); toast('已放回对话列表'); break; }
+    case 'restore': { const i = S.recycle.findIndex(x=>x.id===id); const c = S.recycle.splice(i,1)[0]; delete c.left; c.when = c.when === '10月' ? '本周' : c.when; S.convs.push(c); render(); toast(`已恢复「${c.title}」`); break; }
+    case 'purge': { const c = S.recycle.find(x=>x.id===id); menu(b, [{lbl:'彻底删除后找不回来'}, {t:'彻底删除「'+c.title.slice(0,12)+'」', icon:'trash', danger:true, fn:()=>{ S.recycle = S.recycle.filter(x=>x!==c); render(); toast('已彻底删除'); }}]); break; }
+    case 'mode': S.mode = v; renderMain(); break;
+    case 'notif': S.notif = S.notif === false; renderMain(); break;
+    case 'djNet': S.djNet = S.djNet === false; renderMain(); break;
+    case 'guard': S.guard = S.guard === false; renderMain(); break;
+    case 'delSkill': { const list = id[0]==='v'?S.services:S.skills; const i = list.findIndex(x=>x.id===id); const s = list[i]; list.splice(i,1); S.selSkill = (S.skills[0]||{}).id; render(); toast('已删除「'+s.name+'」', ()=>{ list.splice(i,0,s); S.selSkill=s.id; render(); }); break; }
+    case 'newSkill': menu(b, [{t:'让它帮我做一个', icon:'skills', fn:()=>{ S.space='wb'; S.activeConv=null; S.view='home'; S.draft='帮我做一个技能：'; render(); setTimeout(()=>$('#box')&&$('#box').focus(),50); }}, {t:'从文件夹导入…', icon:'folder', fn:()=>toast('导入后会先进「等你处理」，你确认了才能用')}, {t:'从链接导入…', icon:'link', fn:()=>toast('支持 GitHub 链接和 zip')}]); break;
+    case 'setTab': S.setTab = v; S.setQ = ''; renderMain(); break;
+    case 'theme': S.theme = v; if (v==='system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', v); renderMain(); break;
+    case 'closeTo': S.closeTo = v; renderMain(); break;
+    case 'closeAsk': { const d = document.createElement('div'); d.className = 'notif'; d.style.cursor = 'default'; d.innerHTML = bf() + '<div><div class="from">关闭 DreamFlutter</div><div style="margin-bottom:8px">缩到托盘的话，蝶君的任务和定时任务会继续做。</div><div class="acts"><button class="btn sm pri" data-v="tray">缩到托盘</button><button class="btn sm" data-v="quit">退出</button></div><div class="from" style="margin-top:6px">会记住你的选择，设置里可以改</div></div>'; document.body.appendChild(d); d.querySelectorAll('button').forEach(x => x.onclick = ev => { ev.stopPropagation(); S.closeTo = x.dataset.v; d.remove(); renderMain(); toast(x.dataset.v==='tray' ? '已缩到托盘（演示）' : '已退出（演示）'); }); break; }
+    case 'approval': S.approval = v; renderMain(); break;
+    case 'djWait': S.djWait = v; renderMain(); break;
+    case 'flip': b.classList.toggle('on'); break;
+    case 'goSet': S.setTab = v; go('settings'); break;
+    case 'retry': toast('已重试'); break;
+    case 'regen': toast('会重新生成这条回复，旧的可以翻回去看'); break;
+    case 'forkHere': toast('已从这里分出一个新对话，挂在原对话下面'); break;
+    case 'copy': toast('已复制'); break;
+    case 'djStart': djStart(S.activeTask, id); break;
+    case 'djChange': { const t = task(S.activeTask); const rs = t.msgs.find(m=>m.r==='restate'&&m.state==='wait'); if (rs){ clearTimeout(timers[rs.id]); rs.secs = 0; renderMain(); } $('#box').focus(); toast('先不开始，说说要改哪里'); break; }
+    case 'wizard': wizard(); break;
+    case 'wzTest': { const d = W.data; if (!d.key.trim()){ toast('先填密钥'); $('#wzKey').focus(); return; } d.testing = true; renderWiz(); setTimeout(()=>{ d.testing=false; d.tested=true; renderWiz(); }, 1200); break; }
+    case 'guide': S.guideMin = !S.guideMin; renderGuide(); break;
+    case 'drawer': S.drawer = !S.drawer; $('#app').classList.toggle('drawer', S.drawer); break;
+    case 'closeDrawer': S.drawer = false; $('#app').classList.remove('drawer'); break;
+    case 'toast': toast(v); break;
+    case 'asideBack': { const last = [...S.aside.msgs].reverse().find(m=>m.r==='ai'&&m.t!=='…'); S.quote = last ? last.t : S.aside.q; S.right = null; renderRight(); renderMain(); $('#box').focus(); break; }
+    case 'asideSave': { const c = conv(S.activeConv); const k = {id:nid('c'), title:'问一下：'+S.aside.q.slice(0,12)+'…'}; c.children.push(k); S.fresh.add(k.id); renderSide(); toast('已存下来，挂在这个对话下面'); break; }
+    case 'quoteSel': S.quote = selText; hideSel(); renderMain(); $('#box').focus(); break;
+    case 'askSel': S.aside = {q:selText, msgs:[]}; hideSel(); S.right = 'aside'; renderRight(); renderMain(); setTimeout(()=>$('#abox')&&$('#abox').focus(), 380); break;
+  }
+});
+
+function newConvFrom(text){
+  const c = {id:nid('c'), ws:S.ws, title:text.length>18?text.slice(0,18)+'…':text, when:'今天', msgs:[], changes:[], products:[], children:[]};
+  S.convs.unshift(c); S.fresh.add(c.id); S.activeConv = c.id; S.view = 'chat';
+  wbReply(text, null);
+}
+function send(){
+  const text = (S.draft || '').trim(); if (!text && !S.quote) return; if (S.busy) return;
+  if (S.space === 'dj'){
+    if (S.view === 'task'){ const t = task(S.activeTask); const u = {id:nid('m'), r:'user', text}; t.msgs.push(u); S.fresh.add(u.id); S.draft=''; S.stick=true; render();
+      const rs = t.msgs.find(m=>m.r==='restate'&&m.state==='wait');
+      setTimeout(()=>{ const r = {id:nid('m'), r:'ai', html:`<p>${rs?'好，按你说的改了，现在开始。':'收到，我在原来的基础上改，改好了通知你。'}</p>`}; t.msgs.push(r); S.fresh.add(r.id); S.stick=true; render(); if (rs) djStart(t.id, rs.id); }, 800); return; }
+    djAssign(text); return;
+  }
+  if (!S.activeConv || S.view === 'home'){ S.draft=''; newConvFrom(text); return; }
+  wbReply(text || '（引用）', S.quote);
+}
+document.addEventListener('input', e => {
+  if (e.target.id === 'box'){ S.draft = e.target.value; autosize(e.target); const s = document.querySelector('.send:not(.stop)'); if (s) s.disabled = !S.draft.trim() && !S.quote; }
+  if (e.target.id === 'q'){ S.query = e.target.value; renderMain(); renderRight(); }
+  if (e.target.id === 'cmsg'){ S.cmsg = e.target.value; }
+  if (e.target.id === 'setq'){ S.setQ = e.target.value; const pos = e.target.selectionStart; renderMain(); const q = $('#setq'); if (q){ q.focus(); q.setSelectionRange(pos, pos); } }
+});
+document.addEventListener('keydown', e => {
+  if (e.target.id === 'box' && e.key === 'Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); send(); }
+  if (e.target.id === 'abox' && e.key === 'Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); const t = e.target.value.trim(); if (!t) return; S.aside.msgs.push({r:'user',t},{r:'ai',t:'…'}); renderRight(); setTimeout(()=>{ S.aside.msgs[S.aside.msgs.length-1].t = '露点是空气在水汽含量不变时降温到饱和的温度。常用 Magnus 近似：先算 γ = ln(RH/100) + 17.62·T/(243.12+T)，露点 Td = 243.12·γ/(17.62−γ)。'; renderRight(); }, 900); }
+  if (e.key === 'Escape'){ closePop(); hideSel(); }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('conv')){ e.preventDefault(); e.target.click(); }
+  if (e.target.dataset && e.target.dataset.mem && e.key === 'Enter'){ e.preventDefault(); e.target.blur(); }
+});
+document.addEventListener('focusout', e => {
+  const t = e.target; if (!t.dataset || !t.dataset.mem) return;
+  const arr = S.memory[t.dataset.key]; const k = arr.find(x=>x.id===t.dataset.mem); const nv = t.textContent.trim();
+  if (k && nv && nv !== k.t){ const old = k.t; k.t = nv; k.d = '刚刚'; toast('已保存', ()=>{ k.t = old; renderMain(); }); }
+});
+/* selection → 引用 / 问一下 */
+let selText = '';
+function hideSel(){ const p = $('#selpop'); if (p) p.remove(); }
+document.addEventListener('mouseup', e => {
+  if (e.target.closest('#selpop')) return;
+  setTimeout(() => {
+    const s = document.getSelection(); const t = s ? s.toString().trim() : '';
+    if (!t || !s.anchorNode || !s.anchorNode.parentElement || !s.anchorNode.parentElement.closest('.reply')) { hideSel(); return; }
+    selText = t; hideSel();
+    const r = s.getRangeAt(0).getBoundingClientRect();
+    const el = document.createElement('div'); el.className = 'pop selpop'; el.id = 'selpop';
+    el.innerHTML = `<button data-act="quoteSel">${ic('right')}引用</button><button data-act="askSel">${ic('search')}问一下</button>`;
+    document.body.appendChild(el);
+    el.style.left = Math.max(8, Math.min(r.left + r.width/2 - el.offsetWidth/2, innerWidth - el.offsetWidth - 8)) + 'px';
+    el.style.top = Math.max(8, r.top - el.offsetHeight - 8) + 'px';
+  }, 10);
+});
+
+S.approval = '改文件和跑命令时问';
+render();
+(async function boot(){
+  const el = document.createElement('div'); el.id = 'boot';
+  el.innerHTML = `<div class="in">${sprite('received')}<span id="bootMsg">正在准备记忆……</span></div>`;
+  document.body.appendChild(el);
+  if (!REDUCED){ await wait(700); const m = $('#bootMsg'); if (m) m.textContent = '正在连接 DeepSeek……'; await wait(600); }
+  el.classList.add('out'); setTimeout(() => el.remove(), 400);
+})();
+</script>

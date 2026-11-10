@@ -125,6 +125,7 @@
 
 ## 五、界面、派工和收尾的规矩（2026-11-09，v0.7 实测后定）
 
+- **1.0 前端形态已定**（用户 2026-11-10）：体验版原型 [design/prototype/interaction-v2.html](design/prototype/interaction-v2.html) 就是 1.0 的前端形态。0.9 起的新功能都装进这个壳子里已有的页面和位置，和后端接好；不新增页面结构、不换交互方式，放不进去的先问用户。
 - **界面以交互设计为准**：[design/interaction-design.md](design/interaction-design.md) 和原型 [design/prototype/interaction-v1.html](design/prototype/interaction-v1.html) 是第一版定稿。新功能的界面一律放进那里已定的位置，**概念表里没有的按钮、设置项、页面不能自己加**，要加先问用户。原来「每样功能只配最少界面」的做法作废：v0.7 实测里「下一条作为新任务」这类按钮让用户看不懂，就是把后台概念直接做成了按钮。
 - **让布局来说明**（用户 2026-11-09 加）：Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining. 避免不必要的次要标签和描述，让布局本身来传达信息。做界面时不加设计里没有的副标题、说明行、提示文字；验收时把多出来的当问题。见 [design/interaction-design.md](design/interaction-design.md) 第二节第 7 条。
 - **派工单写明对应设计**：每张任务卡写出对应设计稿的哪一节、概念表哪几项；验收时对照检查。只做后端的任务写明「不露界面」。

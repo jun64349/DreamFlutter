@@ -4,6 +4,8 @@
 
 ## 界面设计原则
 
+- **1.0 前端形态已定**（用户 2026-11-10）：体验版原型 [docs/design/prototype/interaction-v2.html](docs/design/prototype/interaction-v2.html)。新功能装进它已有的页面和位置，不另起页面结构、不换交互方式；放不进去先问用户。
+
 - **Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.**
   避免不必要的次要标签和描述，让布局本身来传达信息。（用户 2026-11-09 定；也写在交互设计第二节第 7 条、设计语言第一节、开发规范第五节）
   - 能靠位置、分组、顺序、图标或状态看懂的，不再加副标题、说明行、提示文字。
