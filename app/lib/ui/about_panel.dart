@@ -109,7 +109,7 @@ class _AboutPanelState extends State<AboutPanel> {
         key: ValueKey('close-${agent.coreSettings['closeBehavior']}-$_revision'), initialValue: agent.coreSettings['closeBehavior'] as String? ?? 'tray', isExpanded: true,
         decoration: const InputDecoration(labelText: '关闭窗口时'),
         items: const [DropdownMenuItem(value: 'tray', child: Text('隐藏到托盘（默认）')), DropdownMenuItem(value: 'quit', child: Text('退出程序'))],
-        onChanged: _working ? null : (value) { if (value != null) _action(() => agent.updateCoreSettings({'closeBehavior': value})); },
+        onChanged: _working ? null : (value) { if (value != null) _action(() async { await agent.preferences.setCloseBehaviorChoice(value); await agent.updateCoreSettings({'closeBehavior': value}); }); },
       ),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [

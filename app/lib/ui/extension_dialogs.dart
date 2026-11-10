@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../state/session_runtime.dart';
 import 'agent_scope.dart';
 import 'markdown_view.dart';
+import 'conversation_cards.dart';
 
 /// Shows extension dialogs (select / confirm / input / editor) of the active
 /// session one at a time. Tool approval from dreamflutter-approval arrives as
@@ -25,7 +26,7 @@ class _ExtensionDialogHostState extends State<ExtensionDialogHost> {
 
   @override
   Widget build(BuildContext context) {
-    final request = AgentScope.of(context).pendingDialog;
+    final request = AgentScope.of(context).active?.pendingDialogs.where((r) => !isConversationApproval(r)).firstOrNull;
     if (request != null && !identical(request, _showing)) {
       _showing = request;
       WidgetsBinding.instance.addPostFrameCallback((_) => _present(request));
@@ -67,7 +68,7 @@ class SideExtensionDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final request = runtime.pendingDialogs.firstOrNull;
+    final request = runtime.pendingDialogs.where((r) => !isConversationApproval(r)).firstOrNull;
     if (request == null) return const SizedBox.shrink();
     return SingleChildScrollView(child: _ExtensionDialog(
       key: ObjectKey(request),

@@ -9,12 +9,11 @@ import '../state/agent_controller.dart';
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
-import 'dashboard_page.dart';
 import 'motion.dart';
-import 'settings_page.dart';
-import 'session_dialogs.dart';
+import 'conversation_actions.dart';
+import 'artifact_widgets.dart';
 import 'window_frame.dart';
-import 'zoom.dart';
+import 'shell_widgets.dart';
 
 /// The one sidebar of the window (0.4, design option 3): 工作台 / 蝶君 at the
 /// top with new conversation, search and tasks; the conversations of the
@@ -30,19 +29,21 @@ class Sidebar extends StatefulWidget {
 class _SidebarState extends State<Sidebar> {
   /// The width while it is being dragged (saved when the drag ends).
   double? _width;
-  var _searching = false;
+  final _searching = true;
 
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final colors = context.colors;
     final section = agent.section;
-    final onButterfly = section == AppSection.butterfly;
+    final onButterfly = agent.butterflySpace;
     // Whose conversations are listed: 蝶君's on its page, the workbench's everywhere else.
     final AgentController? lists = onButterfly ? agent.butterfly : agent;
     final usable = agent.status != ConnectionStatus.missingRuntime;
-    final width = _width ?? agent.sidebarWidth;
-    void push(Widget page) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+    final width = (_width ?? agent.sidebarWidth).clamp(
+      180.0,
+      MediaQuery.sizeOf(context).width * 0.36,
+    );
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -58,7 +59,7 @@ class _SidebarState extends State<Sidebar> {
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
                   child: _PlaceSwitch(
                     butterfly: onButterfly,
-                    workbench: section == AppSection.chat,
+                    workbench: !onButterfly,
                     onWorkbench: () => agent.showSection(AppSection.chat),
                     onButterfly: () => agent.openButterfly(),
                     butterflyBusy: (agent.butterfly?.backgroundRunning ?? 0) + ((agent.butterfly?.isRunning ?? false) ? 1 : 0) > 0 && !onButterfly,
@@ -72,7 +73,7 @@ class _SidebarState extends State<Sidebar> {
                     children: [
                       _NavRow(
                         icon: Icons.add,
-                        label: '新建对话',
+                        label: '新对话',
                         accent: true,
                         onTap: usable && lists != null
                             ? () {
@@ -81,77 +82,35 @@ class _SidebarState extends State<Sidebar> {
                                 if (onButterfly) agent.butterflyTab.value = ButterflyTab.talk;
                               }
                             : null,
-                        trailing: onButterfly
-                            ? null
-                            : IconButton(
-                                tooltip: '无痕对话：极简模式，不保存记录，也不读写记忆',
-                                visualDensity: VisualDensity.compact,
-                                iconSize: 16,
-                                onPressed: usable
-                                    ? () {
-                                        agent.newTemporarySession();
-                                        agent.showSection(AppSection.chat);
-                                      }
-                                    : null,
-                                icon: const Icon(Icons.visibility_off_outlined),
-                              ),
                       ),
-                      _NavRow(icon: Icons.search, label: '搜索', selected: _searching, onTap: () => setState(() => _searching = !_searching)),
                       _NavRow(
                         icon: Icons.task_alt_outlined,
-                        label: '任务',
+                        label: '等你处理',
                         selected: section == AppSection.tasks,
-                        badge: agent.pendingInbox > 0 ? '${agent.pendingInbox} 等你处理' : null,
+                        badge: shellPendingCount(agent) == 0 ? null : '${shellPendingCount(agent)}',
                         onTap: () => agent.showSection(AppSection.tasks),
                       ),
                     ],
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 8, 4),
-                  child: Row(
-                    children: [
-                      if (!onButterfly) ...[Icon(Icons.folder_outlined, size: 15, color: colors.ochre), const SizedBox(width: 6)],
-                      Expanded(
-                        child: Text(
-                          onButterfly ? '和蝶君的对话' : (agent.workspace.isEmpty ? '对话' : '${p.basename(agent.workspace)} 的对话'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: context.text.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: colors.ink2),
-                        ),
-                      ),
-                      // 蝶君 has one home, no workspaces.
-                      if (!onButterfly)
-                        IconButton(
-                          tooltip: '切换工作区（Ctrl O）',
-                          visualDensity: VisualDensity.compact,
-                          iconSize: 16,
-                          onPressed: () => openWorkspaceMenu(agent),
-                          icon: const Icon(Icons.unfold_more),
-                        ),
-                    ],
-                  ),
-                ),
+                const SizedBox(height: 12),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: lists == null
                         ? Padding(
                             padding: const EdgeInsets.all(10),
-                            child: Text('蝶君的沙箱建好后，和它的对话列在这里。', style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.6)),
+                            child: const SizedBox.shrink(),
                           )
                         : AgentScope(
                             controller: lists,
                             child: _SessionPane(
                               key: ValueKey(lists.sandbox),
                               searching: _searching,
-                              onCloseSearch: () => setState(() => _searching = false),
+                              onCloseSearch: () {},
                             ),
-                          ),
-                  ),
-                ),
-                // The inscription only where there is room for it.
-                if (constraints.maxHeight > 720) const Padding(padding: EdgeInsets.symmetric(horizontal: 14), child: _Inscription()),
+                            ),
+                  )),
                 Divider(height: 1, thickness: 0.5, color: colors.border),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
@@ -171,10 +130,12 @@ class _SidebarState extends State<Sidebar> {
                         badge: agent.pendingProposals,
                         onTap: () => agent.showSection(AppSection.library),
                       ),
-                      _FootButton(icon: Icons.bar_chart_rounded, label: '仪表盘', onTap: () => push(const DashboardPage())),
-                      _FootButton(icon: Icons.text_fields, label: '外观', onTap: () => showAppearanceDialog(context)),
-                      const Spacer(),
-                      _FootButton(icon: Icons.settings_outlined, label: '设置', onTap: () => push(const SettingsPage())),
+                      _FootButton(icon: Icons.bar_chart_rounded, label: '花费',
+                        selected: section == AppSection.spending, onTap: () => agent.showSection(AppSection.spending),
+                      ),
+                      _FootButton(icon: Icons.settings_outlined, label: '设置',
+                        selected: section == AppSection.settings,
+                        onTap: () => agent.showSection(AppSection.settings)),
                     ],
                   ),
                 ),
@@ -225,26 +186,18 @@ class _PlaceSwitch extends StatelessWidget {
     final colors = context.colors;
     Widget half(String label, bool selected, bool busy, VoidCallback onTap) => Expanded(
       child: Semantics(
-        button: true,
-        selected: selected,
-        child: Material(
-          color: selected ? colors.card : Colors.transparent,
-          elevation: selected ? 0.5 : 0,
-          borderRadius: BorderRadius.circular(6),
-          child: InkWell(
+        button: true, selected: selected,
+        child: AnimatedContainer(
+          duration: AppTokens.motion(context, AppTokens.medium), curve: AppTokens.curve,
+          decoration: BoxDecoration(color: selected ? colors.card : Colors.transparent, borderRadius: BorderRadius.circular(6)),
+          child: Material(color: Colors.transparent, child: InkWell(
             borderRadius: BorderRadius.circular(6),
-            onTap: onTap,
-            child: SizedBox(
-              height: 30,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13, fontWeight: selected ? FontWeight.w600 : null, color: selected ? colors.ink : colors.muted)),
-                  if (busy) ...[const SizedBox(width: 6), const Tooltip(message: '有工作在后台进行', child: BreathingDot())],
-                ],
-              ),
-            ),
-          ),
+            onTap: () { onTap(); closeShellDrawer(context); },
+            child: SizedBox(height: 30, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13, fontWeight: selected ? FontWeight.w600 : null, color: selected ? colors.ink : colors.muted)),
+              if (busy) ...[const SizedBox(width: 6), const Tooltip(message: '有工作在后台进行', child: BreathingDot())],
+            ])),
+          )),
         ),
       ),
     );
@@ -258,7 +211,7 @@ class _PlaceSwitch extends StatelessWidget {
 
 /// A row near the top of the sidebar (new conversation, search, tasks).
 class _NavRow extends StatelessWidget {
-  const _NavRow({required this.icon, required this.label, required this.onTap, this.selected = false, this.accent = false, this.badge, this.trailing});
+  const _NavRow({required this.icon, required this.label, required this.onTap, this.selected = false, this.accent = false, this.badge});
 
   final IconData icon;
   final String label;
@@ -266,7 +219,6 @@ class _NavRow extends StatelessWidget {
   final bool selected;
   final bool accent;
   final String? badge;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -276,7 +228,7 @@ class _NavRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(context.radius),
       child: InkWell(
         borderRadius: BorderRadius.circular(context.radius),
-        onTap: onTap,
+        onTap: onTap == null ? null : () { onTap!(); closeShellDrawer(context); },
         child: SizedBox(
           height: 36,
           child: Row(
@@ -285,15 +237,11 @@ class _NavRow extends StatelessWidget {
               Icon(icon, size: 17, color: accent ? colors.accent : colors.ink2),
               const SizedBox(width: 10),
               Expanded(child: Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13, color: onTap == null ? colors.muted : colors.ink))),
-              if (badge != null)
-                Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
-                  decoration: BoxDecoration(color: colors.seal, borderRadius: BorderRadius.circular(9)),
-                  child: Text(badge!, style: context.text.labelSmall?.copyWith(color: colors.onAccent, fontSize: 11)),
+                Padding(
+                  padding: EdgeInsets.only(right: badge == null ? 0 : 8),
+                  child: ShellCount(count: badge ?? ''),
                 ),
-              ?trailing,
-              if (trailing == null) const SizedBox(width: 4),
+              const SizedBox(width: 4),
             ],
           ),
         ),
@@ -315,41 +263,20 @@ class _FootButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final button = IconButton(
-      tooltip: badge > 0 ? '$label（$badge 条待处理）' : label,
-      visualDensity: VisualDensity.compact,
-      isSelected: selected,
-      onPressed: onTap,
-      style: IconButton.styleFrom(foregroundColor: selected ? colors.accent : colors.muted, backgroundColor: selected ? colors.accentSoft : null),
-      icon: Icon(icon, size: 19),
-    );
-    if (badge <= 0) return button;
-    return Badge(label: Text('$badge'), offset: const Offset(-4, 4), backgroundColor: colors.seal, child: button);
-  }
-}
-
-/// The theme's inscription beside its mark: 「栩栩然胡蝶也」 top to bottom
-/// for the Song themes, a painting's title turned sideways for the others.
-class _Inscription extends StatelessWidget {
-  const _Inscription();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.painting;
-    final style = context.serif(context.text.bodySmall).copyWith(color: context.colors.muted, height: 1.45);
-    final text = theme.verticalInscription
-        ? Column(children: [for (final c in theme.inscription.characters) Text(c, style: style)])
-        : RotatedBox(quarterTurns: 3, child: Text(theme.inscription, style: style.copyWith(fontStyle: FontStyle.italic, letterSpacing: 0.6)));
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(6, AppTokens.pad, 6, 0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Semantics(label: theme.inscription, child: ExcludeSemantics(child: text)),
-          const ThemeMark(),
-        ],
-      ),
+    return Expanded(
+      child: Tooltip(message: label, child: TextButton(
+        onPressed: () { onTap(); closeShellDrawer(context); },
+      style: TextButton.styleFrom(foregroundColor: selected ? colors.accent : colors.muted,
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          minimumSize: Size.zero,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 19),
+            const SizedBox(height: 3),
+            Text(label, style: const TextStyle(fontSize: 11))]),
+      )),
     );
   }
 }
@@ -509,7 +436,9 @@ class _SessionPane extends StatefulWidget {
 class _SessionPaneState extends State<_SessionPane> {
   final _query = TextEditingController();
   Timer? _debounce;
-  List<SearchHit>? _hits;
+  Json? _hits;
+  String? _error;
+  int _generation = 0;
   var _searching = false;
   var _showArchived = false;
 
@@ -522,18 +451,22 @@ class _SessionPaneState extends State<_SessionPane> {
 
   void _onChanged(String text) {
     _debounce?.cancel();
+    final generation = ++_generation;
+    setState(() { _searching = false; _error = null; _hits = null; });
     if (text.trim().isEmpty) {
-      setState(() => _hits = null);
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 300), () async {
       setState(() => _searching = true);
-      final hits = await AgentScope.read(context).searchSessions(text);
-      if (!mounted || _query.text != text) return;
-      setState(() {
-        _hits = hits;
-        _searching = false;
-      });
+      try {
+        final agent = AgentScope.read(context);
+        final hits = asJsonMap(await agent.backend.call('search.all', {'query': text.trim(), 'cwd': agent.workspace}));
+        if (!mounted || generation != _generation) return;
+        setState(() { _hits = hits; _searching = false; });
+      } catch (error) {
+        if (!mounted || generation != _generation) return;
+        setState(() { _error = SessionRuntime.describeError(error); _searching = false; });
+      }
     });
   }
 
@@ -543,6 +476,7 @@ class _SessionPaneState extends State<_SessionPane> {
     if (old.searching && !widget.searching) {
       _query.clear();
       _debounce?.cancel();
+      ++_generation;
       _hits = null;
       _searching = false;
     }
@@ -559,19 +493,22 @@ class _SessionPaneState extends State<_SessionPane> {
         SizedBox(
           height: 34,
           child: TextField(
+            key: const ValueKey('sidebar-search'),
             controller: _query,
-            autofocus: true,
-            onChanged: _onChanged,
+              onChanged: _onChanged,
             style: context.text.bodySmall,
             decoration: InputDecoration(
-              hintText: '搜索所有会话',
+              hintText: '搜索',
               isDense: true,
               prefixIcon: const Icon(Icons.search, size: 16),
               prefixIconConstraints: const BoxConstraints(minWidth: 32),
-              suffixIcon: IconButton(
-                tooltip: '关闭搜索',
+              suffixIcon: _query.text.isEmpty ? null : IconButton(
+                tooltip: '清除搜索',
                 iconSize: 14,
-                onPressed: widget.onCloseSearch,
+                onPressed: () {
+                    _query.clear();
+                    _onChanged('');
+                  },
                 icon: const Icon(Icons.close),
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 8),
@@ -582,17 +519,23 @@ class _SessionPaneState extends State<_SessionPane> {
         const SizedBox(height: AppTokens.gap),
         ],
         Expanded(
-          child: _hits != null || _searching
-              ? _SearchResults(hits: _hits ?? const [], searching: _searching)
+          child: _error != null ? Text(_error!, style: TextStyle(color: colors.danger)) : _hits != null || _searching
+              ? _SearchResults(hits: _hits ?? const {}, searching: _searching)
               : _SessionList(entries: agent.sidebar, archived: _showArchived ? agent.archivedSessions : null),
         ),
-        if (_hits == null && agent.archivedSessions.isNotEmpty)
+        if (_query.text.isEmpty) ...[
           TextButton.icon(
             style: TextButton.styleFrom(alignment: Alignment.centerLeft, foregroundColor: colors.muted),
             onPressed: () => setState(() => _showArchived = !_showArchived),
             icon: Icon(_showArchived ? Icons.expand_less : Icons.inventory_2_outlined, size: 16),
-            label: Text(_showArchived ? '收起已归档' : '已归档（${agent.archivedSessions.length}）'),
+            label: const Text('已归档'),
           ),
+          TextButton.icon(
+            style: TextButton.styleFrom(alignment: Alignment.centerLeft, foregroundColor: colors.muted),
+            onPressed: () => showConversationRecycleBin(context),
+            icon: const Icon(Icons.delete_outline, size: 16), label: const Text('回收站'),
+          ),
+        ],
       ],
     );
   }
@@ -601,38 +544,50 @@ class _SessionPaneState extends State<_SessionPane> {
 class _SearchResults extends StatelessWidget {
   const _SearchResults({required this.hits, required this.searching});
 
-  final List<SearchHit> hits;
+  final Json hits;
   final bool searching;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    if (searching && hits.isEmpty) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-    if (hits.isEmpty) return Text('没有找到', style: context.text.bodySmall?.copyWith(color: colors.muted));
+    final groups = {'conversations': '对话', 'files': '产物', 'memories': '记忆'};
+    if (searching) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    if (groups.keys.every((key) => jsonRows(hits[key]).isEmpty)) return Text('没有找到', style: context.text.bodySmall?.copyWith(color: colors.muted));
     final agent = AgentScope.read(context);
     return ListView(
       children: [
-        for (final hit in hits)
+        for (final group in groups.entries) if (jsonRows(hits[group.key]).isNotEmpty) ...[
+        Padding(padding: const EdgeInsets.fromLTRB(6, 10, 6, 4), child: Text(group.value, style: context.label)),
+        for (final hit in jsonRows(hits[group.key]))
           InkWell(
             borderRadius: BorderRadius.circular(context.radiusSm),
-            onTap: () {
-              agent.openSearchHit(hit);
-              agent.showSection(agent.sandbox ? AppSection.butterfly : AppSection.chat);
+            onTap: () async {
+              final target = asJsonMap(hit['target']);
+              if (group.key == 'conversations') {
+                await agent.openSearchHit(SearchHit.fromJson({...hit, 'path': target['sessionFile'] ?? hit['path']}));
+                agent.entryTarget.value = target['entryId'] as String?;
+                agent.main.showSection(agent.sandbox ? AppSection.butterfly : AppSection.chat);
+                if (agent.sandbox) agent.main.butterflyTab.value = ButterflyTab.talk;
+              } else if (group.key == 'files') {
+                final path = target['path'] ?? hit['path'];
+                if (path is String && context.mounted) await showFilePreview(context, path);
+              } else {
+                agent.main.openMemory(itemId: (target['itemId'] ?? hit['id']) as String?);
+              }
             },
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(hit.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                  Text((hit['title'] ?? hit['content'] ?? p.basename('${hit['path'] ?? ''}')).toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 2),
-                  _Snippet(text: hit.snippet, prefix: hit.role == 'user' ? '我：' : 'Agent：'),
-                  if (hit.cwd != null && !SessionStore.samePath(hit.cwd!, agent.workspace))
-                    Text('工作区：${p.basename(hit.cwd!)}', style: context.text.labelSmall?.copyWith(color: colors.muted)),
+                  if (hit['snippet'] is String) _Snippet(text: hit['snippet'] as String, prefix: ''),
                 ],
               ),
             ),
           ),
+        ],
       ],
     );
   }
@@ -677,8 +632,7 @@ class _SessionList extends StatelessWidget {
     final diff = today.difference(day).inDays;
     if (diff <= 0) return '今天';
     if (diff == 1) return '昨天';
-    if (diff < 7) return '本周';
-    if (diff < 30) return '本月';
+    if (!day.isBefore(today.subtract(Duration(days: today.weekday - 1)))) return '本周';
     return '更早';
   }
 
@@ -688,28 +642,43 @@ class _SessionList extends StatelessWidget {
     if (entries.isEmpty && (archived?.isEmpty ?? true)) {
       return Padding(
         padding: const EdgeInsets.only(top: AppTokens.pad),
-        child: Text('这个工作区还没有会话', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+        child: Text(
+          '还没有对话', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
       );
     }
     final rows = <Widget>[];
     String? lastGroup;
-    final ordered = [...entries.where((e) => e.pinned), ...entries.where((e) => !e.pinned)];
+    final ordered = orderSidebarEntries(entries);
     for (final entry in ordered) {
-      final group = entry.pinned ? '置顶' : _group(entry.modifiedAt);
+      final parent = entries
+          .where(
+            (e) =>
+                entry.parentSession != null &&
+                SessionStore.samePath(e.path, entry.parentSession!),
+          )
+          .firstOrNull;
+      final group = (parent ?? entry).pinned ? '置顶' : _group((parent ?? entry).modifiedAt);
       if (group != lastGroup) {
         rows.add(
           Padding(
+            key: ValueKey('group-$group'),
             padding: EdgeInsets.fromLTRB(6, lastGroup == null ? 4 : 14, 6, 4),
             child: Text(group, style: context.label),
           ),
         );
         lastGroup = group;
       }
-      rows.add(_SessionTile(entry: entry));
+      rows.add(
+        Padding(
+          key: ValueKey(entry.path),
+          padding: EdgeInsets.only(left: parent == null ? 0 : 18),
+          child: _SessionTile(key: ValueKey(entry.path), entry: entry),
+        ));
     }
     if (archived != null && archived.isNotEmpty) {
       rows.add(
         Padding(
+          key: const ValueKey('archived-group'),
           padding: const EdgeInsets.fromLTRB(6, 14, 6, 4),
           child: Text('已归档', style: context.label),
         ),
@@ -717,6 +686,7 @@ class _SessionList extends StatelessWidget {
       for (final s in archived) {
         rows.add(
           _SessionTile(
+            key: ValueKey(s.path),
             entry: SidebarEntry(
               path: s.path,
               title: s.title,
@@ -731,12 +701,12 @@ class _SessionList extends StatelessWidget {
         );
       }
     }
-    return ListView(children: rows);
+    return ShellAnimatedList(children: rows);
   }
 }
 
 class _SessionTile extends StatefulWidget {
-  const _SessionTile({required this.entry, this.archived = false});
+  const _SessionTile({super.key, required this.entry, this.archived = false});
 
   final SidebarEntry entry;
   final bool archived;
@@ -765,7 +735,7 @@ class _SessionTileState extends State<_SessionTile> {
             child: ListTile(dense: true, leading: Icon(entry.pinned ? Icons.push_pin : Icons.push_pin_outlined), title: Text(entry.pinned ? '取消置顶' : '置顶')),
           ),
           const PopupMenuItem(value: 'rename', child: ListTile(dense: true, leading: Icon(Icons.edit_outlined), title: Text('重命名'))),
-          const PopupMenuItem(value: 'clone', child: ListTile(dense: true, leading: Icon(Icons.copy_all_outlined), title: Text('复制为新会话'))),
+          const PopupMenuItem(value: 'clone', child: ListTile(dense: true, leading: Icon(Icons.copy_all_outlined), title: Text('复制为新对话'))),
           const PopupMenuItem(value: 'export_md', child: ListTile(dense: true, leading: Icon(Icons.description_outlined), title: Text('导出为 Markdown'))),
           const PopupMenuItem(value: 'export_html', child: ListTile(dense: true, leading: Icon(Icons.html_outlined), title: Text('导出为网页（HTML）'))),
           PopupMenuItem(
@@ -774,7 +744,7 @@ class _SessionTileState extends State<_SessionTile> {
           ),
           const PopupMenuDivider(),
         ],
-        const PopupMenuItem(value: 'delete', child: ListTile(dense: true, leading: Icon(Icons.delete_outline), title: Text('删除（移到回收站）'))),
+        PopupMenuItem(value: 'delete', child: ListTile(dense: true, leading: Icon(Icons.delete_outline, color: context.colors.danger), title: Text('删除', style: TextStyle(color: context.colors.danger)))),
       ],
     );
     if (!mounted || choice == null) return;
@@ -785,7 +755,7 @@ class _SessionTileState extends State<_SessionTile> {
       case 'clone':
         await agent.cloneSession(entry.path);
       case 'delete':
-        if (await confirmSessionDelete(context, entry.path, entry.title)) await agent.deleteSession(entry.path);
+        await deleteConversation(context, agent, entry.path);
       case 'pin':
         await agent.setPinned(entry.path, !entry.pinned);
       case 'archive':
@@ -815,7 +785,7 @@ class _SessionTileState extends State<_SessionTile> {
     final entry = widget.entry;
     final selected = entry.isActive;
     final Widget? badge = entry.hasError
-        ? Tooltip(message: 'Agent 进程出错', child: Icon(Icons.error_outline, size: 14, color: colors.danger))
+        ? Tooltip(message: '对话出错', child: Icon(Icons.error_outline, size: 14, color: colors.danger))
         : entry.needsAttention
         ? Tooltip(message: '在等你确认', child: Icon(Icons.front_hand_outlined, size: 14, color: colors.warning))
         : entry.isRunning
@@ -840,7 +810,15 @@ class _SessionTileState extends State<_SessionTile> {
               borderRadius: BorderRadius.circular(context.radius),
               onTap: () {
                 final agent = AgentScope.read(context);
-                agent.openSession(entry.path);
+                if (entry.isSideConversation) {
+                  agent.openSavedSideChat({
+                    'path': entry.path,
+                    'parentSession': entry.parentSession,
+                    'quote': entry.sideQuote,
+                  });
+                } else {
+                  agent.openSession(entry.path);
+                }
                 // From the tasks or memory page too: show the conversation.
                 agent.showSection(agent.sandbox ? AppSection.butterfly : AppSection.chat);
                 if (agent.sandbox) agent.main.butterflyTab.value = ButterflyTab.talk;
@@ -854,12 +832,12 @@ class _SessionTileState extends State<_SessionTile> {
                       const SizedBox(width: 4),
                     ],
                     if (entry.isFork) ...[
-                      Tooltip(message: '从其他会话分叉或复制而来', child: Icon(Icons.call_split, size: 14, color: colors.muted)),
+                      Tooltip(message: '从其他对话重来', child: Icon(Icons.call_split, size: 14, color: colors.muted)),
                       const SizedBox(width: 4),
                     ],
                     Expanded(
                       child: Text(
-                        entry.title.isEmpty ? '（空会话）' : entry.title,
+                        entry.title.isEmpty ? '新对话' : entry.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: context.text.bodyMedium?.copyWith(
@@ -902,13 +880,13 @@ Future<String?> _askName(BuildContext context, String current) {
   return showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('重命名会话'),
+      title: const Text('重命名对话'),
       content: SizedBox(
         width: 360,
         child: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(hintText: '会话名称'),
+          decoration: const InputDecoration(hintText: '对话名称'),
           onSubmitted: (value) => Navigator.pop(context, value),
         ),
       ),

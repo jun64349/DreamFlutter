@@ -11,15 +11,16 @@ import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/mentions.dart';
 import '../state/agent_controller.dart' show asJsonMap, groupProvider, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
+import '../state/side_chat.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'commands_dialog.dart' show commandSourceLabels, showCommandsDialog;
 import 'common.dart' show memoryImageOf;
-import 'context_dialog.dart' show showContextDialog;
+import 'conversation_controls.dart';
 import 'keys.dart';
 import 'motion.dart';
 import 'run_summary.dart' show mentionOf;
-import 'dashboard_page.dart' show formatCost, formatTokens;
+import 'dashboard_page.dart' show formatCost;
 
 /// Message input. Enter sends, Shift+Enter inserts a newline; while an IME
 /// composition is active Enter is left to the IME. During a run, sending
@@ -132,7 +133,7 @@ class _ComposerState extends State<Composer> {
     try {
       final desk = asJsonMap(await agent.backend.call('desk.get', {'cwd': workspace}));
       final items = [
-        for (final n in jsonRows(desk['notes']).map(NoteInfo.fromJson)) (Mention(kind: MentionKind.note, title: n.title, content: n.content), '写笺'),
+        for (final n in jsonRows(desk['notes']).map(NoteInfo.fromJson)) (Mention(kind: MentionKind.note, title: n.title, content: n.content), '任务'),
         // 蝶君 cannot open this machine's paths: only pasted text goes along (files reach it through the inbox).
         for (final m in jsonRows(desk['materials']).map(MaterialInfo.fromJson))
           if (!agent.sandbox || m.kind == 'text') (mentionOf(m), m.path ?? '资料'),
@@ -158,7 +159,7 @@ class _ComposerState extends State<Composer> {
         _Option(
           label: mention.title,
           description: detail ?? '',
-          tag: mention.kind == MentionKind.note ? '写笺' : '资料',
+          tag: mention.kind == MentionKind.note ? '任务' : '资料',
           icon: mentionIcon(mention.kind),
           pick: () => _applyMention(mention),
         ),
@@ -242,15 +243,17 @@ class _ComposerState extends State<Composer> {
     );
   }
 
-  bool get _hasContent => _controller.text.trim().isNotEmpty || _images.isNotEmpty || _mentions.isNotEmpty;
+  bool get _hasContent => _controller.text.trim().isNotEmpty || _images.isNotEmpty || _mentions.isNotEmpty || AgentScope.read(context).active?.composerQuote != null;
 
   void _send() {
     if (!_hasContent || _converting > 0) return;
     final agent = AgentScope.read(context);
     if (!agent.isReady) return;
-    final text = composeWithMentions(_controller.text, _mentions);
+    final quote = agent.active?.composerQuote;
+    final text = composeWithMentions('${quote == null ? '' : '${SideChat.quoteLines(quote)}\n\n'}${_controller.text}', _mentions);
     final images = _images.map((a) => a.block).toList();
     _controller.clear();
+    agent.clearComposerQuote();
     setState(() {
       _images.clear();
       _mentions.clear();
@@ -349,7 +352,7 @@ class _ComposerState extends State<Composer> {
       }
     }
     if (failed.isNotEmpty && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能转成文字，改为把路径交给 Agent：${failed.join('、')}')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能转成文字，已添加文件路径：${failed.join('、')}')));
     }
     if (!mounted) return;
     setState(() {});
@@ -445,7 +448,7 @@ class _ComposerState extends State<Composer> {
                   padding: const EdgeInsets.only(bottom: 6, left: 4),
                   child: Row(
                     children: [
-                      if (agent.isCompacting) ...[const BreathingDot(), const SizedBox(width: 8), Text('正在压缩较早的对话…', style: muted)],
+                      if (agent.isCompacting) ...[const BreathingDot(), const SizedBox(width: 8), Text('正在整理上下文…', style: muted)],
                       for (final status in statuses) ...[
                         const SizedBox(width: AppTokens.pad),
                         Flexible(
@@ -457,7 +460,8 @@ class _ComposerState extends State<Composer> {
                 ),
               if (suggestions.isNotEmpty) _SuggestionList(options: suggestions, highlighted: _highlighted),
               AnimatedContainer(
-                duration: AppTokens.fast,
+                duration: AppTokens.motion(context, AppTokens.fast),
+                curve: AppTokens.curve,
                 decoration: BoxDecoration(
                   color: _dragging ? colors.accentSoft : colors.card,
                   border: Border.all(
@@ -473,7 +477,7 @@ class _ComposerState extends State<Composer> {
                     if (_dragging)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 4),
-                        child: Text('松开即可附上：图片直接给模型看，其他文件和文件夹交给 Agent 读取', style: muted?.copyWith(color: colors.accent)),
+                        child: Text('松开以添加文件', style: muted?.copyWith(color: colors.accent)),
                       ),
                     if (_converting > 0)
                       Padding(
@@ -486,6 +490,7 @@ class _ComposerState extends State<Composer> {
                           ],
                         ),
                       ),
+                    if (runtime?.composerQuote case final quote?) ComposerQuote(text: quote, onRemove: agent.clearComposerQuote),
                     if (_images.isNotEmpty || _mentions.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 6, top: 2),
@@ -509,7 +514,7 @@ class _ComposerState extends State<Composer> {
                         enabled: agent.isReady,
                         style: context.text.bodyMedium?.copyWith(height: 1.6),
                         decoration: InputDecoration(
-                          hintText: running ? 'Agent 正在工作，现在输入会插进对话里…' : '说点什么…  Enter 发送，Shift+Enter 换行，/ 调用技能',
+                          hintText: '说点什么…',
                           border: InputBorder.none,
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
@@ -520,25 +525,19 @@ class _ComposerState extends State<Composer> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Row(
-                      children: [
+                    LayoutBuilder(builder: (context, constraints) {
+                      final controls = <Widget>[
                         _ToolbarButton(
                           icon: Icons.image_outlined,
                           tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
                           onTap: agent.isReady && supportsImages ? _pickImages : null,
                         ),
-                        _ToolbarButton(icon: Icons.bolt_outlined, tooltip: 'Skills 与命令', onTap: () => showCommandsDialog(context)),
-                        if (agent.agentMode == 'standard') const _PlanToggle(),
-                        Expanded(child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                          // 蝶君 always works in the standard mode.
-                          if (!agent.sandbox) const _ModeChip(),
-                          const SizedBox(width: 4),
-                          const Flexible(child: _ModelThinkingChips()),
-                        ])),
-                        const SizedBox(width: 6),
-                        const _ContextRing(),
-                        const SizedBox(width: 8),
-                        SizedBox.square(
+                        _ToolbarButton(icon: Icons.bolt_outlined, tooltip: '插入技能（/）', onTap: () => showCommandsDialog(context)),
+                        // 蝶君 works in its sandbox without approvals, so both are 工作台-only (1.0 prototype).
+                        if (!agent.sandbox) const IncognitoToggle(),
+                        if (!agent.sandbox) const AskBeforeActingToggle(),
+                      ];
+                      final send = SizedBox.square(
                           dimension: 34,
                           child: IconButton.filled(
                             tooltip: showStop ? '停止' : (running ? '插话' : '发送'),
@@ -552,9 +551,16 @@ class _ComposerState extends State<Composer> {
                             ),
                             icon: Icon(showStop ? Icons.stop_rounded : Icons.arrow_upward_rounded, size: 18),
                           ),
-                        ),
-                      ],
-                    ),
+                        );
+                      if (constraints.maxWidth < 440) {
+                        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          const Row(children: [Expanded(child: _ModelThinkingChips()), SizedBox(width: 8), _ContextRing()]),
+                          const SizedBox(height: 4),
+                          Row(children: [...controls, const Spacer(), send]),
+                        ]);
+                      }
+                      return Row(children: [...controls, const Expanded(child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [Flexible(child: _ModelThinkingChips())])), const SizedBox(width: 6), const _ContextRing(), const SizedBox(width: 8), send]);
+                    }),
                   ],
                 ),
               ),
@@ -683,74 +689,6 @@ const agentModeHints = {
 const composerModeNames = {...agentModeNames, 'incognito': '无痕'};
 const composerModeHints = {...agentModeHints, 'incognito': '极简的工具和提示词，不读写记忆、不保存记录，关掉就没了'};
 
-/// The agent mode of the session. A session keeps its mode, so picking the
-/// other one starts a new session in it.
-class _ModeChip extends StatelessWidget {
-  const _ModeChip();
-
-  @override
-  Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
-    final incognito = agent.active?.incognito ?? false;
-    final current = incognito ? 'incognito' : agent.agentMode;
-    final blank = (agent.active?.isPristine ?? true) && !incognito;
-    return _Chip<String>(
-      label: composerModeNames[current] ?? current,
-      tooltip: '模式：${composerModeHints[current] ?? ''}${blank ? '' : '\n切换模式会新开一个会话'}',
-      enabled: agent.isReady && !agent.isRunning,
-      items: [
-        for (final mode in composerModeNames.keys)
-          PopupMenuItem(
-            value: mode,
-            child: SizedBox(
-              width: 300,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(width: 22, child: mode == current ? const Icon(Icons.check, size: 16) : null),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${mode == 'incognito' ? '无痕对话' : '${agentModeNames[mode]}模式'}'
-                          '${mode != current && (!blank || mode == 'incognito') ? '（新会话）' : ''}',
-                        ),
-                        Text(composerModeHints[mode]!, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
-      onSelected: (mode) => mode == 'incognito' ? agent.newTemporarySession() : agent.selectAgentMode(mode),
-    );
-  }
-}
-
-/// Plan mode (standard mode): the agent explores and presents a plan for
-/// approval before changing anything.
-class _PlanToggle extends StatelessWidget {
-  const _PlanToggle();
-
-  @override
-  Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
-    final colors = context.colors;
-    final on = agent.planMode;
-    return IconButton(
-      tooltip: on ? '计划模式已开启：Agent 先查看和规划，你批准后才动手。点击关闭' : '计划模式：先让 Agent 给出计划，你批准后再动手',
-      onPressed: agent.isReady ? () => agent.setPlanMode(!on) : null,
-      iconSize: 18,
-      visualDensity: VisualDensity.compact,
-      style: on ? IconButton.styleFrom(backgroundColor: colors.accentSoft, foregroundColor: colors.accent) : null,
-      icon: Icon(on ? Icons.map : Icons.map_outlined),
-    );
-  }
-}
-
 /// Only this pair yields width: first the model label, then the thinking text.
 /// Measure the current labels with the actual font/scale; no window breakpoint
 /// or translated label length can steal space from the fixed toolbar buttons.
@@ -830,7 +768,7 @@ class _ThinkingChip extends StatelessWidget {
       key: const ValueKey('composer-thinking'),
       icon: iconOnly ? Icons.psychology_outlined : null,
       label: '思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}',
-      tooltip: model != null && !model.reasoning ? '当前模型不支持思考' : '${iconOnly ? '思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}；' : ''}思考级别：越高越慢，但更仔细',
+      tooltip: model != null && !model.reasoning ? '当前模型不支持思考' : '思考深度',
       enabled: agent.isReady && (model?.reasoning ?? false),
       items: [
         for (final level in agent.thinkingLevels)
@@ -858,9 +796,8 @@ class _ContextRing extends StatelessWidget {
     final known = stats.contextKnown && stats.contextWindow > 0;
     final tip = [
       known ? '上下文已用 ${percent.toStringAsFixed(percent < 10 ? 1 : 0)}%' : '上下文用量未知',
-      '本会话 ${formatTokens(stats.totalTokens)} tokens',
       if (stats.cost > 0) '花费 ${formatCost(stats.cost)}',
-      '点击查看或压缩',
+      '整理上下文',
     ].join(' · ');
     return Tooltip(
       message: tip,
@@ -870,7 +807,7 @@ class _ContextRing extends StatelessWidget {
         child: InkWell(
           key: const ValueKey('context-ring'),
           customBorder: const CircleBorder(),
-          onTap: agent.isReady ? () => showContextDialog(context) : null,
+          onTap: agent.isReady ? () => showConversationContext(context) : null,
           child: Padding(
             padding: const EdgeInsets.all(4),
             child: SizedBox.square(
@@ -1028,7 +965,7 @@ class MentionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final tip = mention.path ?? (mention.kind == MentionKind.note ? '写笺' : '资料');
+    final tip = mention.path ?? (mention.kind == MentionKind.note ? '任务' : '资料');
     return Tooltip(
       message: tip,
       child: Container(

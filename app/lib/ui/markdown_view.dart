@@ -242,7 +242,7 @@ class _FileLinkState extends State<FileLink> {
         onTap: widget.onTap,
         onSecondaryTap: widget.onSecondaryTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
+          duration: AppTokens.motion(context, AppTokens.fast), curve: AppTokens.curve,
           decoration: BoxDecoration(
             color: _hover ? colors.accent.withValues(alpha: 0.12) : colors.accent.withValues(alpha: 0),
             borderRadius: BorderRadius.circular(3),

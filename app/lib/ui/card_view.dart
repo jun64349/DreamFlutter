@@ -661,7 +661,7 @@ class _CardViewState extends State<CardView> {
       alignment: Alignment.topLeft,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: width ?? double.infinity),
-        child: AnimatedSize(duration: AppTokens.fast, child: SizedBox(height: _height, width: double.infinity, child: body)),
+        child: AnimatedSize(duration: AppTokens.motion(context, AppTokens.medium), curve: AppTokens.curve, child: SizedBox(height: _height, width: double.infinity, child: body)),
       ),
     );
   }

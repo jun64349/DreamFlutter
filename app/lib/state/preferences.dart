@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'garden_deletions.dart';
 
 /// When the approval extension asks before a tool call.
 enum ApprovalMode {
@@ -31,6 +32,10 @@ class Preferences {
 
   final SharedPreferences _prefs;
 
+  String? get closeBehaviorChoice => _prefs.getString('closeBehaviorChoice');
+  Future<void> setCloseBehaviorChoice(String value) =>
+      _prefs.setString('closeBehaviorChoice', value);
+
   /// Model used for new sessions until the user picks another one.
   static const defaultModelKey = 'cc-switch-deep-seek/deepseek-flash';
   static const maxRecentWorkspaces = 10;
@@ -46,7 +51,7 @@ class Preferences {
   /// Everything remembered here, for a backup package (the core stores it as prefs.json).
   /// Doubles are tagged: through JSON in Node, 1.0 would come back as the int 1.
   Map<String, Object?> exportAll() => {
-    for (final key in _prefs.getKeys())
+    for (final key in _prefs.getKeys()) if (key != GardenDeletions.preferenceKey)
       key: switch (_prefs.get(key)) {
         final double v => {'double': v},
         final v => v,
@@ -57,6 +62,7 @@ class Preferences {
   Future<bool> importAll(Map<String, Object?> values) async {
     var saved = true;
     for (final MapEntry(:key, :value) in values.entries) {
+      if (key == GardenDeletions.preferenceKey) continue;
       switch (value) {
         case final bool v:
           saved &= await _prefs.setBool(key, v);

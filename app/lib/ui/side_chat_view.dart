@@ -8,7 +8,9 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart' show TagChip;
 import 'extension_dialogs.dart';
+import 'conversation_cards.dart';
 import 'markdown_view.dart' show ReplyMarkdown;
+import 'motion.dart';
 import 'message_widgets.dart' show ChatRow, QuestionRow, ReplyRow, WorkBlock;
 
 /// The side conversation in the details panel (0.4, roadmap 4.7): the passage
@@ -28,6 +30,8 @@ class _SideChatViewState extends State<SideChatView> {
   final _input = TextEditingController();
   final _focus = FocusNode();
   bool _sending = false;
+  final _seen = <String>{};
+  bool _historySeen = false;
 
   @override
   void dispose() {
@@ -58,6 +62,8 @@ class _SideChatViewState extends State<SideChatView> {
       builder: (context, _) {
         final runtime = side.runtime;
         final rows = ChatRow.fromItems(side.items);
+        if (!_historySeen && side.isReady) { _seen.addAll(rows.map((row) => row.key)); _historySeen = true; }
+        final fresh = {for (final row in rows) if (_seen.add(row.key)) row.key};
         final running = runtime.isRunning;
         return LayoutBuilder(builder: (context, constraints) => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -72,32 +78,26 @@ class _SideChatViewState extends State<SideChatView> {
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
               decoration: BoxDecoration(
                 color: colors.card,
-                border: Border(left: BorderSide(color: colors.accent, width: 3)),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(side.quote, maxLines: 4, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(color: colors.ink2, height: 1.6)),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Text(!runtime.willPersist ? '这里的问答不会写进主对话，也不会保存。' : '这里的问答不会写进主对话，发送第一条消息后自动保存。', style: context.text.labelSmall?.copyWith(color: colors.muted, height: 1.5)),
             ),
             Expanded(
               child: !side.isReady
                   ? Center(
                       child: runtime.status == ConnectionStatus.crashed
-                          ? Text('打不开侧边对话：${runtime.statusDetail}', style: TextStyle(color: colors.danger))
+                          ? Text('暂时打不开：${runtime.statusDetail}', style: TextStyle(color: colors.danger))
                           : const CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : rows.isEmpty
-                  ? Center(child: Text('想问这段内容什么？', style: context.text.bodySmall?.copyWith(color: colors.muted)))
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
                       children: [
                         for (final row in rows)
-                          switch (row) {
+                          FadeSlideIn(key: ValueKey(row.key), animate: fresh.contains(row.key), child: switch (row) {
                             QuestionRow(:final item) => _Question(text: item.text),
-                            ReplyRow() => _Answer(row: row, transcript: runtime.transcript, active: running && identical(row, rows.last)),
-                          },
+                            ReplyRow() => _Answer(row: row, transcript: runtime.transcript, active: running && identical(row, rows.last), awaitingApproval: running && identical(row, rows.last) && runtime.pendingDialogs.any(isConversationApproval)),
+                          }),
+                        ConversationApprovalLane(runtime: runtime),
                       ],
                     ),
             ),
@@ -108,14 +108,14 @@ class _SideChatViewState extends State<SideChatView> {
                   TextButton.icon(
                     onPressed: side.lastAnswer == null || running ? null : agent.bringBackSideChat,
                     icon: const Icon(Icons.keyboard_return, size: 16),
-                    label: const Text('带回主对话'),
+                    label: const Text('带回去'),
                   ),
                   const Spacer(),
-                  TextButton(onPressed: agent.closeSideChat, child: const Text('结束')),
+                  TextButton(onPressed: agent.closeSideChat, child: const Text('关掉')),
                 ],
               ),
             ),
-            if (runtime.pendingDialogs.isNotEmpty)
+            if (runtime.pendingDialogs.any((request) => !isConversationApproval(request)))
               ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: constraints.maxHeight * .5),
                 child: Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), child: SideExtensionDialog(runtime: runtime)),
@@ -136,13 +136,13 @@ class _SideChatViewState extends State<SideChatView> {
                         minLines: 1,
                         maxLines: 4,
                         style: context.text.bodyMedium,
-                        decoration: const InputDecoration(hintText: '问问这段内容…（Enter 发送）', border: InputBorder.none, isDense: true),
+                        decoration: const InputDecoration(hintText: '就这段问点什么', border: InputBorder.none, isDense: true),
                       ),
                     ),
                   ),
                   running
                       ? IconButton(tooltip: '停止', onPressed: runtime.abort, icon: const Icon(Icons.stop_rounded))
-                      : IconButton(tooltip: '在侧边对话里发送', onPressed: side.isReady ? _send : null, icon: const Icon(Icons.arrow_upward_rounded)),
+                      : IconButton(tooltip: '在问一下里发送', onPressed: side.isReady ? _send : null, icon: const Icon(Icons.arrow_upward_rounded)),
                 ],
               ),
             ),
@@ -181,11 +181,12 @@ class _Question extends StatelessWidget {
 
 /// An answer: its work folded in one block, then its words.
 class _Answer extends StatelessWidget {
-  const _Answer({required this.row, required this.transcript, required this.active});
+  const _Answer({required this.row, required this.transcript, required this.active, required this.awaitingApproval});
 
   final ReplyRow row;
   final Transcript transcript;
   final bool active;
+  final bool awaitingApproval;
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +204,7 @@ class _Answer extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (steps.isNotEmpty) ...[WorkBlock(steps: steps, active: active && text.isEmpty), const SizedBox(height: 6)],
+          if (steps.isNotEmpty && !awaitingApproval) ...[WorkBlock(steps: steps, active: active && text.isEmpty), const SizedBox(height: 6)],
           if (text.isNotEmpty) ReplyMarkdown(text: text) else if (active && steps.isEmpty) const LinearProgressIndicator(minHeight: 2),
         ],
       ),

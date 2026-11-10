@@ -3,7 +3,7 @@ import 'package:flutter/gestures.dart' show kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path/path.dart' as p;
-import 'package:pi_rpc/pi_rpc.dart' show Transcript;
+import 'package:pi_rpc/pi_rpc.dart' show Transcript, UserItem;
 
 import '../state/agent_controller.dart';
 import '../state/preferences.dart';
@@ -11,18 +11,18 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'composer.dart';
 import 'common.dart';
-import 'context_dialog.dart';
+import 'conversation_controls.dart';
 import 'greetings.dart';
-import 'library_page.dart' show showTemplateEditor;
 import 'markdown_view.dart' show FileLinks;
 import 'message_widgets.dart';
-import 'memory_chat_controls.dart';
 import 'motion.dart';
 import 'providers_page.dart' show ProvidersPage;
 import 'run_summary.dart';
-import 'schedules.dart' show showScheduleEditor;
 import 'sidebar.dart' show WorkspaceSwitcher;
 import 'window_frame.dart' show ResizeHandle;
+import 'butterfly_motion.dart';
+import 'conversation_actions.dart';
+import 'conversation_cards.dart';
 
 /// Takes files dropped anywhere on the conversation (not just on the input
 /// box) and hands them to the input box.
@@ -56,10 +56,13 @@ class _FileDropAreaState extends State<_FileDropArea> {
 /// The conversation: title bar, messages and the input box, with the run
 /// panel on the right when there is room.
 class ChatView extends StatelessWidget {
-  const ChatView({super.key});
+  const ChatView({super.key, this.emptyStateBuilder, this.detailsPanelBuilder});
+
+  final Widget Function(BuildContext context, AgentController agent)? emptyStateBuilder;
+  final Widget Function(BuildContext context, AgentController agent)? detailsPanelBuilder;
 
   /// Below this width the details panel stays closed.
-  static const _panelMinWidth = 600.0;
+  static const _panelMinWidth = 400.0;
 
   /// The conversation keeps at least this much beside a docked panel; narrower, the panel floats over it.
   static const _dockedChatWidth = 640.0;
@@ -70,7 +73,7 @@ class ChatView extends StatelessWidget {
     final incognito = agent.active?.incognito ?? false;
     // The latest card of the conversation on screen runs live.
     agent.cardStage.setLatest(latestCardId(agent.transcript));
-    return LayoutBuilder(
+    return ConversationActionHost(child: LayoutBuilder(
       builder: (context, constraints) {
         final roomForPanel = constraints.maxWidth >= _panelMinWidth && (!incognito || agent.sideChat != null);
         final showPanel = roomForPanel && agent.runPanelOpen;
@@ -80,7 +83,12 @@ class ChatView extends StatelessWidget {
         final docked = showPanel && constraints.maxWidth - panelWidth >= _dockedChatWidth;
         return Stack(
           children: [
-            Positioned.fill(
+            AnimatedPositioned(
+              duration: AppTokens.motion(context, AppTokens.slow),
+              curve: AppTokens.curve,
+              top: 0,
+              bottom: 0,
+              left: 0,
               right: docked ? panelWidth + 6 : 0,
               child: _FileDropArea(
                 enabled: agent.isReady,
@@ -93,25 +101,19 @@ class ChatView extends StatelessWidget {
                     else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
                       _ProblemBanner(status: agent.status, detail: agent.statusDetail),
                     for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
-                    if (incognito)
-                      Container(
-                        margin: const EdgeInsets.fromLTRB(AppTokens.padLg, AppTokens.pad, AppTokens.padLg, 0),
-                        padding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 6),
-                        decoration: BoxDecoration(color: context.colors.accentSoft, borderRadius: BorderRadius.circular(context.radius)),
-                        child: Row(
-                          children: [
-                            Icon(Icons.visibility_off_outlined, size: 16, color: context.colors.muted),
-                            const SizedBox(width: AppTokens.gap),
-                            Text('无痕对话：极简模式，不保存记录，也不读写长期记忆。关掉后内容就没了。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
-                          ],
-                        ),
-                      ),
                     Expanded(
                       child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
-                          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                          : agent.transcript.items.isEmpty
-                          ? const _EmptyState()
-                          : const _MessageList(),
+                          ? const Center(child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  ButterflyMark(size: 72),
+                                  SizedBox(height: 20),
+                                  Text('正在准备工作台……'),
+                                ],
+                              ))
+                          : agent.transcript.items.isEmpty && agent.active?.pendingDialogs.any(isConversationApproval) != true
+                          ? emptyStateBuilder?.call(context, agent) ?? const _EmptyState()
+                          : ValueListenableBuilder<String?>(valueListenable: agent.entryTarget, builder: (_, _, _) => _MessageList()),
                     ),
                     if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
                       _ContextWarning(percent: agent.stats.contextPercent),
@@ -120,17 +122,22 @@ class ChatView extends StatelessWidget {
                 ),
               ),
             ),
-            if (showPanel)
-              Positioned(
+            Positioned(
                 top: 0,
                 bottom: 0,
                 right: 0,
-                child: _DetailsPanel(maxWidth: constraints.maxWidth - 160, floating: !docked),
+                child: AnimatedSwitcher(
+                  duration: AppTokens.motion(context, AppTokens.slow),
+                  switchInCurve: AppTokens.curve, switchOutCurve: AppTokens.curve,
+                  transitionBuilder: (child, animation) => FadeTransition(opacity: animation,
+                    child: SlideTransition(position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(animation), child: child)),
+                  child: showPanel ? _DetailsPanel(key: const ValueKey('details'), maxWidth: constraints.maxWidth - 80, floating: !docked, builder: detailsPanelBuilder) : const SizedBox.shrink(),
+                ),
               ),
           ],
         );
       },
-    );
+    ));
   }
 }
 
@@ -141,7 +148,9 @@ class ChatView extends StatelessWidget {
 /// The details of the conversation (run, files, cost, actions) sliding in over
 /// it from the right; its width is dragged on its left edge and remembered.
 class _DetailsPanel extends StatefulWidget {
-  const _DetailsPanel({required this.maxWidth, required this.floating});
+  const _DetailsPanel({super.key, required this.maxWidth, required this.floating, this.builder});
+
+  final Widget Function(BuildContext context, AgentController agent)? builder;
 
   /// Leaves some of the conversation in view on a narrow window.
   final double maxWidth;
@@ -163,8 +172,8 @@ class _DetailsPanelState extends State<_DetailsPanel> {
     final width = (_width ?? agent.panelWidth).clamp(Preferences.panelWidths.min, max);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 1, end: 0),
-      duration: AppTokens.medium,
-      curve: Curves.easeOutCubic,
+      duration: Duration.zero,
+      curve: AppTokens.curve,
       builder: (context, t, child) => FractionalTranslation(translation: Offset(t, 0), child: child),
       child: DecoratedBox(
         decoration: BoxDecoration(
@@ -185,12 +194,10 @@ class _DetailsPanelState extends State<_DetailsPanel> {
                 if (mounted) setState(() => _width = null);
               },
             ),
-            RunPanel(
-              key: ValueKey('panel-${agent.currentSessionPath}'),
-              width: width,
-              sessionFile: agent.currentSessionPath,
-              onClose: () => agent.setRunPanelOpen(false),
-            ),
+            SizedBox(width: width, child: widget.builder?.call(context, agent) ?? RunPanel(
+              key: ValueKey('panel-${agent.currentSessionPath}'), width: width,
+              sessionFile: agent.currentSessionPath, onClose: () => agent.setRunPanelOpen(false),
+            )),
           ],
         ),
       ),
@@ -215,7 +222,8 @@ class _EmptyState extends StatelessWidget {
     final now = DateTime.now();
     // Stable while this conversation is on screen, another line for the next one.
     final greeting = pickGreeting(now: now, seed: identityHashCode(agent.active) ^ now.day, butterfly: agent.sandbox);
-    final style = context.serif(context.text.headlineSmall).copyWith(fontSize: 32, fontWeight: FontWeight.w600, letterSpacing: 6, height: 1.5);
+    final (line, source) = pickLiteraryLine(identityHashCode(agent.active));
+    final style = context.handwriting(context.text.headlineSmall).copyWith(fontSize: 34, letterSpacing: 2, height: 1.5);
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
@@ -223,7 +231,7 @@ class _EmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const ButterflyMark(size: 132, semanticLabel: 'DreamFlutter'),
+              ButterflyAvatar(size: 96, activity: butterflyActivity(agent)),
               const SizedBox(height: 28),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 640),
@@ -237,7 +245,27 @@ class _EmptyState extends StatelessWidget {
                 ),
               ),
               if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 32), const _FirstRunGuide()],
-              const MemoryLiveNotices(),
+              // Greeting, then the 文选 line, then the examples: the 1.0 prototype's order (蝶君's home matches).
+              const SizedBox(height: 18),
+              Text(line, textAlign: TextAlign.center, style: context.serif(context.text.bodyMedium).copyWith(color: colors.muted)),
+              const SizedBox(height: 4),
+              Text(source, style: context.text.bodySmall?.copyWith(color: colors.muted)),
+              const SizedBox(height: 22),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  for (final prompt
+                      in agent.sandbox
+                          ? const ['每周一帮我整理上周的周报', '把这份资料整理成摘要', '帮我检查这个项目']
+                          : const ['整理这个文件夹里的资料', '帮我读懂这段代码', '一起梳理今天的工作'])
+                    OutlinedButton(
+                      onPressed: () => agent.insertIntoComposer(prompt),
+                      child: Text(prompt),
+                    ),
+                ],
+              ),
             ],
           ),
         ),
@@ -299,7 +327,7 @@ class _FirstRunGuide extends StatelessWidget {
             1,
             hasModel,
             hasModel ? '已连接模型：${model.name}' : '连接一个模型',
-            hasModel ? '换模型在输入框右下角；服务商和 Key 在设置里。' : '在设置里添加服务商和 API Key，Agent 才能开始工作。',
+            hasModel ? '模型可在输入框里更换；渠道和密钥在设置里。' : '在设置里添加渠道和密钥，就能开始对话。',
             TextButton(
               onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ProvidersPage())),
               child: Text(hasModel ? '管理' : '去添加'),
@@ -309,7 +337,7 @@ class _FirstRunGuide extends StatelessWidget {
             2,
             agent.workspace.isNotEmpty,
             '工作区：$folder',
-            'Agent 在这个文件夹里读写文件、运行命令。',
+            '它在这个文件夹里读写文件、运行命令。',
             TextButton(onPressed: () => WorkspaceSwitcher.pickFolder(context), child: const Text('换一个文件夹')),
           ),
           step(3, false, '试一个任务', '在下面的输入框里说一件想做的事，比如「把这个文件夹里的表格汇总一下」。', null),
@@ -338,6 +366,29 @@ class _MessageListState extends State<_MessageList> {
   final _scroll = _BottomAnchoredController();
   Transcript? _shown;
   int _sends = 0;
+  final _rowKeys = <String, GlobalKey>{};
+  String? _jumping;
+  int _seekGeneration = 0;
+
+  Future<void> _seek(String rowKey) async {
+    final generation = ++_seekGeneration;
+    // Rows are virtualized. Walk the viewport until the persisted entry is laid
+    // out, then use Flutter's transform-aware ensureVisible (also at 150%).
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scroll.hasClients || generation != _seekGeneration) return;
+    _scroll.stick = false;
+    _scroll.jumpTo(0);
+    for (var page = 0; page < 2000 && mounted && generation == _seekGeneration; page++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || !_scroll.hasClients) return;
+      final target = _rowKeys[rowKey]?.currentContext;
+      if (target != null && target.mounted) { await Scrollable.ensureVisible(target, alignment: .15); return; }
+      final position = _scroll.position;
+      final next = (position.pixels + position.viewportDimension * .8).clamp(0.0, position.maxScrollExtent);
+      if (next <= position.pixels) return;
+      _scroll.jumpTo(next);
+    }
+  }
 
   /// Rows that were there before: only rows new while it runs slide in. A row
   /// scrolled away is built again when it comes back, and it played its
@@ -368,6 +419,7 @@ class _MessageListState extends State<_MessageList> {
 
   @override
   void dispose() {
+    ++_seekGeneration;
     _scroll.dispose();
     super.dispose();
   }
@@ -384,6 +436,14 @@ class _MessageListState extends State<_MessageList> {
       _seen
         ..clear()
         ..addAll(rows.map((r) => r.key));
+      _rowKeys.clear();
+      _jumping = null;
+      ++_seekGeneration;
+    }
+    final entry = agent.entryTarget.value;
+    if (entry != null && entry != _jumping) {
+      final target = rows.where((row) => switch (row) { QuestionRow(:final item) => item.entryId == entry, ReplyRow(:final items) => items.any((item) => item.entryId == entry) }).firstOrNull;
+      if (target != null) { _jumping = entry; _seek(target.key); }
     }
     // Sending (or queueing) a message goes back to the end to show it.
     final sends = agent.active?.sends ?? 0;
@@ -415,12 +475,12 @@ class _MessageListState extends State<_MessageList> {
           buttonItems: [
             ...region.contextMenuButtonItems,
             if (text.isNotEmpty) ...[
-              ContextMenuButtonItem(label: '回复', onPressed: () {
+              ContextMenuButtonItem(label: '引用', onPressed: () {
                 region.hideToolbar();
                 _reply(text);
               }),
               if (canSide)
-                ContextMenuButtonItem(label: '侧边对话', onPressed: () {
+                ContextMenuButtonItem(label: '问一下', onPressed: () {
                   region.hideToolbar();
                   _side(text);
                 }),
@@ -435,16 +495,21 @@ class _MessageListState extends State<_MessageList> {
             child: ListView.builder(
               controller: _scroll,
               padding: const EdgeInsets.symmetric(vertical: 24),
-              itemCount: rows.length + (queued.isEmpty ? 0 : 1),
+              itemCount: rows.length + (queued.isEmpty ? 0 : 1) + 1,
               itemBuilder: (context, index) {
                 final child = index < rows.length
                     ? FadeSlideIn(
                         key: ValueKey(rows[index].key),
-                        animate: transcript.isRunning && fresh.contains(rows[index].key),
+                        animate: fresh.contains(rows[index].key),
                         child: ChatRowView(row: rows[index], transcript: transcript),
                       )
-                    : QueuedMessages(messages: queued);
+                    : index == rows.length && queued.isNotEmpty ? QueuedMessages(messages: queued)
+                    : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        if (transcript.isRunning && (rows.isEmpty || rows.last is QuestionRow)) const ConversationPresence(),
+                        ConversationApprovalLane(key: ValueKey('approval-${agent.activeSessionId}-${transcript.items.whereType<UserItem>().lastOrNull?.key}'), runtime: agent.active),
+                      ]);
                 return _AnchoredRow(
+                  key: index < rows.length ? _rowKeys.putIfAbsent(rows[index].key, GlobalKey.new) : null,
                   controller: _scroll,
                   child: SelectionRegistrarScope(
                     registrar: registrar,
@@ -468,7 +533,8 @@ class _MessageListState extends State<_MessageList> {
       children: [
         Positioned.fill(
           child: NotificationListener<ScrollNotification>(
-            onNotification: (_) {
+            onNotification: (notification) {
+              if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) ++_seekGeneration;
               _hideBox();
               return false;
             },
@@ -535,15 +601,15 @@ class _SelectionBox extends StatelessWidget {
           children: [
             Tooltip(
               message: '把选中的内容作为引用放进输入框',
-              child: TextButton.icon(style: style(), onPressed: () => onReply(text), icon: const Icon(Icons.format_quote_outlined, size: 16), label: const Text('回复')),
+              child: TextButton.icon(style: style(), onPressed: () => onReply(text), icon: const Icon(Icons.format_quote_outlined, size: 16), label: const Text('引用')),
             ),
             Tooltip(
-              message: canSide ? '在右边开一段小对话问这段内容，不打断也不写进主对话' : '无痕对话没有保存，不能开侧边对话',
+              message: canSide ? '问一下' : '暂时无法打开问一下',
               child: TextButton.icon(
                 style: style(),
                 onPressed: canSide ? () => onSide(text) : null,
                 icon: const Icon(Icons.vertical_split_outlined, size: 16),
-                label: const Text('侧边对话'),
+                label: const Text('问一下'),
               ),
             ),
           ],
@@ -670,7 +736,7 @@ class _BottomAnchoredPosition extends ScrollPositionWithSingleContext {
 /// moves its offset by the same amount, like scroll anchoring in browsers.
 /// A row on screen is left alone: it is what the reader is looking at.
 class _AnchoredRow extends SingleChildRenderObjectWidget {
-  const _AnchoredRow({required this.controller, required super.child});
+  const _AnchoredRow({super.key, required this.controller, required super.child});
 
   final _BottomAnchoredController controller;
 
@@ -708,90 +774,6 @@ class _RenderAnchoredRow extends RenderProxyBox {
 /// What can be done with the conversation, in plain sight in the details panel
 /// (0.4, test 27: they were hidden in the title bar's 「⋯」): turn it into a skill
 /// or template, carry on at set times, see or refresh the memory it was given.
-class SessionActions extends StatelessWidget {
-  const SessionActions({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
-    final hasContent = agent.isReady && !(agent.active?.isPristine ?? true);
-    final remembers = !(agent.active?.incognito ?? false) && agent.coreSettings['memoryEnabled'] != false;
-    Widget action(String id, IconData icon, String label, String tip, bool enabled) => Tooltip(
-      message: tip,
-      child: OutlinedButton.icon(
-        onPressed: enabled ? () => _run(context, id) : null,
-        style: OutlinedButton.styleFrom(
-          alignment: Alignment.centerLeft,
-          minimumSize: const Size(0, 36),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          side: BorderSide(color: context.colors.border),
-          backgroundColor: context.colors.card,
-        ),
-        icon: Icon(icon, size: 16),
-        label: Text(label, overflow: TextOverflow.ellipsis),
-      ),
-    );
-    final buttons = [
-      action('skill', Icons.auto_fix_high_outlined, '存成技能', '把这次的做法整理成可复用的技能', hasContent && !agent.isRunning),
-      action('template', Icons.post_add_outlined, '存为模板', '把最后一条请求存成任务模板', hasContent),
-      action('schedule', Icons.schedule, '定时接着做', '按时间在这个会话里继续，比如每天汇报进度', hasContent && agent.active?.sessionPath != null && !(agent.active?.incognito ?? false)),
-      action('snapshots', Icons.psychology_alt_outlined, '用到的记忆', '看这个会话带上的记忆快照', remembers && agent.activeSessionId != null),
-      action('refresh', Icons.refresh, '刷新记忆快照', '下一条消息带上最新的记忆', remembers && hasContent),
-    ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final half = (constraints.maxWidth - 8) / 2;
-        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Wrap(spacing: 8, runSpacing: 8, children: [for (final b in buttons) SizedBox(width: half, child: b)]), const SessionMemoryActions()]);
-      },
-    );
-  }
-
-  Future<void> _run(BuildContext context, String action) async {
-    final agent = AgentScope.read(context);
-    switch (action) {
-      case 'skill':
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('正在用辅助模型整理这次的做法，大约需要几十秒…'), behavior: SnackBarBehavior.floating, width: 520),
-        );
-        await agent.draftSkillFromSession();
-      case 'template':
-        final draft = await agent.draftTemplateFromSession();
-        if (draft == null || !context.mounted) return;
-        final saved = await showTemplateEditor(
-          context,
-          name: draft['name'] as String? ?? '',
-          description: draft['description'] as String? ?? '',
-          body: draft['body'] as String? ?? '',
-        );
-        if (saved && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('模板已保存，可以在「技能」页运行，或在输入框里输入 /模板名。'), behavior: SnackBarBehavior.floating, width: 520),
-          );
-        }
-      case 'schedule':
-        final path = agent.active?.sessionPath;
-        if (path == null) return;
-        if (await showScheduleEditor(context, session: path) && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('定时任务已保存，可以在「任务 › 定时」里查看和修改。'), behavior: SnackBarBehavior.floating, width: 520),
-          );
-        }
-      case 'refresh':
-        await agent.refreshMemorySnapshot();
-      case 'snapshots':
-        final snapshots = await agent.memorySnapshots();
-        if (!context.mounted) return;
-        await showTextDialog(
-          context,
-          title: '这个会话用到的记忆',
-          text: snapshots.isEmpty
-              ? '这个会话还没有带上记忆快照（可能是记忆为空，或者还没发出第一条消息）。'
-              : [for (final s in snapshots) s['content'] as String? ?? ''].join('\n\n────────\n\n'),
-        );
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Banners and empty state
 // ---------------------------------------------------------------------------
@@ -826,7 +808,7 @@ class _ProblemBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(reconnecting ? '后台连接中断' : crashed ? '会话已断开' : '后台服务没有启动', style: context.text.titleSmall),
+                Text(reconnecting ? '后台连接中断' : crashed ? '对话已断开' : '后台服务没有启动', style: context.text.titleSmall),
                 const SizedBox(height: 4),
                 SelectableText(
                   detail,
@@ -908,11 +890,11 @@ class _ContextWarning extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  '上下文已用 ${percent.toStringAsFixed(0)}%，快满了。可以压缩较早的对话，或者开一个新会话。',
+                  '上下文已用 ${percent.toStringAsFixed(0)}%',
                   style: context.text.bodySmall?.copyWith(color: colors.warning),
                 ),
               ),
-              TextButton(onPressed: () => showContextDialog(context), child: const Text('管理上下文')),
+              TextButton(onPressed: () => showConversationContext(context), child: const Text('整理上下文')),
             ],
           ),
         ),

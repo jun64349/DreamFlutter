@@ -127,7 +127,7 @@ class _AppZoomState extends State<AppZoom> {
             child: Center(
               child: AnimatedOpacity(
                 opacity: _showLevel ? 1 : 0,
-                duration: const Duration(milliseconds: 150),
+                duration: AppTokens.motion(context, AppTokens.fast), curve: AppTokens.curve,
                 child: _ZoomBadge(zoom: zoom),
               ),
             ),
@@ -328,9 +328,9 @@ class _ThemeSwatch extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: '${theme.name}：${theme.work}',
+      label: theme.work.isEmpty ? theme.name : '${theme.name}：${theme.work}',
       child: Tooltip(
-        message: theme.work,
+        message: theme.work.isEmpty ? theme.name : theme.work,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(context.radiusLg),
@@ -408,7 +408,7 @@ class _ThemeSwatch extends StatelessWidget {
                     if (selected) Icon(Icons.check, size: 14, color: c.accent),
                   ],
                 ),
-                Text(
+                if (theme.work.isNotEmpty) Text(
                   theme.work,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,

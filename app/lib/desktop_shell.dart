@@ -4,17 +4,22 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'state/agent_controller.dart';
+import 'state/desktop_notifications.dart';
+import 'ui/attention_page.dart';
 
 /// Window and tray behaviour: closing the window hides it to the tray while
 /// the core keeps running sessions and schedules; the tray menu reopens the
 /// window or quits (optionally stopping the core too).
 class DesktopShell with WindowListener, TrayListener {
-  DesktopShell(this.controller, {this.confirmExit});
+  DesktopShell(this.controller, {this.confirmExit, this.chooseCloseBehavior});
 
   final AgentController controller;
   final Future<bool> Function()? confirmExit;
+  final Future<String?> Function()? chooseCloseBehavior;
   StreamSubscription<dynamic>? _events;
   bool _closing = false;
+  bool _handlingClose = false;
+  late final _notifications=DesktopNotifications((target,origin)async{await _show();await openAttentionTarget(controller,target,origin);});
 
   Future<void> init({bool startHidden = false}) async {
     await windowManager.ensureInitialized();
@@ -30,15 +35,19 @@ class DesktopShell with WindowListener, TrayListener {
         items: [
           MenuItem(key: 'show', label: '打开 DreamFlutter'),
           MenuItem.separator(),
-          MenuItem(key: 'quit', label: '退出窗口（后台任务继续）'),
-          MenuItem(key: 'quit_all', label: '退出并停止后台'),
+          MenuItem(key: 'quit_all', label: '退出'),
         ],
       ),
     );
     trayManager.addListener(this);
+    try { await _notifications.init(); } catch (_) { /* The window still runs if Windows disables notifications. */ }
     _events = controller.backend.events.listen((event) {
       if (event['event'] == 'updates.closeWindow') unawaited(_quit(stopCore: false, updating: true));
+      if (event['event'] == 'notification' && event['title'] is String) {
+        unawaited(_notifications.receive(event).catchError((Object _) {}));
+      }
     });
+    controller.setWindowFocused(!startHidden && await windowManager.isFocused());
     if (startHidden) unawaited(Future<void>.delayed(const Duration(milliseconds: 500), () => windowManager.hide()));
   }
 
@@ -52,29 +61,50 @@ class DesktopShell with WindowListener, TrayListener {
     _closing = true;
     if (stopCore && !updating) {
       var busy = false;
-      try { final state = await controller.backend.call('app.exitState'); busy = state is Map && state['busy'] == true; } catch (_) { busy = controller.runtimes.any((runtime) => runtime.isRunning); }
+      try { final state = await controller.backend.call('core.activity'); busy = state is Map && (state['count'] as num? ?? 0)>0; final exit = await controller.backend.call('app.exitState'); busy = busy || exit is Map && exit['busy']==true; } catch (_) { busy = busy || [...controller.runtimes, ...?controller.butterfly?.runtimes].any((runtime) => runtime.isRunning); }
       if (busy && !(await confirmExit?.call() ?? false)) { _closing = false; return; }
     }
+    await controller.flushGardenDeletes();
     if (stopCore) await controller.shutdownCore();
     await _events?.cancel();
+    await _notifications.dispose();
+    windowManager.removeListener(this);
+    trayManager.removeListener(this);
     await trayManager.destroy();
     await windowManager.setPreventClose(false);
-    await windowManager.destroy();
+    // close(), not destroy(): destroy() posts WM_QUIT, so the engine was torn down after the
+    // message loop had ended and crashed in flutter_windows.dll on every exit (E-01). close()
+    // goes WM_CLOSE → WM_DESTROY → engine shutdown → PostQuitMessage, the template's own path.
+    await windowManager.close();
   }
 
   @override
+  void onWindowFocus() => controller.setWindowFocused(true);
+
+  @override
+  void onWindowBlur() => controller.setWindowFocused(false);
+
+  @override
   void onWindowClose() {
-    if (controller.coreSettings['closeBehavior'] == 'quit') { unawaited(_quit(stopCore: true)); return; }
+    if (_handlingClose || _closing) return;
+    _handlingClose = true;
     unawaited(() async {
-      await windowManager.hide();
-      if (!controller.preferences.trayHintShown) {
-        await controller.preferences.setTrayHintShown();
-        try {
-          await controller.backend.call('core.notify', {
-            'title': 'DreamFlutter 仍在后台运行',
-            'body': '正在进行的任务和定时任务会继续。点任务栏右下角的图标可以重新打开窗口或完全退出。',
-          });
-        } catch (_) {}
+      try {
+        var choice = controller.preferences.closeBehaviorChoice;
+        if (choice == null) {
+          choice = await chooseCloseBehavior?.call();
+          if (choice == null) return;
+          await controller.preferences.setCloseBehaviorChoice(choice);
+          try { await controller.updateCoreSettings({'closeBehavior': choice}); } catch (_) {}
+        }
+        if (choice == 'quit') {
+          await _quit(stopCore: true);
+        } else {
+          controller.setWindowFocused(false);
+          await windowManager.hide();
+        }
+      } finally {
+        _handlingClose = false;
       }
     }());
   }

@@ -11,7 +11,10 @@ import 'library_page.dart';
 import 'memory_page.dart';
 import 'rich_blocks.dart';
 import 'sidebar.dart';
-import 'tasks_page.dart';
+import 'attention_page.dart';
+import 'dashboard_page.dart';
+import 'settings_page.dart';
+import 'shell_widgets.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -59,30 +62,33 @@ class _HomePageState extends State<HomePage> {
     _visited.add(agent.section);
     RichRenderer.configure((agent.coreInfo['port'] as num?)?.toInt());
     return ExtensionDialogHost(
-      child: Scaffold(
-        body: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // One sidebar for every page (0.4): the old icon rail's places are in it.
-            const Sidebar(),
-            Expanded(
-              child: IndexedStack(
-                index: agent.section.index,
-                sizing: StackFit.expand,
-                children: [
-                  const ChatView(),
-                  // Built on first visit, so their data loads when opened.
-                  _visited.contains(AppSection.butterfly) ? const ButterflyPage() : const SizedBox(),
-                  _visited.contains(AppSection.tasks) ? const TasksPage() : const SizedBox(),
-                  _visited.contains(AppSection.memory) ? const MemoryPage() : const SizedBox(),
-                  _visited.contains(AppSection.library) ? const LibraryPage() : const SizedBox(),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 760;
+        final pages = ShellPageMotion(
+          page: agent.section,
+          child: IndexedStack(index: agent.section.index, sizing: StackFit.expand, children: [
+            TickerMode(enabled: agent.section == AppSection.chat, child: const ChatView()),
+            _visited.contains(AppSection.butterfly) ? TickerMode(enabled: agent.section == AppSection.butterfly, child: const ButterflyPage()) : const SizedBox(),
+            _visited.contains(AppSection.tasks) ? const AttentionPage() : const SizedBox(),
+            _visited.contains(AppSection.memory) ? TickerMode(enabled: agent.section == AppSection.memory, child: const MemoryPage()) : const SizedBox(),
+            _visited.contains(AppSection.library) ? TickerMode(enabled: agent.section == AppSection.library, child: const LibraryPage()) : const SizedBox(),
+            _visited.contains(AppSection.spending) ? const DashboardPage() : const SizedBox(),
+            _visited.contains(AppSection.settings) ? const SettingsPage() : const SizedBox(),
+          ]),
+        );
+        return Scaffold(
+          drawer: narrow ? Drawer(width: 254, backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest, child: const SafeArea(child: Sidebar())) : null,
+          body: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (!narrow) const Sidebar(),
+            Expanded(child: Column(children: [
+              if (narrow) Align(alignment: Alignment.centerLeft, child: Builder(builder: (context) => IconButton(
+                tooltip: '打开侧栏', onPressed: () => Scaffold.of(context).openDrawer(), icon: const Icon(Icons.menu, size: 20),
+              ))),
+              Expanded(child: pages),
+            ])),
+          ]),
+        );
+      }),
     );
   }
 }
-

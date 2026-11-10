@@ -23,12 +23,16 @@ class SessionSummary {
     required this.createdAt,
     required this.modifiedAt,
     this.parentSession,
+    this.isSideConversation = false,
+    this.sideQuote,
   });
 
   final String path;
 
   /// For forked or cloned sessions: the session file it was created from.
   final String? parentSession;
+  final bool isSideConversation;
+  final String? sideQuote;
   final String id;
   final String cwd;
 
@@ -57,13 +61,17 @@ class SessionStore {
   }
 
   /// Sessions newest first, optionally only those whose workspace is [cwd].
-  Future<List<SessionSummary>> list({String? cwd}) async {
+  Future<List<SessionSummary>> list({String? cwd,
+    bool includeSideConversations = false,
+  }) async {
     final root = Directory(sessionsDir);
     if (!await root.exists()) return const [];
     final summaries = <SessionSummary>[];
     await for (final entity in root.list(recursive: true, followLinks: false)) {
       if (entity is! File || !entity.path.endsWith('.jsonl')) continue;
-      final summary = await readSummary(entity);
+      final summary = await readSummary(entity,
+        includeSideConversations: includeSideConversations,
+      );
       if (summary == null) continue;
       if (cwd != null && !samePath(summary.cwd, cwd)) continue;
       summaries.add(summary);
@@ -101,12 +109,15 @@ class SessionStore {
     return result.exitCode == 0 && !await file.exists();
   }
 
-  static Future<SessionSummary?> readSummary(File file) async {
+  static Future<SessionSummary?> readSummary(File file, {
+    bool includeSideConversations = false,
+  }) async {
     try {
       final stat = await file.stat();
       Json? header;
       String? firstUserText;
       String? name;
+      Json? side;
       final lines = file.openRead().transform(utf8.decoder).transform(const LineSplitter());
       await for (final line in lines) {
         if (header == null) {
@@ -117,7 +128,10 @@ class SessionStore {
         }
         if (line.contains('df.sideConversation')) {
           final entry = asJson(jsonDecode(line));
-          if (entry['type'] == 'custom' && entry['customType'] == 'df.sideConversation' && asJson(entry['data'])['sessionId'] == header['id']) return null;
+          if (entry['type'] == 'custom' && entry['customType'] == 'df.sideConversation' && asJson(entry['data'])['sessionId'] == header['id']) {
+            if (!includeSideConversations) return null;
+            side = asJson(entry['data']);
+          }
         }
         if (line.contains('"type":"session_info"')) {
           name = asString(asJson(jsonDecode(line))['name']);
@@ -136,7 +150,10 @@ class SessionStore {
         id: asString(header['id']) ?? p.basenameWithoutExtension(file.path),
         cwd: asString(header['cwd']) ?? '',
         title: title,
-        parentSession: asString(header['parentSession']),
+        parentSession: asString(side?['parentSession']) ??
+            asString(header['parentSession']),
+        isSideConversation: side != null,
+        sideQuote: asString(side?['quote']),
         createdAt: DateTime.tryParse(asString(header['timestamp']) ?? '')?.toLocal() ?? stat.modified,
         modifiedAt: stat.modified,
       );

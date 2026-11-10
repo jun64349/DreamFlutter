@@ -17,6 +17,9 @@ import 'markdown_view.dart';
 import 'motion.dart';
 import 'memory_chat_controls.dart';
 import 'dashboard_page.dart' show formatCost, formatTokens;
+import 'conversation_cards.dart';
+import 'conversation_memory.dart';
+import 'workspace_path.dart';
 
 // ---------------------------------------------------------------------------
 // Rows: a question, or the whole reply to it
@@ -112,8 +115,8 @@ class ChatRowView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => switch (row) {
-    QuestionRow(:final item) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [MemoryBoundaryNote(item: item), _UserBubble(item: item)]),
-    final ReplyRow reply => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [_ReplyView(row: reply, transcript: transcript, live: transcript.isRunning && reply.info.isLatest), UnsavedMemoryNote(replies: reply.assistants), if (reply.info.isLatest) const MemoryLiveNotices()]),
+    QuestionRow(:final item) => _UserBubble(item: item),
+    final ReplyRow reply => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [_ReplyView(row: reply, transcript: transcript, live: transcript.isRunning && reply.info.isLatest), ReplyMemoryCorrections(replies: reply.assistants), UnsavedMemoryNote(replies: reply.assistants)]),
   };
 }
 
@@ -182,7 +185,8 @@ class _UserBubbleState extends State<_UserBubble> {
               children: [
                 AnimatedOpacity(
                   opacity: _hovered ? 1 : 0,
-                  duration: AppTokens.fast,
+                  duration: AppTokens.motion(context, AppTokens.fast),
+                  curve: AppTokens.curve,
                   child: Row(
                     children: [
                       _ActionButton(
@@ -207,7 +211,7 @@ class _UserBubbleState extends State<_UserBubble> {
                       ],
                       _ActionButton(
                         icon: Icons.call_split,
-                        tooltip: busy ? '回复结束后才能分叉' : '分叉为新会话：保留这条消息之前的内容，并把这条消息放回输入框供你修改',
+                        tooltip: '从这里重来',
                         onTap: busy ? null : () => AgentScope.read(context).forkFrom(item),
                       ),
                     ],
@@ -364,9 +368,7 @@ List<_Segment> _segments(ReplyRow row, Transcript transcript, AppColors colors) 
               }
           }
         }
-        if (item.failed) {
-          segments.add(_NoteSegment(Icons.error_outline, colors.danger, '模型请求失败：${item.errorMessage ?? '未知错误'}'));
-        } else if (item.aborted) {
+        if (item.aborted) {
           segments.add(_NoteSegment(Icons.stop_circle_outlined, colors.muted, '已停止'));
         } else if (item.truncated) {
           segments.add(_NoteSegment(Icons.warning_amber_rounded, colors.warning, '回复达到长度上限，被截断了'));
@@ -401,19 +403,26 @@ class _ReplyView extends StatelessWidget {
     final lastText = segments.lastIndexWhere((s) => s is _TextSegment);
     final streaming = row.assistants.any((a) => a.streaming);
     final children = <Widget>[];
+    final work = segments.whereType<_WorkSegment>().toList();
+    final steps = [for (final segment in work) ...segment.steps];
+    final awaitingApproval = live && AgentScope.of(context).active?.pendingDialogs.any(isConversationApproval) == true;
+    if (live && !awaitingApproval) children.add(const ConversationPresence());
+    if (!awaitingApproval && (steps.isNotEmpty || live && segments.isEmpty)) children.add(WorkBlock(steps: steps, active: live, waiting: work.any((s) => s.waiting)));
     for (final (index, segment) in segments.indexed) {
+      if (segment is _WorkSegment) continue;
       final isLast = index == segments.length - 1;
       children.add(switch (segment) {
         _TextSegment(:final text) => index == lastText && live && streaming && isLast
             ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [ReplyMarkdown(text: text), const StreamingCaret()])
             : ReplyMarkdown(text: text),
         _WorkSegment() => WorkBlock(steps: segment.steps, active: live && isLast, waiting: segment.waiting),
-        _NoticeSegment(:final notice) => _NoticeView(notice: notice),
+        _NoticeSegment(:final notice) => notice.kind == NoticeKind.retryFailed ? ConversationErrorCard(reason: notice.message, question: row.info.question) : _NoticeView(notice: notice),
         _CardSegment(:final run) => CardBlock(key: ValueKey('card-${run.id}'), run: run),
         _NoteSegment(:final icon, :final color, :final text) => _InlineNote(icon: icon, color: color, text: text),
       });
     }
-    if (live && segments.isEmpty) children.add(const WorkBlock(steps: [], active: true, waiting: true));
+    final failure = row.assistants.where((a) => a.failed).lastOrNull;
+    if (failure != null) children.add(ConversationErrorCard(reason: failure.errorMessage ?? '模型没有返回回复，请重试或换个模型', question: row.info.question));
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [for (final child in children) Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: child)],
@@ -442,99 +451,50 @@ class _ReplyFrameState extends State<_ReplyFrame> {
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
-    final colors = context.colors;
     final info = widget.row.info;
     final busy = agent.isRunning;
     final question = info.question;
     final branch = question == null ? null : agent.active?.branchFor(question);
     final canRegenerate = branch != null && !busy;
     final others = agent.models.where((m) => m != agent.model).toList();
-    // 0.4 (test 21): the numbers and the buttons show together, only under the mouse or with keyboard focus.
     final visible = _hovered || _focused;
     String modelName(String id) => agent.models.where((m) => m.id == id).firstOrNull?.name ?? id;
-    final facts = replyFacts(widget.row.assistants, modelName: modelName);
     final short = replyFactsShort(widget.row.assistants, modelName: modelName);
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+      hitTestBehavior: HitTestBehavior.translucent,
+      onEnter: (_) => setState(() => _hovered = true), onExit: (_) => setState(() => _hovered = false),
+      child: Focus(skipTraversal: true, onFocusChange: (value) => setState(() => _focused = value),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           widget.child,
           const SizedBox(height: 4),
-          Focus(
-            skipTraversal: true,
-            onFocusChange: (focused) => setState(() => _focused = focused),
-            child: SizedBox(
-              height: 36,
-              child: Row(
-                children: [
-                  AnimatedOpacity(
-                    opacity: visible ? 1 : 0,
-                    duration: AppTokens.fast,
-                    child: Row(
-                      children: [
-                        _ActionButton(
-                          icon: Icons.copy_outlined,
-                          tooltip: '复制回复（Markdown 原文）',
-                          onTap: info.text.isEmpty
-                              ? null
-                              : () {
-                                  Clipboard.setData(ClipboardData(text: info.text));
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
-                                },
-                        ),
-                        _ActionButton(
-                          icon: Icons.refresh,
-                          tooltip: busy
-                              ? '回复结束后才能重新生成'
-                              : branch == null
-                              ? '这条回复对应的问题已被压缩，无法重新生成'
-                              : '重新生成（原来的回复会保留，可以切换回去）',
-                          onTap: canRegenerate ? () => AgentScope.read(context).regenerate(question!) : null,
-                        ),
-                        if (others.isNotEmpty)
-                          PopupMenuButton<PiModel>(
-                            tooltip: '换一个模型重新生成',
-                            enabled: canRegenerate,
-                            padding: EdgeInsets.zero,
-                            iconSize: 18,
-                            icon: Icon(Icons.expand_more, color: colors.muted),
-                            style: IconButton.styleFrom(minimumSize: const Size(24, 34), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
-                            itemBuilder: (_) => [
-                              for (final m in others) PopupMenuItem(value: m, child: Text('用 ${m.name} 重新生成')),
-                            ],
-                            onSelected: (m) => AgentScope.read(context).regenerate(question!, model: m),
-                          ),
-                        _ActionButton(
-                          icon: Icons.call_split,
-                          tooltip: busy ? '回复结束后才能分叉' : '从这里分叉：新开一个会话，保留到这条回复为止的内容',
-                          onTap: busy ? null : () => AgentScope.read(context).forkAfterReply(info.nextQuestion),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (question != null && branch != null && branch.total > 1)
-                    _VersionSwitcher(item: question, branch: branch, enabled: !busy),
-                  if (short.isNotEmpty)
-                    Expanded(
-                      child: AnimatedOpacity(
-                        opacity: visible ? 1 : 0,
-                        duration: AppTokens.fast,
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: Tooltip(
-                            message: facts,
-                            child: Text(short, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.labelSmall?.copyWith(color: colors.muted, fontSize: 12)),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+          AnimatedOpacity(opacity: visible ? 1 : 0, duration: AppTokens.motion(context, AppTokens.fast), curve: AppTokens.curve,
+            child: IgnorePointer(ignoring: !visible, child: Wrap(
+              key: ValueKey('reply-actions-${widget.row.key}'), spacing: 2, crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _ActionButton(icon: Icons.copy_outlined, tooltip: '复制', onTap: info.text.isEmpty ? null : () {
+                  Clipboard.setData(ClipboardData(text: info.text));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
+                }),
+                _ActionButton(icon: Icons.refresh, tooltip: '重新生成', onTap: canRegenerate ? () => agent.regenerate(question!) : null),
+                _ActionButton(icon: Icons.call_split, tooltip: '从这里重来', onTap: busy ? null : () => agent.forkAfterReply(info.nextQuestion)),
+                PopupMenuButton<String>(
+                  tooltip: '回复菜单', icon: Icon(Icons.more_horiz, size: 18, color: context.colors.muted),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'memories', child: Text('它参考了哪些记忆')),
+                    for (final model in others) PopupMenuItem(value: model.key, enabled: canRegenerate, child: Text('用 ${model.name} 重新生成')),
+                  ],
+                  onSelected: (value) {
+                    if (value == 'memories') { showReplyMemoryReferences(context, widget.row.assistants); }
+                    else { final model = others.where((m) => m.key == value).firstOrNull; if (model != null && question != null) agent.regenerate(question, model: model); }
+                  },
+                ),
+                _ActionButton(icon: Icons.lightbulb_outline, tooltip: '它参考了哪些记忆', onTap: () => showReplyMemoryReferences(context, widget.row.assistants)),
+                if (question != null && branch != null && branch.total > 1) _VersionSwitcher(item: question, branch: branch, enabled: !busy),
+                if (short.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 6), child: Text(short, style: context.text.labelSmall?.copyWith(color: context.colors.muted))),
+              ],
+            )),
           ),
-        ],
+        ]),
       ),
     );
   }
@@ -630,12 +590,11 @@ class _WorkBlockState extends State<WorkBlock> {
     final colors = context.colors;
     final steps = widget.steps;
     final expanded = _expanded ?? false;
-    const previewSteps = 3;
     final tools = steps.whereType<ToolRun>().toList();
     final errors = tools.where((t) => t.status == ToolStatus.error).length;
     final toolMs = tools.fold<int>(0, (sum, t) => sum + (t.durationMs ?? 0));
     final summary = workSummary(steps);
-    final current = widget.active ? _currentStep(steps) : null;
+    final current = widget.active ? _currentStep(steps, workspaceOf(context)) : null;
     final headerText = widget.active ? (current ?? (summary.isEmpty ? '正在思考…' : summary)) : (summary.isEmpty ? '思考过' : summary);
     final canExpand = steps.isNotEmpty;
     return Container(
@@ -646,8 +605,8 @@ class _WorkBlockState extends State<WorkBlock> {
       ),
       clipBehavior: Clip.antiAlias,
       child: AnimatedSize(
-        duration: AppTokens.medium,
-        curve: Curves.easeOutCubic,
+        duration: AppTokens.motion(context, AppTokens.medium),
+        curve: AppTokens.curve,
         alignment: Alignment.topCenter,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -664,12 +623,12 @@ class _WorkBlockState extends State<WorkBlock> {
                       Icon(errors > 0 ? Icons.error_outline : Icons.check, size: 15, color: errors > 0 ? colors.danger : colors.accent),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
+                      child: Tooltip(message: widget.active && steps.lastOrNull is ToolRun && toolPath(steps.last as ToolRun) != null ? fullWorkspacePath(workspaceOf(context), toolPath(steps.last as ToolRun)!) : '', child: Text(
                         headerText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.ink2),
-                      ),
+                      )),
                     ),
                     if (errors > 0) ...[
                       Text('$errors 个出错', style: context.text.bodySmall?.copyWith(color: colors.danger)),
@@ -699,22 +658,6 @@ class _WorkBlockState extends State<WorkBlock> {
                   ],
                 ),
               ),
-            ] else if (widget.active && canExpand) ...[
-              Divider(height: 0.5, color: colors.border),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (steps.length > previewSteps)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Text('前面还有 ${steps.length - previewSteps} 步', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
-                      ),
-                    for (final step in steps.skip((steps.length - previewSteps).clamp(0, steps.length))) _OneLineStep(step: step),
-                  ],
-                ),
-              ),
             ],
           ],
         ),
@@ -723,11 +666,14 @@ class _WorkBlockState extends State<WorkBlock> {
   }
 
   /// What is happening right now, for the header of a running block.
-  static String? _currentStep(List<Object> steps) {
+  static String? _currentStep(List<Object> steps, String? cwd) {
     if (steps.isEmpty) return null;
     final last = steps.last;
     if (last is ThinkingPart) return '正在思考…';
-    if (last is ToolRun && last.isActive) return '正在${_verb(last.name)}：${toolSubject(last)}';
+    if (last is ToolRun && last.isActive) {
+      final path = toolPath(last);
+      return '正在${_verb(last.name)}：${path == null ? toolSubject(last) : relativeWorkspacePath(cwd, path)}';
+    }
     return null;
   }
 
@@ -746,34 +692,9 @@ class _WorkBlockState extends State<WorkBlock> {
     'todo_write' => '更新待办',
     'ask_user_question' => '等你回答',
     'exit_plan_mode' => '等你审阅计划',
-    'agent' => '让子 Agent 干活',
+    'agent' => '正在分配工作',
     _ => '调用 $tool',
   };
-}
-
-/// A step as one line, for a running block that is folded: what it is and how it is going.
-class _OneLineStep extends StatelessWidget {
-  const _OneLineStep({required this.step});
-
-  final Object step;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    final step = this.step;
-    if (step is ThinkingPart) {
-      final first = step.text.trim().split('\n').firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
-      return _StepLine(icon: Icons.psychology_outlined, verb: '思考', subject: step.redacted ? null : first);
-    }
-    final run = step as ToolRun;
-    final (icon, verb) = toolIconVerb(run.name);
-    final trailing = switch (run.status) {
-      ToolStatus.running || ToolStatus.pending || ToolStatus.drafting => const SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.3)),
-      ToolStatus.error => Text('出错', style: context.text.bodySmall?.copyWith(color: colors.danger)),
-      _ => null,
-    };
-    return _StepLine(icon: icon, verb: verb, subject: toolSubject(run), trailing: trailing);
-  }
 }
 
 /// The icon and verb a tool call is shown with. MCP tools (`mcp__server__tool`) say which server and tool.
@@ -788,7 +709,7 @@ class _OneLineStep extends StatelessWidget {
   'bash' || 'powershell' || 'pwsh' => (Icons.terminal, '运行'),
   'edit' => (Icons.edit_outlined, '修改'),
   'write' => (Icons.note_add_outlined, '写入'),
-  'agent' => (Icons.hub_outlined, '子 Agent'),
+  'agent' => (Icons.hub_outlined, '协作过程'),
   'todo_write' => (Icons.checklist_rounded, '更新待办'),
   'exit_plan_mode' => (Icons.map_outlined, '计划'),
   'working_directory' => (Icons.drive_file_move_outlined, '工作目录'),
@@ -796,7 +717,7 @@ class _OneLineStep extends StatelessWidget {
   'job_kill' => (Icons.stop_circle_outlined, '停止后台任务'),
   'skill' => (Icons.auto_awesome_outlined, '载入技能'),
   'ask_user_question' => (Icons.help_outline, '向你提问'),
-  _ when name.startsWith('mcp__') => (Icons.extension_outlined, 'MCP · ${name.substring(5).split('__').join(' · ')}'),
+  _ when name.startsWith('mcp__') => (Icons.extension_outlined, '连接的服务 · ${name.substring(5).split('__').join(' · ')}'),
   _ => (Icons.extension_outlined, name),
 };
 
@@ -831,6 +752,13 @@ String workSummary(List<Object> steps) {
     if (subagents > 0) '派出 $subagents 个子 Agent',
     if (others > 0) '调用 $others 次工具',
   ].join(' · ');
+}
+
+String? toolPath(ToolRun run) {
+  if (run.name == 'working_directory') return run.args['cd'] as String?;
+  if (!const {'read','read_image','edit','write','ls','grep','find','glob'}.contains(run.name)) return null;
+  final value = run.args['file_path'] ?? run.args['path'];
+  return value is String && value.isNotEmpty ? value : null;
 }
 
 /// The most telling argument of a tool call, on one line.
@@ -903,11 +831,12 @@ class _ThinkingStepState extends State<_ThinkingStep> {
 
 /// One step's line: icon, verb, subject, and its state at the end.
 class _StepLine extends StatelessWidget {
-  const _StepLine({required this.icon, required this.verb, this.subject, this.trailing, this.onTap, this.open});
+  const _StepLine({required this.icon, required this.verb, this.subject, this.subjectPath, this.trailing, this.onTap, this.open});
 
   final IconData icon;
   final String verb;
   final String? subject;
+  final String? subjectPath;
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool? open;
@@ -928,7 +857,7 @@ class _StepLine extends StatelessWidget {
             Text(verb, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.ink2)),
             if (subject != null && subject!.isNotEmpty) ...[
               const SizedBox(width: 8),
-              Expanded(child: Text(subject!, maxLines: 1, overflow: TextOverflow.ellipsis, style: mono)),
+              Expanded(child: subjectPath == null ? Text(subject!, maxLines: 1, overflow: TextOverflow.ellipsis, style: mono) : WorkspacePathLabel(path: subjectPath!, maxLines: 1, style: mono)),
             ] else
               const Spacer(),
             if (trailing != null) ...[const SizedBox(width: 8), trailing!],
@@ -984,7 +913,7 @@ class _ToolStepState extends State<ToolStep> {
             _StepLine(
               icon: run.name == 'edit' ? Icons.edit_outlined : Icons.note_add_outlined,
               verb: run.name == 'edit' ? '修改' : '写入',
-              subject: toolSubject(run),
+              subject: toolSubject(run), subjectPath: toolPath(run),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1008,7 +937,7 @@ class _ToolStepState extends State<ToolStep> {
           line: (open, toggle) => _StepLine(
             icon: Icons.note_add_outlined,
             verb: '写入',
-            subject: toolSubject(run),
+            subject: toolSubject(run), subjectPath: toolPath(run),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [if (lines > 0) Text('+$lines 行 ', style: context.text.bodySmall?.copyWith(color: colors.accent)), trailing],
@@ -1027,7 +956,7 @@ class _ToolStepState extends State<ToolStep> {
         // Pictures the tool returned (看图, screenshots from MCP tools): small, and open in full on a click.
         final images = run.output.whereType<ImageBlock>().toList();
         final line = _Expandable(
-          line: (open, toggle) => _StepLine(icon: icon, verb: verb, subject: toolSubject(run), trailing: trailing, onTap: toggle, open: open),
+          line: (open, toggle) => _StepLine(icon: icon, verb: verb, subject: toolSubject(run), subjectPath: toolPath(run), trailing: trailing, onTap: toggle, open: open),
           body: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1064,7 +993,7 @@ class _SubagentStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final d = run.details;
-    final role = d['roleName'] as String? ?? '子 Agent';
+    final role = d['roleName'] as String? ?? '协作过程';
     final title = (d['description'] as String?) ?? (run.args['description'] as String?) ?? '';
     final activity = run.isActive ? (d['status'] == 'waiting' ? '排队中' : d['activity'] as String?) : null;
     final turns = (d['turns'] as num?)?.toInt() ?? 0;
@@ -1144,7 +1073,7 @@ class _TodoStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _StepLine(icon: Icons.checklist, verb: '待办', subject: toolSubject(run), trailing: trailing),
+        _StepLine(icon: Icons.checklist, verb: '待办', subject: toolSubject(run), subjectPath: toolPath(run), trailing: trailing),
         if (todos.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 22, top: 2, bottom: 2), child: TodoList(todos: todos)),
         if (run.status == ToolStatus.error) _OutputBox(text: run.outputText, error: true),
       ],
@@ -1240,7 +1169,7 @@ class _PlanStepState extends State<_PlanStep> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _StepLine(icon: Icons.map_outlined, verb: '计划', subject: toolSubject(run), trailing: status, onTap: () => setState(() => _open = !open), open: open),
+        _StepLine(icon: Icons.map_outlined, verb: '计划', subject: toolSubject(run), subjectPath: toolPath(run), trailing: status, onTap: () => setState(() => _open = !open), open: open),
         if (open && plan.isNotEmpty)
           Container(
             margin: const EdgeInsets.only(left: 22, top: 4, bottom: 4),

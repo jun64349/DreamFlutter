@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'shell_widgets.dart';
 
 /// Small building blocks shared by the full-page views (memory, skills...).
 
@@ -103,7 +104,7 @@ class SectionedPage extends StatelessWidget {
               children: [
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: Text(title, style: context.serif(context.text.titleMedium).copyWith(fontSize: 18, fontWeight: FontWeight.w600)),
+                  child: PoeticPageTitle(title),
                 ),
                 if (header != null)
                   Padding(
@@ -192,26 +193,19 @@ class ContentHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final heading = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: context.serif(context.text.headlineSmall).copyWith(fontSize: 22, fontWeight: FontWeight.w600)),
+      if (description != null) ...[const SizedBox(height: 4), Text(description!, style: context.text.bodySmall?.copyWith(color: context.colors.muted, height: 1.6))],
+    ]);
     return Padding(
       padding: const EdgeInsets.only(top: AppTokens.pad, bottom: AppTokens.padLg),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: context.serif(context.text.headlineSmall).copyWith(fontSize: 22, fontWeight: FontWeight.w600)),
-                if (description != null) ...[
-                  const SizedBox(height: 4),
-                  Text(description!, style: context.text.bodySmall?.copyWith(color: context.colors.muted, height: 1.6)),
-                ],
-              ],
-            ),
-          ),
-          if (actions.isNotEmpty) ...[const SizedBox(width: AppTokens.pad), Wrap(spacing: AppTokens.gap, children: actions)],
-        ],
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final buttons = Wrap(spacing: AppTokens.gap, runSpacing: AppTokens.gap, children: actions);
+        if (constraints.maxWidth < 600) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [heading, if (actions.isNotEmpty) ...[const SizedBox(height: AppTokens.pad), buttons]]);
+        }
+        return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: heading), if (actions.isNotEmpty) ...[const SizedBox(width: AppTokens.pad), buttons]]);
+      }),
     );
   }
 }

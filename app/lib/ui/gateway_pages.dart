@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
@@ -45,7 +46,7 @@ class _ChannelListState extends State<ChannelList> {
     final ok = await confirmAction(
       context,
       title: '删除渠道「${channel.name}」？',
-      message: '它的 Key 会一起删除。${used.isEmpty ? '' : '用到它的模型组${used.join('、')}会跳过它。'}',
+      message: '它的密钥会一起删除。${used.isEmpty ? '' : '用到它的模型组${used.join('、')}会跳过它。'}',
       confirm: '删除',
       danger: true,
     );
@@ -77,7 +78,6 @@ class _ChannelListState extends State<ChannelList> {
           ),
         for (final channel in channels.where((c) => c.oauth && (c.enabled || canLoginPiOAuth(c.provider)))) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(canLoginPiOAuth(channel.provider) ? 'ChatGPT' : channel.name, style: Theme.of(context).textTheme.titleSmall),
-          const Text('Pi 登录（暂不支持迁移）· 只读服务商'),
           Text(channel.enabled ? '已登录' : '未登录'),
           if (!canLoginPiOAuth(channel.provider)) const Text('保留现有登录，不再提供重新登录。'),
           TextButton(onPressed: () => showDialog<void>(context: context, builder: (_) => PiOAuthDialog(provider: channel.provider, configured: channel.enabled)), child: Text(canLoginPiOAuth(channel.provider) ? (channel.enabled ? '管理 ChatGPT 登录' : '登录 ChatGPT') : '查看登录与退出')),
@@ -111,31 +111,27 @@ class _ChannelCard extends StatelessWidget {
     final colors = context.colors;
     final down = channel.unavailable;
     final state = down == null ? ('正常', colors.success) : (down.describe(), down.resting ? colors.warning : colors.danger);
-    final keys = channel.keys.where((k) => k.enabled).length;
-    return OutlinedCard(
-      child: Column(
+    return ExpansionTile(
+      tilePadding:EdgeInsets.zero,
+      title:Text(channel.name),
+      leading:Icon(Icons.circle,size:8,color:state.$2),
+      subtitle:Text(state.$1),
+      children:[Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(spacing:8,runSpacing:8,crossAxisAlignment:WrapCrossAlignment.center,
             children: [
-              Container(width: 8, height: 8, decoration: BoxDecoration(color: state.$2, shape: BoxShape.circle)),
-              const SizedBox(width: AppTokens.gap),
-              Flexible(child: Text(channel.name, style: context.text.titleSmall, overflow: TextOverflow.ellipsis)),
-              const SizedBox(width: AppTokens.gap),
               TagChip(channelKindNames[channel.kind] ?? channel.kind, color: channel.kind == 'plan' ? colors.accent : colors.ochre),
-              const Spacer(),
               TextButton(onPressed: onTest, child: const Text('测试')),
-              TextButton(onPressed: onEdit, child: Text(channel.fromPi ? 'Pi 配置' : '编辑')),
+              TextButton(onPressed: onEdit, child: Text(channel.fromPi ? '原有配置' : '编辑')),
               if (onRemove != null) IconButton(tooltip: '删除', onPressed: onRemove, icon: const Icon(Icons.delete_outline, size: 18)),
             ],
           ),
           const SizedBox(height: 4),
-          if (channel.fromPi || channel.origin != null) Padding(padding: const EdgeInsets.only(bottom: 4), child: TagChip(channel.origin == 'cc-switch' ? '来自 cc-switch' : '来自 Pi 配置')),
           Text(
             [
               state.$1,
               '${channel.models.length} 个模型',
-              if (!channel.fromPi) '$keys 个 Key',
               apiLabels[channel.api] ?? channel.api,
             ].join(' · '),
             style: context.text.bodySmall?.copyWith(color: colors.muted),
@@ -145,7 +141,7 @@ class _ChannelCard extends StatelessWidget {
             Text(test!, style: context.text.bodySmall?.copyWith(color: test!.startsWith('失败') ? colors.danger : colors.ink2)),
           ],
         ],
-      ),
+      )],
     );
   }
 }
@@ -185,6 +181,7 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
   List<GatewayPlatform> _platforms = const [];
   var _busy = false;
   String? _message;
+  String? _saved;
 
   bool get _editing => widget.existing != null;
   AgentController get _agent => AgentScope.read(context);
@@ -273,13 +270,16 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
     }
   }
 
-  Future<void> _save() async {
+  Widget _autoField(Widget child)=>Focus(onFocusChange:(focused){if(!focused&&_editing)unawaited(_save(close:false));},child:child);
+
+  Future<void> _save({bool close=true}) async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
-      await _agent.backend.call('gateway.saveChannel', {
+      final input = <String,dynamic>{
         if (_editing) 'id': widget.existing!.id,
         'name': _name.text.trim(),
         'platform': _platform,
@@ -299,8 +299,12 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
                 if (k.id == null) 'secret': k.secret.text.trim(),
               },
         ],
-      });
-      if (mounted) Navigator.pop(context, true);
+      };
+      final fingerprint=input.toString();
+      if(!close&&fingerprint==_saved)return;
+      await _agent.backend.call('gateway.saveChannel', input);
+      _saved=fingerprint;
+      if (mounted&&close) Navigator.pop(context, true);
     } catch (e) {
       setState(() => _message = SessionRuntime.describeError(e));
     } finally {
@@ -317,7 +321,7 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
       appBar: AppBar(
         title: Text(_editing ? '编辑渠道' : '添加渠道'),
         scrolledUnderElevation: 0,
-        actions: [
+        actions: [if(!_editing)
           Padding(
             padding: const EdgeInsets.only(right: AppTokens.pad),
             child: FilledButton(onPressed: _busy ? null : _save, child: const Text('保存')),
@@ -338,7 +342,7 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
             ],
           ),
           const SizedBox(height: 8),
-          DropdownButtonFormField<String>(isExpanded: true, decoration: const InputDecoration(labelText: 'Pi 内置服务商（来自公开目录）'),
+          DropdownButtonFormField<String>(isExpanded: true, decoration: const InputDecoration(labelText: '更多服务商'),
             items: [for (final p in _platforms.where((p) => p.id.startsWith('pi-builtin:'))) DropdownMenuItem(value: p.id, child: Text(p.name, overflow: TextOverflow.ellipsis))],
             onChanged: _busy ? null : (id) { final preset = _platforms.where((p) => p.id == id).firstOrNull; if (preset != null) _choosePi(preset); }),
           if (preset != null) ...[
@@ -351,7 +355,7 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
           const SizedBox(height: AppTokens.padLg),
           Row(
             children: [
-              Expanded(child: TextField(controller: _name, decoration: const InputDecoration(labelText: '渠道名称'))),
+              Expanded(child: _autoField(TextField(controller: _name, decoration: const InputDecoration(labelText: '渠道名称')))),
               const SizedBox(width: AppTokens.pad),
               SizedBox(
                 width: 200,
@@ -382,20 +386,20 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
               ),
               const SizedBox(width: AppTokens.pad),
               Expanded(
-                child: TextField(controller: _baseUrl, decoration: const InputDecoration(labelText: '接口地址（Base URL）', hintText: 'https://api.example.com/v1')),
+                child: _autoField(TextField(controller: _baseUrl, decoration: const InputDecoration(labelText: '接口地址（Base URL）', hintText: 'https://api.example.com/v1'))),
               ),
             ],
           ),
           const SizedBox(height: AppTokens.padLg),
           Row(
             children: [
-              Text('API Key', style: context.text.titleSmall),
+              Text('密钥', style: context.text.titleSmall),
               const Spacer(),
               OutlinedButton.icon(onPressed: () => setState(() => _keys.add(_KeyDraft())), icon: const Icon(Icons.add, size: 16), label: const Text('再加一个')),
             ],
           ),
           const SizedBox(height: 4),
-          Text('有多个 Key 时轮流使用；某个 Key 出错只停用它。Key 用你的 Windows 账户加密保存。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+          Text('密钥在本机加密保存。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
           const SizedBox(height: AppTokens.gap),
           for (final (index, key) in _keys.indexed)
             Padding(
@@ -404,18 +408,18 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
                 children: [
                   Expanded(
                     child: key.id == null
-                        ? TextField(controller: key.secret, obscureText: true, decoration: InputDecoration(labelText: 'Key ${index + 1}', isDense: true))
+                        ? _autoField(TextField(controller: key.secret, obscureText: true, decoration: InputDecoration(labelText: '密钥 ${index + 1}', isDense: true)))
                         : InputDecorator(
-                            decoration: InputDecoration(labelText: 'Key ${index + 1}', isDense: true),
+                            decoration: InputDecoration(labelText: '密钥 ${index + 1}', isDense: true),
                             child: Text(key.hint.isEmpty ? '已保存（加密）' : '已保存 · 尾号 ${key.hint}'),
                           ),
                   ),
                   const SizedBox(width: AppTokens.gap),
                   SizedBox(
                     width: 160,
-                    child: TextFormField(initialValue: key.label, decoration: const InputDecoration(labelText: '备注', isDense: true), onChanged: (v) => key.label = v),
+                    child: _autoField(TextFormField(initialValue: key.label, decoration: const InputDecoration(labelText: '备注', isDense: true), onChanged: (v) => key.label = v)),
                   ),
-                  Switch(value: key.enabled, onChanged: (v) => setState(() => key.enabled = v)),
+                  Switch(value: key.enabled, onChanged: _busy?null:(v) {setState(() => key.enabled = v);if(_editing)unawaited(_save(close:false));}),
                   IconButton(tooltip: '移除', onPressed: () => setState(() => _keys.removeAt(index)), icon: const Icon(Icons.close, size: 18)),
                 ],
               ),
@@ -431,34 +435,34 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
             ],
           ),
           const SizedBox(height: 4),
-          Text('价格按每百万 token 的美元填写，用于花费统计；不知道可以留 0。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+          Text('价格按每百万单位的美元填写；未知价格留空。', style: context.text.bodySmall?.copyWith(color: colors.muted)),
           const SizedBox(height: AppTokens.gap),
-          for (final (index, model) in _models.indexed) ModelRow(
+          for (final (index, model) in _models.indexed) _autoField(ModelRow(
             key: ObjectKey(model), model: model,
             editThinkingLevels: model.thinkingLevels != null || !(_preset?.modelDetails.any((m) => m['id'] == model.id && m['contextWindow'] != null) ?? false),
             onRemove: () => setState(() => _models.removeAt(index)),
-          ),
+          )),
           const SizedBox(height: AppTokens.pad),
           if (_kind != 'plan')
             Row(
               children: [
                 SizedBox(
                   width: 220,
-                  child: TextField(
+                  child: _autoField(TextField(
                     controller: _lowBalance,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(labelText: '余额低于多少时提醒', hintText: '不提醒'),
-                  ),
+                  )),
                 ),
                 const SizedBox(width: AppTokens.pad),
                 if (_kind == 'relay')
                   SizedBox(
                     width: 220,
-                    child: TextField(
+                    child: _autoField(TextField(
                       controller: _topUp,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       decoration: const InputDecoration(labelText: '充值了多少（用来算剩余）', hintText: '不填'),
-                    ),
+                    )),
                   ),
               ],
             ),

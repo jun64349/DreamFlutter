@@ -152,6 +152,7 @@ class SessionRuntime extends ChangeNotifier {
   /// Text an extension (or a fork) asked to place in the input box. The
   /// composer consumes it when [editorTextRevision] changes.
   String editorText = '';
+  String? composerQuote;
   int editorTextRevision = 0;
 
   /// [editorText] goes after what is already typed instead of replacing it (a quoted passage, 0.4).
@@ -200,7 +201,7 @@ class SessionRuntime extends ChangeNotifier {
     final name = state?.sessionName;
     if (name != null && name.trim().isNotEmpty) return name;
     final firstUser = transcript.items.whereType<UserItem>().firstOrNull;
-    return firstUser == null ? '新会话' : firstUser.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return firstUser == null ? '新对话' : firstUser.text.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   // --- Lifecycle -----------------------------------------------------------

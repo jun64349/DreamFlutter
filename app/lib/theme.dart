@@ -43,8 +43,13 @@ class AppTokens {
   /// Letter spacing of small section labels (「今天」「步骤」).
   static const labelSpacing = 1.4;
 
-  static const fast = Duration(milliseconds: 160);
-  static const medium = Duration(milliseconds: 260);
+  static const fast = Duration(milliseconds: 150);
+  static const medium = Duration(milliseconds: 250);
+  static const slow = Duration(milliseconds: 350);
+  static const curve = Cubic(0.2, 0.7, 0.2, 1);
+  static Duration motion(BuildContext context, Duration duration) =>
+      MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
+  static const handwritingFamily = 'Ma Shan Zheng';
 }
 
 /// Semantic colors not covered by [ColorScheme].
@@ -174,6 +179,76 @@ class AppColors extends ThemeExtension<AppColors> {
     butterfly: ButterflyColors(ground: Color(0xFF1C1915), line: Color(0xFFFFFFFF), core: Color(0xFF2A2620), wing: Color(0xFFD39A6A), glow: Color(0xFFB89B63)),
     diffAdded: Color(0x3386B8A6),
     diffRemoved: Color(0x33E07A6C),
+  );
+
+  static const warmPaper = AppColors(
+    rail: Color(0xFFE8E0D3),
+    sidebar: Color(0xFFF0EAE0),
+    background: Color(0xFFF7F3EB),
+    userBubble: Color(0xFFEFE5D6),
+    onUserBubble: Color(0xFF392F2A),
+    card: Color(0xFFFDFBF7),
+    border: Color(0xFFDED6C9),
+    ink: Color(0xFF392F2A),
+    ink2: Color(0xFF52463E),
+    muted: Color(0xFF70665E),
+    accent: Color(0xFFA54C28),
+    onAccent: Color(0xFFFDFBF7),
+    accentSoft: Color(0xFFF0DFCF),
+    ochre: Color(0xFF8E5B2C),
+    seal: Color(0xFFA8332A),
+    success: Color(0xFF546C5D),
+    warning: Color(0xFF94552D),
+    danger: Color(0xFFA8332A),
+    codeBackground: Color(0xFFF1EADF),
+    terminal: Color(0xFF2E2A24),
+    onTerminal: Color(0xFFE8DFCB),
+    terminalMuted: Color(0xFFC2B69C),
+    terminalError: Color(0xFFE8A091),
+    butterfly: ButterflyColors(
+      ground: Color(0xFFF0EAE0),
+      line: Color(0xFF392F2A),
+      core: Color(0xFFFDFBF7),
+      wing: Color(0xFFC96A3F),
+      glow: Color(0xFFF0DFCF),
+    ),
+    diffAdded: Color(0x29546C5D),
+    diffRemoved: Color(0x1FA8332A),
+  );
+
+  static const twilight = AppColors(
+    rail: Color(0xFF1D1A17),
+    sidebar: Color(0xFF221F1C),
+    background: Color(0xFF27231F),
+    userBubble: Color(0xFF3A322B),
+    onUserBubble: Color(0xFFF0E5D6),
+    card: Color(0xFF302A25),
+    border: Color(0xFF4C4238),
+    ink: Color(0xFFF0E5D6),
+    ink2: Color(0xFFDCCFBE),
+    muted: Color(0xFFB9AB9B),
+    accent: Color(0xFFE6A17A),
+    onAccent: Color(0xFF27231F),
+    accentSoft: Color(0xFF49352B),
+    ochre: Color(0xFFD9A066),
+    seal: Color(0xFFE07A6C),
+    success: Color(0xFF9EAF92),
+    warning: Color(0xFFD9A066),
+    danger: Color(0xFFE07A6C),
+    codeBackground: Color(0xFF1F1B18),
+    terminal: Color(0xFF14120F),
+    onTerminal: Color(0xFFE8DFCB),
+    terminalMuted: Color(0xFFB9AB9B),
+    terminalError: Color(0xFFE8A091),
+    butterfly: ButterflyColors(
+      ground: Color(0xFF221F1C),
+      line: Color(0xFFFFFFFF),
+      core: Color(0xFF302A25),
+      wing: Color(0xFFE6A17A),
+      glow: Color(0xFF49352B),
+    ),
+    diffAdded: Color(0x2E9EAF92),
+    diffRemoved: Color(0x2EE07A6C),
   );
 
   @override
@@ -474,12 +549,34 @@ class PaintingTheme {
     ),
   );
 
-  static const all = [jiadie, caodie, yuhua, shensi, moye, youhua, liuguang];
+  static const warmPaper = PaintingTheme(
+    id: 'warmPaper',
+    name: '暖纸',
+    work: '',
+    colors: AppColors.warmPaper,
+    radiusSm: 6,
+    radius: 8,
+    radiusLg: 14,
+  );
+  static const twilight = PaintingTheme(
+    id: 'twilight',
+    name: '暮色',
+    work: '',
+    colors: AppColors.twilight,
+    brightness: Brightness.dark,
+    radiusSm: 6,
+    radius: 8,
+    radiusLg: 14,
+  );
+  static const all = [
+    warmPaper,
+    twilight,
+    jiadie, caodie, yuhua, shensi, moye, youhua, liuguang];
 
   /// The theme with [id] if it has the right brightness, else that side's default.
   static PaintingTheme byId(String? id, Brightness brightness) {
     final found = all.where((t) => t.id == id && t.brightness == brightness).firstOrNull;
-    return found ?? (brightness == Brightness.dark ? moye : jiadie);
+    return found ?? (brightness == Brightness.dark ? twilight : warmPaper);
   }
 }
 
@@ -509,7 +606,15 @@ extension AppThemeContext on BuildContext {
 
   /// [style] in the theme's heading and reply face (Song for Chinese).
   TextStyle serif(TextStyle? style) =>
-      (style ?? const TextStyle()).copyWith(fontFamily: painting.serifFamily, fontFamilyFallback: AppTokens.serifFallback);
+      (style ?? const TextStyle()).copyWith(fontFamily: painting.serifFamily, fontFamilyFallback: AppTokens.serifFallback,
+  );
+
+  TextStyle handwriting(TextStyle? style) =>
+      (style ?? const TextStyle()).copyWith(
+        fontFamily: AppTokens.handwritingFamily,
+        fontFamilyFallback: AppTokens.serifFallback,
+        fontWeight: FontWeight.w400,
+      );
 
   /// A small spaced-out section label (「今天」「步骤」).
   TextStyle? get label => text.labelSmall?.copyWith(color: colors.muted, letterSpacing: painting.labelSpacing);

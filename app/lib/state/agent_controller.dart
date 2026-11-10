@@ -7,6 +7,7 @@ import 'package:pi_rpc/pi_rpc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'backend.dart';
+import 'attention.dart';
 import 'cards.dart';
 import 'mentions.dart';
 import 'memory_ui.dart';
@@ -14,6 +15,7 @@ import 'preferences.dart';
 import 'session_runtime.dart';
 import 'side_chat.dart';
 import 'gateway_models.dart';
+import 'garden_deletions.dart';
 import '../theme.dart';
 import 'work_models.dart';
 
@@ -37,6 +39,9 @@ class SidebarEntry {
     this.isFork = false,
     this.pinned = false,
     this.incognito = false,
+    this.parentSession,
+    this.isSideConversation = false,
+    this.sideQuote,
   });
 
   final String path;
@@ -58,6 +63,9 @@ class SidebarEntry {
 
   /// Temporary chat (not saved).
   final bool incognito;
+  final String? parentSession;
+  final bool isSideConversation;
+  final String? sideQuote;
 }
 
 /// A full-text search hit from the core's session index.
@@ -84,7 +92,7 @@ class SearchHit {
 }
 
 /// Top-level pages of the window (the navigation rail): the workbench (chat), 蝶君, ...
-enum AppSection { chat, butterfly, tasks, memory, library }
+enum AppSection { chat, butterfly, tasks, memory, library, spending, settings }
 
 /// The two halves of 蝶君: talking with it, and its work (notes, materials, outbox).
 enum ButterflyTab { talk, work }
@@ -148,6 +156,11 @@ class AgentController extends ChangeNotifier {
   final Preferences preferences;
   final SessionStore sessionStore;
   final AgentBackend backend;
+  AttentionState? _attention;
+  AttentionState get attention => main._attention ??= AttentionState(main.backend, onCountChanged: main._attentionChanged);
+  void _attentionChanged(){final value=_attention;if(value?.available??false){pendingInbox=value!.total;pendingMemories=0;pendingProposals=0;}_notify();}
+  late final GardenDeletions gardenDeletions = sandbox ? main.gardenDeletions : GardenDeletions(backend);
+  Future<void> flushGardenDeletes() => main.gardenDeletions.flushPending();
   final _memoryUi = MemoryUi();
   MemoryUi get memoryUi => main._memoryUi;
 
@@ -238,10 +251,36 @@ class AgentController extends ChangeNotifier {
   /// The page shown next to the navigation rail.
   AppSection section = AppSection.chat;
 
+  bool butterflySpace = false;
+  final _conversationActions = StreamController<String>.broadcast();
+  Stream<String> get conversationActions => _conversationActions.stream;
+  void requestConversationAction(String action) => _conversationActions.add(action);
+  final entryTarget = ValueNotifier<String?>(null);
+  bool windowFocused = true;
+  String? _presenceSignature;
+  void setWindowFocused(bool focused) {
+    main.windowFocused = focused;
+    main.reportConversationPresence();
+  }
+  /// T-83's visibility contract; old cores keep their attached-slot fallback.
+  void reportConversationPresence() {
+    final owner = main;
+    if (!identical(owner, this)) { owner.reportConversationPresence(); return; }
+    if (_disposed || !backend.isConnected) { _presenceSignature = null; return; }
+    final slot = section == AppSection.chat ? active?.slotId
+        : section == AppSection.butterfly && butterflyTab.value == ButterflyTab.talk ? butterfly?.active?.slotId : null;
+    final signature = '$windowFocused|$slot';
+    if (signature == _presenceSignature) return;
+    _presenceSignature = signature;
+    unawaited(backend.call('notifications.presence', {'foreground': windowFocused, 'slotId': slot}).catchError((Object _) => null));
+  }
+
   void showSection(AppSection value) {
     final parent = parentController;
     if (parent != null) return parent.showSection(value);
     if (section == value) return;
+    if (value == AppSection.chat) butterflySpace = false;
+    if (value == AppSection.butterfly) butterflySpace = true;
     section = value;
     _notify();
   }
@@ -384,7 +423,7 @@ class AgentController extends ChangeNotifier {
   List<String> get thinkingLevels => _active?.thinkingLevels ?? const [];
   SessionStats get stats => _active?.stats ?? SessionStats.empty;
   String? get currentSessionPath => _active?.sessionPath;
-  String get sessionTitle => _active?.title ?? '新会话';
+  String get sessionTitle => _active?.title ?? '新对话';
   List<SlashCommand> get commands => _active?.commands ?? const [];
   bool get isCompacting => (_active?.isCompacting ?? false) || transcript.isCompacting;
   bool get autoCompactionEnabled => _active?.state?.autoCompactionEnabled ?? defaultAutoCompaction;
@@ -431,6 +470,9 @@ class AgentController extends ChangeNotifier {
 
     for (final s in _diskSessions) {
       byPath[_key(s.path)] = SidebarEntry(
+        parentSession: s.parentSession,
+        isSideConversation: s.isSideConversation,
+        sideQuote: s.sideQuote,
         isFork: s.parentSession != null,
         path: s.path,
         title: s.title,
@@ -451,6 +493,9 @@ class AgentController extends ChangeNotifier {
       final disk = byPath[_key(path)];
       final diskSummary = _diskSessions.where((s) => _key(s.path) == _key(path)).firstOrNull;
       byPath[_key(path)] = SidebarEntry(
+        parentSession: disk?.parentSession ?? runtime.forkOf,
+        isSideConversation: disk?.isSideConversation ?? false,
+        sideQuote: disk?.sideQuote,
         needsAttention: runtime.pendingDialogs.isNotEmpty,
         isFork: diskSummary?.parentSession != null,
         path: path,
@@ -481,6 +526,7 @@ class AgentController extends ChangeNotifier {
     });
     final hello = await _connect();
     if (hello == null) return;
+    if (!sandbox) await gardenDeletions.resume();
     await _attachLiveSlots(hello);
     final blank = _runtimes.where((r) => r.isPristine && !r.incognito && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
     await _activate(blank ?? await _spawn());
@@ -694,12 +740,12 @@ class AgentController extends ChangeNotifier {
       case 'vision.relayed':
         visionRevision.value++;
       case 'vision.missing':
-        _toast('当前模型看不到图片，也没有可用的看图模型。到「设置 › 模型与网关」里选一个看图模型。');
+        _toast('当前模型看不到图片，也没有可用的看图模型。到「设置 › 模型」里选一个看图模型。');
       case 'notices.changed':
         workRevision.value++;
         unawaited(refreshPendingCounts());
         final notice = message['notice'];
-        if (notice is Map && notice['title'] is String) _toast('${notice['title']}。到「任务 › 待处理」里选择继续还是结束。');
+        if (notice is Map && notice['title'] is String) _toast('${notice['title']}。到「等你处理」里选择继续还是结束。');
     }
   }
 
@@ -729,6 +775,8 @@ class AgentController extends ChangeNotifier {
   /// Counts for the navigation badges.
   Future<void> refreshPendingCounts() async {
     if (sandbox) return; // the badges are the main controller's
+    await attention.refresh();
+    if (attention.available) { pendingInbox = attention.total; pendingMemories = 0; pendingProposals = 0; _notify(); return; }
     try {
       final memories = await backend.call('memory.list', {'status': 'candidate'});
       final proposals = await backend.call('proposals.list', {'status': 'pending'});
@@ -738,7 +786,7 @@ class AgentController extends ChangeNotifier {
         final inbox = await backend.call('inbox.list');
         pendingInbox = jsonRows(inbox).map(InboxItem.fromJson).where((i) => i.isTaskItem).length;
       } catch (_) {}
-      _notify();
+      _attentionChanged();
     } catch (_) {}
   }
 
@@ -942,7 +990,7 @@ class AgentController extends ChangeNotifier {
     }
     try {
       await backend.call('skills.draftFromSession', {'slotId': slotId}, const Duration(seconds: 120));
-      _toast('技能草稿已生成，到「技能与模板」的「待确认」里查看并保存。');
+      _toast('技能草稿已生成，到「等你处理」查看。');
       return true;
     } catch (e) {
       _toast('整理技能失败：${SessionRuntime.describeError(e)}');
@@ -993,6 +1041,8 @@ class AgentController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _attention?.dispose();
+    if (!sandbox) gardenDeletions.dispose();
     backupJob.dispose();
     restoreResult.dispose();
     _butterfly?.dispose();
@@ -1006,6 +1056,8 @@ class AgentController extends ChangeNotifier {
     _toasts.close();
     _mentions.close();
     _drops.close();
+    _conversationActions.close();
+    entryTarget.dispose();
     _memoryUi.dispose();
     super.dispose();
   }
@@ -1043,6 +1095,7 @@ class AgentController extends ChangeNotifier {
   }
 
   Future<void> _activate(SessionRuntime runtime) async {
+    entryTarget.value = null;
     _active = runtime;
     final path = runtime.sessionPath;
     if (path != null) _unseen.remove(_key(path));
@@ -1066,7 +1119,7 @@ class AgentController extends ChangeNotifier {
   }
 
   void _onRuntimeAttention(SessionRuntime runtime, ExtensionUiRequest request) {
-    if (runtime != _active) _toast('后台会话「${runtime.title}」在等你确认，点左侧带提醒标记的会话查看。');
+    if (runtime != _active) _toast('「${runtime.title}」在等你确认。');
     _notify();
   }
 
@@ -1118,7 +1171,8 @@ class AgentController extends ChangeNotifier {
   // --- Actions -------------------------------------------------------------
 
   /// Starts a new session. A running session keeps running in the background.
-  Future<void> newSession() async {
+  Future<void> newSession({bool forceNew = false}) async {
+    if (forceNew || sandbox && _active?.slotId != null && butterflySlotHasPlan?.call(_active!.slotId!) == true) { await _activate(await _spawn()); return; }
     final current = _active;
     if (current != null && current.isPristine && current.isReady && !current.incognito) return; // already on a blank session
     final idleOther = _runtimes
@@ -1132,6 +1186,13 @@ class AgentController extends ChangeNotifier {
     }
     final runtime = await _spawn();
     await _activate(runtime);
+  }
+
+  /// Reuse a still-open butterfly task slot without replacing its session.
+  Future<bool> activateSlot(String slotId) async {
+    final runtime = _runtimes.where((r) => r.slotId == slotId).firstOrNull;
+    if (runtime == null) return false;
+    await _activate(runtime); return true;
   }
 
   /// Opens a session from the sidebar. Running sessions are never interrupted.
@@ -1167,7 +1228,16 @@ class AgentController extends ChangeNotifier {
     await refreshSessions();
   }
 
-  Future<void> send(String text, {List<ImageBlock> images = const []}) async => _active?.send(text, images: images);
+  /// The butterfly page owns task preparation; the shared composer stays reusable.
+  Future<void> Function(String, List<ImageBlock>)? butterflySubmission;
+  bool Function(String slotId)? butterflySlotHasPlan;
+
+  Future<void> send(String text, {List<ImageBlock> images = const []}) async {
+    final submit = sandbox ? butterflySubmission : null;
+    if (submit == null) { await _active?.send(text, images: images); return; }
+    try { await submit(text, images); }
+    catch (e) { _toast('没有发出：${SessionRuntime.describeError(e)}'); insertIntoComposer(text); }
+  }
   Future<void> abort() async => _active?.abort();
   Future<void> selectModel(PiModel model) async => _active?.selectModel(model);
 
@@ -1224,11 +1294,36 @@ class AgentController extends ChangeNotifier {
         path: r['path'] as String,
         id: r['sessionId'] as String? ?? '',
         cwd: r['cwd'] as String? ?? requestedWorkspace,
-        title: r['title'] as String? ?? '新会话',
+        title: r['title'] as String? ?? '新对话',
         createdAt: DateTime.fromMillisecondsSinceEpoch((r['createdAt'] as num?)?.toInt() ?? 0),
         modifiedAt: DateTime.fromMillisecondsSinceEpoch((r['modifiedAt'] as num?)?.toInt() ?? 0),
         parentSession: r['parentSession'] as String?,
+        isSideConversation: r['sessionType'] == 'side',
+        sideQuote: r['quote'] as String?,
       );
+      // The existing index keeps saved side chats out of sessions.list.
+      // Its public children API already supplies them; no T-85 dependency.
+      final paths = {for (final r in all) _key(r['path'] as String)};
+      final children = await Future.wait(
+        all.map((r) async {
+          try {
+            return jsonRows(
+              await backend.call('sessions.children', {
+                'parentSession': r['path'],
+                'cwd': requestedWorkspace,
+              }),
+            );
+          } catch (_) {
+            return <Json>[];
+          }
+        }),
+      );
+      if (stale()) return;
+      for (final rows in children) {
+        for (final row in rows) {
+          if (row['path'] is String && paths.add(_key(row['path'] as String))) { all.add(row); }
+        }
+      }
       _diskSessions = [for (final r in all) if (r['archived'] != true) summary(r)];
       archivedSessions = [for (final r in all) if (r['archived'] == true) summary(r)];
       _pinned = {for (final r in all) if (r['pinned'] == true) _key(r['path'] as String)};
@@ -1236,7 +1331,9 @@ class AgentController extends ChangeNotifier {
       if (stale()) return;
       // No core index (older core, tests): read the files directly.
       try {
-        final sessions = await sessionStore.list(cwd: requestedWorkspace);
+        final sessions = await sessionStore.list(cwd: requestedWorkspace,
+          includeSideConversations: true,
+        );
         if (stale()) return;
         _diskSessions = sessions;
       } catch (_) {
@@ -1444,9 +1541,12 @@ class AgentController extends ChangeNotifier {
   void quoteInComposer(String text, {String? lead}) {
     final runtime = _active;
     if (runtime == null || text.trim().isEmpty) return;
-    runtime.editorText = '${lead == null ? '' : '$lead\n'}${SideChat.quoteLines(text)}\n\n';
-    runtime.editorAppend = true;
-    runtime.editorTextRevision++;
+    runtime.composerQuote = '${lead == null ? '' : '$lead\n'}$text';
+    _notify();
+  }
+
+  void clearComposerQuote() {
+    _active?.composerQuote = null;
     _notify();
   }
 
@@ -1533,7 +1633,7 @@ class AgentController extends ChangeNotifier {
   /// Puts the side conversation's latest answer into the main input box.
   void bringBackSideChat() {
     final answer = sideChat?.lastAnswer;
-    if (answer != null) quoteInComposer(answer, lead: '侧边对话的结论：');
+    if (answer != null) quoteInComposer(answer);
   }
 
   // --- Context ---------------------------------------------------------------
@@ -1571,7 +1671,7 @@ class AgentController extends ChangeNotifier {
     await openSession(path);
     final runtime = _active;
     if (runtime == null || runtime.isRunning) {
-      _toast('会话正在运行，等它结束后再复制。');
+      _toast('对话正在进行，等它结束后再复制。');
       return;
     }
     if (await runtime.cloneSession()) await refreshSessions();
@@ -1590,7 +1690,7 @@ class AgentController extends ChangeNotifier {
   }
 
   /// Moves a session file to the Recycle Bin, closing it in the core first.
-  Future<bool> deleteSession(String path) async {
+  Future<bool> deleteSession(String path, {void Function(Json)? onReceipt}) async {
     final live = _liveRuntimeFor(path);
     final wasActive = live != null && live == _active;
     if (live != null) {
@@ -1600,7 +1700,8 @@ class AgentController extends ChangeNotifier {
     }
     var deleted = false;
     try {
-      await backend.call('sessions.delete', {'path': path});
+      final result = await backend.call('sessions.delete', {'path': path});
+      if (result is Map) onReceipt?.call(result.cast<String, dynamic>());
       deleted = true;
     } catch (e) {
       _toast('删除失败：$e');
@@ -1610,7 +1711,7 @@ class AgentController extends ChangeNotifier {
       final blank = _runtimes.where((r) => r.isPristine && r.isReady && SessionStore.samePath(r.workspace, workspace)).firstOrNull;
       await _activate(blank ?? await _spawn());
     }
-    await refreshSessions();
+    unawaited(refreshSessions());
     return deleted;
   }
 
@@ -1730,7 +1831,7 @@ class AgentController extends ChangeNotifier {
         await _closeInCore(runtime);
       }
     }
-    _toast('已重新加载 Pi 配置。');
+    _toast('已重新加载配置。');
     _notify();
   }
 
@@ -1748,7 +1849,7 @@ class AgentController extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (!_disposed) { reportConversationPresence(); notifyListeners(); }
   }
 
   static String _key(String path) => Platform.isWindows ? p.normalize(path).toLowerCase() : p.normalize(path);

@@ -70,7 +70,7 @@ class TaskInfo {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  String get sourceLabel => switch (source) { 'note' => '写笺', 'template' => '模板', 'schedule' => '定时', _ => '对话' };
+  String get sourceLabel => switch (source) { 'note' => '任务', 'template' => '技能', 'schedule' => '定时', _ => '对话' };
 }
 
 class NoteInfo {

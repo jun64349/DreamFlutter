@@ -26,7 +26,7 @@ class _ModelWindowSettingState extends State<ModelWindowSetting> {
       final info = raw is Map ? raw : const {};
       final source = switch (info['source']) { 'channel' => '渠道设置', 'group' => '模型组窗口', _ => '目录默认' };
       final value = info['value'];
-      if (mounted && _selected == key) setState(() => _restoreLabel = '恢复为$source（${value is num && value > 0 ? '$value tokens' : '未知'}）');
+      if (mounted && _selected == key) setState(() => _restoreLabel = '恢复为$source（${value is num && value > 0 ? '$value 单位' : '未知'}）');
     } catch (e) {
       if (mounted && _selected == key) setState(() => _error = SessionRuntime.describeError(e));
     }
@@ -88,18 +88,17 @@ class _ModelWindowSettingState extends State<ModelWindowSetting> {
         ),
         if (selected != null) ...[
           const SizedBox(height: AppTokens.gap),
-          Text('有效窗口：${selected.contextWindow > 0 ? '${selected.contextWindow} tokens' : '未知'}', style: context.text.bodySmall),
+          Text('有效窗口：${selected.contextWindow > 0 ? '${selected.contextWindow} 单位' : '未知'}', style: context.text.bodySmall),
           const SizedBox(height: AppTokens.gap),
-          TextField(
+          Focus(onFocusChange:(focused){if(!focused&&!_saving&&_window.text.isNotEmpty)_save();},child:TextField(
             controller: _window,
             enabled: !_saving,
             keyboardType: TextInputType.number,
-            decoration: InputDecoration(labelText: '手动覆盖（tokens）', hintText: '留空时使用渠道设置，没有渠道值时使用目录值', errorText: _error),
+            decoration: InputDecoration(labelText: '手动覆盖（单位）', hintText: '留空时使用渠道设置，没有渠道值时使用目录值', errorText: _error),
             onSubmitted: (_) => _saving ? null : _save(),
-          ),
+          )),
           const SizedBox(height: AppTokens.gap),
           Wrap(spacing: AppTokens.gap, children: [
-            FilledButton.tonal(onPressed: _saving ? null : _save, child: const Text('保存窗口')),
             TextButton(onPressed: _saving || _restoreLabel == null || !_overrides(agent).containsKey(_selected) ? null : () => _save(reset: true), child: Text(_restoreLabel ?? '正在读取恢复窗口…')),
           ]),
         ],

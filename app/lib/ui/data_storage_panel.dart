@@ -7,10 +7,12 @@ import 'package:path/path.dart' as p;
 import '../state/agent_controller.dart' show AgentController, asJsonMap, jsonRows;
 import 'agent_scope.dart';
 import 'backup_panel.dart' show formatBytes;
+import 'settings_controls.dart';
 
 /// G-07 controls in the existing 数据与迁移 category.
 class DataStoragePanel extends StatefulWidget {
-  const DataStoragePanel({super.key});
+  const DataStoragePanel({super.key,this.locationsOnly=false,this.maintenanceOnly=false});
+  final bool locationsOnly,maintenanceOnly;
 
   @override
   State<DataStoragePanel> createState() => _DataStoragePanelState();
@@ -19,7 +21,6 @@ class DataStoragePanel extends StatefulWidget {
 class _DataStoragePanelState extends State<DataStoragePanel> {
   AgentController? _agent;
   StreamSubscription<Json>? _events;
-  final _minimum = TextEditingController();
   Json? _data;
   Json? _locations;
   String? _moveId;
@@ -54,7 +55,6 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
   @override
   void dispose() {
     unawaited(_events?.cancel());
-    _minimum.dispose();
     _poll?.cancel();
     super.dispose();
   }
@@ -67,8 +67,6 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
       setState(() {
         _data = data;
         _locations = locations;
-        final space = asJsonMap(data['space']);
-        _minimum.text = ((space['minimumBytes'] as num? ?? 1073741824) / 1073741824).toStringAsFixed(2);
       });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -116,8 +114,8 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
     }
   }
 
-  Future<void> _saveMinimum() async {
-    final gib = double.tryParse(_minimum.text);
+  Future<void> _saveMinimum(String value) async {
+    final gib = double.tryParse(value);
     if (gib == null || !gib.isFinite || gib < 0 || gib * 1073741824 > 9007199254740991) {
       setState(() => _error = '请输入有效的非负空间阈值（GiB）');
       return;
@@ -152,6 +150,7 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
     final space = asJsonMap(data?['space']);
     final path = data?['path'] as String?;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if(!widget.locationsOnly)...[
       if (data != null) ...[
         Text('记忆内容约 ${formatBytes(data['logicalBytes'] as num? ?? 0)} · ${data['versions'] ?? 0} 个历史版本'),
         Text('共用数据库（含其他数据和 WAL）：${formatBytes(data['databaseBytes'] as num? ?? 0)}'),
@@ -161,12 +160,7 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
         if (space['freeBytes'] is num) Text('磁盘剩余：${formatBytes(space['freeBytes'] as num)}'),
       ],
       const SizedBox(height: 12),
-      Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        SizedBox(width: 220, child: TextField(controller: _minimum, enabled: !_busy,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(labelText: '暂停写入阈值（GiB）', helperText: '空间恢复后自动继续'))),
-        OutlinedButton(onPressed: _busy ? null : _saveMinimum, child: const Text('保存阈值')),
-      ]),
+      AutoSaveField(label:'至少保留的磁盘空间（GB）',value:((space['minimumBytes'] as num? ?? 1073741824)/1073741824).toStringAsFixed(2),number:true,validator:(v){final n=double.tryParse(v);return n==null||!n.isFinite||n<0||n*1073741824>9007199254740991?'请输入有效的非负数':null;},save:_saveMinimum),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
         OutlinedButton(onPressed: _busy || data == null ? null : _compact, child: const Text('压缩历史…')),
@@ -175,21 +169,20 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
       ]),
       if (_busy) const LinearProgressIndicator(),
       if (_receipt != null) SelectableText(_receipt!),
+      ],
       if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-      if (_locations != null) ...[
+      if (_locations != null&&!widget.maintenanceOnly) ...[
         const SizedBox(height: 24),
         Text('数据位置', style: Theme.of(context).textTheme.titleMedium),
-        const Text('默认分为应用数据、用户内容和缓存。记忆随整个数据库搬迁；产物位于工作区，随工作区管理。旧安装只在主动搬迁时调整位置。'),
         if (_moveId != null) const LinearProgressIndicator(),
         for (final row in jsonRows(_locations!['rows'])) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('${row['label']} · ${row['layer']} · ${formatBytes(row['bytes'] as num? ?? 0)}'),
+          Text('${row['label']} · ${formatBytes(row['bytes'] as num? ?? 0)}'),
           SelectableText('${row['path']}'),
           Wrap(spacing: 8, children: [
             TextButton(onPressed: () => _agent!.revealInExplorer('${row['path']}'), child: const Text('打开文件夹')),
             if (row['movable'] == true) OutlinedButton(onPressed: _busy || _moveId != null ? null : () => _move(row), child: Text('修改${row['label']}位置…')),
           ]),
         ])),
-        const Text('记忆：逻辑占用见上方，修改位置请使用“修改后台数据库位置”。'),
         if (jsonRows(_locations!['rows']).where((r) => r['id'] == 'database').firstOrNull case final database?)
           TextButton(onPressed: _busy || _moveId != null ? null : () => _move(database), child: const Text('修改记忆位置（随数据库）…')),
         const SizedBox(height: 12),

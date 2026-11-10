@@ -10,12 +10,12 @@ import 'agent_scope.dart';
 
 /// Tables as people read them, for the counts in a preview.
 const _countNames = {
-  'session_meta': '会话',
+  'session_meta': '对话',
   'memories': '记忆',
   'tasks': '任务',
   'schedules': '定时任务',
   'cards': '卡片',
-  'notes': '写笺',
+  'notes': '任务',
   'materials': '资料',
   'gateway_channels': '模型渠道',
 };
@@ -255,7 +255,7 @@ class _BackupPanelState extends State<BackupPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('包括记忆、会话、任务、定时任务、卡片、模型渠道、Pi 的设置、界面偏好和蝶君的文件；工作区里的文件只记位置，不打包。预计大小（压缩前）：${overview['estimateText']}', style: muted),
+        Text('包括记忆、对话、任务、模型连接、偏好和蝶君的文件；工作区只记位置。预计大小：${overview['estimateText']}', style: muted),
         CheckboxListTile(
           value: _includeKeys,
           onChanged: _running ? null : (v) => setState(() => _includeKeys = v ?? false),
@@ -351,7 +351,7 @@ class _BackupPanelState extends State<BackupPanel> {
       final missing = [for (final m in staged['missingKeys'] as List? ?? const []) '$m'];
       children.addAll([
         const SizedBox(height: AppTokens.gap),
-        Text('已准备好：${staged['sessions']} 个会话${(staged['materialsRestored'] as num? ?? 0) > 0 ? '，${staged['materialsRestored']} 份资料放进蝶君的家' : ''}。恢复后定时任务都会先暂停，检查后再打开。', style: context.text.bodyMedium),
+        Text('已准备好：${staged['sessions']} 个对话${(staged['materialsRestored'] as num? ?? 0) > 0 ? '，${staged['materialsRestored']} 份资料放进蝶君的家' : ''}。恢复后定时任务都会先暂停，检查后再打开。', style: context.text.bodyMedium),
         if (missing.isNotEmpty) Text('恢复后要重新填写 Key：${missing.join('、')}', style: muted),
         const SizedBox(height: 6),
         Row(

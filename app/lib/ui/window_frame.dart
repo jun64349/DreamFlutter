@@ -9,6 +9,8 @@ import 'package:window_manager/window_manager.dart';
 
 import '../state/agent_controller.dart';
 import '../theme.dart';
+import 'butterfly_motion.dart';
+import 'conversation_actions.dart';
 import 'agent_scope.dart';
 
 /// The workspace menu of the title bar; the sidebar's switch button and
@@ -40,10 +42,11 @@ Future<void> pickWorkspaceFolder(AgentController agent) async {
 /// details toggle and, on the real window, minimize / maximize / close. It sits
 /// above the interface zoom and the pages, so it stays put on every page.
 class AppTitleBar extends StatefulWidget {
-  const AppTitleBar({super.key, required this.windowButtons});
+  const AppTitleBar({super.key, required this.windowButtons,this.brandOnly=false});
 
   /// The real window: drag to move, double-click to maximize, and the caption buttons (tests leave them off).
   final bool windowButtons;
+  final bool brandOnly;
 
   static const height = 44.0;
 
@@ -85,6 +88,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
       workspaceMenu.close();
       return true;
     }
+    if (widget.brandOnly) return false;
     if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyO) return false;
     final keys = HardwareKeyboard.instance;
     if (!keys.isControlPressed || keys.isAltPressed || keys.isShiftPressed || keys.isMetaPressed) return false;
@@ -102,7 +106,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
     final butterfly = agent.butterfly;
     final onButterfly = agent.section == AppSection.butterfly;
     // Whose conversation is on screen: 蝶君's on its page, the workbench's otherwise.
-    final AgentController? talking = switch (agent.section) {
+    final AgentController? talking = widget.brandOnly ? null : switch (agent.section) {
       AppSection.chat => agent,
       AppSection.butterfly => butterfly,
       _ => null,
@@ -121,14 +125,16 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                 padding: const EdgeInsets.only(left: 14, right: 12),
                 child: Row(
                   children: [
-                    const ButterflyMark(size: 24, semanticLabel: 'DreamFlutter'),
+                    ListenableBuilder(listenable: talking ?? agent, builder: (context, _) => ButterflyAvatar(size: 24, activity: butterflyActivity(talking ?? agent))),
                     const SizedBox(width: 8),
-                    Text('DreamFlutter', style: context.serif(context.text.titleSmall).copyWith(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.8)),
+                    Text(
+                      'DreamFlutter · 梦蝶', style: context.serif(context.text.titleSmall).copyWith(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.4,
+                          )),
                   ],
                 ),
               ),
             ),
-            Container(width: 1, height: 16, color: colors.border),
+            if(!widget.brandOnly)Container(width: 1, height: 16, color: colors.border),
             const SizedBox(width: 12),
             // The breadcrumb over the drag area: the blank part moves the window, and the
             // buttons after it sit at the right edge. (A Flexible breadcrumb beside an Expanded
@@ -142,6 +148,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                     child: ValueListenableBuilder<ButterflyTab>(
                       valueListenable: agent.butterflyTab,
                       builder: (context, tab, _) {
+                        if(widget.brandOnly)return const SizedBox.shrink();
                         final crumbs = <Widget>[];
                         void sep() => crumbs.add(Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text('/', style: _muted(context))));
                         switch (agent.section) {
@@ -159,11 +166,15 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                               crumbs.add(Flexible(child: ListenableBuilder(listenable: butterfly, builder: (context, _) => _Title(text: butterfly.sessionTitle))));
                             }
                           case AppSection.tasks:
-                            crumbs.add(const _Title(text: '任务'));
+                            crumbs.add(const _Title(text: '等你处理'));
                           case AppSection.memory:
                             crumbs.add(const _Title(text: '记忆'));
                           case AppSection.library:
                             crumbs.add(const _Title(text: '技能'));
+                          case AppSection.spending:
+                            crumbs.add(const _Title(text: '花费'));
+                          case AppSection.settings:
+                            crumbs.add(const _Title(text: '设置'));
                         }
                         return Row(mainAxisSize: MainAxisSize.min, children: crumbs);
                       },
@@ -172,14 +183,15 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                 ],
               ),
             ),
-            if (talking != null && (!onButterfly || agent.butterflyTab.value == ButterflyTab.talk))
+            if (talking != null && (!onButterfly || agent.butterflyTab.value == ButterflyTab.talk)) ConversationMenuAnchor(agent: talking),
+            if (talking != null)
               ListenableBuilder(
                 listenable: talking,
                 builder: (context, _) {
                   final incognito = talking.active?.incognito ?? false;
                   final open = talking.runPanelOpen && !incognito;
                   return IconButton(
-                    tooltip: incognito ? '无痕对话没有详情' : (open ? '收起详情' : '详情：进度、产物、花费和常用操作'),
+                    tooltip: incognito ? '无痕对话没有详情' : (open ? '收起详情' : (onButterfly ? '详情：任务进度' : '详情：本次改动')),
                     isSelected: open,
                     onPressed: incognito ? null : () => talking.setRunPanelOpen(!open),
                     style: IconButton.styleFrom(foregroundColor: open ? colors.accent : colors.muted, backgroundColor: open ? colors.accentSoft : null),
@@ -349,7 +361,8 @@ class _ResizeHandleState extends State<ResizeHandle> {
           width: 6,
           child: Center(
             child: AnimatedContainer(
-              duration: AppTokens.fast,
+              duration: AppTokens.motion(context, AppTokens.fast),
+              curve: AppTokens.curve,
               width: active ? 2 : 0,
               color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
             ),

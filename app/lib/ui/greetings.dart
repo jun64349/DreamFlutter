@@ -79,3 +79,11 @@ String pickGreeting({required DateTime now, required int seed, bool butterfly = 
   final pool = n.isEven ? greetingsFor(now) : _anyTime;
   return pool[(n ~/ 2) % pool.length];
 }
+
+const literaryLines = [
+  ('昔者庄周梦为胡蝶，栩栩然胡蝶也。', '《庄子·齐物论》'),
+  ('天地有大美而不言。', '《庄子·知北游》'),
+  ('且夫水之积也不厚，则其负大舟也无力。', '《庄子·逍遥游》'),
+];
+
+(String, String) pickLiteraryLine(int seed) => literaryLines[seed.abs() % literaryLines.length];
