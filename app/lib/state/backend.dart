@@ -84,6 +84,30 @@ class CoreBackend implements AgentBackend {
   @override
   Stream<Json> get events => _events.stream;
 
+  /// Stops the core, also when the window quits before it finished connecting: the core runs
+  /// detached, so a quit during its start used to leave it running with nobody attached.
+  Future<void> shutdownCore() async {
+    if (isConnected) {
+      try { await client.call('core.shutdown'); } catch (_) {}
+      return;
+    }
+    final dir = dataDir ?? CoreLocator.defaultDataDir(searchRoots);
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
+    while (DateTime.now().isBefore(deadline)) {
+      final info = CoreLocator.readInfo(dir);
+      if (info != null && info.port != 0) {
+        try {
+          final c = await CoreClient.connect(port: info.port, token: info.token, timeout: const Duration(seconds: 2));
+          try { await c.call('core.shutdown'); } catch (_) {} finally { await c.close(); }
+          return;
+        } catch (_) {}
+      }
+      // No lock: no core is starting for this data, nothing to stop.
+      if (!File(p.join(dir, 'core.lock')).existsSync()) return;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
+
   @override
   Future<void> dispose() async {
     await _sub?.cancel();

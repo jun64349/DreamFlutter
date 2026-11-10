@@ -1837,6 +1837,8 @@ class AgentController extends ChangeNotifier {
 
   /// Stops the core (and every session in it). Used by "quit and stop background work".
   Future<void> shutdownCore() async {
+    final core = backend;
+    if (core is CoreBackend) return core.shutdownCore();
     try {
       await backend.call('core.shutdown');
     } catch (_) {}
