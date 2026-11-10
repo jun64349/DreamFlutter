@@ -236,6 +236,10 @@ details.adv summary .ic{transition:transform var(--t2) var(--ease);width:14px;he
 .rp-h{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line2);font-weight:500}
 .rp-h .sp{flex:1}
 .rp-b{flex:1;overflow:auto;padding:12px 14px}
+.acts-col{display:grid;grid-template-columns:1fr 1fr;gap:8px}.acts-col .btn{justify-content:flex-start}.acts-col .btn svg{width:15px;height:15px}
+.btn.danger{color:var(--danger,#b3412e)}
+.ctxb{background:var(--card);border:1px solid var(--line2);border-radius:12px;padding:12px 14px}.ctxb .bar{height:6px;border-radius:3px;background:var(--line2);overflow:hidden;margin:8px 0 10px}.ctxb .bar i{display:block;height:100%;background:var(--accent);transition:width var(--t2) var(--ease)}.ctxb .big{font-size:15px}.ctxb .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;color:var(--muted)}.ctxb .kv b{font-weight:400;color:var(--ink,inherit);text-align:right}.ctxb .btn{margin-top:10px;width:100%;justify-content:center}
+.ctxb.flash{animation:ctxflash 900ms var(--ease)}@keyframes ctxflash{0%,40%{box-shadow:0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 0 transparent}}
 .file{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:8px;background:var(--card);margin-bottom:6px;font-size:13px}
 .file .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12.5px}
 .file .p{color:var(--accent);font-size:12px} .file .m{color:var(--seal);font-size:12px}
@@ -829,6 +833,10 @@ function viewSearch(){
   </div></div></section>`;
 }
 
+function ctxBlock(){
+  const win = 1000000, used = Math.round(win * S.ctx / 100), wan = n => (n/10000).toFixed(n<100000?1:0) + ' 万';
+  return `<div class="sec">上下文</div><div class="ctxb" id="ctxb"><div class="big">${wan(used)} / ${wan(win)}</div><div class="bar"><i style="width:${S.ctx}%"></i></div><div class="kv"><span>输入</span><b>${wan(Math.round(used*0.9))}</b><span>输出</span><b>${wan(Math.round(used*0.1))}</b><span>缓存命中</span><b>72%</b><span>花费</span><b>¥0.04</b></div><button class="btn" data-act="compact" ${S.compacting?'disabled':''}>${S.compacting?'<span class="spin"></span>正在整理…':ic('redo')+'整理上下文'}</button></div>`;
+}
 function renderRight(){
   const r = $('#right');
   r.classList.toggle('open', !!S.right && !S.query.trim());
@@ -836,7 +844,7 @@ function renderRight(){
   let head = '', body = '';
     if (S.right === 'changes'){
     const c = conv(S.activeConv) || {changes:[], products:[]};
-    head = '本次改动';
+    head = '这个对话';
     const sel = f => S.commitSel[c.id + f] !== false;
     const nsel = c.changes.filter(f => sel(f.f)).length;
     const draft = c.id === 'c2' ? 'fix(mqtt): 断线后按指数退避自动重连' : 'docs: 更新 W45 周报（结论和湿度超限说明）';
@@ -844,6 +852,7 @@ function renderRight(){
     body = `${c.changes.length ? `<div class="sec" style="margin-top:0">改了的文件</div>${c.changes.map(f=>`<div class="file">${ic('file')}<span class="n">${esc(f.f)}</span><span class="p">+${f.a}</span><span class="m">−${f.d}</span></div>`).join('')}` : '<div class="empty">这个对话还没改文件</div>'}
       ${c.products.length ? `<div class="sec">生成的文件</div>${c.products.map(f=>`<div class="file">${ic('eye')}<span class="n">${esc(f)}</span><button class="btn sm" data-act="toast" data-v="已打开预览">预览</button></div>`).join('')}` : ''}
       ${c.changes.length ? `<div class="sec">Git</div><div class="commit" id="commit">${S.committed===c.id ? `<div class="state ok">${ic('check')}已提交 3f2a9c1</div>` : S.committing ? `${files}<textarea id="cmsg" aria-label="提交说明">${esc(S.cmsg ?? draft)}</textarea><div class="acts" style="margin-top:8px"><button class="btn pri" data-act="commit" ${nsel?'':'disabled'}>确认提交</button><button class="btn ghost" data-act="cancelCommit">取消</button></div>` : `<button class="btn" data-act="startCommit" style="width:100%">${ic('git')} 提交这些改动</button>`}</div>` : ''}`;
+    body += ctxBlock() + `<div class="sec">常用操作</div><div class="acts-col"><button class="btn" data-act="saveSkill">${ic('skills')}存成技能</button><button class="btn" data-act="exportMd">${ic('file')}导出 Markdown</button><button class="btn" data-act="archiveConv" data-id="${c.id}">${ic('archive')}归档</button><button class="btn danger" data-act="delConv" data-id="${c.id}">${ic('trash')}删除</button></div>`;
   } else if (S.right === 'aside'){
     head = '问一下';
     body = `<div class="mini"><div class="quote">${esc(S.aside.q)}</div>${S.aside.msgs.map(m=>m.r==='user'?`<div class="u"><div class="b">${esc(m.t)}</div></div>`:`<div class="reply" style="font-size:14px">${m.t==='…'?'<span class="spin"></span>':esc(m.t)}</div>`).join('')}
@@ -853,7 +862,7 @@ function renderRight(){
     const t = task(S.activeTask); head = '任务进度';
     body = `<div class="row"><div class="main"><div class="ttl">${esc(t.title)}</div><div class="sub">${esc(t.progress)}</div></div>${stChip(t.status)}</div>
       <div class="sec">步骤</div>${(t.msgs||[]).filter(m=>m.proc).flatMap(m=>m.proc.steps).map(s=>`<div class="step" style="border:0;padding-left:0">${ic(s[0])}<span>${s[1]}</span></div>`).join('')||'<div class="empty" style="padding:8px">还没开始</div>'}
-      ${t.repeat?`<div class="sec">重复</div><div class="row"><div class="main"><div class="ttl">${esc(t.repeat)}</div><div class="sub">下次：11 月 10 日 9:00</div></div><button class="btn sm" data-act="toast" data-v="已暂停定时">暂停</button></div>`:''}`;
+      ${t.repeat?`<div class="sec">重复</div><div class="row"><div class="main"><div class="ttl">${esc(t.repeat)}</div><div class="sub">下次：11 月 10 日 9:00</div></div><button class="btn sm" data-act="toast" data-v="已暂停定时">暂停</button></div>`:''}` + ctxBlock();
   }
   r.innerHTML = `<div class="rp"><div class="rp-h">${head}<span class="sp"></span><button class="icon-btn" data-act="closePanel" aria-label="关闭">${ic('x')}</button></div><div class="rp-b">${body}</div></div>`;
 }
@@ -872,14 +881,19 @@ function renderGuide(){
 }
 
 /* ---------- behaviour ---------- */
-function toast(text, undo){
+function archiveConv(c){ const i = S.convs.indexOf(c); S.convs.splice(i,1); S.archived.unshift(c); if (S.activeConv===c.id){ S.activeConv=null; S.view='home'; S.right=null; } render(); toast('已归档，在侧栏底部「已归档」里', ()=>{ S.archived.shift(); S.convs.splice(i,0,c); render(); }); }
+function delConfirm(anchor, c){ menu(anchor, [{lbl:'删除后进回收站，30 天内可以恢复'}, {t:'删除「'+c.title.slice(0,12)+'」', icon:'trash', danger:true, fn:()=>{ const i = S.convs.indexOf(c); S.convs.splice(i,1); if (S.activeConv===c.id){ S.activeConv=null; S.view='home'; S.right=null; } S.recycle.unshift(Object.assign(c, {left:'30 天'})); render(); toast('已移到回收站'); }}]); }
+function toast(text, undo, actLabel, act){
   const el = document.createElement('div'); el.className = 'toast';
-  el.innerHTML = `<span>${esc(text)}</span>${undo?'<button>撤销</button>':''}`;
+  el.innerHTML = `<span>${esc(text)}</span>${actLabel?`<button class="act">${esc(actLabel)}</button>`:''}${undo?'<button class="undo">撤销</button>':''}`;
   $('#toasts').appendChild(el);
   let done = false;
   const close = () => { if (done) return; done = true; el.classList.add('out'); setTimeout(() => el.remove(), 260); };
-  if (undo) el.querySelector('button').onclick = () => { undo(); close(); };
-  setTimeout(close, undo ? 5000 : 2600);
+  if (undo) el.querySelector('.undo').onclick = () => { undo(); close(); };
+  if (act) el.querySelector('.act').onclick = () => { act(); close(); };
+  const life = undo || act ? 5000 : 3200; let left = life, start = Date.now(), timer = setTimeout(close, left);
+  el.onmouseenter = () => { clearTimeout(timer); left -= Date.now() - start; };
+  el.onmouseleave = () => { start = Date.now(); timer = setTimeout(close, Math.max(left, 1200)); };
 }
 function notify(from, text, go){
   const el = document.createElement('div'); el.className = 'notif'; el.setAttribute('role','status');
@@ -1069,9 +1083,8 @@ document.addEventListener('click', e => {
     case 'openConvAny': { const c = conv(id); S.ws = c.ws; S.activeConv = id; S.space='wb'; go('chat'); break; }
     case 'openTask': S.activeTask = id; S.space='dj'; go('task'); break;
     case 'convMenu': e.stopPropagation(); { const c = conv(id); menu(b, [
-      {t:'重命名', icon:'edit', fn:()=>toast('原型里不演示重命名')}, {t:'把这次做法存成技能', icon:'skills', fn:()=>toast('已放进「等你处理」：采用技能「'+c.title.slice(0,10)+'…」？')},
-      {t:'定时再做一次', icon:'clock', fn:()=>toast('已设好：每周一 9:00 再做一次')}, {t:'这段对话不记忆', icon:'memory', fn:()=>toast('这段对话之后不再写记忆')}, {t:'导出', icon:'file', fn:()=>toast('已导出为 Markdown')}, {t:'归档', icon:'archive', fn:()=>{ const i = S.convs.indexOf(c); S.convs.splice(i,1); S.archived.unshift(c); if (S.activeConv===c.id){ S.activeConv=null; S.view='home'; } render(); toast('已归档', ()=>{ S.archived.shift(); S.convs.splice(i,0,c); render(); }); }}, '-',
-      {t:'删除', icon:'trash', danger:true, fn:()=>{ const i = S.convs.indexOf(c); S.convs.splice(i,1); if (S.activeConv===c.id){ S.activeConv=null; S.view='home'; } S.recycle.unshift(Object.assign(c, {left:'30 天'})); render(); toast('已删除', ()=>{ S.recycle.shift(); S.convs.splice(i,0,c); render(); }); }}]); } break;
+      {t:'重命名', icon:'edit', fn:()=>toast('原型里不演示重命名')}, {t:'导出 Markdown', icon:'file', fn:()=>toast('已导出到桌面：'+c.title.slice(0,12)+'.md', null, '打开所在文件夹', ()=>{})}, {t:'归档', icon:'archive', fn:()=>archiveConv(c)}, '-',
+      {t:'删除', icon:'trash', danger:true, fn:()=>delConfirm(b, c)}]); } break;
     case 'wsMenu': menu(b, [{lbl:'切换工作区'}, ...S.workspaces.map(w => ({t:(w===S.ws?'✓ ':'　')+w, icon:'folder', fn:()=>{ S.ws=w; const first = S.convs.find(c=>c.ws===w); S.activeConv = first?first.id:null; S.view = first?'chat':'home'; S.right=null; render(); }})), '-', {t:'打开文件夹…', icon:'plus', fn:()=>toast('会弹出系统的选文件夹窗口')}]); break;
     case 'modelMenu': menu(b, [{lbl:'这句话用哪个模型'}, ...['DeepSeek V4.1 Flash','DeepSeek V4.1','Kimi K3'].map(m => ({t:(m===S.model?'✓ ':'　')+m, fn:()=>{ S.model=m; render(); }}))]); break;
     case 'thinkMenu': menu(b, ['低','中','高'].map(t => ({t:(t===S.think?'✓ ':'　')+t, fn:()=>{ S.think=t; render(); }}))); break;
@@ -1106,7 +1119,12 @@ document.addEventListener('click', e => {
     case 'toolFlip': { const s = S.services.find(x=>x.id===id); s.tools[+v][1] = !s.tools[+v][1]; renderMain(); break; }
     case 'svcDj': { const s = S.services.find(x=>x.id===id); s.dj = !s.dj; renderMain(); toast(s.dj ? `蝶君现在能用「${s.name}」` : `蝶君不再能用「${s.name}」`); break; }
     case 'askFirst': S.askFirst = !S.askFirst; renderMain(); toast(S.askFirst ? '改文件、跑命令前会先问你' : '这个对话里改文件、跑命令不再问你'); break;
-    case 'ctxMenu': menu(b, [{lbl:`上下文用了 ${S.ctx}%`}, {t:'整理上下文', icon:'redo', fn:()=>{ const was = S.ctx; S.ctx = 12; renderMain(); toast('整理好了，前面的内容留了摘要', ()=>{ S.ctx = was; renderMain(); }); }}]); break;
+    case 'ctxMenu': S.right = S.view==='task' ? 'task' : 'changes'; renderRight(); renderMain(); setTimeout(()=>{ const k = $('#ctxb'); if (k){ k.scrollIntoView({block:'center', behavior:'smooth'}); k.classList.remove('flash'); void k.offsetWidth; k.classList.add('flash'); } }, 380); break;
+    case 'compact': { S.compacting = true; renderRight(); setTimeout(()=>{ const was = S.ctx; S.ctx = 12; S.compacting = false; renderRight(); renderMain(); toast(`整理好了：${was}% → 12%，前面的内容留了摘要`); }, 1400); break; }
+    case 'saveSkill': { b.disabled = true; b.innerHTML = '<span class="spin"></span>正在整理…'; setTimeout(()=>{ renderRight(); toast('已整理成技能，放进「等你处理」等你采用', null, '去看看', ()=>go('inbox')); }, 1200); break; }
+    case 'exportMd': toast('已导出到桌面：W45 周报.md', null, '打开所在文件夹', ()=>{}); break;
+    case 'archiveConv': archiveConv(conv(id)); break;
+    case 'delConv': delConfirm(b, conv(id)); break;
     case 'memAdd': { const k = {id:nid('k'), t:'新的一条，点这里改', s:'你记下的', d:'刚刚'}; S.memory.you.unshift(k); S.fresh.add(k.id); S.memTab = 'all'; renderMain(); setTimeout(()=>{ const t = document.querySelector(`[data-mem="${k.id}"]`); if (t){ t.focus(); document.getSelection().selectAllChildren(t); } }, 30); break; }
     case 'unarchive': { const i = S.archived.findIndex(x=>x.id===id); const c = S.archived.splice(i,1)[0]; S.convs.push(c); c.when = '本周'; render(); toast('已放回对话列表'); break; }
     case 'restore': { const i = S.recycle.findIndex(x=>x.id===id); const c = S.recycle.splice(i,1)[0]; delete c.left; c.when = c.when === '10月' ? '本周' : c.when; S.convs.push(c); render(); toast(`已恢复「${c.title}」`); break; }
