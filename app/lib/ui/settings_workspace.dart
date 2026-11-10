@@ -162,7 +162,7 @@ class ModelSettingMenu extends StatelessWidget {
   final String label;final String? selected;final Future<void> Function(String?) onChanged;final Map<String,String> extra;final String inheritLabel;
   @override
   Widget build(BuildContext context){final a=AgentScope.of(context);final model=a.models.where((m)=>m.key==selected).firstOrNull;
-    final choices=<String,String>{'':inheritLabel,...extra,for(final m in a.pickableModels(keep:selected))m.key:'${m.name} · ${a.providerLabel(m.provider)}'};
+    final choices=<String,String>{'':inheritLabel,...extra,for(final m in a.models)m.key:'${m.name} · ${a.providerLabel(m.provider)}'};
     return SettingMenu<String>(key:ValueKey('model-menu-$label'),value:selected??'',choices:choices,label:model?.name??extra[selected]??(selected==null?inheritLabel:'暂不可用'),onSelected:(v)async{try{await onChanged(v.isEmpty?null:v);}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('未保存：${SessionRuntime.describeError(e)}')));}});
   }
 }

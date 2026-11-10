@@ -24,7 +24,7 @@ class _ModelWindowSettingState extends State<ModelWindowSetting> {
     try {
       final raw = await AgentScope.read(context).backend.call('gateway.modelWindow', {'provider': key.substring(0, slash), 'model': key.substring(slash + 1)});
       final info = raw is Map ? raw : const {};
-      final source = switch (info['source']) { 'channel' => '渠道设置', 'group' => '模型组窗口', _ => '目录默认' };
+      final source = switch (info['source']) { 'channel' => '渠道设置', _ => '目录默认' };
       final value = info['value'];
       if (mounted && _selected == key) setState(() => _restoreLabel = '恢复为$source（${value is num && value > 0 ? '$value 单位' : '未知'}）');
     } catch (e) {

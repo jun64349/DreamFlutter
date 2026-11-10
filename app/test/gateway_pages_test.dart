@@ -77,16 +77,8 @@ void main() {
     SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path});
     final sessions = Directory.systemTemp.createTempSync('df_gw_');
     backend = FakeBackend();
-    final groups = <Json>[];
     backend.handlers.addAll({
       'gateway.channels': (_) => _channels,
-      'gateway.groups': (_) => groups,
-      'gateway.saveGroup': (params) {
-        groups
-          ..clear()
-          ..add({...params, 'id': 'g1'});
-        return {'id': 'g1'};
-      },
       'gateway.status': (_) => [
         {
           'id': 'cglm',
@@ -152,10 +144,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('settings list the channels; model groups are no longer offered (0.8.1 S.6)', (tester) async {
+  testWidgets('settings list the channels; model groups are gone (0.8.1)', (tester) async {
     await startApp(tester);
     expect(agent.providerLabel('df-cglm'), '智谱套餐');
-    expect(agent.providerLabel('dreamflutter'), '模型组');
 
     await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
@@ -178,8 +169,6 @@ void main() {
     expect(find.text('本月'),findsOneWidget);expect(find.text('今天'),findsWidgets);
     expect(find.text('本月按用途'),findsOneWidget);expect(find.byKey(const ValueKey('ledger-range')),findsOneWidget);
     expect(find.text('\$0.50'),findsWidgets);expect(find.textContaining('4 次'),findsWidgets);
-    backend.push({'event':'gateway.switched','from':'智谱套餐 · glm-5.3','to':'DeepSeek · deepseek-flash','reason':'额度用完','toPaid':true});await settle(tester);
-    expect(find.textContaining('已转到付费渠道「DeepSeek · deepseek-flash」'),findsOneWidget);
   });
 
   testWidgets('the settings search looks through every category', (tester) async {

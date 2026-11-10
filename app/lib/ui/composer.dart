@@ -10,7 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/mentions.dart';
-import '../state/agent_controller.dart' show asJsonMap, groupProvider, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
+import '../state/agent_controller.dart' show asJsonMap, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
 import '../state/side_chat.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -732,10 +732,10 @@ class _ModelChip extends StatelessWidget {
     final model = agent.model;
     // Model groups first, then each channel's models under its name.
     final byProvider = <String, List<PiModel>>{};
-    for (final m in agent.pickableModels()) {
+    for (final m in agent.models) {
       byProvider.putIfAbsent(m.provider, () => []).add(m);
     }
-    final providers = byProvider.keys.toList()..sort((a, b) => (a == groupProvider ? 0 : 1).compareTo(b == groupProvider ? 0 : 1));
+    final providers = byProvider.keys.toList();
     return _Chip<PiModel>(
       key: const ValueKey('composer-model'),
       tightLabel: tightLabel,

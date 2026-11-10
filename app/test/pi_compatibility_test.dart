@@ -75,7 +75,7 @@ void main() {
       {'id': 'p1', 'provider': 'df-p1', 'name': 'Imported', 'origin': 'cc-switch', 'models': [{'id': 'a'}], 'keys': []},
       {'id': 'pi:openai', 'provider': 'openai', 'name': 'ChatGPT', 'source': 'pi', 'oauth': true, 'models': [], 'keys': []},
     ];
-    backend.handlers['gateway.groups'] = (_) => <Json>[];
+   
     backend.handlers['piMigration.oauthStart'] = (_) => {'id': 'test-flow'};
     backend.handlers['piMigration.oauthStatus'] = (_) => {'id': 'test-flow', 'provider': 'openai', 'status': 'running', 'event': {'url': 'https://example.invalid/login'}, 'prompt': {'type': 'manual_code', 'message': '合成登录步骤'}};
     backend.handlers['piMigration.oauthAnswer'] = (_) { backend.push({'event': 'piMigration.oauth', 'login': {'id': 'test-flow', 'provider': 'openai', 'status': 'done'}}); return {'ok': true}; };

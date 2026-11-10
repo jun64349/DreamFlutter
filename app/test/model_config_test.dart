@@ -3,7 +3,6 @@ import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
-import 'package:dreamflutter/ui/gateway_pages.dart';
 import 'package:dreamflutter/ui/model_settings.dart';
 import 'package:dreamflutter/ui/providers_page.dart';
 import 'package:dreamflutter/ui/settings_page.dart';
@@ -135,30 +134,5 @@ void main() {
     await tester.pumpAndSettle();
     expect(backend.settings['modelContextWindows'], isEmpty);
     expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('dragging groups sends backend order and redraws its persisted result', (tester) async {
-    await start(tester, const SingleChildScrollView(child: GroupList()));
-    var groups = <Json>[for (final id in ['a', 'b']) {'id': id, 'name': '组$id', 'entries': <Json>[]}];
-    backend.handlers['gateway.channels'] = (_) => <Json>[];
-    backend.handlers['gateway.groups'] = (_) => groups;
-    backend.handlers['gateway.reorderGroups'] = (p) {
-      groups = [for (final id in p['ids'] as List) groups.firstWhere((g) => g['id'] == id)];
-      return {'ok': true};
-    };
-    await agent.refreshGateway();
-    await tester.pumpAndSettle();
-    final first = tester.getCenter(find.byTooltip('拖动排序').first);
-    final second = tester.getCenter(find.byTooltip('拖动排序').last);
-    await tester.timedDragFrom(first, Offset(0, second.dy - first.dy + 20), const Duration(seconds: 1));
-    await tester.pumpAndSettle();
-    expect(backend.callsTo('gateway.reorderGroups').single['ids'], ['b', 'a']);
-    expect(agent.modelGroups.map((g) => g.id), ['b', 'a']);
-    expect(tester.getTopLeft(find.text('组b')).dy, lessThan(tester.getTopLeft(find.text('组a')).dy));
-    await tester.pumpWidget(const SizedBox());
-    await agent.refreshGateway();
-    await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: const SingleChildScrollView(child: GroupList())))));
-    await tester.pumpAndSettle();
-    expect(tester.getTopLeft(find.text('组b')).dy, lessThan(tester.getTopLeft(find.text('组a')).dy), reason: 'reopening reads the persisted backend order');
   });
 }

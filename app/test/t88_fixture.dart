@@ -26,7 +26,6 @@ class T88Fixture {
       'attention.undo':(p){final r=receipts[p['id']]!;r['status']='cancelled';r['undoable']=false;return {...r};},
       'attention.receipt':(p)=>receipts[p['id']],
       'gateway.channels':(_)=>[{'id':'c1','name':'DeepSeek','provider':'df-c1','platform':'deepseek','kind':'payg','api':'openai-completions','baseUrl':'https://api.example.invalid','models':[{'id':'flash','name':'DeepSeek-V4.1-Flash'}],'keys':[],'enabled':true}],
-      'gateway.groups':(_)=><Json>[],
       'gateway.platforms':(_)=>[{'id':'deepseek','name':'DeepSeek','kind':'payg','endpoints':[{'api':'openai-completions','baseUrl':'https://api.example.invalid'}],'models':['flash'],'modelDetails':[{'id':'flash','name':'DeepSeek-V4.1-Flash'}]}],
       'gateway.saveChannel':(_)=>'c1',
       'setup.testChannel':(_)=>{'ok':true},

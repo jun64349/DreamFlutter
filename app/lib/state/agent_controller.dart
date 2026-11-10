@@ -231,7 +231,6 @@ class AgentController extends ChangeNotifier {
 
   /// The model gateway's channels and model groups (names for model menus, the settings pages).
   List<GatewayChannel> gatewayChannels = const [];
-  List<ModelGroup> modelGroups = const [];
 
   /// Bumped when channels, groups or their state change in the core.
   final gatewayRevision = ValueNotifier<int>(0);
@@ -365,7 +364,6 @@ class AgentController extends ChangeNotifier {
     coreInfo = parent.coreInfo;
     coreSettings = parent.coreSettings;
     gatewayChannels = parent.gatewayChannels;
-    modelGroups = parent.modelGroups;
     _backendEvents = backend.events.listen(_onBackendEvent);
     // Idle sessions are let go of by the main controller's timer.
     await _attachLiveSlots(coreInfo);
@@ -432,9 +430,6 @@ class AgentController extends ChangeNotifier {
   List<Object?> get todos => _active?.todos ?? const [];
   List<PiModel> get models => _active?.models ?? const [];
 
-  /// The models offered in pickers: model groups are no longer managed in the UI (0.8.1 S.6), so they
-  /// only show when one is already chosen ([keep]), never as something new to pick.
-  List<PiModel> pickableModels({String? keep}) => [for (final m in models) if (m.provider != groupProvider || m.key == keep || m.key == model?.key) m];
   List<String> get thinkingLevels => _active?.thinkingLevels ?? const [];
   SessionStats get stats => _active?.stats ?? SessionStats.empty;
   String? get currentSessionPath => _active?.sessionPath;
@@ -674,7 +669,7 @@ class AgentController extends ChangeNotifier {
   static const _mainOnlyEvents = {
     'memory.unsaved', 'memory.notice', 'memory.warning', 'memory.task',
     'memory.changed', 'proposals.changed', 'skills.changed', 'templates.changed', 'mcp.changed', 'library.changed', 'schedules.delivered', //
-    'gateway.switched', 'gateway.alert', 'vision.missing', 'notices.changed', 'sandbox.changed', 'butterfly.outbox', //
+    'gateway.alert', 'vision.missing', 'notices.changed', 'sandbox.changed', 'butterfly.outbox', //
     'backup.job', 'backup.restarting',
   };
 
@@ -727,15 +722,6 @@ class AgentController extends ChangeNotifier {
         if (title is String) _toast(title);
       case 'gateway.changed':
         unawaited(refreshGateway(models: true));
-      case 'gateway.switched':
-        final to = message['to'];
-        final from = message['from'];
-        if (message['toPaid'] == true) {
-          _toast('套餐额度用完了，已转到付费渠道「$to」。');
-        } else {
-          _toast('已从「$from」换到「$to」：${message['reason']}');
-        }
-        unawaited(refreshGateway());
       case 'sandbox.changed':
         if (message['status'] is Map) sandboxStatus.value = asJsonMap(message['status']);
       case 'backup.job':
@@ -764,11 +750,10 @@ class AgentController extends ChangeNotifier {
     }
   }
 
-  /// Loads channels and groups; with [models], sessions also reload their model lists.
+  /// Loads the channels; with [models], sessions also reload their model lists.
   Future<void> refreshGateway({bool models = false}) async {
     try {
       gatewayChannels = jsonRows(await backend.call('gateway.channels')).map(GatewayChannel.fromJson).toList();
-      modelGroups = jsonRows(await backend.call('gateway.groups')).map(ModelGroup.fromJson).toList();
     } catch (_) {
       return; // an older core without the gateway
     }
@@ -781,9 +766,8 @@ class AgentController extends ChangeNotifier {
     _notify();
   }
 
-  /// A model's provider as people know it: the channel's name, or 「模型组」.
+  /// A model's provider as people know it: the channel's name.
   String providerLabel(String provider) {
-    if (provider == groupProvider) return '模型组';
     return gatewayChannels.where((c) => c.provider == provider).firstOrNull?.name ?? provider;
   }
 

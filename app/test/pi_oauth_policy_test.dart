@@ -32,7 +32,7 @@ void main() {
         {'id': 'pi:github-copilot', 'provider': 'github-copilot', 'name': 'Hidden Copilot', 'source': 'pi', 'oauth': true, 'enabled': false, 'models': [], 'keys': []},
         {'id': 'pi:future', 'provider': 'future-oauth', 'name': 'Hidden future OAuth', 'source': 'pi', 'oauth': true, 'enabled': false, 'models': [], 'keys': []},
       ];
-      backend.handlers['gateway.channels'] = (_) => rows; backend.handlers['gateway.groups'] = (_) => <Json>[];
+      backend.handlers['gateway.channels'] = (_) => rows;
       backend.handlers['piMigration.oauthLogout'] = (p) { rows[1]['enabled'] = false; return {'ok': true}; };
       final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: root.path), backend: backend);
       addTearDown(() { agent.dispose(); root.deleteSync(recursive: true); }); await agent.refreshGateway();
@@ -60,7 +60,7 @@ void main() {
   testWidgets('new ChatGPT entry logs in, cancels and retries with only the whitelisted provider', (tester) async {
     expect(chatGptPiProviderId, 'openai'); expect(canLoginPiOAuth('openai-codex'), isFalse);
     SharedPreferences.setMockInitialValues({}); final root = Directory.systemTemp.createTempSync('df-t70-chatgpt-'), backend = FakeBackend();
-    backend.handlers['gateway.channels'] = (_) => <Json>[]; backend.handlers['gateway.groups'] = (_) => <Json>[];
+    backend.handlers['gateway.channels'] = (_) => <Json>[];
     backend.handlers['piMigration.oauthStart'] = (_) => {'id': 't70-flow'};
     backend.handlers['piMigration.oauthStatus'] = (_) => {'id': 't70-flow', 'provider': chatGptPiProviderId, 'status': 'running', 'prompt': {'type': 'manual_code', 'message': 'Synthetic code'}};
     backend.handlers['piMigration.oauthCancel'] = (_) { backend.push({'event': 'piMigration.oauth', 'login': {'id': 't70-flow', 'provider': chatGptPiProviderId, 'status': 'cancelled'}}); return {'ok': true}; };

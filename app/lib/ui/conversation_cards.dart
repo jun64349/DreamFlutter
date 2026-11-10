@@ -187,7 +187,7 @@ class _ConversationErrorCardState extends State<ConversationErrorCard> {
       Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
         FilledButton(style: FilledButton.styleFrom(minimumSize: size, padding: pad, shape: shape), onPressed: enabled ? _retry : null, child: Text(_busy ? '正在重试…' : '重试')),
         MenuAnchor(
-          menuChildren: [for (final model in agent.pickableModels()) MenuItemButton(onPressed: () => _retry(model), child: Text(model.name))],
+          menuChildren: [for (final model in agent.models) MenuItemButton(onPressed: () => _retry(model), child: Text(model.name))],
           builder: (context, menu, _) => OutlinedButton(style: OutlinedButton.styleFrom(minimumSize: size, padding: pad, shape: shape), onPressed: enabled && agent.models.isNotEmpty ? () => menu.isOpen ? menu.close() : menu.open() : null, child: const Text('换个模型')),
         ),
         OutlinedButton(style: OutlinedButton.styleFrom(minimumSize: size, padding: pad, shape: shape), onPressed: () => agent.main.openSettings('模型'), child: const Text('去设置')),
