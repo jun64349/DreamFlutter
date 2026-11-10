@@ -48,7 +48,7 @@ class AppTitleBar extends StatefulWidget {
   final bool windowButtons;
   final bool brandOnly;
 
-  static const height = 44.0;
+  static const height = 48.0;
 
   @override
   State<AppTitleBar> createState() => _AppTitleBarState();
@@ -113,29 +113,47 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
     };
     Widget drag(Widget child) => widget.windowButtons ? DragToMoveArea(child: child) : child;
 
+    // 1.0 prototype (interaction-v2.html): the brand heads the sidebar column and the bar over the
+    // page only spans the page. The bar sits outside the zoom, so the sidebar's column is scaled here.
+    final screen = MediaQuery.sizeOf(context).width;
+    final zoom = agent.zoom;
+    final besideSidebar = !widget.brandOnly && screen / zoom >= 760;
+    final sideWidth = agent.sidebarWidth.clamp(180.0, screen / zoom * 0.36) * zoom;
+    final brand = drag(
+      Padding(
+        padding: const EdgeInsets.only(left: 16, right: 12),
+        child: Row(
+          mainAxisSize: besideSidebar ? MainAxisSize.max : MainAxisSize.min,
+          children: [
+            ListenableBuilder(listenable: talking ?? agent, builder: (context, _) => ButterflyAvatar(size: 26, activity: butterflyActivity(talking ?? agent))),
+            const SizedBox(width: 10),
+            // A narrow sidebar clips the name instead of overflowing the bar.
+            Flexible(child: Text('DreamFlutter', maxLines: 1, softWrap: false, overflow: TextOverflow.fade, style: context.serif(context.text.titleSmall).copyWith(fontSize: 17, fontWeight: FontWeight.w700, color: colors.ink))),
+            const SizedBox(width: 6),
+            Text('梦蝶', maxLines: 1, softWrap: false, style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.muted)),
+          ],
+        ),
+      ),
+    );
     return Material(
-      color: colors.sidebar,
-      child: Container(
+      color: colors.background,
+      child: SizedBox(
         height: AppTitleBar.height,
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: colors.border, width: 0.5))),
         child: Row(
           children: [
-            drag(
-              Padding(
-                padding: const EdgeInsets.only(left: 14, right: 12),
-                child: Row(
-                  children: [
-                    ListenableBuilder(listenable: talking ?? agent, builder: (context, _) => ButterflyAvatar(size: 24, activity: butterflyActivity(talking ?? agent))),
-                    const SizedBox(width: 8),
-                    Text(
-                      'DreamFlutter · 梦蝶', style: context.serif(context.text.titleSmall).copyWith(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.4,
-                          )),
-                  ],
-                ),
-              ),
-            ),
-            if(!widget.brandOnly)Container(width: 1, height: 16, color: colors.border),
-            const SizedBox(width: 12),
+            if (besideSidebar)
+              Container(
+                width: sideWidth + 0.5,
+                decoration: BoxDecoration(color: colors.sidebar, border: Border(right: BorderSide(color: colors.border, width: 0.5))),
+                alignment: Alignment.centerLeft,
+                child: brand,
+              )
+            else
+              brand,
+            Expanded(child: Container(
+              decoration: BoxDecoration(border: Border(bottom: BorderSide(color: colors.ink.withValues(alpha: 0.07)))),
+              child: Row(children: [
+            const SizedBox(width: 14),
             // The breadcrumb over the drag area: the blank part moves the window, and the
             // buttons after it sit at the right edge. (A Flexible breadcrumb beside an Expanded
             // drag area left its unused share as a gap after the window buttons, v0.4.0.)
@@ -207,6 +225,8 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                   : WindowCaptionButton.maximize(brightness: brightness, onPressed: windowManager.maximize),
               WindowCaptionButton.close(brightness: brightness, onPressed: windowManager.close),
             ],
+              ]),
+            )),
           ],
         ),
       ),
@@ -226,7 +246,7 @@ class _Title extends StatelessWidget {
     text,
     maxLines: 1,
     overflow: TextOverflow.ellipsis,
-    style: context.serif(context.text.titleSmall).copyWith(fontSize: 14, fontWeight: FontWeight.w600, color: context.colors.ink),
+    style: context.text.bodyMedium?.copyWith(fontSize: 13, fontWeight: FontWeight.w500, color: context.colors.ink),
   );
 }
 

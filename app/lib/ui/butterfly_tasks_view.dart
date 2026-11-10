@@ -15,6 +15,7 @@ import 'butterfly_start_button.dart';
 import 'common.dart';
 import 'greetings.dart';
 import 'motion.dart';
+import 'shell_widgets.dart';
 
 Color taskColor(BuildContext context, Json task) => switch (task['status']) {
   'waiting' => context.colors.warning,
@@ -27,19 +28,9 @@ class ButterflyTaskStatus extends StatelessWidget {
   const ButterflyTaskStatus({super.key, required this.task});
   final Json task;
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(Icons.circle, size: 6, color: taskColor(context, task)),
-      const SizedBox(width: 7),
-      Text(
-        butterflyTaskLabel(task),
-        style: context.text.bodySmall?.copyWith(
-          color: taskColor(context, task),
-        ),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) => ShellStatusChip(butterflyTaskLabel(task), tone: switch (task['status']) {
+    'waiting' => ShellTone.wait, 'completed' => ShellTone.ok, 'failed' => ShellTone.bad, _ => ShellTone.run,
+  });
 }
 
 class ButterflyTasksHome extends StatelessWidget {
@@ -53,76 +44,32 @@ class ButterflyTasksHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (line, source) = pickLiteraryLine(DateTime.now().day);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 800),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: ButterflyAvatar(
-                  size: 58,
-                  activity: tasks.tasks.any((t) => t['status'] == 'in_progress')
-                      ? ButterflyActivity.working
-                      : tasks.tasks.any((t) => t['status'] == 'waiting')
-                      ? ButterflyActivity.waiting
-                      : ButterflyActivity.idle,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                '交给我吧，你去忙别的',
-                textAlign: TextAlign.center,
-                style: context.handwriting(context.text.headlineMedium),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '$line  $source',
-                textAlign: TextAlign.center,
-                style: context
-                    .serif(context.text.bodySmall)
-                    .copyWith(color: context.colors.muted, height: 1.8),
-              ),
-              const SizedBox(height: 20),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final example in examples)
-                    OutlinedButton(
-                      onPressed: tasks.preparing
-                          ? null
-                          : () => tasks.worker?.insertIntoComposer(example),
-                      child: Text(example),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 28),
-              if (tasks.tasks.isNotEmpty) ...[
-                Text(
-                  '正在做和最近做完的',
-                  style: context.text.titleSmall?.copyWith(
-                    color: context.colors.muted,
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-              MotionRows(children: [for (final task in tasks.tasks)
-                  KeyedSubtree(
-                    key: ValueKey(task['id']),
-                    child: ButterflyTaskRow(
-                      task: task,
-                      onTap: () => tasks.open(task),
-                    ),
-                  ),]),
-            ],
-          ),
+    return ShellColumn(children: [
+      Column(children: [
+        const SizedBox(height: 12),
+        ButterflyAvatar(
+          size: 56,
+          activity: tasks.tasks.any((t) => t['status'] == 'in_progress')
+              ? ButterflyActivity.working
+              : tasks.tasks.any((t) => t['status'] == 'waiting')
+              ? ButterflyActivity.waiting
+              : ButterflyActivity.idle,
         ),
-      ),
-    );
+        const SizedBox(height: 18),
+        const ShellGreeting('交给我吧，你去忙别的', size: 30),
+        const SizedBox(height: 18),
+        ShellQuoteLine(line, source),
+        const SizedBox(height: 18),
+        Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
+          for (final example in examples)
+            ShellExample(example, onPressed: tasks.preparing ? null : () => tasks.worker?.insertIntoComposer(example)),
+        ]),
+        const SizedBox(height: 6),
+      ]),
+      if (tasks.tasks.isNotEmpty) const ShellSectionLabel('正在做和最近做完的'),
+      MotionRows(children: [for (final task in tasks.tasks)
+          KeyedSubtree(key: ValueKey(task['id']), child: ButterflyTaskRow(task: task, onTap: () => tasks.open(task)))]),
+    ]);
   }
 }
 
@@ -131,48 +78,21 @@ class ButterflyTaskRow extends StatelessWidget {
   final Json task;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(context.radius),
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: context.colors.border, width: 0.5),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  task['title'] as String? ?? '任务',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if ((task['progress'] as String? ?? '').isNotEmpty && task['progress'] != butterflyTaskLabel(task)) ...[
-                  const SizedBox(height: 5),
-                  Text(
-                  task['progress'] as String? ?? '',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: context.text.bodySmall?.copyWith(
-                    color: context.colors.muted,
-                  ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          ButterflyTaskStatus(task: task),
-        ],
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final progress = task['progress'] as String? ?? '';
+    final n = (task['done'] as num?)?.toDouble(), of = (task['total'] as num?)?.toDouble();
+    return ShellCard(onTap: onTap, child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(task['title'] as String? ?? '任务', maxLines: 2, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w500, color: context.colors.ink)),
+        if (progress.isNotEmpty && progress != butterflyTaskLabel(task))
+          Text(progress, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: context.colors.muted)),
+        if (task['status'] == 'in_progress' && n != null && of != null && of > 0)
+          Padding(padding: const EdgeInsets.only(top: 6), child: ClipRRect(borderRadius: BorderRadius.circular(2), child: LinearProgressIndicator(value: (n / of).clamp(0, 1), minHeight: 4, color: context.colors.ochre, backgroundColor: context.colors.hairline))),
+      ])),
+      const SizedBox(width: 12),
+      ButterflyTaskStatus(task: task),
+    ]));
+  }
 }
 
 class ButterflyTaskHeader extends StatelessWidget {

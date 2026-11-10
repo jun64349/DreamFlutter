@@ -42,15 +42,16 @@ class AttentionPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context), state = agent.attention;
     return ListenableBuilder(listenable: state, builder: (context, _) => Scaffold(
+      backgroundColor: context.colors.background,
       body: Column(children: [
-        const Padding(padding: EdgeInsets.fromLTRB(28,24,20,14), child: Align(alignment:Alignment.centerLeft,child:PoeticPageTitle('等你处理'))),
         if (state.loading && !state.available) const LinearProgressIndicator(),
-        if (state.error != null) Padding(padding:const EdgeInsets.symmetric(horizontal:28),child:Row(children:[Expanded(child:Text(attentionWords(state.error),style:TextStyle(color:context.colors.danger))),TextButton(onPressed:state.refresh,child:const Text('重试'))])),
-        Expanded(child: ListView(padding:const EdgeInsets.fromLTRB(28,0,28,24),children:[
+        Expanded(child: ShellColumn(children:[
+          const ShellPageHeader('等你处理'),
+          if (state.error != null) Row(children:[Expanded(child:Text(attentionWords(state.error),style:TextStyle(color:context.colors.danger))),ShellButton('重试',onPressed:state.refresh,small:true)]),
           for (final group in [('现在需要你',state.now),('有空看看',state.later)]) ...[
-            Padding(padding:const EdgeInsets.only(top:22,bottom:10),child:Text(group.$1,style:context.text.titleMedium)),
+            ShellSectionLabel(group.$1, top: group.$1=='现在需要你' ? 0 : 22),
             AnimatedSize(duration:AppTokens.motion(context,AppTokens.medium),alignment:Alignment.topCenter,child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[for(final item in group.$2.where((i)=>!state.hidden.contains(i['id']))) _AttentionRow(key:ValueKey(item['id']),item:item,state:state,agent:agent)])),
-            if (group.$2.where((i)=>!state.hidden.contains(i['id'])).isEmpty) Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Text(group.$1=='现在需要你'?'没有急着处理的事':'都处理完了',style:TextStyle(color:context.colors.muted))),
+            if (group.$2.where((i)=>!state.hidden.contains(i['id'])).isEmpty) Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Center(child:Text(group.$1=='现在需要你'?'没有急着处理的事':'都处理完了',style:TextStyle(color:context.colors.muted)))),
           ],
         ])),
         if(state.undoable.isNotEmpty)ConstrainedBox(constraints:const BoxConstraints(maxHeight:160),child:SingleChildScrollView(child:Column(children:[for(final r in state.undoable) Material(color:context.colors.accentSoft,child:Padding(padding:const EdgeInsets.symmetric(horizontal:24,vertical:6),child:Row(children:[const Expanded(child:Text('已处理')),Text('${(state.remaining(r)/1000).ceil()} 秒',style:context.text.bodySmall),TextButton(onPressed:()=>state.undo(r),child:const Text('撤销'))])))]))),
@@ -78,17 +79,19 @@ class _AttentionRowState extends State<_AttentionRow> {
     final actions=(i['actions'] as List? ?? []).cast<String>().where((action)=>!((i['kind']=='approval'||i['kind']=='trust')&&action=='answer')&&!(i['kind']=='question'&&options.isNotEmpty&&action=='reject')).toList();
     final busy=widget.state.busy.contains(i['id']);
     final who=[origin['role']=='butterfly'?'蝶君':'工作台',if(origin['sessionName']!=null) '${origin['sessionName']}'].join(' · ');
-    return Container(padding:const EdgeInsets.symmetric(vertical:16),decoration:BoxDecoration(border:Border(bottom:BorderSide(color:context.colors.border,width:.5))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      Text(attentionWords(who),style:context.text.bodySmall?.copyWith(color:context.colors.muted)),const SizedBox(height:6),
-      Text(attentionWords(i['title'] ?? ''),style:context.text.titleSmall),
-      if('${i['reason'] ?? ''}'.isNotEmpty) Padding(padding:const EdgeInsets.only(top:5),child:Text(attentionWords(i['reason']),style:context.text.bodyMedium?.copyWith(color:context.colors.ink2))),
-      if(actions.contains('answer') && options.isEmpty) Padding(padding:const EdgeInsets.only(top:12),child:TextField(controller:_answer,minLines:1,maxLines:data['method']=='editor'?5:2,decoration:const InputDecoration(hintText:'你的回答'),onSubmitted:busy?null:(value)=>widget.state.resolve(i,'answer',value))),
-      const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,crossAxisAlignment:WrapCrossAlignment.center,children:[
+    final muted=context.text.bodySmall?.copyWith(fontSize:12.5,color:context.colors.muted);
+    var first=true;
+    ShellButtonKind kind(){final k=first?ShellButtonKind.primary:ShellButtonKind.normal;first=false;return k;}
+    return ShellCard(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Text(attentionWords(who),style:muted),
+      Text(attentionWords(i['title'] ?? ''),style:context.text.bodyMedium?.copyWith(fontWeight:FontWeight.w500,color:context.colors.ink)),
+      if('${i['reason'] ?? ''}'.isNotEmpty) Text(attentionWords(i['reason']),style:muted),
+      if(actions.contains('answer') && options.isEmpty) Padding(padding:const EdgeInsets.only(top:10),child:TextField(controller:_answer,minLines:1,maxLines:data['method']=='editor'?5:2,decoration:const InputDecoration(hintText:'你的回答'),onSubmitted:busy?null:(value)=>widget.state.resolve(i,'answer',value))),
+      const SizedBox(height:8),Wrap(spacing:8,runSpacing:8,crossAxisAlignment:WrapCrossAlignment.center,children:[
         for(final action in actions)
-          if(action=='answer' && options.isNotEmpty) ...[for(final o in options)FilledButton(onPressed:busy?null:()=>widget.state.resolve(i,'answer',o),child:Text(attentionWords(o)))]
-          else if(action=='allow'||action=='continue'||action=='answer') FilledButton(onPressed:busy?null:()=>widget.state.resolve(i,action,action=='answer'?_answer.text:null),child:Text(attentionActionLabel(i,action)))
-          else TextButton(onPressed:busy?null:()=>widget.state.resolve(i,action),child:Text(attentionActionLabel(i,action))),
-        TextButton(onPressed:()=>openAttentionTarget(widget.agent,asJsonMap(i['target']),origin),child:const Text('去看看')),
+          if(action=='answer' && options.isNotEmpty) ...[for(final o in options)ShellButton(attentionWords(o),small:true,kind:kind(),onPressed:busy?null:()=>widget.state.resolve(i,'answer',o))]
+          else ShellButton(attentionActionLabel(i,action),small:true,kind:kind(),onPressed:busy?null:()=>widget.state.resolve(i,action,action=='answer'?_answer.text:null)),
+        ShellButton('去看看',small:true,kind:ShellButtonKind.ghost,onPressed:()=>openAttentionTarget(widget.agent,asJsonMap(i['target']),origin)),
         if(busy)const SizedBox(width:16,height:16,child:CircularProgressIndicator(strokeWidth:2)),
       ]),
     ]));

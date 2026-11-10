@@ -62,6 +62,10 @@ void main() {
         break;
       }
     }
+    // With fewer toolbar buttons (1.0 prototype) the sweep can stop before the two-row layout; check it directly.
+    await tester.pumpWidget(AgentScope(controller: h.agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: Center(child: SizedBox(width: 360, child: const Composer()))))));
+    await tester.pumpAndSettle();
+    if (tester.getTopLeft(thinking).dy < tester.getTopLeft(find.byTooltip('发送')).dy) sawTwoRows = true;
     expect(sawTruncatedModel, isTrue);
     expect(sawTwoRows, isTrue);
     await tester.tap(thinking); await tester.pumpAndSettle();

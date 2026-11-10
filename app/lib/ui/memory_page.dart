@@ -149,14 +149,9 @@ class _MemoryPageState extends State<MemoryPage> {
         builder: (context, bounds) => Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
+            constraints: const BoxConstraints(maxWidth: 760),
             child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                bounds.maxWidth < 600 ? 20 : 40,
-                28,
-                bounds.maxWidth < 600 ? 20 : 40,
-                0,
-              ),
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -179,37 +174,17 @@ class _MemoryPageState extends State<MemoryPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 18),
                   Row(
                     children: [
-                      TextButton(
-                        onPressed: () => setState(() => _recent = false),
-                        style: TextButton.styleFrom(
-                          foregroundColor: _recent
-                              ? context.colors.muted
-                              : context.colors.accent,
-                        ),
-                        child: const Text('全部'),
-                      ),
-                      TextButton(
-                        onPressed: () => setState(() => _recent = true),
-                        style: TextButton.styleFrom(
-                          foregroundColor: _recent
-                              ? context.colors.accent
-                              : context.colors.muted,
-                        ),
-                        child: const Text('最近'),
-                      ),
+                      _Tab(label: '全部', selected: !_recent, onTap: () => setState(() => _recent = false)),
+                      _Tab(label: '最近', selected: _recent, onTap: () => setState(() => _recent = true)),
                       const Spacer(),
                       if (!_recent)
-                        TextButton.icon(
-                          onPressed: _add,
-                          icon: const Icon(Icons.add, size: 17),
-                          label: const Text('添加记忆'),
-                        ),
+                        ShellButton('添加记忆', icon: Icons.add, small: true, onPressed: _add),
                     ],
                   ),
-                  const Divider(height: 1),
+                  Divider(height: 1, color: context.colors.border),
                   if (_model.error != null)
                     Row(
                       children: [
@@ -271,15 +246,7 @@ class _MemoryPageState extends State<MemoryPage> {
   Widget _group(String title, List<Json> rows) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 26, bottom: 10),
-          child: Text(
-            title,
-            style: context.text.titleSmall?.copyWith(
-              color: context.colors.muted,
-            ),
-          ),
-        ),
+        ShellSectionLabel(title),
         MotionRows(children: [if (rows.isEmpty)
           Padding(
             key: const ValueKey('empty'),
@@ -405,6 +372,25 @@ class _AddMemoryDialogState extends State<_AddMemoryDialog> {
         ),
         FilledButton(onPressed: _busy ? null : _save, child: const Text('添加')),
       ],
+    ),
+  );
+}
+
+
+/// An underlined tab (.tabs button): ink and an accent bar when selected.
+class _Tab extends StatelessWidget {
+  const _Tab({required this.label, required this.selected, required this.onTap});
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: AppTokens.motion(context, AppTokens.medium),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: selected ? context.colors.accent : Colors.transparent, width: 2))),
+      child: Text(label, style: context.text.bodyMedium?.copyWith(color: selected ? context.colors.ink : context.colors.muted)),
     ),
   );
 }

@@ -26,7 +26,7 @@ void main(){
     await t.tap(find.text('采用'));await t.pump();await t.pump(const Duration(milliseconds:300));expect(find.text('撤销'),findsOneWidget);await t.tap(find.text('撤销'));await t.pumpAndSettle();expect(find.text('采用「整理文献」技能'),findsOneWidget);expect(f.backend.callsTo('attention.undo').length,1);
   });
   testWidgets('seven settings groups, search advanced settings, blur save and inline error',(t)async{
-    await start(t);f.agent.showSection(AppSection.settings);await t.pumpAndSettle();await t.tap(find.byType(DropdownButtonFormField<String>).first);await t.pumpAndSettle();for(final name in ['通用','模型','工作台','蝶君','记忆','数据与安全','关于与更新']){expect(find.text(name),findsWidgets);}await t.tap(find.text('通用').last);await t.pumpAndSettle();
+    await start(t);f.agent.showSection(AppSection.settings);await t.pumpAndSettle();for(final name in ['通用','模型','工作台','蝶君','记忆','数据与安全','关于与更新']){expect(find.text(name),findsWidgets);}await t.tap(find.text('通用').last);await t.pumpAndSettle();
     await t.tap(find.text('未设置'));await t.pump();await t.enterText(find.descendant(of:find.byType(EditableSetting),matching:find.byType(TextField)),'小周');await t.pump();await t.tap(find.widgetWithText(TextField,'搜索设置'));await t.pumpAndSettle();expect(f.backend.settings['userName'],'小周');
     await t.enterText(find.widgetWithText(TextField,'搜索设置'),'记忆频率');await t.pumpAndSettle();expect(find.text('记忆频率'),findsWidgets);
     await t.enterText(find.widgetWithText(TextField,'搜索设置'),'每天花费上限');await t.pumpAndSettle();await t.enterText(find.descendant(of:find.byType(AutoSaveField),matching:find.byType(TextField)).last,'-1');await t.pump();await t.tap(find.widgetWithText(TextField,'搜索设置'));await t.pumpAndSettle();expect(find.textContaining('请输入有效'),findsOneWidget);

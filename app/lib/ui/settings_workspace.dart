@@ -44,13 +44,15 @@ class _SettingsPageState extends State<SettingsPage>{
         _Setting('称呼 名字',EditableSetting(key:const ValueKey('userName'),title:'称呼',value:s['userName'] as String? ?? '',save:(v)=>save('userName',v.trim()))),
         const _Setting('明暗 主题 浅色 深色 跟随系统',SettingRow('明暗',child:ThemeModeControl())),
         // The theme is a preference, not a mechanism: it sits in the main list as in the 1.0 prototype.
-        const _Setting('主题 名画 日间',ThemePicker(brightness:Brightness.light)),
-        const _Setting('主题 名画 夜间',ThemePicker(brightness:Brightness.dark)),
+        const _Setting('主题 名画 日间',SettingRow('日间主题',child:ThemeChoiceRow(brightness:Brightness.light))),
+        const _Setting('主题 名画 夜间',SettingRow('夜间主题',child:ThemeChoiceRow(brightness:Brightness.dark))),
         _Setting('关窗口 托盘 退出',choice('关窗口时',s['closeBehavior'] as String? ?? 'tray',const {'tray':'缩到托盘','quit':'退出'},(v)async{await save('closeBehavior',v);await a.preferences.setCloseBehaviorChoice(v);})),
         _Setting('系统通知 提醒',toggle('系统通知','notifications',true)),
       ],[
         const _Setting('缩放 放大 缩小',SettingRow('界面缩放',child:ZoomControl())),
         const _Setting('文字大小 字号',SettingRow('文字大小',child:TextSizeControl())),
+        const _Setting('名画 主题 预览',ThemePicker(brightness:Brightness.light)),
+        const _Setting('名画 主题 预览 夜间',ThemePicker(brightness:Brightness.dark)),
       ]),
       _SettingsGroup('模型',Icons.hub_outlined,[
         _Setting('对话模型',model('对话模型','defaultModel')),
@@ -134,8 +136,8 @@ class _SettingsPageState extends State<SettingsPage>{
       Padding(padding:const EdgeInsets.fromLTRB(24,22,24,16),child:LayoutBuilder(builder:(context,c)=>c.maxWidth<620?Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[const PoeticPageTitle('设置'),const SizedBox(height:12),search()]):Row(children:[const Expanded(child:PoeticPageTitle('设置')),SizedBox(width:260,child:search())]))),
       Expanded(child:LayoutBuilder(builder:(context,c){
         final list=ListView(key:ValueKey('settings-${q.isEmpty?current.name:'search'}'),padding:const EdgeInsets.fromLTRB(24,0,24,28),children:content);
-        if(c.maxWidth<760)return Column(children:[Padding(padding:const EdgeInsets.fromLTRB(24,0,24,12),child:DropdownButtonFormField<String>(key:ValueKey(current.name),initialValue:current.name,isExpanded:true,items:[for(final g in groups)DropdownMenuItem(value:g.name,child:Text(g.name))],onChanged:(v){if(v!=null)choose(v);})),Expanded(child:list)]);
-        return Row(crossAxisAlignment:CrossAxisAlignment.stretch,children:[SizedBox(width:194,child:ListView(padding:const EdgeInsets.symmetric(horizontal:10),children:[for(final g in groups)ListTile(dense:true,selected:g.name==current.name,selectedTileColor:context.colors.accentSoft,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(10)),minLeadingWidth:18,horizontalTitleGap:10,leading:Icon(g.icon,size:18),title:Text(g.name,maxLines:1,softWrap:false),onTap:()=>choose(g.name))])),const VerticalDivider(width:1),Expanded(child:list)]);
+        if(c.maxWidth<600)return Column(children:[Padding(padding:const EdgeInsets.fromLTRB(24,0,24,12),child:DropdownButtonFormField<String>(key:ValueKey(current.name),initialValue:current.name,isExpanded:true,items:[for(final g in groups)DropdownMenuItem(value:g.name,child:Text(g.name))],onChanged:(v){if(v!=null)choose(v);})),Expanded(child:list)]);
+        return Row(crossAxisAlignment:CrossAxisAlignment.stretch,children:[SizedBox(width:180,child:ListView(padding:const EdgeInsets.symmetric(horizontal:10),children:[for(final g in groups)ListTile(dense:true,selected:g.name==current.name,selectedTileColor:context.colors.card,selectedColor:context.colors.ink,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(10)),minLeadingWidth:18,horizontalTitleGap:10,leading:Icon(g.icon,size:18),title:Text(g.name,maxLines:1,softWrap:false),onTap:()=>choose(g.name))])),const VerticalDivider(width:1),Expanded(child:list)]);
       })),
     ]));
   }

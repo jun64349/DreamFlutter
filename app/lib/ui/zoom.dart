@@ -422,3 +422,24 @@ class _ThemeSwatch extends StatelessWidget {
     );
   }
 }
+
+/// The theme as one row of names (1.0 prototype's 「主题」 row): day themes, or night ones for [brightness].
+class ThemeChoiceRow extends StatelessWidget {
+  const ThemeChoiceRow({super.key, required this.brightness});
+
+  final Brightness brightness;
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final appearance = agent.appearance.value;
+    final current = PaintingTheme.byId(brightness == Brightness.dark ? appearance.darkTheme : appearance.lightTheme, brightness);
+    return SegmentedButton<String>(
+      showSelectedIcon: false,
+      style: SegmentedButton.styleFrom(visualDensity: VisualDensity.compact, textStyle: const TextStyle(fontSize: 13)),
+      segments: [for (final t in PaintingTheme.all.where((t) => t.brightness == brightness)) ButtonSegment(value: t.id, label: Text(t.name), tooltip: t.work.isEmpty ? null : t.work)],
+      selected: {current.id},
+      onSelectionChanged: (ids) => agent.setPaintingTheme(PaintingTheme.byId(ids.first, brightness)),
+    );
+  }
+}

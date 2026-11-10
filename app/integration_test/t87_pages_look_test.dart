@@ -85,7 +85,7 @@ void main() {
         for (final status in ['进行中', '等你', '已完成', '没做成']) {
           expect(find.text(status), findsOneWidget);
         }
-        await tester.tap(find.text('每周一整理上周的组会纪要'));
+        await tester.tap(find.text('每周一整理上周的组会纪要').last);
         await wait();
         expect(find.text('交付'), findsOneWidget);
         agent.butterfly!.setRunPanelOpen(true);

@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/agent_controller.dart';
+import '../state/butterfly_tasks.dart';
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -56,7 +57,7 @@ class _SidebarState extends State<Sidebar> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
                   child: _PlaceSwitch(
                     butterfly: onButterfly,
                     workbench: !onButterfly,
@@ -74,7 +75,6 @@ class _SidebarState extends State<Sidebar> {
                       _NavRow(
                         icon: Icons.add,
                         label: '新对话',
-                        accent: true,
                         onTap: usable && lists != null
                             ? () {
                                 lists.newSession();
@@ -84,7 +84,7 @@ class _SidebarState extends State<Sidebar> {
                             : null,
                       ),
                       _NavRow(
-                        icon: Icons.task_alt_outlined,
+                        icon: Icons.inbox_outlined,
                         label: '等你处理',
                         selected: section == AppSection.tasks,
                         badge: shellPendingCount(agent) == 0 ? null : '${shellPendingCount(agent)}',
@@ -97,7 +97,9 @@ class _SidebarState extends State<Sidebar> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: lists == null
+                    child: onButterfly
+                        ? const _ButterflyTaskList()
+                        : lists == null
                         ? Padding(
                             padding: const EdgeInsets.all(10),
                             child: const SizedBox.shrink(),
@@ -124,13 +126,13 @@ class _SidebarState extends State<Sidebar> {
                         onTap: () => agent.showSection(AppSection.memory),
                       ),
                       _FootButton(
-                        icon: Icons.auto_stories_outlined,
+                        icon: Icons.edit_outlined,
                         label: '技能',
                         selected: section == AppSection.library,
                         badge: agent.pendingProposals,
                         onTap: () => agent.showSection(AppSection.library),
                       ),
-                      _FootButton(icon: Icons.bar_chart_rounded, label: '花费',
+                      _FootButton(icon: Icons.monetization_on_outlined, label: '花费',
                         selected: section == AppSection.spending, onTap: () => agent.showSection(AppSection.spending),
                       ),
                       _FootButton(icon: Icons.settings_outlined, label: '设置',
@@ -211,21 +213,20 @@ class _PlaceSwitch extends StatelessWidget {
 
 /// A row near the top of the sidebar (new conversation, search, tasks).
 class _NavRow extends StatelessWidget {
-  const _NavRow({required this.icon, required this.label, required this.onTap, this.selected = false, this.accent = false, this.badge});
+  const _NavRow({required this.icon, required this.label, required this.onTap, this.selected = false, this.badge});
 
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
   final bool selected;
-  final bool accent;
   final String? badge;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     return Material(
-      color: selected ? colors.accentSoft : Colors.transparent,
-      borderRadius: BorderRadius.circular(context.radius),
+      color: selected ? colors.card : Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
       child: InkWell(
         borderRadius: BorderRadius.circular(context.radius),
         onTap: onTap == null ? null : () { onTap!(); closeShellDrawer(context); },
@@ -234,9 +235,9 @@ class _NavRow extends StatelessWidget {
           child: Row(
             children: [
               const SizedBox(width: 10),
-              Icon(icon, size: 17, color: accent ? colors.accent : colors.ink2),
+              Icon(icon, size: 18, color: colors.ink2),
               const SizedBox(width: 10),
-              Expanded(child: Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13, color: onTap == null ? colors.muted : colors.ink))),
+              Expanded(child: Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 14, color: onTap == null ? colors.muted : (selected ? colors.ink : colors.ink2)))),
                 Padding(
                   padding: EdgeInsets.only(right: badge == null ? 0 : 8),
                   child: ShellCount(count: badge ?? ''),
@@ -273,8 +274,8 @@ class _FootButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 19),
-            const SizedBox(height: 3),
+            Icon(icon, size: 18),
+            const SizedBox(height: 2),
             Text(label, style: const TextStyle(fontSize: 11))]),
       )),
     );
@@ -895,5 +896,44 @@ Future<String?> _askName(BuildContext context, String current) {
         FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('保存')),
       ],
     ),
+  );
+}
+
+
+/// 蝶君's tasks in the sidebar (1.0 prototype): a state dot and the title; the open one is on a card.
+class _ButterflyTaskList extends StatelessWidget {
+  const _ButterflyTaskList();
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<ButterflyTasks?>(
+    valueListenable: butterflyTasksHub,
+    builder: (context, tasks, _) {
+      if (tasks == null) return const SizedBox.shrink();
+      return ListenableBuilder(listenable: tasks, builder: (context, _) {
+        final colors = context.colors;
+        return ListView(padding: EdgeInsets.zero, children: [
+          Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 4), child: Text('蝶君的任务', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted, letterSpacing: 0.8))),
+          if (tasks.tasks.isEmpty) Padding(padding: const EdgeInsets.all(10), child: Text('还没有任务', style: context.text.bodySmall?.copyWith(color: colors.muted))),
+          for (final task in tasks.tasks)
+            Material(
+              color: tasks.selectedId == task['id'] ? colors.card : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () { tasks.open(task); closeShellDrawer(context); },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  child: Row(children: [
+                    Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: switch (task['status']) {
+                      'waiting' => colors.ochre, 'completed' => colors.success, 'failed' => colors.seal, _ => colors.ochre.withValues(alpha: 0.7),
+                    })),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(task['title'] as String? ?? '任务', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13.5, color: tasks.selectedId == task['id'] ? colors.ink : colors.ink2))),
+                  ]),
+                ),
+              ),
+            ),
+        ]);
+      });
+    },
   );
 }

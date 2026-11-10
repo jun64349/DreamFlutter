@@ -14,7 +14,7 @@ import '../state/agent_controller.dart' show asJsonMap, groupProvider, jsonRows,
 import '../state/side_chat.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
-import 'commands_dialog.dart' show commandSourceLabels, showCommandsDialog;
+import 'commands_dialog.dart' show commandSourceLabels;
 import 'common.dart' show memoryImageOf;
 import 'conversation_controls.dart';
 import 'keys.dart';
@@ -468,9 +468,10 @@ class _ComposerState extends State<Composer> {
                     color: _dragging ? colors.accent : (_focus.hasFocus ? colors.accent.withValues(alpha: 0.6) : colors.border),
                     width: _dragging ? 1.5 : 1,
                   ),
-                  borderRadius: BorderRadius.circular(context.radiusLg),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 2))],
                 ),
-                padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -528,11 +529,11 @@ class _ComposerState extends State<Composer> {
                     LayoutBuilder(builder: (context, constraints) {
                       final controls = <Widget>[
                         _ToolbarButton(
-                          icon: Icons.image_outlined,
+                          icon: Icons.attach_file,
                           tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
                           onTap: agent.isReady && supportsImages ? _pickImages : null,
                         ),
-                        _ToolbarButton(icon: Icons.bolt_outlined, tooltip: '插入技能（/）', onTap: () => showCommandsDialog(context)),
+                        // Skills come up by typing 「/」 (1.0 prototype has no separate button).
                         // 蝶君 works in its sandbox without approvals, so both are 工作台-only (1.0 prototype).
                         if (!agent.sandbox) const IncognitoToggle(),
                         if (!agent.sandbox) const AskBeforeActingToggle(),
@@ -548,6 +549,7 @@ class _ComposerState extends State<Composer> {
                               foregroundColor: colors.onAccent,
                               disabledBackgroundColor: colors.accentSoft,
                               disabledForegroundColor: colors.muted,
+                              shape: const CircleBorder(),
                             ),
                             icon: Icon(showStop ? Icons.stop_rounded : Icons.arrow_upward_rounded, size: 18),
                           ),
@@ -559,7 +561,7 @@ class _ComposerState extends State<Composer> {
                           Row(children: [...controls, const Spacer(), send]),
                         ]);
                       }
-                      return Row(children: [...controls, const Expanded(child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [Flexible(child: _ModelThinkingChips())])), const SizedBox(width: 6), const _ContextRing(), const SizedBox(width: 8), send]);
+                      return Row(children: [...controls, const Spacer(), const _ContextRing(), const SizedBox(width: 6), const Flexible(child: _ModelThinkingChips()), const SizedBox(width: 8), send]);
                     }),
                   ],
                 ),
@@ -608,9 +610,9 @@ class _Chip<T> extends StatelessWidget {
       itemBuilder: (_) => items,
       position: PopupMenuPosition.over,
       child: Container(
-        height: 30,
-        padding: EdgeInsets.symmetric(horizontal: tightLabel ? 4 : 10),
-        decoration: BoxDecoration(color: filled ? colors.accentSoft : null, borderRadius: BorderRadius.circular(context.radius)),
+        height: 26,
+        padding: EdgeInsets.symmetric(horizontal: tightLabel ? 4 : 9),
+        decoration: BoxDecoration(color: colors.background, borderRadius: BorderRadius.circular(999)),
         child: icon != null ? Icon(icon, size: 18, color: enabled ? colors.ink : colors.muted) : Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -621,7 +623,7 @@ class _Chip<T> extends StatelessWidget {
                   label,
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
-                  style: context.text.bodySmall?.copyWith(color: enabled ? colors.ink : colors.muted),
+                  style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: enabled ? colors.ink2 : colors.muted),
                 ),
               ),
             ),

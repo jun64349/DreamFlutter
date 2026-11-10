@@ -58,16 +58,17 @@ class ShellCount extends StatelessWidget {
     ),
     child: count.isEmpty ? const SizedBox.shrink(key: ValueKey('empty')) : Container(
       key: ValueKey(count),
-      constraints: const BoxConstraints(minWidth: 22),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      height: 20,
+      constraints: const BoxConstraints(minWidth: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
-        color: context.colors.accentSoft,
-        borderRadius: BorderRadius.circular(12),
+        color: context.colors.seal,
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         count,
         textAlign: TextAlign.center,
-        style: context.text.labelSmall?.copyWith(color: context.colors.accent),
+        style: context.text.labelSmall?.copyWith(color: Colors.white, fontSize: 12, fontFeatures: const [FontFeature.tabularFigures()]),
       ),
     ),
   );
@@ -140,7 +141,7 @@ class PoeticPageTitle extends StatelessWidget {
               ? context.text.titleLarge
               : context
                     .handwriting(context.text.headlineSmall)
-                    .copyWith(fontSize: 28),
+                    .copyWith(fontSize: 34, height: 1.3),
           maxLines: 2,
         ),
         if (poetic != null)
@@ -205,6 +206,204 @@ class _ShellPageMotionState extends State<ShellPageMotion>
         ).animate(animation),
         child: widget.child,
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The 1.0 prototype's building blocks (docs/design/prototype/interaction-v2.html):
+// one page column, small section labels, card rows, status pills and the three
+// button kinds. Pages use these so they all look the same.
+// ---------------------------------------------------------------------------
+
+extension ShellColors on AppColors {
+  /// The prototype's --line2: a hairline just darker than the ground.
+  Color get hairline => ink.withValues(alpha: 0.07);
+}
+
+/// The page column: at most 760 wide, centred, 24 above and below (.col).
+class ShellColumn extends StatelessWidget {
+  const ShellColumn({super.key, required this.children, this.maxWidth = 760});
+  final List<Widget> children;
+  final double maxWidth;
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+    // Every child takes the full column width, so labels and rows line up on the left.
+    final width = box.maxWidth < maxWidth ? box.maxWidth : maxWidth;
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      children: [
+        for (final child in children)
+          Center(child: SizedBox(width: width, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: child))),
+      ],
+    );
+  });
+}
+
+/// The page title: the poetic name large in the handwriting face, the plain name below (.page-h).
+class ShellPageHeader extends StatelessWidget {
+  const ShellPageHeader(this.name, {super.key, this.trailing});
+  final String name;
+  final Widget? trailing;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 18),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+      Expanded(child: PoeticPageTitle(name)),
+      ?trailing,
+    ]),
+  );
+}
+
+/// A small group label above a list (.sec): 12, muted, a little letter-spaced.
+class ShellSectionLabel extends StatelessWidget {
+  const ShellSectionLabel(this.text, {super.key, this.top = 22});
+  final String text;
+  final double top;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(top: top, bottom: 8),
+    child: Text(text, style: context.text.bodySmall?.copyWith(fontSize: 12, color: context.colors.muted, letterSpacing: 1)),
+  );
+}
+
+/// A list row on its own card (.row): card ground, hairline border, 12 radius.
+class ShellCard extends StatelessWidget {
+  const ShellCard({super.key, required this.child, this.onTap, this.selected = false, this.padding = const EdgeInsets.symmetric(horizontal: 14, vertical: 12)});
+  final Widget child;
+  final VoidCallback? onTap;
+  final bool selected;
+  final EdgeInsets padding;
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: colors.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: selected ? colors.accent : colors.hairline)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(onTap: onTap, hoverColor: colors.accentSoft.withValues(alpha: 0.35), child: Padding(padding: padding, child: child)),
+      ),
+    );
+  }
+}
+
+enum ShellTone { neutral, run, wait, ok, bad }
+
+/// A state as a small pill (.st): 进行中 / 等你 / 已完成 / 没做成 / 等你确认.
+class ShellStatusChip extends StatelessWidget {
+  const ShellStatusChip(this.label, {super.key, this.tone = ShellTone.neutral});
+  final String label;
+  final ShellTone tone;
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final fg = switch (tone) { ShellTone.run || ShellTone.wait => colors.ochre, ShellTone.ok => colors.success, ShellTone.bad => colors.seal, ShellTone.neutral => colors.muted };
+    final bg = tone == ShellTone.neutral ? colors.hairline : fg.withValues(alpha: tone == ShellTone.ok ? 0.12 : 0.14);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 6, height: 6, decoration: BoxDecoration(color: fg, shape: BoxShape.circle)),
+        const SizedBox(width: 5),
+        Text(label, style: context.text.bodySmall?.copyWith(fontSize: 12, color: fg)),
+      ]),
+    );
+  }
+}
+
+enum ShellButtonKind { primary, normal, ghost }
+
+/// The prototype's buttons (.btn / .btn.pri / .btn.ghost, .sm when [small]).
+ButtonStyle shellButtonStyle(BuildContext context, ShellButtonKind kind, {bool small = false}) {
+  final colors = context.colors;
+  return TextButton.styleFrom(
+    foregroundColor: switch (kind) { ShellButtonKind.primary => colors.onAccent, ShellButtonKind.normal => colors.ink, ShellButtonKind.ghost => colors.muted },
+    backgroundColor: switch (kind) { ShellButtonKind.primary => colors.accent, ShellButtonKind.normal => colors.card, ShellButtonKind.ghost => Colors.transparent },
+    disabledForegroundColor: colors.muted,
+    padding: EdgeInsets.symmetric(horizontal: small ? 10 : 14, vertical: small ? 4 : 7),
+    minimumSize: Size(0, small ? 28 : 34),
+    visualDensity: VisualDensity.standard,
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    textStyle: TextStyle(fontSize: small ? 13 : 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: kind == ShellButtonKind.normal ? BorderSide(color: colors.border) : BorderSide.none),
+  );
+}
+
+class ShellButton extends StatelessWidget {
+  const ShellButton(this.label, {super.key, required this.onPressed, this.kind = ShellButtonKind.normal, this.small = false, this.icon});
+  final String label;
+  final VoidCallback? onPressed;
+  final ShellButtonKind kind;
+  final bool small;
+  final IconData? icon;
+  @override
+  Widget build(BuildContext context) => icon == null
+      ? TextButton(onPressed: onPressed, style: shellButtonStyle(context, kind, small: small), child: Text(label))
+      : TextButton.icon(onPressed: onPressed, style: shellButtonStyle(context, kind, small: small), icon: Icon(icon, size: 16), label: Text(label));
+}
+
+/// The 文选 line (.quoteline): a soft accent block with a bar on the left, the source after it.
+class ShellQuoteLine extends StatelessWidget {
+  const ShellQuoteLine(this.line, this.source, {super.key});
+  final String line;
+  final String source;
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: colors.accentSoft.withValues(alpha: 0.45),
+          borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
+          border: Border(left: BorderSide(color: colors.accent, width: 3)),
+        ),
+        child: Wrap(spacing: 12, crossAxisAlignment: WrapCrossAlignment.end, children: [
+          Text(line, style: context.serif(context.text.bodyMedium).copyWith(fontSize: 14, color: colors.ink2)),
+          Text(source, style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+        ]),
+      ),
+    );
+  }
+}
+
+/// A clickable example on an empty page (.ex).
+class ShellExample extends StatelessWidget {
+  const ShellExample(this.text, {super.key, required this.onPressed});
+  final String text;
+  final VoidCallback? onPressed;
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: colors.card, foregroundColor: colors.ink2,
+        side: BorderSide(color: colors.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        textStyle: const TextStyle(fontSize: 13.5),
+      ),
+      child: Text(text),
+    );
+  }
+}
+
+/// The greeting on a home page (.greet): handwriting, ink → accent → ochre.
+class ShellGreeting extends StatelessWidget {
+  const ShellGreeting(this.text, {super.key, this.size = 38});
+  final String text;
+  final double size;
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (rect) => LinearGradient(colors: [colors.ink, colors.accent, colors.ochre]).createShader(rect),
+      child: Text(text, textAlign: TextAlign.center, style: context.handwriting(context.text.headlineSmall).copyWith(fontSize: size, letterSpacing: size * 0.12, height: 1.4)),
     );
   }
 }

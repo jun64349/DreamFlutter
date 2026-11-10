@@ -184,8 +184,8 @@ void main() {
     backend.handlers['attention.resolve']=(p){inbox.removeWhere((i)=>'${i['kind']}:${i['id']}'==p['id']);return {'id':'done-${p['id']}','itemId':p['id'],'status':'applied','undoable':false};};
     await agent.refreshPendingCounts();await tester.tap(find.text('等你处理').first);await settle(tester);
     expect(agent.pendingInbox,3);expect(find.textContaining('npm publish'),findsOneWidget);expect(find.text('现在需要你'),findsOneWidget);expect(find.text('有空看看'),findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton,'允许').first);await settle(tester);expect(backend.callsTo('attention.resolve').first,{'id':'approval:ui-9','action':'allow'});
-    await tester.tap(find.widgetWithText(FilledButton,'继续'));await settle(tester);expect(backend.callsTo('attention.resolve').last,{'id':'limit:n1','action':'continue'});expect(agent.pendingInbox,1);expect(find.text('撤销'),findsNothing);
+    await tester.tap(find.widgetWithText(TextButton,'允许').first);await settle(tester);expect(backend.callsTo('attention.resolve').first,{'id':'approval:ui-9','action':'allow'});
+    await tester.tap(find.widgetWithText(TextButton,'继续'));await settle(tester);expect(backend.callsTo('attention.resolve').last,{'id':'limit:n1','action':'continue'});expect(agent.pendingInbox,1);expect(find.text('撤销'),findsNothing);
     await tester.tap(find.text('去看看'));await settle(tester);expect(agent.section,AppSection.memory);
   });
 

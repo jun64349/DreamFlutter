@@ -16,6 +16,9 @@ String butterflyTaskLabel(Json task) => switch (task['status']) {
   _ => '进行中',
 };
 
+/// The live 蝶君 task list, for the sidebar (the page owns it; null until 蝶君 is first opened).
+final butterflyTasksHub = ValueNotifier<ButterflyTasks?>(null);
+
 class ButterflyTasks extends ChangeNotifier {
   ButterflyTasks(this.root) {
     _events = root.backend.events.listen((event) {

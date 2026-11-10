@@ -19,10 +19,12 @@ class _ButterflyPageState extends State<ButterflyPage> {
   void initState() {
     super.initState();
     _tasks = ButterflyTasks(AgentScope.read(context))..load();
+    butterflyTasksHub.value = _tasks;
   }
 
   @override
   void dispose() {
+    if (butterflyTasksHub.value == _tasks) butterflyTasksHub.value = null;
     _tasks.dispose();
     super.dispose();
   }

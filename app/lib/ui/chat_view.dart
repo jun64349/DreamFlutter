@@ -9,6 +9,7 @@ import '../state/agent_controller.dart';
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'shell_widgets.dart';
 import 'composer.dart';
 import 'common.dart';
 import 'conversation_controls.dart';
@@ -217,13 +218,11 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
     final agent = AgentScope.of(context);
     final now = DateTime.now();
     // Stable while this conversation is on screen, another line for the next one.
     final greeting = pickGreeting(now: now, seed: identityHashCode(agent.active) ^ now.day, butterfly: agent.sandbox);
     final (line, source) = pickLiteraryLine(identityHashCode(agent.active));
-    final style = context.handwriting(context.text.headlineSmall).copyWith(fontSize: 34, letterSpacing: 2, height: 1.5);
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
@@ -231,27 +230,15 @@ class _EmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ButterflyAvatar(size: 96, activity: butterflyActivity(agent)),
-              const SizedBox(height: 28),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 640),
-                child: ShaderMask(
-                  blendMode: BlendMode.srcIn,
-                  shaderCallback: (rect) => LinearGradient(
-                    colors: [colors.ink, colors.accent, colors.ochre],
-                    stops: const [0.15, 0.6, 1],
-                  ).createShader(rect),
-                  child: Text(greeting, textAlign: TextAlign.center, style: style),
-                ),
-              ),
+              ButterflyAvatar(size: 72, activity: butterflyActivity(agent)),
+              const SizedBox(height: 18),
+              ConstrainedBox(constraints: const BoxConstraints(maxWidth: 640), child: ShellGreeting(greeting)),
               if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 32), const _FirstRunGuide()],
               // Greeting, then the 文选 line, then the examples: the 1.0 prototype's order (蝶君's home matches).
               const SizedBox(height: 18),
-              Text(line, textAlign: TextAlign.center, style: context.serif(context.text.bodyMedium).copyWith(color: colors.muted)),
-              const SizedBox(height: 4),
-              Text(source, style: context.text.bodySmall?.copyWith(color: colors.muted)),
-              const SizedBox(height: 22),
-              Wrap(
+              ShellQuoteLine(line, source),
+              const SizedBox(height: 18),
+              ConstrainedBox(constraints: const BoxConstraints(maxWidth: 620), child: Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
@@ -260,12 +247,9 @@ class _EmptyState extends StatelessWidget {
                       in agent.sandbox
                           ? const ['每周一帮我整理上周的周报', '把这份资料整理成摘要', '帮我检查这个项目']
                           : const ['整理这个文件夹里的资料', '帮我读懂这段代码', '一起梳理今天的工作'])
-                    OutlinedButton(
-                      onPressed: () => agent.insertIntoComposer(prompt),
-                      child: Text(prompt),
-                    ),
+                    ShellExample(prompt, onPressed: () => agent.insertIntoComposer(prompt)),
                 ],
-              ),
+              )),
             ],
           ),
         ),

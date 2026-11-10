@@ -27,7 +27,7 @@ class AppTokens {
   static const runPanelWidth = 300.0;
 
   /// Reading width of the conversation.
-  static const contentMaxWidth = 720.0;
+  static const contentMaxWidth = 760.0;
 
   /// Interface text. Windows 11 ships Noto Sans SC / Noto Serif SC.
   static const fontFamily = 'Noto Sans SC';
