@@ -107,32 +107,24 @@ void main() {
     sessions.deleteSync(recursive: true);
   });
 
-  testWidgets('butterfly tasks use the shared composer and prepare before running', (tester) async {
+  // 0.8.2 (user test: "我不是对话来沟通吗，为什么我发一句等你处理里面就来一下"): 蝶君 is a
+  // conversation in the shared composer; the message goes to 蝶君 itself, no plan card, no queue item.
+  testWidgets('butterfly talks in the shared composer; a message is sent, not turned into a plan', (tester) async {
     await startApp(tester);
-    final tasks = <Json>[];
-    backend.handlers['butterfly.tasks'] = (_) => tasks;
-    backend.handlers['butterfly.prepare'] = (p) {
-      final intent = {'id': 'i1', 'task_id': 't3', 'slot_id': p['slotId'], 'goal': p['goal'], 'state': 'waiting', 'start_at': 9999999999999, 'restatement': '我会整理季度复盘', 'plan': '先看资料，再归纳结果。'};
-      tasks.add({'id': 't3', 'title': p['goal'], 'status': 'in_progress', 'progress': '已复述任务，等待开工', 'intent': intent});
-      return intent;
-    };
     await tester.tap(find.text('蝶君')); await settle(tester);
     for (var i = 0; i < 20 && agent.butterfly?.isReady != true; i++) { await settle(tester); }
     expect(agent.butterfly?.isReady, isTrue);
     expect(find.text('交流'), findsNothing); expect(find.text('工作'), findsNothing);
     expect(find.byTooltip('新写笺'), findsNothing);
     final input = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…');
-    await tester.enterText(input, '季度复盘：收入增长 12%');
+    await tester.enterText(input, '你好');
     await tester.pump();
     await tester.tap(find.byTooltip('发送')); await settle(tester);
-    expect(find.text('我会整理季度复盘'), findsOneWidget);
     final pi = backend.pis.lastWhere((p) => p.target.sandbox);
-    pi.emit({'type': 'extension_ui_request', 'id': 'plan-confirm', 'method': 'confirm', 'title': '蝶君准备开工', 'message': '先看资料，再归纳结果。'});
-    await settle(tester);
-    expect(find.byType(AlertDialog), findsNothing, reason: 'the plan remains inline and the composer stays available');
-    expect(backend.callsTo('butterfly.prepare').single, {'goal': '季度复盘：收入增长 12%', 'slotId': pi.slotId});
+    expect(pi.sent('prompt').single, contains('你好'));
+    expect(backend.callsTo('butterfly.prepare'), isEmpty);
     expect(backend.callsTo('butterfly.start'), isEmpty);
-    expect(pi.sent('prompt'), isEmpty);
+    expect(find.text('蝶君准备开工'), findsNothing);
     expect(backend.pis.where((p) => !p.target.sandbox).every((p) => p.sent('prompt').isEmpty), isTrue);
     expect(backend.callsTo('desk.get'), isEmpty);
   });

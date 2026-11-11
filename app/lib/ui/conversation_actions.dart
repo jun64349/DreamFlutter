@@ -44,7 +44,7 @@ class _ConversationActionHostState extends State<ConversationActionHost> {
           final path = agent.currentSessionPath;
           if (path != null) {
             await agent.setArchived(path, true);
-            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已归档，在侧栏底部「已归档」里')));
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已归档，在「设置 › 归档/回收」里')));
           }
         case 'delete':
           if (agent.active?.incognito == true) { await agent.newSession(); }

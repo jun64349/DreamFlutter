@@ -175,16 +175,16 @@ class ButterflyTasks extends ChangeNotifier {
     }
     final current = selected;
     final intent = memoryMap(current?['intent']);
-    if (current != null && intent.isEmpty) {
-      if (current['sessionFile'] is! String ||
-          agent.currentSessionPath == null ||
-          !SessionStore.samePath(
-            current['sessionFile'] as String,
-            agent.currentSessionPath!,
-          )) {
-        throw StateError('请重新打开这项任务后再继续');
+    // 0.8.2 (user test): 蝶君 is a conversation. A message goes straight to
+    // 蝶君, which says what it understood and starts in its reply; nothing
+    // lands in 「等你处理」 unless 蝶君 really needs an answer. Only a plan
+    // prepared by an earlier version is still answered through it.
+    if (intent.isEmpty) {
+      // Pictures go into 蝶君's inbox as files, as before: it works on them with its tools.
+      final message = images.isEmpty ? text : await _importImages(text, images);
+      if (!await agent.active!.send(message)) {
+        throw StateError('蝶君还没准备好，请稍后重试');
       }
-      await agent.active!.send(text, images: images);
       return;
     }
     preparing = true;

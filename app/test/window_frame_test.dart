@@ -5,7 +5,7 @@ import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/ui/greetings.dart' show allGreetings;
 import 'package:dreamflutter/ui/run_summary.dart' show RunPanel;
-import 'package:dreamflutter/ui/sidebar.dart' show Sidebar;
+import 'package:dreamflutter/ui/sidebar.dart' show Sidebar, SidebarWorkspaceButton;
 import 'package:dreamflutter/ui/window_frame.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -59,10 +59,13 @@ void main() {
 
   Finder inTitleBar(Finder finder) => find.descendant(of: find.byType(AppTitleBar), matching: finder);
 
-  testWidgets('the title bar says where you are, and its workspace button lists the workspaces', (tester) async {
+  Finder inSidebar(Finder finder) => find.descendant(of: find.byType(SidebarWorkspaceButton), matching: finder);
+
+  testWidgets('the title bar says where you are; the workspace is chosen in the sidebar (0.8.2)', (tester) async {
     await startApp(tester);
     expect(inTitleBar(find.text('工作台')), findsOneWidget);
-    expect(inTitleBar(find.text('毕设论文')), findsOneWidget);
+    expect(inTitleBar(find.text('毕设论文')), findsNothing, reason: '0.8.2: the workspace moved to the sidebar');
+    expect(inSidebar(find.text('毕设论文')), findsOneWidget);
     expect(inTitleBar(find.text('新对话')), findsOneWidget, reason: 'the conversation\'s title');
     expect(find.text('毕设论文 的对话'), findsNothing, reason: 'the workspace is already named in the top bar');
     // The buttons sit at the right edge, whatever the breadcrumb's length (v0.4.0: a gap of a sixth of the window after them).
@@ -74,7 +77,7 @@ void main() {
       await settle(tester);
     }
     expect(agent.recentWorkspaces, contains(other.path));
-    await tester.tap(inTitleBar(find.text('毕设论文')));
+    await tester.tap(inSidebar(find.text('毕设论文')));
     await tester.pumpAndSettle();
     expect(find.text('切换工作区'), findsOneWidget);
     expect(find.text(thesis.path), findsOneWidget);
@@ -84,7 +87,7 @@ void main() {
     await tester.tap(find.text('周报'));
     await settle(tester);
     expect(agent.workspace, other.path);
-    expect(inTitleBar(find.text('周报')), findsOneWidget);
+    expect(inSidebar(find.text('周报')), findsOneWidget);
     expect(find.text('切换工作区'), findsNothing, reason: 'the menu closes once a workspace is picked');
   });
 
@@ -148,14 +151,14 @@ void main() {
     ];
     await tester.tap(find.byTooltip(RegExp('^详情')));
     await settle(tester);
-    expect(find.text('改了的文件'), findsOneWidget);
+    expect(find.text('改动'), findsOneWidget, reason: '0.8.2: changed and created files are one list, each marked');
     expect(find.textContaining('对比.docx'), findsOneWidget);
     expect(find.text('上下文与花费'), findsNothing);
     await tester.tap(find.byTooltip('收起详情').first);
     await settle(tester);
     await tester.tap(find.byTooltip(RegExp('^详情')));
     await settle(tester);
-    expect(find.text('改了的文件'), findsOneWidget);
+    expect(find.text('改动'), findsOneWidget, reason: '0.8.2: changed and created files are one list, each marked');
     expect(find.text('读取  报告9.md'), findsNothing);
   });
 

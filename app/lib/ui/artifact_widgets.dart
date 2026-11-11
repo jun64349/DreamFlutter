@@ -21,13 +21,62 @@ bool canPreview(String path) {
   return _imageExtensions.contains(ext) || _textExtensions.contains(ext);
 }
 
-IconData fileIcon(String path) {
+/// What kind of file a path is, for its icon and color (0.8.2: "用明显的图标区分文件类型").
+enum FileKind { image, text, table, pdf, doc, slides, code, script, web, archive, data, other }
+
+const _codeExtensions = {'.dart', '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.kt', '.c', '.h', '.cpp', '.hpp', '.cs', '.go', '.rs', '.swift', '.rb', '.php', '.lua', '.vue', '.svelte', '.m', '.ino'};
+const _scriptExtensions = {'.ps1', '.psm1', '.bat', '.cmd', '.sh', '.bash', '.zsh'};
+const _dataExtensions = {'.json', '.yaml', '.yml', '.toml', '.xml', '.ini', '.cfg', '.conf', '.env', '.sql', '.db', '.sqlite', '.jsonl'};
+
+FileKind fileKind(String path) {
   final ext = p.extension(path).toLowerCase();
-  if (_imageExtensions.contains(ext)) return Icons.image_outlined;
-  if (ext == '.md' || ext == '.markdown' || ext == '.txt') return Icons.article_outlined;
-  if (ext == '.csv' || ext == '.xlsx' || ext == '.xls') return Icons.table_chart_outlined;
-  if (ext == '.pdf') return Icons.picture_as_pdf_outlined;
-  return Icons.insert_drive_file_outlined;
+  if (_imageExtensions.contains(ext) || ext == '.svg') return FileKind.image;
+  if (ext == '.md' || ext == '.markdown' || ext == '.txt' || ext == '.log' || ext == '.rst') return FileKind.text;
+  if (ext == '.csv' || ext == '.tsv' || ext == '.xlsx' || ext == '.xls') return FileKind.table;
+  if (ext == '.pdf') return FileKind.pdf;
+  if (ext == '.docx' || ext == '.doc' || ext == '.rtf' || ext == '.odt') return FileKind.doc;
+  if (ext == '.pptx' || ext == '.ppt' || ext == '.key') return FileKind.slides;
+  if (ext == '.html' || ext == '.htm' || ext == '.css' || ext == '.scss') return FileKind.web;
+  if (_scriptExtensions.contains(ext)) return FileKind.script;
+  if (_codeExtensions.contains(ext)) return FileKind.code;
+  if (ext == '.zip' || ext == '.7z' || ext == '.rar' || ext == '.tar' || ext == '.gz') return FileKind.archive;
+  if (_dataExtensions.contains(ext)) return FileKind.data;
+  return FileKind.other;
+}
+
+IconData fileIcon(String path) => switch (fileKind(path)) {
+  FileKind.image => Icons.image_outlined,
+  FileKind.text => Icons.article_outlined,
+  FileKind.table => Icons.table_chart_outlined,
+  FileKind.pdf => Icons.picture_as_pdf_outlined,
+  FileKind.doc => Icons.description_outlined,
+  FileKind.slides => Icons.slideshow_outlined,
+  FileKind.code => Icons.code,
+  FileKind.script => Icons.terminal,
+  FileKind.web => Icons.language,
+  FileKind.archive => Icons.folder_zip_outlined,
+  FileKind.data => Icons.data_object,
+  FileKind.other => Icons.insert_drive_file_outlined,
+};
+
+/// The file kind's color: fixed hues so a kind is recognised at a glance in every theme.
+Color fileTypeColor(BuildContext context, String path) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  Color c(int light, int night) => Color(dark ? night : light);
+  return switch (fileKind(path)) {
+    FileKind.image => c(0xFF8E5BB5, 0xFFC39BE3),
+    FileKind.text => c(0xFF4A6B8A, 0xFF9DB9D6),
+    FileKind.table => c(0xFF2E7D4F, 0xFF7FCB9B),
+    FileKind.pdf => c(0xFFC0392B, 0xFFEF8C80),
+    FileKind.doc => c(0xFF2F5FA8, 0xFF8FB0E8),
+    FileKind.slides => c(0xFFD0662B, 0xFFF0A673),
+    FileKind.code => c(0xFF6B5B95, 0xFFB3A6DA),
+    FileKind.script => c(0xFF3D6F73, 0xFF8BC4C8),
+    FileKind.web => c(0xFFB5762A, 0xFFE6B36E),
+    FileKind.archive => c(0xFF7A6A55, 0xFFC2B39E),
+    FileKind.data => c(0xFF8A6D1F, 0xFFD9BE6A),
+    FileKind.other => context.colors.muted,
+  };
 }
 
 /// A file the agent wrote or changed: preview, open, show in Explorer, and
@@ -104,40 +153,11 @@ class ArtifactTile extends StatelessWidget {
 /// Shows a text, Markdown or image file in a dialog.
 Future<void> showFilePreview(BuildContext context, String path) async {
   final agent = AgentScope.read(context);
-  final ext = p.extension(path).toLowerCase();
-  Widget body;
-  if (_imageExtensions.contains(ext)) {
-    body = InteractiveViewer(child: Image.file(File(path), fit: BoxFit.contain));
-  } else {
-    String text;
-    try {
-      final file = File(path);
-      final length = await file.length();
-      text = length > 400 * 1024 ? '${(await file.openRead(0, 400 * 1024).transform(const SystemEncoding().decoder).join())}\n\n……（文件太大，只显示开头）' : await file.readAsString();
-    } catch (e) {
-      text = '无法读取：$e';
-    }
-    if (!context.mounted) return;
-    body = ext == '.md' || ext == '.markdown'
-        ? Markdown(
-            data: text,
-            selectable: true,
-            padding: EdgeInsets.zero,
-            // The package's default code style has a ground that hides the selection (see ReplyMarkdown).
-            styleSheet: MarkdownStyleSheet(
-              code: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 13, backgroundColor: Colors.transparent),
-            ),
-          )
-        : SingleChildScrollView(
-            child: SelectableText(text, style: context.text.bodySmall?.copyWith(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, height: 1.5)),
-          );
-  }
-  if (!context.mounted) return;
   await showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
       title: Text(p.basename(path)),
-      content: SizedBox(width: 760, height: 520, child: body),
+      content: SizedBox(width: 760, height: 520, child: FilePreviewBody(path: path)),
       actions: [
         TextButton(onPressed: () => agent.revealFile(path), child: const Text('在资源管理器中显示')),
         TextButton(onPressed: () => agent.openFile(path), child: const Text('用默认程序打开')),
@@ -145,6 +165,69 @@ Future<void> showFilePreview(BuildContext context, String path) async {
       ],
     ),
   );
+}
+
+/// A file's content for reading: a picture (zoomable), Markdown, or plain text (0.8.2: shared by
+/// the preview dialog and the right panel's preview).
+class FilePreviewBody extends StatefulWidget {
+  const FilePreviewBody({super.key, required this.path});
+  final String path;
+  @override
+  State<FilePreviewBody> createState() => _FilePreviewBodyState();
+}
+
+class _FilePreviewBodyState extends State<FilePreviewBody> {
+  String? _text;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(FilePreviewBody old) {
+    super.didUpdateWidget(old);
+    if (old.path != widget.path) { _text = null; _load(); }
+  }
+
+  bool get _image => _imageExtensions.contains(p.extension(widget.path).toLowerCase());
+
+  Future<void> _load() async {
+    if (_image) return;
+    final path = widget.path;
+    String text;
+    try {
+      final file = File(path);
+      final length = await file.length();
+      text = length > 400 * 1024 ? '${(await file.openRead(0, 400 * 1024).transform(const SystemEncoding().decoder).join())}\n\n……（文件太大，只显示开头）' : await file.readAsString();
+    } catch (e) {
+      text = canPreview(path) ? '无法读取：$e' : '这种文件不能在这里预览，用默认程序打开看。';
+    }
+    if (mounted && path == widget.path) setState(() => _text = text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_image) return InteractiveViewer(child: Image.file(File(widget.path), fit: BoxFit.contain));
+    final text = _text;
+    if (text == null) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    final ext = p.extension(widget.path).toLowerCase();
+    if (ext == '.md' || ext == '.markdown') {
+      return Markdown(
+        data: text,
+        selectable: true,
+        padding: EdgeInsets.zero,
+        // The package's default code style has a ground that hides the selection (see ReplyMarkdown).
+        styleSheet: MarkdownStyleSheet(
+          code: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 13, backgroundColor: Colors.transparent),
+        ),
+      );
+    }
+    return SingleChildScrollView(
+      child: SelectableText(text, style: context.text.bodySmall?.copyWith(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, height: 1.5)),
+    );
+  }
 }
 
 String formatBytes(int bytes) {

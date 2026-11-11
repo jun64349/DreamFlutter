@@ -24,31 +24,24 @@ void main() {
     await fixture.dispose();
   });
 
-  test('T87 new butterfly messages prepare a task; normal chat still sends directly', () async {
+  // 0.8.2 (user test): 蝶君 is a conversation. A message goes straight to it; it says what it
+  // understood and starts in its reply. No plan is prepared and nothing lands in 「等你处理」.
+  test('T87 messages go straight to 蝶君, no plan is prepared (0.8.2)', () async {
     await fixture.agent.send('工作台里的问题');
     expect(fixture.backend.pis.first.sent('prompt'), hasLength(1));
+    await model.worker!.send('你好');
     await model.worker!.send('整理实验记录');
-    expect(fixture.backend.callsTo('butterfly.prepare').single, {
-      'slotId': model.worker!.active!.slotId,
-      'goal': '整理实验记录',
-    });
-    expect(fixture.backend.pis.last.sent('prompt'), isEmpty);
-    expect(model.selected?['id'], 'prepared');
-    expect(model.selected?['intent']['restatement'], isNotEmpty);
-    expect(
-      fixture.backend.callsTo('butterfly.start'),
-      isEmpty,
-      reason: 'the core owns the configurable countdown',
-    );
-    await model.start(
-      (model.selected!['intent'] as Map).cast<String, dynamic>(),
-    );
-    expect(fixture.backend.callsTo('butterfly.start').single['id'], 'intent');
+    expect(fixture.backend.callsTo('butterfly.prepare'), isEmpty);
+    final prompts = fixture.backend.pis.last.sent('prompt');
+    expect(prompts, hasLength(2));
+    expect(prompts.last, contains('整理实验记录'));
+    expect(prompts.last, isNot(contains('用户补充')), reason: 'messages are not glued onto an earlier goal');
   });
   test(
     'T87 a new chat preserves the slot of a plan that has not started',
     () async {
-      await model.worker!.send('整理实验记录');
+      await fixture.agent.backend.call('butterfly.prepare', {'slotId': model.worker!.active!.slotId, 'goal': '整理实验记录'});
+      await model.load();
       final old = model.worker!.active!.slotId;
       final oldPi = fixture.backend.pis.last;
       await model.worker!.newSession();
@@ -62,7 +55,8 @@ void main() {
   test(
     'T87 missing information answers the saved intent without a direct prompt',
     () async {
-      await model.submit('查传感器', []);
+      await fixture.agent.backend.call('butterfly.prepare', {'slotId': model.worker!.active!.slotId, 'goal': '查传感器'});
+      await model.load();
       final intent = (fixture.tasks.first['intent'] as Map)
           .cast<String, dynamic>();
       intent['state'] = 'needs_input';
@@ -99,10 +93,8 @@ void main() {
     await model.submit('看这张图', [
       const ImageBlock(data: 'AQID', mimeType: 'image/png'),
     ]);
-    expect(
-      fixture.backend.callsTo('butterfly.prepare').single['goal'],
-      contains('/workspace/inbox/image.png'),
-    );
+    expect(fixture.backend.callsTo('butterfly.prepare'), isEmpty);
+    expect(fixture.backend.pis.last.sent('prompt').single, contains('/workspace/inbox/image.png'));
     expect(Directory(File(local.single).parent.path).existsSync(), isFalse);
   });
   test(
@@ -121,6 +113,7 @@ void main() {
       );
       expect(File(local).parent.existsSync(), isFalse);
       expect(fixture.backend.callsTo('butterfly.prepare'), isEmpty);
+      expect(fixture.backend.pis.last.sent('prompt'), isEmpty, reason: 'nothing is sent without its pictures');
       expect(model.preparing, isFalse);
     },
   );

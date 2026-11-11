@@ -494,6 +494,15 @@ class Transcript {
         if (message is! Map || message['role'] != role || message['timestamp'] != stamp) continue;
         if (item is UserItem && textOf(ContentBlock.listFrom(message['content'])) != item.text) continue;
         item.entryId = branch[i]['id'] as String?;
+        // 0.8.2: a reply loaded from history has no live timing. Its message is stamped when the
+        // request went out and its entry when it was saved (the end): enough for its duration.
+        if (item is AssistantItem && item.requestedAt == null && item.endedAt == null && item.timestamp > 0) {
+          final saved = DateTime.tryParse('${branch[i]['timestamp'] ?? ''}');
+          if (saved != null && !saved.isBefore(DateTime.fromMillisecondsSinceEpoch(item.timestamp))) {
+            item.requestedAt = DateTime.fromMillisecondsSinceEpoch(item.timestamp);
+            item.endedAt = saved.toLocal();
+          }
+        }
         end = i;
         break;
       }

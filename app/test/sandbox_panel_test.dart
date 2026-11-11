@@ -45,7 +45,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ListTile,'蝶君'));
+    await tester.tap(find.byKey(const ValueKey('settings-nav-蝶君')));
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
     await tester.pumpAndSettle();
   }

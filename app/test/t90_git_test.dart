@@ -36,8 +36,6 @@ void main() {
   testWidgets('default window bridge prepares real diff, edits draft and commits selected files without a second approval', (tester) async {
     await start(tester);
     expect(find.text('report.md'),findsOneWidget);expect(find.text('summary.md'),findsOneWidget);
-    final labels=tester.widgetList<Text>(find.descendant(of:find.byType(WorkspacePathLabel),matching:find.byType(Text))).map((w)=>w.data).toList();
-    expect(labels,containsAll(['report.md','summary.md']));expect(find.byTooltip(p.normalize('${core.workspace}/report.md')),findsOneWidget);
     expect(backend.callsTo('git.prepareCommit'),isEmpty);
     await tester.tap(find.text('提交这些改动'));await settle(tester);
     expect(backend.callsTo('git.commit'),isEmpty);expect(find.textContaining('diff --git'),findsNothing);

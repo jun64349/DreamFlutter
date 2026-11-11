@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/services.dart';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -9,6 +13,7 @@ import '../state/conversation_git.dart';
 import '../state/mentions.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'settings_layout.dart' show CardSurface;
 import 'artifact_widgets.dart';
 import 'conversation_panel.dart';
 import 'message_widgets.dart' show ChatRow, ReplyRow, DiffView, editDiff;
@@ -22,10 +27,13 @@ List<ToolRun> _conversationTools(AgentController agent) {
 }
 
 class RunPanel extends StatefulWidget {
-  const RunPanel({super.key, required this.sessionFile, required this.onClose, this.width = AppTokens.runPanelWidth});
+  const RunPanel({super.key, required this.sessionFile, required this.onClose, this.width = AppTokens.runPanelWidth, this.onPreviewChanged});
   final String? sessionFile;
   final VoidCallback onClose;
   final double width;
+
+  /// A file opened or closed in the panel (the panel widens while one is open).
+  final ValueChanged<bool>? onPreviewChanged;
   @override
   State<RunPanel> createState() => _RunPanelState();
 }
@@ -49,10 +57,13 @@ class _RunPanelState extends State<RunPanel> {
   @override
   void didUpdateWidget(RunPanel old) {
     super.didUpdateWidget(old);
-    if (old.sessionFile != widget.sessionFile) { _run = null; _task = null; _artifacts = []; _git = null; unawaited(_load()); }
+    if (old.sessionFile != widget.sessionFile) { _run = null; _task = null; _artifacts = []; _git = null; if (_preview != null) { _preview = null; _previewClosedLater(); } unawaited(_load()); }
   }
   @override
-  void dispose() { _agent.workRevision.removeListener(_load); super.dispose(); }
+  void dispose() { _agent.workRevision.removeListener(_load); if (_preview != null) _previewClosedLater(); super.dispose(); }
+
+  /// Tells the panel the preview is gone, after this frame (it may be mid-build or unmounting).
+  void _previewClosedLater() { final done = widget.onPreviewChanged; WidgetsBinding.instance.addPostFrameCallback((_) => done?.call(false)); }
   Future<void> _load() async {
     final generation = ++_generation;
     final file = widget.sessionFile;
@@ -72,20 +83,6 @@ class _RunPanelState extends State<RunPanel> {
       setState(() { _run = run; _task = task; _artifacts = artifacts; _bridge = bridge; _git = git; _error = gitError; });
     } catch (error) { if (mounted && generation == _generation) setState(() => _error = SessionRuntime.describeError(error)); }
   }
-  Future<void> _diff(String path, ToolRun? run) async {
-    final lines = run == null ? null : editDiff(run);
-    String? patch;
-    if ((lines == null || lines.isEmpty) && _bridge != null) {
-      try { patch = await _bridge!.diff(_agent.workspace, path); }
-      catch (error) { if (mounted) setState(() => _error = SessionRuntime.describeError(error)); return; }
-    }
-    if (!mounted) return;
-    await showDialog<void>(context: context, builder: (context) => AlertDialog(
-      title: Text(p.basename(path)),
-      content: SizedBox(width: 650, child: SingleChildScrollView(child: lines != null && lines.isNotEmpty ? DiffView(lines: lines) : patch != null && patch.isNotEmpty ? SelectableText(patch, style: const TextStyle(fontFamily: AppTokens.monoFamily, fontSize: 13)) : const Text('暂时没有可显示的差异'))),
-      actions: [TextButton(onPressed: () { Navigator.pop(context); showFilePreview(this.context, path); }, child: const Text('预览')), TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
-    ));
-  }
   Future<void> _commit() async {
     final bridge = _bridge;
     final state = _git;
@@ -93,6 +90,146 @@ class _RunPanelState extends State<RunPanel> {
     await showDialog<void>(context: context, builder: (_) => AgentScope(controller: _agent, child: ConversationCommitEditor(bridge: bridge, prepared: state, cwd: _agent.workspace)));
     await _load();
   }
+  /// A file opened in the panel (0.8.2, user test: preview in the right panel, not a dialog).
+  ({String path, ToolRun? run, bool changed})? _preview;
+  var _showDiff = true;
+
+  void _open(String path, ToolRun? run, bool changed, {bool diff = true}) {
+    setState(() { _preview = (path: path, run: run, changed: changed); _showDiff = changed && diff; });
+    widget.onPreviewChanged?.call(true);
+  }
+
+  void _closePreview() {
+    setState(() => _preview = null);
+    widget.onPreviewChanged?.call(false);
+  }
+
+  Future<void> _saveAs(String path) async {
+    final location = await getSaveLocation(suggestedName: p.basename(path));
+    if (location == null || SessionStore.samePath(location.path, path)) return;
+    try {
+      await File(path).copy(location.path);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已另存为 ${location.path}')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能另存：${SessionRuntime.describeError(error)}')));
+    }
+  }
+
+  /// The file's menu (right click, or the ⋯ in the preview): the same order everywhere.
+  Future<void> _fileMenu(Offset at, String path, ToolRun? run, bool changed) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final local = overlay.globalToLocal(at);
+    final value = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(local.dx, local.dy, overlay.size.width - local.dx, overlay.size.height - local.dy),
+      items: [
+        const PopupMenuItem(value: 'preview', child: ListTile(dense: true, leading: Icon(Icons.visibility_outlined, size: 18), title: Text('预览'))),
+        if (changed) const PopupMenuItem(value: 'diff', child: ListTile(dense: true, leading: Icon(Icons.difference_outlined, size: 18), title: Text('看改了什么'))),
+        const PopupMenuItem(value: 'open', child: ListTile(dense: true, leading: Icon(Icons.open_in_new, size: 18), title: Text('用默认程序打开'))),
+        const PopupMenuItem(value: 'reveal', child: ListTile(dense: true, leading: Icon(Icons.folder_open_outlined, size: 18), title: Text('打开所在文件夹'))),
+        const PopupMenuItem(value: 'save', child: ListTile(dense: true, leading: Icon(Icons.save_alt, size: 18), title: Text('另存为…'))),
+        const PopupMenuItem(value: 'copy', child: ListTile(dense: true, leading: Icon(Icons.copy, size: 18), title: Text('复制路径'))),
+      ],
+    );
+    if (!mounted || value == null) return;
+    switch (value) {
+      case 'preview': _open(path, run, changed, diff: false);
+      case 'diff': _open(path, run, changed);
+      case 'open': await _agent.openFile(path);
+      case 'reveal': await _agent.revealFile(path);
+      case 'save': await _saveAs(path);
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: path));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制路径')));
+    }
+  }
+
+  Widget _block(String title, Widget child, {Widget? trailing}) => Padding(
+    padding: const EdgeInsets.only(bottom: 18),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(padding: const EdgeInsets.only(left: 2, bottom: 8), child: Row(children: [Text(title, style: context.label), const Spacer(), ?trailing])),
+      CardSurface(radius: context.radiusLg, child: child),
+    ]),
+  );
+
+  Widget _fileRow(String path, ToolRun? run, bool changed) {
+    final colors = context.colors;
+    final folder = p.dirname(relativeWorkspacePath(_agent.workspace, path));
+    final tint = fileTypeColor(context, path);
+    return GestureDetector(
+      onSecondaryTapDown: (d) => _fileMenu(d.globalPosition, path, run, changed),
+      child: InkWell(
+        onTap: () => _open(path, run, changed),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+          child: Row(children: [
+            Container(
+              width: 30, height: 30,
+              decoration: BoxDecoration(color: tint.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(7)),
+              child: Icon(fileIcon(path), size: 17, color: tint),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(p.basename(path), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13.5, color: colors.ink)),
+              if (folder != '.' && folder.isNotEmpty) Text(folder, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 11.5, color: colors.muted)),
+            ])),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: (changed ? colors.warning : colors.success).withValues(alpha: 0.14), borderRadius: BorderRadius.circular(5)),
+              child: Text(changed ? '改动' : '新建', style: context.text.labelSmall?.copyWith(fontSize: 11, color: changed ? colors.warning : colors.success)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _previewView() {
+    final preview = _preview!;
+    final colors = context.colors;
+    final path = preview.path;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(
+        padding: const EdgeInsets.all(6),
+        child: Row(children: [
+          IconButton(tooltip: '回到这个对话', onPressed: _closePreview, icon: const Icon(Icons.arrow_back, size: 18)),
+          Icon(fileIcon(path), size: 18, color: fileTypeColor(context, path)),
+          const SizedBox(width: 8),
+          Expanded(child: Tooltip(message: path, child: Text(p.basename(path), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.titleSmall))),
+          Builder(builder: (context) => IconButton(
+            tooltip: '更多',
+            icon: const Icon(Icons.more_horiz, size: 18),
+            onPressed: () {
+              final box = context.findRenderObject() as RenderBox;
+              _fileMenu(box.localToGlobal(Offset(0, box.size.height)), path, preview.run, preview.changed);
+            },
+          )),
+        ]),
+      ),
+      if (preview.changed)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+          child: SegmentedButton<bool>(
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(visualDensity: VisualDensity.compact),
+            segments: const [ButtonSegment(value: true, label: Text('改了什么')), ButtonSegment(value: false, label: Text('现在的内容'))],
+            selected: {_showDiff},
+            onSelectionChanged: (v) => setState(() => _showDiff = v.first),
+          ),
+        ),
+      Divider(height: 1, color: colors.border),
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: preview.changed && _showDiff
+              ? _DiffPane(key: ValueKey('diff-$path'), path: path, run: preview.run, bridge: _bridge, cwd: _agent.workspace)
+              : FilePreviewBody(key: ValueKey('file-$path'), path: path),
+        ),
+      ),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
@@ -116,42 +253,104 @@ class _RunPanelState extends State<RunPanel> {
     for (final path in products.toList()) {
       if (matches(_git?.modifiedPaths, path)) { products.remove(path); changes.putIfAbsent(path, () => null); }
     }
+    final createdTools = {for (final e in changes.entries) e.key: e.value};
     changes.removeWhere((path, _) => products.any((product) => SessionStore.samePath(path, product)));
-    return Material(color: context.colors.sidebar, child: SizedBox(width: widget.width, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Padding(padding: const EdgeInsets.fromLTRB(16, 10, 6, 10), child: Row(children: [
-        Expanded(child: Text(side != null ? '问一下' : agent.sandbox ? '任务进度' : '这个对话', style: context.text.titleSmall)),
-        IconButton(tooltip: '收起详情', onPressed: () { if (side != null) agent.closeSideChat(); widget.onClose(); }, icon: const Icon(Icons.close, size: 18)),
-      ])),
-      Divider(height: 1, color: context.colors.border),
-      if (side != null) Expanded(child: SideChatView(key: ObjectKey(side), side: side))
-      else Expanded(child: ListView(padding: const EdgeInsets.all(14), children: [
-        if (_error != null) Text(_error!, style: TextStyle(color: context.colors.danger)),
-        if (agent.sandbox && _task?['title'] is String) ...[Text(_task!['title'] as String, style: context.text.titleSmall), if (_task?['currentStep'] is String) Padding(padding: const EdgeInsets.only(top: 6, bottom: 16), child: Text(_task!['currentStep'] as String))],
-        if (changes.isEmpty && products.isEmpty) Padding(padding: const EdgeInsets.only(bottom: 4), child: Text('这个对话还没改文件', style: context.text.bodySmall?.copyWith(color: context.colors.muted))),
-        if (changes.isNotEmpty) ...[
-          Text('改了的文件', style: context.label), const SizedBox(height: 8),
-          for (final entry in changes.entries) ListTile(
-            contentPadding: EdgeInsets.zero, leading: Icon(Icons.description_outlined, size: 18, color: context.colors.accent),
-            title: WorkspacePathLabel(path: entry.key, style: context.text.bodySmall),
-            onTap: () => _diff(entry.key, entry.value),
+    // 0.8.2 (user test): changed and created files are one list — the files this conversation touched —
+    // each marked 新建 or 改动 with its kind's icon; a click previews it here, a right click has the rest.
+    final files = <(String, ToolRun?, bool)>[
+      for (final entry in changes.entries) (entry.key, entry.value, true),
+      for (final path in products) (path, createdTools[path], false),
+    ]..sort((a, b) => p.basename(a.$1).toLowerCase().compareTo(p.basename(b.$1).toLowerCase()));
+    final colors = context.colors;
+    final Widget body;
+    if (side != null) {
+      body = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(16, 10, 6, 10), child: Row(children: [
+          Expanded(child: Text('问一下', style: context.text.titleSmall)),
+          IconButton(tooltip: '收起详情', onPressed: () { agent.closeSideChat(); widget.onClose(); }, icon: const Icon(Icons.close, size: 18)),
+        ])),
+        Divider(height: 1, color: colors.border),
+        Expanded(child: SideChatView(key: ObjectKey(side), side: side)),
+      ]);
+    } else if (_preview != null) {
+      body = KeyedSubtree(key: ValueKey('preview-${_preview!.path}'), child: _previewView());
+    } else {
+      body = Column(key: const ValueKey('panel-list'), crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(16, 10, 6, 10), child: Row(children: [
+          Expanded(child: Text(agent.sandbox ? '任务进度' : '这个对话', style: context.text.titleSmall)),
+          IconButton(tooltip: '收起详情', onPressed: widget.onClose, icon: const Icon(Icons.close, size: 18)),
+        ])),
+        Divider(height: 1, color: colors.border),
+        Expanded(child: ListView(padding: const EdgeInsets.all(14), children: [
+          if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(_error!, style: TextStyle(color: colors.danger))),
+          if (agent.sandbox && _task?['title'] is String) ...[Text(_task!['title'] as String, style: context.text.titleSmall), if (_task?['currentStep'] is String) Padding(padding: const EdgeInsets.only(top: 6, bottom: 16), child: Text(_task!['currentStep'] as String))],
+          _block(
+            '文件',
+            files.isEmpty
+                ? Padding(padding: const EdgeInsets.all(14), child: Text('这个对话还没动过文件', style: context.text.bodySmall?.copyWith(color: colors.muted)))
+                : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    for (final (i, f) in files.indexed) ...[
+                      if (i > 0) Divider(height: 1, thickness: 0.5, indent: 52, color: colors.border),
+                      _fileRow(f.$1, f.$2, f.$3),
+                    ],
+                    if (_git?.isRepository == true && _git!.paths.isNotEmpty) ...[
+                      Divider(height: 1, thickness: 0.5, color: colors.border),
+                      Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: TextButton.icon(onPressed: agent.isRunning ? null : _commit, icon: const Icon(Icons.commit, size: 17), label: const Text('提交这些改动')),
+                      ),
+                    ],
+                  ]),
+            trailing: files.isEmpty ? null : Text('${files.length}', style: context.text.labelSmall?.copyWith(color: colors.muted)),
           ),
-        ],
-        if (products.isNotEmpty) ...[
-          const SizedBox(height: 20), Text('生成的文件', style: context.label), const SizedBox(height: 8),
-          for (final path in products) Row(children: [
-            Expanded(child: WorkspacePathLabel(path: path, style: context.text.bodySmall)),
-            IconButton(tooltip: '预览', onPressed: () => showFilePreview(context, path), icon: const Icon(Icons.visibility_outlined, size: 17)),
-            IconButton(tooltip: '打开所在文件夹', onPressed: () => agent.revealFile(path), icon: const Icon(Icons.folder_open_outlined, size: 17)),
-          ]),
-        ],
-        if (_git?.isRepository == true && _git!.paths.isNotEmpty) ...[
-          const SizedBox(height: 20), Text('Git', style: context.label), const SizedBox(height: 8),
-          OutlinedButton.icon(onPressed: agent.isRunning ? null : _commit, icon: const Icon(Icons.commit, size: 17), label: const Text('提交这些改动')),
-        ],
-        const SizedBox(height: 22), const ConversationContextSection(),
-        if (agent.active?.incognito != true) ...[const SizedBox(height: 22), const ConversationActionsSection()],
-      ])),
-    ])));
+          const ConversationContextSection(),
+          if (agent.active?.incognito != true) ...[const SizedBox(height: 18), const ConversationActionsSection()],
+        ])),
+      ]);
+    }
+    return Material(color: colors.sidebar, child: SizedBox(width: widget.width, child: AnimatedSwitcher(duration: AppTokens.motion(context, AppTokens.medium), child: body)));
+  }
+}
+
+/// What a changed file's edit did: the tool's own diff, or Git's patch.
+class _DiffPane extends StatefulWidget {
+  const _DiffPane({super.key, required this.path, required this.run, required this.bridge, required this.cwd});
+  final String path;
+  final ToolRun? run;
+  final ConversationGitBridge? bridge;
+  final String cwd;
+  @override
+  State<_DiffPane> createState() => _DiffPaneState();
+}
+
+class _DiffPaneState extends State<_DiffPane> {
+  String? _patch, _error;
+  var _loading = false;
+  late final _lines = widget.run == null ? null : editDiff(widget.run!);
+
+  @override
+  void initState() {
+    super.initState();
+    final lines = _lines;
+    if ((lines == null || lines.isEmpty) && widget.bridge != null) {
+      _loading = true;
+      widget.bridge!.diff(widget.cwd, widget.path).then((patch) {
+        if (mounted) setState(() { _patch = patch; _loading = false; });
+      }, onError: (Object error) {
+        if (mounted) setState(() { _error = SessionRuntime.describeError(error); _loading = false; });
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = _lines;
+    final patch = _patch;
+    if (_loading) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    if (_error != null) return Text(_error!, style: TextStyle(color: context.colors.danger));
+    if (lines != null && lines.isNotEmpty) return SingleChildScrollView(child: DiffView(lines: lines));
+    if (patch != null && patch.isNotEmpty) return SingleChildScrollView(child: SelectableText(patch, style: const TextStyle(fontFamily: AppTokens.monoFamily, fontSize: 12.5)));
+    return Text('暂时没有可显示的差异', style: context.text.bodySmall?.copyWith(color: context.colors.muted));
   }
 }
 

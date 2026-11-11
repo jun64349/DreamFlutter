@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path/path.dart' as p;
-import 'package:pi_rpc/pi_rpc.dart' show SessionStore;
 import 'package:window_manager/window_manager.dart';
 
 import '../state/agent_controller.dart';
@@ -170,9 +168,8 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                         void sep() => crumbs.add(Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text('/', style: _muted(context))));
                         switch (agent.section) {
                           case AppSection.chat:
+                            // 0.8.2 (user test): the workspace is chosen in the sidebar, beside its conversations.
                             crumbs.add(Text('工作台', style: _muted(context)));
-                            sep();
-                            crumbs.add(const _WorkspaceButton());
                             sep();
                             crumbs.add(Flexible(child: _Title(text: agent.sessionTitle)));
                           case AppSection.butterfly:
@@ -246,92 +243,6 @@ class _Title extends StatelessWidget {
     overflow: TextOverflow.ellipsis,
     style: context.text.bodyMedium?.copyWith(fontSize: 13, fontWeight: FontWeight.w500, color: context.colors.ink),
   );
-}
-
-/// The workspace in the title bar: a button that opens the list of workspaces.
-class _WorkspaceButton extends StatelessWidget {
-  const _WorkspaceButton();
-
-  @override
-  Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
-    final colors = context.colors;
-    final current = agent.workspace;
-    final others = agent.recentWorkspaces.where((w) => !SessionStore.samePath(w, current)).toList();
-    final muted = context.text.bodySmall?.copyWith(color: colors.muted);
-    Widget row(String path, {required bool selected}) => Row(
-      children: [
-        Icon(Icons.folder_outlined, size: 18, color: colors.ochre),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(p.basename(path), overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: selected ? FontWeight.w600 : null)),
-              Text(path, overflow: TextOverflow.ellipsis, style: muted?.copyWith(fontSize: 11)),
-            ],
-          ),
-        ),
-        if (selected) ...[const SizedBox(width: 8), Icon(Icons.check, size: 16, color: colors.accent)],
-      ],
-    );
-    final itemStyle = MenuItemButton.styleFrom(minimumSize: const Size(320, 48), padding: const EdgeInsets.symmetric(horizontal: 10));
-    return MenuAnchor(
-      controller: workspaceMenu,
-      alignmentOffset: const Offset(0, 6),
-      style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(colors.card),
-        side: WidgetStatePropertyAll(BorderSide(color: colors.border)),
-        shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-        padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
-      ),
-      menuChildren: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
-          child: SizedBox(
-            width: 320,
-            child: Row(children: [Text('切换工作区', style: context.label), const Spacer(), Text('Ctrl O', style: muted?.copyWith(fontSize: 11))]),
-          ),
-        ),
-        if (current.isNotEmpty) MenuItemButton(style: itemStyle, onPressed: () {}, child: SizedBox(width: 320, child: row(current, selected: true))),
-        for (final w in others) MenuItemButton(style: itemStyle, onPressed: () => agent.setWorkspace(w), child: SizedBox(width: 320, child: row(w, selected: false))),
-        const Divider(height: 9),
-        MenuItemButton(leadingIcon: const Icon(Icons.create_new_folder_outlined, size: 18), onPressed: () => pickWorkspaceFolder(agent), child: const Text('打开文件夹作为工作区…')),
-        if (current.isNotEmpty)
-          MenuItemButton(leadingIcon: const Icon(Icons.open_in_new, size: 18), onPressed: () => agent.revealInExplorer(current), child: const Text('在资源管理器中显示')),
-      ],
-      builder: (context, controller, _) => Tooltip(
-        message: '工作区：Agent 在这个文件夹里读写文件、执行命令（Ctrl O 切换）',
-        child: InkWell(
-          borderRadius: BorderRadius.circular(6),
-          onTap: () => controller.isOpen ? controller.close() : controller.open(),
-          child: Container(
-            height: 28,
-            padding: const EdgeInsets.only(left: 6, right: 6),
-            decoration: BoxDecoration(color: colors.card, border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(6)),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.folder_outlined, size: 16, color: colors.ochre),
-                const SizedBox(width: 6),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  child: Text(
-                    current.isEmpty ? '选择工作区' : p.basename(current),
-                    overflow: TextOverflow.ellipsis,
-                    style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.ink),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(Icons.expand_more, size: 16, color: colors.muted),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// A strip on the edge of a column the user drags to resize it; [onDone] saves the width.

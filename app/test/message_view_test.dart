@@ -65,7 +65,7 @@ void main() {
       ..endedAt = start.add(const Duration(seconds: 24));
     final facts = replyFacts([first, second], modelName: (id) => id == 'deepseek-flash' ? 'DeepSeek V4.1 Flash' : id, now: start);
     expect(facts, 'DeepSeek V4.1 Flash · 输入 6.4K · 输出 1.1K · 缓存 3.0K · 首字 0.7 秒 · 55 token/秒 · 耗时 24 秒 · \$0.01 · 14:32');
-    expect(replyFactsShort([first, second], modelName: (id) => 'DeepSeek V4.1 Flash'), 'DeepSeek V4.1 Flash · 24 秒 · \$0.01', reason: 'what stays under the reply (0.4)');
+    expect(replyFactsShort([first, second], modelName: (id) => 'DeepSeek V4.1 Flash', now: start), 'DeepSeek V4.1 Flash · 55 token/秒 · 24 秒 · 14:32', reason: 'what stays under the reply: speed and time, no cost (0.8.2)');
 
     final history = AssistantItem('h')
       ..model = 'm'

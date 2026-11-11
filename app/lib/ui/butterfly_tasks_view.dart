@@ -221,33 +221,39 @@ class ButterflyDelivery extends StatelessWidget {
   });
   final Json delivery;
   final AgentController agent;
+  // 0.8.2 (user test): the summary is 蝶君's last reply, already in the
+  // conversation below (it showed twice, the first time as raw Markdown).
+  // The card keeps what the conversation does not: the files, time and cost.
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(top: 12),
-    padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      border: Border.all(color: context.colors.accent.withValues(alpha: 0.45)),
-      borderRadius: BorderRadius.circular(context.radius),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('交付', style: context.text.titleLarge),
-        const SizedBox(height: 10),
-        Text(
-          delivery['summary'] as String? ?? '',
-          style: context.text.bodyMedium?.copyWith(height: 1.7),
-        ),
-        for (final file in memoryRows(delivery['files']))
-          ButterflyDeliveryFile(file: file, agent: agent),
-        const SizedBox(height: 12),
-        Text(
-          '${formatDuration(Duration(milliseconds: (delivery['durationMs'] as num?)?.toInt() ?? 0))} · \$${((delivery['cost'] as num?)?.toDouble() ?? 0).toStringAsFixed(3)}',
-          style: context.text.bodySmall?.copyWith(color: context.colors.muted),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final files = memoryRows(delivery['files']);
+    final meta = context.text.bodySmall?.copyWith(color: context.colors.muted);
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: context.colors.card,
+        border: Border(left: BorderSide(color: context.colors.success, width: 3)),
+        borderRadius: BorderRadius.circular(context.radiusSm),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            Icon(Icons.task_alt, size: 18, color: context.colors.success),
+            const SizedBox(width: 8),
+            Text('交付', style: context.text.titleSmall),
+            const Spacer(),
+            Text(
+              '${formatDuration(Duration(milliseconds: (delivery['durationMs'] as num?)?.toInt() ?? 0))} · \$${((delivery['cost'] as num?)?.toDouble() ?? 0).toStringAsFixed(3)}',
+              style: meta,
+            ),
+          ]),
+          for (final file in files) ButterflyDeliveryFile(file: file, agent: agent),
+        ],
+      ),
+    );
+  }
 }
 
 class ButterflyDeliveryFile extends StatelessWidget {
@@ -284,10 +290,10 @@ class ButterflyDeliveryFile extends StatelessWidget {
   Widget build(BuildContext context) {
     final path = file['path'] as String? ?? '';
     return Padding(
-      padding: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.only(top: 6),
       child: Row(
         children: [
-          Icon(fileIcon(path), size: 20, color: context.colors.muted),
+          Icon(fileIcon(path), size: 20, color: fileTypeColor(context, path)),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

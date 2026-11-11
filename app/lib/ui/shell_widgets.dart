@@ -349,23 +349,25 @@ class ShellQuoteLine extends StatelessWidget {
   const ShellQuoteLine(this.line, this.source, {super.key});
   final String line;
   final String source;
+  // 0.8.2 (user test: "没咋对齐"): the boxed, left-barred quote sat off the centred greeting's
+  // axis. It is centred now, between two short rules, with its source under it.
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    Widget rule() => Container(width: 28, height: 0.8, color: colors.accent.withValues(alpha: 0.45));
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 560),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: colors.accentSoft.withValues(alpha: 0.45),
-          borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
-          border: Border(left: BorderSide(color: colors.accent, width: 3)),
-        ),
-        child: Wrap(spacing: 12, crossAxisAlignment: WrapCrossAlignment.end, children: [
-          Text(line, style: context.serif(context.text.bodyMedium).copyWith(fontSize: 14, color: colors.ink2)),
-          Text(source, style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          rule(),
+          const SizedBox(width: 12),
+          Flexible(child: Text(line, textAlign: TextAlign.center, style: context.serif(context.text.bodyMedium).copyWith(fontSize: 14, color: colors.ink2, height: 1.6))),
+          const SizedBox(width: 12),
+          rule(),
         ]),
-      ),
+        const SizedBox(height: 4),
+        Text(source, textAlign: TextAlign.center, style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+      ]),
     );
   }
 }
@@ -403,7 +405,8 @@ class ShellGreeting extends StatelessWidget {
     return ShaderMask(
       blendMode: BlendMode.srcIn,
       shaderCallback: (rect) => LinearGradient(colors: [colors.ink, colors.accent, colors.ochre]).createShader(rect),
-      child: Text(text, textAlign: TextAlign.center, style: context.handwriting(context.text.headlineSmall).copyWith(fontSize: size, letterSpacing: size * 0.12, height: 1.4)),
+      // Letter spacing also follows the last character: the same space on the left keeps it centred.
+      child: Padding(padding: EdgeInsets.only(left: size * 0.12), child: Text(text, textAlign: TextAlign.center, style: context.handwriting(context.text.headlineSmall).copyWith(fontSize: size, letterSpacing: size * 0.12, height: 1.4))),
     );
   }
 }

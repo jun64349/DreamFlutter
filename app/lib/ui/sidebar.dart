@@ -67,6 +67,11 @@ class _SidebarState extends State<Sidebar> {
                     workbenchBusy: agent.backgroundRunning > 0 && section != AppSection.chat,
                   ),
                 ),
+                if (!onButterfly)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(8, 0, 8, 6),
+                    child: SidebarWorkspaceButton(),
+                  ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Column(
@@ -286,6 +291,100 @@ class _FootButton extends StatelessWidget {
 // Workspace switcher
 // ---------------------------------------------------------------------------
 
+/// The workspace, at the top of the workbench's sidebar (0.8.2, user test: it was in the title
+/// bar, away from the conversations it lists). Ctrl O opens the same menu.
+class SidebarWorkspaceButton extends StatelessWidget {
+  const SidebarWorkspaceButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    final colors = context.colors;
+    final current = agent.workspace;
+    final others = agent.recentWorkspaces.where((w) => !SessionStore.samePath(w, current)).toList();
+    final muted = context.text.bodySmall?.copyWith(color: colors.muted);
+    Widget row(String path, {required bool selected}) => Row(
+      children: [
+        Icon(Icons.folder_outlined, size: 18, color: colors.ochre),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(p.basename(path), overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: selected ? FontWeight.w600 : null)),
+              Text(path, overflow: TextOverflow.ellipsis, style: muted?.copyWith(fontSize: 11)),
+            ],
+          ),
+        ),
+        if (selected) ...[const SizedBox(width: 8), Icon(Icons.check, size: 16, color: colors.accent)],
+      ],
+    );
+    final itemStyle = MenuItemButton.styleFrom(minimumSize: const Size(320, 48), padding: const EdgeInsets.symmetric(horizontal: 10));
+    return MenuAnchor(
+      controller: workspaceMenu,
+      alignmentOffset: const Offset(0, 6),
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(colors.card),
+        side: WidgetStatePropertyAll(BorderSide(color: colors.border)),
+        shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
+      ),
+      menuChildren: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+          child: SizedBox(
+            width: 320,
+            child: Row(children: [Text('切换工作区', style: context.label), const Spacer(), Text('Ctrl O', style: muted?.copyWith(fontSize: 11))]),
+          ),
+        ),
+        if (current.isNotEmpty) MenuItemButton(style: itemStyle, onPressed: () {}, child: SizedBox(width: 320, child: row(current, selected: true))),
+        for (final w in others) MenuItemButton(style: itemStyle, onPressed: () => agent.setWorkspace(w), child: SizedBox(width: 320, child: row(w, selected: false))),
+        const Divider(height: 9),
+        MenuItemButton(leadingIcon: const Icon(Icons.create_new_folder_outlined, size: 18), onPressed: () => pickWorkspaceFolder(agent), child: const Text('打开文件夹作为工作区…')),
+        if (current.isNotEmpty)
+          MenuItemButton(leadingIcon: const Icon(Icons.open_in_new, size: 18), onPressed: () => agent.revealInExplorer(current), child: const Text('在资源管理器中显示')),
+      ],
+      builder: (context, controller, _) => Tooltip(
+        message: current.isEmpty ? '选择工作区（Ctrl O）' : '$current（Ctrl O 切换）',
+        waitDuration: const Duration(milliseconds: 600),
+        child: Material(
+          color: colors.card.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(8),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => controller.isOpen ? controller.close() : controller.open(),
+            child: Container(
+              height: 36,
+              padding: const EdgeInsets.only(left: 10, right: 6),
+              decoration: BoxDecoration(border: Border.all(color: colors.border, width: 0.8), borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                children: [
+                  Icon(Icons.folder_outlined, size: 18, color: colors.ochre),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      current.isEmpty ? '选择工作区' : p.basename(current),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.bodyMedium?.copyWith(fontSize: 14, fontWeight: FontWeight.w600, color: colors.ink),
+                    ),
+                  ),
+                  Icon(Icons.unfold_more, size: 16, color: colors.muted),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Older workspace switcher (the empty state's folder picker)
+// ---------------------------------------------------------------------------
+
 /// Current workspace with a menu of recent ones; also used by the empty state.
 class WorkspaceSwitcher extends StatelessWidget {
   const WorkspaceSwitcher({super.key, this.compact = false});
@@ -441,7 +540,6 @@ class _SessionPaneState extends State<_SessionPane> {
   String? _error;
   int _generation = 0;
   var _searching = false;
-  var _showArchived = false;
 
   @override
   void dispose() {
@@ -522,21 +620,8 @@ class _SessionPaneState extends State<_SessionPane> {
         Expanded(
           child: _error != null ? Text(_error!, style: TextStyle(color: colors.danger)) : _hits != null || _searching
               ? _SearchResults(hits: _hits ?? const {}, searching: _searching)
-              : _SessionList(entries: agent.sidebar, archived: _showArchived ? agent.archivedSessions : null),
+              : _SessionList(entries: agent.sidebar),
         ),
-        if (_query.text.isEmpty) ...[
-          TextButton.icon(
-            style: TextButton.styleFrom(alignment: Alignment.centerLeft, foregroundColor: colors.muted),
-            onPressed: () => setState(() => _showArchived = !_showArchived),
-            icon: Icon(_showArchived ? Icons.expand_less : Icons.inventory_2_outlined, size: 16),
-            label: const Text('已归档'),
-          ),
-          TextButton.icon(
-            style: TextButton.styleFrom(alignment: Alignment.centerLeft, foregroundColor: colors.muted),
-            onPressed: () => showConversationRecycleBin(context),
-            icon: const Icon(Icons.delete_outline, size: 16), label: const Text('回收站'),
-          ),
-        ],
       ],
     );
   }
@@ -619,12 +704,9 @@ class _Snippet extends StatelessWidget {
 }
 
 class _SessionList extends StatelessWidget {
-  const _SessionList({required this.entries, this.archived});
+  const _SessionList({required this.entries});
 
   final List<SidebarEntry> entries;
-
-  /// Archived sessions to list below the others (null = hidden).
-  final List<SessionSummary>? archived;
 
   static String _group(DateTime time) {
     final now = DateTime.now();
@@ -639,8 +721,7 @@ class _SessionList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final archived = this.archived;
-    if (entries.isEmpty && (archived?.isEmpty ?? true)) {
+    if (entries.isEmpty) {
       return Padding(
         padding: const EdgeInsets.only(top: AppTokens.pad),
         child: Text(
@@ -676,41 +757,14 @@ class _SessionList extends StatelessWidget {
           child: _SessionTile(key: ValueKey(entry.path), entry: entry),
         ));
     }
-    if (archived != null && archived.isNotEmpty) {
-      rows.add(
-        Padding(
-          key: const ValueKey('archived-group'),
-          padding: const EdgeInsets.fromLTRB(6, 14, 6, 4),
-          child: Text('已归档', style: context.label),
-        ),
-      );
-      for (final s in archived) {
-        rows.add(
-          _SessionTile(
-            key: ValueKey(s.path),
-            entry: SidebarEntry(
-              path: s.path,
-              title: s.title,
-              modifiedAt: s.modifiedAt,
-              isActive: false,
-              isRunning: false,
-              hasUnseenResult: false,
-              hasError: false,
-            ),
-            archived: true,
-          ),
-        );
-      }
-    }
     return ShellAnimatedList(children: rows);
   }
 }
 
 class _SessionTile extends StatefulWidget {
-  const _SessionTile({super.key, required this.entry, this.archived = false});
+  const _SessionTile({super.key, required this.entry});
 
   final SidebarEntry entry;
-  final bool archived;
 
   @override
   State<_SessionTile> createState() => _SessionTileState();
@@ -740,7 +794,7 @@ class _SessionTileState extends State<_SessionTile> {
           const PopupMenuItem(value: 'export_md', child: ListTile(dense: true, leading: Icon(Icons.description_outlined), title: Text('导出 Markdown'))),
           PopupMenuItem(
             value: 'archive',
-            child: ListTile(dense: true, leading: const Icon(Icons.inventory_2_outlined), title: Text(widget.archived ? '取消归档' : '归档')),
+            child: ListTile(dense: true, leading: const Icon(Icons.inventory_2_outlined), title: Text('归档')),
           ),
           const PopupMenuDivider(),
         ],
@@ -759,7 +813,7 @@ class _SessionTileState extends State<_SessionTile> {
       case 'pin':
         await agent.setPinned(entry.path, !entry.pinned);
       case 'archive':
-        await agent.setArchived(entry.path, !widget.archived);
+        await agent.setArchived(entry.path, true);
       case 'export_md':
         await exportConversation(context, agent, entry.path, entry.title);
     }

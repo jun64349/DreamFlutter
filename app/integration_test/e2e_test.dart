@@ -36,10 +36,10 @@ void main() {
   String reply(AgentController a)=>a.transcript.items.whereType<AssistantItem>().lastOrNull?.parts.whereType<TextPart>().map((p)=>p.text).join()??'';
 
   scenario('4.3','工作台开始：工作区、新对话、输入、模型及无痕',(tester,h) async {
-    await h.tap(tester,find.byTooltip(RegExp('^工作区：')).first);
+    await h.tap(tester,find.byType(SidebarWorkspaceButton));
     await h.tap(tester,find.text(p.basename(h.info['other'] as String)).last);
     expect(h.agent.workspace,h.info['other']);
-    await h.tap(tester,find.byTooltip(RegExp('^工作区：')).first);
+    await h.tap(tester,find.byType(SidebarWorkspaceButton));
     await h.tap(tester,find.text(p.basename(h.workspace)).last);
     await h.tap(tester,nav('新对话'));
     expect(h.composer,findsOneWidget);expect(find.byTooltip('无痕'),findsOneWidget);expect(find.byKey(const ValueKey('ask-before-acting')),findsOneWidget);
@@ -118,44 +118,50 @@ void main() {
     expect(h.agent.sidebar.any((entry)=>entry.isSideConversation),true);
   });
 
-  scenario('4.7','蝶君交办、真实复述、按截止时间仅开工一次',(tester,h) async {
+  // 0.8.2 (user test): 蝶君 is a conversation. A greeting gets a reply, not a plan; a task starts
+  // in the same reply; nothing lands in 等你处理 unless 蝶君 really asks.
+  scenario('4.7','蝶君对话：打招呼直接回复，交办直接开工',(tester,h) async {
     await h.tap(tester,nav('蝶君'));await h.wait(tester,()=>h.agent.butterfly?.isReady==true);
     final worker=h.agent.butterfly!;
-    await h.script([{'text':'{"restatement":"我会汇总实验记录","plan":"先读取记录，再整理结论","missing":[]}'},{'delayMs':900,'text':'任务已经汇总完成。'}]);
-    await h.send(tester,'汇总本周的实验记录。',finish:false,owner:worker);
-    await h.wait(tester,()=>find.text('我会汇总实验记录').evaluate().isNotEmpty);
-    expect(find.text('可以，开始吧'),findsOneWidget);expect(asJsonMap(await h.rpc('test.inspect'))['requests'],1);
-    final tasks=(await h.rpc('butterfly.tasks') as List).cast<Map>();final intent=asJsonMap(tasks.single['intent']);
-    expect((intent['start_at'] as num)-(intent['created_at'] as num),greaterThanOrEqualTo(9900));
-    await h.shot(tester,'4.7_plan');await h.rpc('test.deadline',{'id':intent['id']});
-    await h.wait(tester,()=>reply(worker).contains('任务已经汇总完成')&&!worker.isRunning);
-    await h.rpc('butterfly.tick');expect(asJsonMap(await h.rpc('test.inspect'))['requests'],2);
-    expect(((await h.rpc('butterfly.tasks') as List).single as Map)['status'],'completed');
+    await h.script([{'text':'你好，我是蝶君。有什么要交给我的？'}]);
+    await h.send(tester,'你好',owner:worker);
+    expect(reply(worker),contains('我是蝶君'));
+    var attention=asJsonMap(await h.rpc('attention.list'));
+    expect((attention['now'] as List).where((row)=>asJsonMap(asJsonMap(row)['origin'])['role']=='butterfly'),isEmpty,reason:'a greeting is not something to approve');
+    await h.script([{'text':'我会汇总本周的实验记录：先读记录，再整理结论。'},{'delayMs':300,'text':'任务已经汇总完成。'}]);
+    await h.send(tester,'汇总本周的实验记录。',owner:worker);
+    await h.wait(tester,()=>!worker.isRunning&&reply(worker).isNotEmpty);
+    attention=asJsonMap(await h.rpc('attention.list'));
+    expect((attention['now'] as List).where((row)=>asJsonMap(asJsonMap(row)['origin'])['role']=='butterfly'),isEmpty);
+    await h.shot(tester,'4.7_conversation');
   });
 
-  scenario('4.8','蝶君缺信息、交付、继续修改与定时详情',(tester,h) async {
+  scenario('4.8','蝶君缺信息才问、交付、继续修改与定时详情',(tester,h) async {
     await h.tap(tester,nav('蝶君'));await h.wait(tester,()=>h.agent.butterfly?.isReady==true);final worker=h.agent.butterfly!;
-    await h.script([{'text':'{"restatement":"我会整理指定资料","plan":"读取后生成小结","missing":["资料在哪里？"]}'}]);
-    await h.send(tester,'帮我整理那份资料。',finish:false,owner:worker);
-    await h.wait(tester,()=>find.textContaining('资料在哪里').evaluate().isNotEmpty);
-    var tasks=(await h.rpc('butterfly.tasks') as List).cast<Map>();expect(tasks.single['status'],'waiting');
-    final attention=asJsonMap(await h.rpc('attention.list'));expect((attention['now'] as List).any((row)=>row['kind']=='question'),true);
-    await h.shot(tester,'4.8_waiting');
-    await h.script([{'text':'{"restatement":"我会整理本周实验资料","plan":"生成一份实验小结","missing":[]}'}]);
-    final next=asJsonMap(await h.rpc('butterfly.answer',{'id':asJsonMap(tasks.single['intent'])['id'],'answer':'本周的实验记录。'}));
-    await h.wait(tester,()=>find.text('我会整理本周实验资料').evaluate().isNotEmpty);
     final out=p.join(h.home,'t91-delivery.md');
-    await h.script([{'tools':[tool('write',{'file_path':out,'content':'# 交付小结\n\n三组结果一致。'})]},{'text':'已交付实验小结，保留了复测待办。'}]);
-    await h.tap(tester,find.text('可以，开始吧'));await h.wait(tester,()=>!worker.isRunning&&reply(worker).contains('已交付'));
-    tasks=(await h.rpc('butterfly.tasks') as List).cast<Map>();expect(tasks.single['status'],'completed');expect(asJsonMap(tasks.single['delivery'])['files'],isNotEmpty);
-    await h.wait(tester,()=>find.text('交付').evaluate().isNotEmpty);expect(File(out).existsSync(),true);
-    expect(asJsonMap(await h.rpc('test.inspect'))['notifications'],isNotEmpty);
+    await h.script([
+      {'tools':[tool('ask_user_question',{'questions':[{'id':'where','question':'资料在哪里？'}]})]},
+      {'tools':[tool('write',{'file_path':out,'content':'# 交付小结\n\n三组结果一致。'})]},
+      {'text':'已交付实验小结，保留了复测待办。'},
+    ]);
+    await h.send(tester,'帮我整理那份资料。',finish:false,owner:worker);
+    Json? question;
+    for(var i=0;i<200&&question==null;i++){
+      final now=(asJsonMap(await h.rpc('attention.list'))['now'] as List).map(asJsonMap).where((row)=>row['kind']=='question');
+      question=now.firstOrNull;
+      if(question==null)await h.settle(tester);
+    }
+    expect(question,isNotNull,reason:'蝶君 asks only when something it cannot infer is missing');
+    await h.shot(tester,'4.8_waiting');
+    await h.rpc('attention.resolve',{'id':question!['id'],'action':'answer','response':{'value':'本周的实验记录。'}});
+    await h.wait(tester,()=>!worker.isRunning&&reply(worker).contains('已交付'));
+    final tasks=(await h.rpc('butterfly.tasks') as List).cast<Map>();expect(tasks.first['status'],'completed');
+    expect(File(out).existsSync(),true);
     final path=worker.currentSessionPath;await h.script([{'text':'已在原小结补充下一步复测计划。'}]);await h.send(tester,'在原来的基础上补上复测计划。',owner:worker);expect(worker.currentSessionPath,path);
     // Arrange an existing approved, bound schedule via the real contract.
     // Adopting a new model-proposed schedule belongs to the T88 workflow.
     final schedule=asJsonMap(await h.rpc('schedules.fromSession',{'slotId':worker.active!.slotId,'trigger':{'type':'interval','everyMs':3600000}}));
     expect(schedule['sessionFile'],path);
-    expect(next['task_id'],tasks.single['id']);
     await h.shot(tester,'4.8_delivery_and_continue');
     expect(find.byTooltip('详情：任务进度'),findsOneWidget,reason:'T91-P04: removed exchange/work tabs must not hide the task-progress entry');
     await h.tap(tester,find.byTooltip('详情：任务进度'));
@@ -177,12 +183,18 @@ void main() {
     for(final group in ['对话','产物','记忆']){expect(find.descendant(of:find.byType(Sidebar),matching:find.text(group)),findsWidgets);}
     final results=asJsonMap(await h.rpc('search.all',{'query':'找回实验','cwd':h.workspace}));for(final key in ['conversations','files','memories']){expect(results[key],isNotEmpty);}
     await h.tap(tester,find.byTooltip('清除搜索'));
-    await menu(tester,h,'归档');await h.tap(tester,find.text('已归档').last);
+    await menu(tester,h,'归档');
     await h.wait(tester,()=>h.agent.archivedSessions.any((entry)=>SessionStore.samePath(entry.path,path)));
-    await h.agent.setArchived(path,false);await h.agent.openSession(path);await h.settle(tester);
+    // The 「已归档」 note sits over the sidebar's foot for a moment: open the page directly.
+    h.agent.showSection(AppSection.settings);await h.settle(tester);await h.tap(tester,find.byKey(const ValueKey('settings-nav-归档/回收')));
+    await h.wait(tester,()=>find.text('放回列表').evaluate().isNotEmpty);
+    await h.tap(tester,find.text('放回列表').first);
+    await h.wait(tester,()=>!h.agent.archivedSessions.any((entry)=>SessionStore.samePath(entry.path,path)));
+    h.agent.showSection(AppSection.chat);await h.agent.openSession(path);await h.settle(tester);
     await menu(tester,h,'删除');
     if(find.widgetWithText(FilledButton,'删除').evaluate().isNotEmpty)await h.tap(tester,find.widgetWithText(FilledButton,'删除'));
-    await h.wait(tester,()=>!File(path).existsSync());await h.tap(tester,find.text('回收站').last);
+    await h.wait(tester,()=>!File(path).existsSync());
+    h.agent.showSection(AppSection.settings);await h.settle(tester);await h.tap(tester,find.byKey(const ValueKey('settings-nav-归档/回收')));
     await h.wait(tester,()=>find.text('恢复').evaluate().isNotEmpty);await h.tap(tester,find.text('恢复').first);
     await h.wait(tester,()=>File(path).existsSync());
   });

@@ -524,18 +524,44 @@ class _ReplyFrameState extends State<_ReplyFrame> {
   }
 }
 
-/// The reply's numbers kept under it (0.4): model · how long · cost; the rest is in [replyFacts], on hover.
-String replyFactsShort(List<AssistantItem> replies, {required String Function(String id) modelName}) {
+/// The reply's numbers kept under it: model · output speed · how long · time of day
+/// (0.8.2, user test: "输出速度还有时间信息哪去了，花费信息不需要在这展示"; cost is in the
+/// right panel and on hover). The rest is in [replyFacts], on hover.
+String replyFactsShort(List<AssistantItem> replies, {required String Function(String id) modelName, DateTime? now}) {
   if (replies.isEmpty) return '';
   final first = replies.first;
   final last = replies.last;
-  final cost = replies.fold<double>(0, (sum, r) => sum + (r.usage?.costTotal ?? 0));
   final took = first.requestedAt != null && last.endedAt != null ? last.endedAt!.difference(first.requestedAt!) : null;
+  final speed = replySpeed(replies);
+  String clock() {
+    if (first.timestamp <= 0) return '';
+    final t = DateTime.fromMillisecondsSinceEpoch(first.timestamp);
+    final today = now ?? DateTime.now();
+    final hm = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    return t.year == today.year && t.month == today.month && t.day == today.day ? hm : '${t.month}月${t.day}日 $hm';
+  }
   return [
     if (last.model.isNotEmpty) modelName(last.model),
-    if (took != null) took.inMilliseconds < 10000 ? '${(took.inMilliseconds / 1000).toStringAsFixed(1)} 秒' : '${took.inSeconds} 秒',
-    if (cost > 0) formatCost(cost),
-  ].join(' · ');
+    if (speed != null) '$speed token/秒',
+    if (took != null && took.inMilliseconds > 0) took.inMilliseconds < 10000 ? '${(took.inMilliseconds / 1000).toStringAsFixed(1)} 秒' : took.inMinutes >= 1 ? '${took.inMinutes} 分 ${took.inSeconds % 60} 秒' : '${took.inSeconds} 秒',
+    clock(),
+  ].where((s) => s.isNotEmpty).join(' · ');
+}
+
+/// Output tokens per second over the replies: from the first token when the window watched,
+/// else over the whole request (a reply loaded from history).
+int? replySpeed(List<AssistantItem> replies) {
+  var ms = 0, tokens = 0;
+  for (final r in replies) {
+    final output = r.usage?.output ?? 0;
+    final start = r.firstTokenAt ?? r.requestedAt;
+    if (output <= 0 || start == null || r.endedAt == null) continue;
+    final span = r.endedAt!.difference(start).inMilliseconds;
+    if (span <= 0) continue;
+    ms += span;
+    tokens += output;
+  }
+  return ms <= 0 ? null : (tokens * 1000 / ms).round();
 }
 
 /// The reply's numbers in one line: model · input / output / cache tokens ·
@@ -545,7 +571,6 @@ String replyFacts(List<AssistantItem> replies, {required String Function(String 
   if (replies.isEmpty) return '';
   var input = 0, output = 0, cache = 0;
   var cost = 0.0;
-  var generatingMs = 0, generated = 0;
   for (final r in replies) {
     final u = r.usage;
     if (u != null) {
@@ -553,10 +578,6 @@ String replyFacts(List<AssistantItem> replies, {required String Function(String 
       output += u.output;
       cache += u.cacheRead;
       cost += u.costTotal;
-    }
-    if (r.firstTokenAt != null && r.endedAt != null && (u?.output ?? 0) > 0) {
-      generatingMs += r.endedAt!.difference(r.firstTokenAt!).inMilliseconds;
-      generated += u!.output;
     }
   }
   final first = replies.first;
@@ -578,7 +599,7 @@ String replyFacts(List<AssistantItem> replies, {required String Function(String 
     if (output > 0) '输出 ${formatTokens(output)}',
     if (cache > 0) '缓存 ${formatTokens(cache)}',
     if (ttft != null) '首字 ${seconds(ttft)}',
-    if (generatingMs > 0) '${(generated * 1000 / generatingMs).round()} token/秒',
+    if (replySpeed(replies) case final speed?) '$speed token/秒',
     if (took != null) '耗时 ${seconds(took)}',
     if (cost > 0) formatCost(cost),
     clock(),

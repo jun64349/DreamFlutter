@@ -73,13 +73,13 @@ class ChatView extends StatelessWidget {
     final incognito = agent.active?.incognito ?? false;
     // The latest card of the conversation on screen runs live.
     agent.cardStage.setLatest(latestCardId(agent.transcript));
-    return ConversationActionHost(child: LayoutBuilder(
+    return ConversationActionHost(child: ValueListenableBuilder<bool>(valueListenable: agent.panelPreviewing, builder: (context, _, _) => LayoutBuilder(
       builder: (context, constraints) {
         final roomForPanel = constraints.maxWidth >= _panelMinWidth && (!incognito || agent.sideChat != null);
         final showPanel = roomForPanel && agent.runPanelOpen;
         // The details open on request (0.4, design option 3): beside the conversation when the
         // window has room for both, sliding over it on a narrow window.
-        final panelWidth = agent.panelWidth;
+        final panelWidth = agent.shownPanelWidth;
         final docked = showPanel && constraints.maxWidth - panelWidth >= _dockedChatWidth;
         return Stack(
           children: [
@@ -137,7 +137,7 @@ class ChatView extends StatelessWidget {
           ],
         );
       },
-    ));
+    )));
   }
 }
 
@@ -165,11 +165,13 @@ class _DetailsPanel extends StatefulWidget {
 class _DetailsPanelState extends State<_DetailsPanel> {
   double? _width;
 
+
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final max = widget.maxWidth.clamp(Preferences.panelWidths.min, Preferences.panelWidths.max);
-    final width = (_width ?? agent.panelWidth).clamp(Preferences.panelWidths.min, max);
+    final chosen = (_width ?? agent.panelWidth).clamp(Preferences.panelWidths.min, max);
+    final width = agent.panelPreviewing.value && _width == null ? (chosen < 520 ? 520.0 : chosen).clamp(Preferences.panelWidths.min, max) : chosen;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 1, end: 0),
       duration: Duration.zero,
@@ -197,6 +199,7 @@ class _DetailsPanelState extends State<_DetailsPanel> {
             SizedBox(width: width, child: widget.builder?.call(context, agent) ?? RunPanel(
               key: ValueKey('panel-${agent.currentSessionPath}'), width: width,
               sessionFile: agent.currentSessionPath, onClose: () => agent.setRunPanelOpen(false),
+              onPreviewChanged: (open) => agent.panelPreviewing.value = open,
             )),
           ],
         ),

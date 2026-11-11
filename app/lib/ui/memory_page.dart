@@ -8,6 +8,7 @@ import '../state/memory_page_model.dart';
 import '../state/memory_ui.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'settings_layout.dart' show CardSurface;
 import 'memory_details.dart';
 import 'memory_log.dart';
 import 'motion.dart';
@@ -27,6 +28,10 @@ class _MemoryPageState extends State<MemoryPage> {
   int _routeRevision = -1;
   String? _selected;
   String? _workspace;
+
+  /// 0.8.2 (user test: "太乱了，没法快速查阅"): a filter by words and by group.
+  final _filter = TextEditingController();
+  String _group = '';
   final _entryKeys = <String, GlobalKey<MemoryEditableEntryState>>{};
   @override
   void initState() {
@@ -85,6 +90,7 @@ class _MemoryPageState extends State<MemoryPage> {
     _agent.removeListener(_workspaceChanged);
     _model.removeListener(_revealSelection);
     _model.dispose();
+    _filter.dispose();
     super.dispose();
   }
 
@@ -182,8 +188,27 @@ class _MemoryPageState extends State<MemoryPage> {
                       _Tab(label: '全部', selected: !_recent, onTap: () => setState(() => _recent = false)),
                       _Tab(label: '最近', selected: _recent, onTap: () => setState(() => _recent = true)),
                       const Spacer(),
-                      if (!_recent)
+                      if (!_recent) ...[
+                        SizedBox(
+                          width: 200,
+                          height: 34,
+                          child: TextField(
+                            controller: _filter,
+                            onChanged: (_) => setState(() {}),
+                            style: context.text.bodySmall,
+                            decoration: InputDecoration(
+                              hintText: '找一条记忆',
+                              isDense: true,
+                              prefixIcon: const Icon(Icons.search, size: 16),
+                              prefixIconConstraints: const BoxConstraints(minWidth: 32),
+                              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                              suffixIcon: _filter.text.isEmpty ? null : IconButton(tooltip: '清除', iconSize: 14, onPressed: () => setState(_filter.clear), icon: const Icon(Icons.close)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
                         ShellButton('添加记忆', icon: Icons.add, small: true, onPressed: _add),
+                      ],
                     ],
                   ),
                   Divider(height: 1, color: context.colors.border),
@@ -207,34 +232,7 @@ class _MemoryPageState extends State<MemoryPage> {
                         ? const MemoryLog()
                         : _model.loading
                         ? const Center(child: CircularProgressIndicator())
-                        : ListView(
-                            key: const PageStorageKey('memory-groups'),
-                            children: [
-                              _group(
-                                '关于你',
-                                _model.items
-                                    .where((r) => r['scope'] == 'global')
-                                    .toList(),
-                              ),
-                              _group(
-                                '关于这个项目',
-                                _model.items
-                                    .where(
-                                      (r) =>
-                                          r['scope'] == 'workspace' ||
-                                          r['scope'] == 'group',
-                                    )
-                                    .toList(),
-                              ),
-                              _group(
-                                '蝶君自己的',
-                                _model.items
-                                    .where((r) => r['scope'] == 'butterfly')
-                                    .toList(),
-                              ),
-                              const SizedBox(height: 36),
-                            ],
-                          ),
+                        : _groups(),
                   ),
                 ],
               ),
@@ -245,38 +243,96 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
-  Widget _group(String title, List<Json> rows) => Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+  static const _groupNames = {'global': '关于你', 'workspace': '关于这个项目', 'butterfly': '蝶君自己的'};
+  static String _groupOf(Json r) => r['scope'] == 'group' ? 'workspace' : '${r['scope']}';
+
+  /// The three groups as cards, each entry on its own line between hairlines; a row of group
+  /// chips with counts above them filters to one group, the search box by words (0.8.2).
+  Widget _groups() {
+    final colors = context.colors;
+    final words = _filter.text.trim().toLowerCase();
+    bool hit(Json r) => words.isEmpty || '${r['content'] ?? ''}'.toLowerCase().contains(words);
+    final byGroup = {for (final key in _groupNames.keys) key: _model.items.where((r) => _groupOf(r) == key && hit(r)).toList()};
+    final total = byGroup.values.fold<int>(0, (n, rows) => n + rows.length);
+    const short = {'global': '你', 'workspace': '这个项目', 'butterfly': '蝶君'};
+    Widget chip(String key, String label, int count) => Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text('$label $count'),
+        selected: _group == key,
+        showCheckmark: false,
+        visualDensity: VisualDensity.compact,
+        onSelected: (_) => setState(() => _group = key),
+      ),
+    );
+    return ListView(
+      key: const PageStorageKey('memory-groups'),
+      padding: const EdgeInsets.only(top: 14),
       children: [
-        ShellSectionLabel(title),
-        MotionRows(children: [if (rows.isEmpty)
+        Wrap(runSpacing: 8, children: [
+          chip('', '全部', total),
+          for (final e in _groupNames.entries) chip(e.key, short[e.key]!, byGroup[e.key]!.length),
+        ]),
+        const SizedBox(height: 18),
+        for (final e in _groupNames.entries)
+          if (_group.isEmpty || _group == e.key) _groupCard(e.value, byGroup[e.key]!, searching: words.isNotEmpty),
+        if (words.isNotEmpty && total == 0)
+          Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text('没有找到', style: context.text.bodySmall?.copyWith(color: colors.muted)))),
+        const SizedBox(height: 36),
+      ],
+    );
+  }
+
+  Widget _groupCard(String title, List<Json> rows, {bool searching = false}) {
+    final colors = context.colors;
+    if (searching && rows.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           Padding(
-            key: const ValueKey('empty'),
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Text(
-              '还没有',
-              style: context.text.bodySmall?.copyWith(
-                color: context.colors.muted,
-              ),
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+            child: Row(children: [
+              ButterflyGlyph(size: 13, color: colors.accent.withValues(alpha: 0.75)),
+              const SizedBox(width: 8),
+              Text(title, style: context.text.titleSmall?.copyWith(color: colors.ink2, letterSpacing: 0.6)),
+              const SizedBox(width: 8),
+              Text('${rows.length}', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+            ]),
+          ),
+          CardSurface(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: MotionRows(children: [
+                if (rows.isEmpty)
+                  Padding(
+                    key: const ValueKey('empty'),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+                    child: Text('还没有', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+                  ),
+                for (final (i, item) in rows.indexed)
+                  KeyedSubtree(
+                    key: ValueKey(item['id']),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      if (i > 0) Divider(height: 1, thickness: 0.5, indent: 10, endIndent: 10, color: colors.border),
+                      MemoryEditableEntry(
+                        key: _entryKeys.putIfAbsent(item['id'] as String, () => GlobalKey<MemoryEditableEntryState>()),
+                        item: item,
+                        agent: _agent,
+                        highlighted: _selected == item['id'],
+                        onDelete: _remove,
+                        onSaved: _model.load,
+                      ),
+                    ]),
+                  ),
+              ]),
             ),
           ),
-        for (final item in rows)
-          KeyedSubtree(
-            key: ValueKey(item['id']),
-            child: MemoryEditableEntry(
-              key: _entryKeys.putIfAbsent(
-                item['id'] as String,
-                () => GlobalKey<MemoryEditableEntryState>(),
-              ),
-              item: item,
-              agent: _agent,
-              highlighted: _selected == item['id'],
-              onDelete: _remove,
-              onSaved: _model.load,
-            ),
-          ),]),
-      ],
-  );
+        ],
+      ),
+    );
+  }
 }
 
 class _AddMemoryDialog extends StatefulWidget {

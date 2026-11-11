@@ -495,6 +495,22 @@ void main() {
       agent.dispose();
     });
 
+    // 0.8.2 user test 4: opening an older conversation moved it to the top. The list is ordered by
+    // the last message; opening one is not a message.
+    test('opening a conversation does not move it in the list; sending does', () async {
+      backend.sessionRows = [row('older', modified: DateTime(2026, 10, 26).millisecondsSinceEpoch), row('recent', modified: DateTime(2026, 10, 27, 9).millisecondsSinceEpoch)];
+      final agent = await startController();
+      await agent.refreshSessions();
+      List<String> order() => [for (final e in agent.sidebar) if (e.path.endsWith('older.jsonl') || e.path.endsWith('recent.jsonl')) p.basename(e.path)];
+      expect(order(), ['recent.jsonl', 'older.jsonl']);
+      now = DateTime(2026, 10, 27, 12, 30);
+      await agent.openSession(p.join(sessions.path, 'older.jsonl'));
+      expect(order(), ['recent.jsonl', 'older.jsonl'], reason: 'opening is not a message');
+      await agent.send('接着说');
+      expect(order(), ['older.jsonl', 'recent.jsonl'], reason: 'a message is');
+      agent.dispose();
+    });
+
     test('search results come from the core', () async {
       backend.searchHits = [
         {'path': p.join(sessions.path, 'a.jsonl'), 'cwd': Directory.systemTemp.path, 'title': '季度报告', 'role': 'user', 'snippet': '写【季度报告】'},

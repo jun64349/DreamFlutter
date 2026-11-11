@@ -9,6 +9,7 @@ import 'package:dreamflutter/ui/message_widgets.dart';
 import 'package:dreamflutter/ui/run_summary.dart' show RunPanel;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -96,12 +97,13 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton,'查看').last); await shot('correction_$color');
       await tester.tap(find.text('关闭').last); await wait();
       agent.quoteInComposer('第二组在高温时波动稍大'); agent.setRunPanelOpen(true); await shot('changes_quote_$color');
-      await tester.tap(find.widgetWithText(ListTile,'report.md')); await shot('diff_$color');
-      await tester.tap(find.text('关闭').last); await wait();
+      await tester.tap(find.text('report.md').last); await shot('diff_$color');
+      await tester.tap(find.text('现在的内容')); await shot('panel_preview_$color');
+      await tester.tap(find.byTooltip('回到这个对话')); await wait();
+      await tester.tap(find.text('report.md').last, buttons: kSecondaryButton); await shot('file_menu_$color');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape); await wait();
       await tester.tap(find.text('提交这些改动')); await shot('git_confirm_fixture_$color');
       await tester.tap(find.text('取消').last); await wait();
-      // T-90: a modified file is listed only under 改了的文件, so a preview exists only for generated files.
-      if (find.byTooltip('预览').evaluate().isNotEmpty) { await tester.tap(find.byTooltip('预览').first); await shot('preview_$color'); await tester.tap(find.text('关闭').last); await wait(); }
       agent.setRunPanelOpen(false); agent.clearComposerQuote(); await wait();
       pi.extraResponses['get_session_stats'] = {'tokens':{'total':176000},'contextUsage':{'tokens':176000,'contextWindow':200000,'percent':88}};
       pi.emit({'type':'session_info_changed'}); await wait(); expect(find.text('上下文已用 88%'),findsOneWidget); await shot('context_warning_$color');
@@ -115,7 +117,9 @@ void main() {
       agent.setRunPanelOpen(false); await wait();
       await tester.enterText(find.byKey(const ValueKey('sidebar-search')),'实验'); await tester.pump(const Duration(milliseconds:350)); await shot('search_$color');
       await tester.tap(find.byTooltip('清除搜索')); await wait();
-      await tester.tap(find.text('回收站')); await shot('recycle_$color'); await tester.tap(find.text('关闭').last); await wait();
+      // 0.8.2: 已归档 and 回收站 are in 设置 › 归档/回收.
+      agent.showSection(AppSection.settings); await wait(); await tester.tap(find.byKey(const ValueKey('settings-nav-归档/回收'))); await shot('recycle_$color');
+      agent.showSection(AppSection.chat); await wait();
       // Actual protocol events drive the live states, never a pretend progress timer.
       pi.startRun('再检查一下温度记录。');
       final thinking = <String,dynamic>{'role':'assistant','content':[{'type':'thinking','thinking':'逐项核对温度与测量时间。'}],'timestamp':now+1000};

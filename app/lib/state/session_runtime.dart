@@ -177,6 +177,10 @@ class SessionRuntime extends ChangeNotifier {
   /// Last time this session did or received something; drives idle cleanup.
   DateTime lastActivity;
 
+  /// Last time a message was sent or a reply came in (0.8.2: orders the
+  /// sidebar; opening a conversation must not move it).
+  DateTime? lastMessageAt;
+
   bool get isRunning => transcript.isRunning;
   bool get isReady => status == ConnectionStatus.ready;
   bool get isDisposed => _disposed;
@@ -214,6 +218,7 @@ class SessionRuntime extends ChangeNotifier {
     if (_disposed) return;
     transcript.clear();
     pendingDialogs.clear();
+    lastMessageAt = null;
     status = ConnectionStatus.starting;
     statusDetail = '';
     _notifyNow();
@@ -355,6 +360,7 @@ class SessionRuntime extends ChangeNotifier {
     final changed = transcript.apply(event);
     switch (event) {
       case AgentStartEvent():
+        lastMessageAt = _clock();
         _notifyNow();
       case AgentSettledEvent():
         // A run that ended cannot be waiting for an answer any more.
@@ -369,6 +375,7 @@ class SessionRuntime extends ChangeNotifier {
         final client = _client;
         if (client != null) unawaited(_refreshState(client).then((_) => _notifyNow(), onError: (_) {}));
       case TurnEndEvent() || CompactionEndEvent():
+        if (event is TurnEndEvent) lastMessageAt = _clock();
         // Long runs have many turns: keep the context ring current instead of waiting for the end.
         if (changed) _scheduleNotify();
         unawaited(_refreshStats());
@@ -496,6 +503,7 @@ class SessionRuntime extends ChangeNotifier {
     final message = text.trim();
     if (client == null || (message.isEmpty && images.isEmpty) || !isReady) return false;
     _touch();
+    lastMessageAt = _clock();
     sends++;
     _scheduleNotify();
     try {
@@ -808,6 +816,7 @@ class SessionRuntime extends ChangeNotifier {
     try {
       if (!await client.newSession(agentMode: agentMode)) return false;
       transcript.clear();
+      lastMessageAt = null;
       branches = const [];
       await _refreshState(client);
       _touch();
@@ -825,6 +834,7 @@ class SessionRuntime extends ChangeNotifier {
     final client = _client;
     if (client == null || !isReady || isRunning) return false;
     status = ConnectionStatus.starting;
+    lastMessageAt = null;
     _notifyNow();
     try {
       if (!await client.switchSession(path)) return false;

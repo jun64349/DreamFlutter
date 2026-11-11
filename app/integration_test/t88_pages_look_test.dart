@@ -24,7 +24,7 @@ void main(){
     Future<void> navigate(String name)async{if(find.byTooltip('打开侧栏').evaluate().isNotEmpty){await t.tap(find.byTooltip('打开侧栏'));await wait();}await t.tap(find.text(name).last);await wait();}
     Future<void> group(String name)async{
       final dropdown=find.descendant(of:find.byType(SettingsPage),matching:find.byType(DropdownButtonFormField<String>));
-      if(dropdown.evaluate().isNotEmpty){await t.tap(dropdown.first);await wait();await t.tap(find.text(name).last);}else{await t.tap(find.widgetWithText(ListTile,name));}await wait();
+      if(dropdown.evaluate().isNotEmpty){await t.tap(dropdown.first);await wait();await t.tap(find.text(name).last);}else{await t.tap(find.byKey(ValueKey('settings-nav-$name')));}await wait();
     }
     for(final dark in [false,true]){
       final theme=dark?'dark':'light';await f.agent.setThemeMode(dark?ThemeMode.dark:ThemeMode.light);

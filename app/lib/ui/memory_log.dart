@@ -8,6 +8,7 @@ import '../state/memory_page_model.dart';
 import '../state/memory_ui.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'settings_layout.dart' show CardSurface;
 import 'motion.dart';
 
 class MemoryLog extends StatefulWidget {
@@ -148,7 +149,7 @@ class _MemoryLogState extends State<MemoryLog> {
           ),
         for (final day in days) ...[
           Padding(
-            padding: const EdgeInsets.only(top: 24, bottom: 10),
+            padding: const EdgeInsets.only(top: 22, bottom: 8, left: 4),
             child: Text(
               day,
               style: context.text.titleSmall?.copyWith(
@@ -156,12 +157,18 @@ class _MemoryLogState extends State<MemoryLog> {
               ),
             ),
           ),
-          MotionRows(key: ValueKey(day), children: [for (final entry in memoryRows(
-            _days.where((d) => d['day'] == day).firstOrNull?['entries'],
-          ))
-            KeyedSubtree(key: ValueKey(entry['opId']), child: _entry(entry)),
-          for (final boundary in _boundaries.where((b) => _day(b) == day))
-            KeyedSubtree(key: ValueKey('boundary-${boundary['id']}'), child: _boundary(boundary)),]),
+          // 0.8.2: a day is one card, its entries between hairlines.
+          CardSurface(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              child: MotionRows(key: ValueKey(day), children: [for (final (i, entry) in memoryRows(
+                _days.where((d) => d['day'] == day).firstOrNull?['entries'],
+              ).indexed)
+                KeyedSubtree(key: ValueKey(entry['opId']), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [if (i > 0) Divider(height: 1, thickness: 0.5, color: context.colors.border), _entry(entry)])),
+              for (final boundary in _boundaries.where((b) => _day(b) == day))
+                KeyedSubtree(key: ValueKey('boundary-${boundary['id']}'), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Divider(height: 1, thickness: 0.5, color: context.colors.border), _boundary(boundary)])),]),
+            ),
+          ),
         ],
         if (_more)
           Align(
@@ -194,25 +201,33 @@ class _MemoryLogState extends State<MemoryLog> {
         : '改了';
     return Padding(
       key: ValueKey('memory-log-entry-${entry['opId']}'),
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          SizedBox(
-            width: 68,
+          Container(
+            width: 52,
+            alignment: Alignment.center,
+            margin: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            decoration: BoxDecoration(
+              color: (label == '记住了' ? context.colors.success : label == '改了' ? context.colors.ochre : context.colors.muted).withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(5),
+            ),
             child: Text(
               label,
-              style: context.text.bodySmall?.copyWith(
-                color: label == '记住了'
-                    ? context.colors.success
-                    : context.colors.muted,
+              style: context.text.labelSmall?.copyWith(
+                fontSize: 11.5,
+                color: label == '记住了' ? context.colors.success : label == '改了' ? context.colors.ochre : context.colors.muted,
               ),
             ),
           ),
           Expanded(
             child: Text(
               (after['content'] ?? before['content'] ?? '一条记忆') as String,
-              style: context.text.bodyMedium?.copyWith(height: 1.6),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: context.text.bodyMedium?.copyWith(height: 1.55),
             ),
           ),
           if (entry['undoable'] == true)

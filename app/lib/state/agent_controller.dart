@@ -255,6 +255,12 @@ class AgentController extends ChangeNotifier {
   Stream<String> get conversationActions => _conversationActions.stream;
   void requestConversationAction(String action) => _conversationActions.add(action);
   final entryTarget = ValueNotifier<String?>(null);
+
+  /// A file is open in the right panel: it widens, and the conversation makes room (0.8.2).
+  final panelPreviewing = ValueNotifier<bool>(false);
+
+  /// How wide the right panel is drawn: wider while it previews a file.
+  double get shownPanelWidth => panelPreviewing.value && panelWidth < 520 ? 520 : panelWidth;
   bool windowFocused = true;
   String? _presenceSignature;
   void setWindowFocused(bool focused) {
@@ -510,7 +516,8 @@ class AgentController extends ChangeNotifier {
         isFork: diskSummary?.parentSession != null,
         path: path,
         title: runtime.isPristine && disk != null ? disk.title : runtime.title,
-        modifiedAt: disk == null || runtime.lastActivity.isAfter(disk.modifiedAt) ? runtime.lastActivity : disk.modifiedAt,
+        // Opening a conversation must not move it: only a message does (0.8.2).
+        modifiedAt: _listTime(disk?.modifiedAt, runtime),
         isActive: isActive,
         isRunning: runtime.isRunning,
         hasUnseenResult: _unseen.contains(_key(path)),
@@ -520,6 +527,12 @@ class AgentController extends ChangeNotifier {
       );
     }
     return byPath.values.toList()..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
+  }
+
+  static DateTime _listTime(DateTime? disk, SessionRuntime runtime) {
+    final message = runtime.lastMessageAt;
+    if (disk == null) return message ?? runtime.lastActivity;
+    return message != null && message.isAfter(disk) ? message : disk;
   }
 
   // --- Lifecycle -----------------------------------------------------------

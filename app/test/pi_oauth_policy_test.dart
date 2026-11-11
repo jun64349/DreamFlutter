@@ -62,7 +62,8 @@ void main() {
     SharedPreferences.setMockInitialValues({}); final root = Directory.systemTemp.createTempSync('df-t70-chatgpt-'), backend = FakeBackend();
     backend.handlers['gateway.channels'] = (_) => <Json>[];
     backend.handlers['piMigration.oauthStart'] = (_) => {'id': 't70-flow'};
-    backend.handlers['piMigration.oauthStatus'] = (_) => {'id': 't70-flow', 'provider': chatGptPiProviderId, 'status': 'running', 'prompt': {'type': 'manual_code', 'message': 'Synthetic code'}};
+    backend.handlers['piMigration.oauthStatus'] = (_) => {'id': 't70-flow', 'provider': chatGptPiProviderId, 'status': 'running', 'event': {'type': 'auth_url', 'url': 'https://auth.example.invalid/t70'}, 'prompt': {'type': 'manual_code', 'message': 'Synthetic code'}};
+    final opened = <Uri>[]; PiOAuthDialog.openBrowser = (url) async { opened.add(url); return true; };
     backend.handlers['piMigration.oauthCancel'] = (_) { backend.push({'event': 'piMigration.oauth', 'login': {'id': 't70-flow', 'provider': chatGptPiProviderId, 'status': 'cancelled'}}); return {'ok': true}; };
     backend.handlers['piMigration.oauthAnswer'] = (_) { backend.push({'event': 'piMigration.oauth', 'login': {'id': 't70-flow', 'provider': chatGptPiProviderId, 'status': 'done'}}); return {'ok': true}; };
     backend.handlers['piMigration.oauthLogout'] = (_) => {'ok': true};
@@ -70,12 +71,16 @@ void main() {
     addTearDown(() { agent.dispose(); root.deleteSync(recursive: true); }); await agent.refreshGateway();
     await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: const Scaffold(body: SingleChildScrollView(child: ChannelList()))))); await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('登录 ChatGPT')); await tester.pumpAndSettle(); await tester.tap(find.text('登录 ChatGPT')); await tester.pumpAndSettle(); expect(backend.callsTo('piMigration.oauthStart'), isEmpty);
-    await tester.tap(find.widgetWithText(FilledButton, '登录 ChatGPT')); await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '登录 ChatGPT')); await tester.pump(); await tester.pump(const Duration(milliseconds: 300));
+    // 0.8.2: the login page opens in the browser by itself; no raw link or English steps.
+    expect(opened.single.toString(), 'https://auth.example.invalid/t70'); expect(find.textContaining('auth.example.invalid'), findsNothing); expect(find.textContaining('Synthetic code'), findsNothing);
+    expect(find.textContaining('已在浏览器里打开'), findsOneWidget); expect(find.byType(TextField), findsNothing, reason: 'pasting the address is a folded fallback');
     await tester.tap(find.text('取消登录')); await tester.pumpAndSettle(); expect(backend.callsTo('piMigration.oauthCancel').single['id'], 't70-flow');
-    await tester.tap(find.widgetWithText(FilledButton, '登录 ChatGPT')); await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '登录 ChatGPT')); await tester.pump(); await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('登录完没有自动回来？')); await tester.pump(); await tester.pump(const Duration(milliseconds: 300));
     await tester.enterText(find.byType(TextField), 'T70_SYNTHETIC_CODE'); await tester.tap(find.text('继续登录')); await tester.pumpAndSettle();
-    expect(find.text('状态：done'), findsOneWidget); expect(find.text('T70_SYNTHETIC_CODE'), findsNothing);
-    await tester.tap(find.text('退出登录')); await tester.pumpAndSettle(); expect(find.text('状态：logged_out'), findsOneWidget);
+    expect(find.text('已登录 ChatGPT'), findsOneWidget); expect(find.text('T70_SYNTHETIC_CODE'), findsNothing); expect(find.widgetWithText(FilledButton, '完成'), findsOneWidget);
+    await tester.tap(find.text('退出登录')); await tester.pumpAndSettle(); expect(find.text('已退出登录'), findsOneWidget);
     expect(backend.callsTo('piMigration.oauthStart').map((p) => p['provider']), [chatGptPiProviderId, chatGptPiProviderId]);
     expect(backend.callsTo('piMigration.oauthLogout').single['provider'], chatGptPiProviderId); expect(tester.takeException(), isNull);
   });

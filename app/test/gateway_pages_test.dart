@@ -150,7 +150,7 @@ void main() {
 
     await tester.tap(find.byTooltip(RegExp('^设置')));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ListTile,'模型'));
+    await tester.tap(find.byKey(const ValueKey('settings-nav-模型')));
     await tester.pumpAndSettle();
     expect(find.text('智谱套餐'), findsOneWidget);
     expect(find.textContaining('额度用完'), findsOneWidget, reason: 'a resting channel says why and until when');
@@ -180,7 +180,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('每天花费上限'), findsOneWidget);
     expect(find.text('每月花费上限'), findsOneWidget);
-    expect(find.text('工作台 · 高级'), findsWidgets);
+    expect(find.text('工作台 › 高级'), findsWidgets);
     await tester.enterText(find.widgetWithText(TextField, '搜索设置'), '没有这一项');
     await tester.pumpAndSettle();
     expect(find.textContaining('没有找到'), findsOneWidget);

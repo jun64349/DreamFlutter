@@ -87,13 +87,15 @@ void main() {
     expect(find.byType(ChannelManagementPage), findsOneWidget);
     expect(find.text('Imported'), findsOneWidget);
     await tester.ensureVisible(find.text('管理 ChatGPT 登录')); await tester.tap(find.text('管理 ChatGPT 登录')); await tester.pumpAndSettle();
-    await tester.tap(find.text('重新登录')); await tester.pumpAndSettle();
-    expect(find.text('https://example.invalid/login'), findsOneWidget);
+    final opened = <Uri>[]; PiOAuthDialog.openBrowser = (url) async { opened.add(url); return true; };
+    await tester.tap(find.text('重新登录')); await tester.pump(); await tester.pump(const Duration(milliseconds: 300));
+    expect(opened.single.toString(), 'https://example.invalid/login', reason: '0.8.2: the browser opens by itself'); expect(find.text('https://example.invalid/login'), findsNothing);
+    await tester.tap(find.text('登录完没有自动回来？')); await tester.pump(); await tester.pump(const Duration(milliseconds: 300));
     await tester.enterText(find.byType(TextField), 'T66_SYNTHETIC_CODE'); await tester.tap(find.text('继续登录')); await tester.pumpAndSettle();
-    expect(find.text('状态：done'), findsOneWidget);
+    expect(find.text('已登录 ChatGPT'), findsOneWidget);
     expect(find.text('T66_SYNTHETIC_CODE'), findsNothing);
     await tester.tap(find.text('退出登录')); await tester.pumpAndSettle();
-    expect(backend.callsTo('piMigration.oauthLogout'), hasLength(1)); expect(find.text('状态：logged_out'), findsOneWidget);
+    expect(backend.callsTo('piMigration.oauthLogout'), hasLength(1)); expect(find.text('已退出登录'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
