@@ -4,11 +4,12 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, it } from "node:test";
 import { type Api, type AssistantMessage, fauxAssistantMessage, type FauxResponseFactory, type Model } from "@earendil-works/pi-ai";
 import { levelMap, readModelList } from "../src/gateway/catalog.ts";
-import { classifyFailure } from "../src/gateway/classify.ts";
-import { type ChannelStatus, channelProvider, Gateway, type Transport } from "../src/gateway/gateway.ts";
+import { classifyFailure, resetAtOf } from "../src/gateway/classify.ts";
+import { type ChannelStatus, channelProvider, defaultCommon, type Transport, turnHasImage } from "../src/gateway/gateway.ts";
 import { HealthBook } from "../src/gateway/health.ts";
 import { platformForUrl } from "../src/gateway/platforms.ts";
 import { readQuota } from "../src/gateway/quota.ts";
+import { type CandidateInfo, type GroupEntry, type ModelGroup, pickEntry } from "../src/gateway/router.ts";
 import { settledCount, startTestCore, type TestCore } from "./harness.ts";
 
 const fail = (message: string): AssistantMessage => fauxAssistantMessage("", { stopReason: "error", errorMessage: message });
@@ -27,6 +28,69 @@ describe("gateway: failure kinds", () => {
 		assert.equal(classifyFailure("500 Internal Server Error; key=****a401"), "server", "nor a redacted key's last characters");
 		assert.equal(classifyFailure("bad request (request id req_f401b9)"), "other", "nor codes inside request ids");
 		assert.equal(classifyFailure('{"error":{"code":"1316"}}'), "quota");
+	});
+
+	it("takes ChatGPT's usage limit as a used-up plan and reads when it comes back (0.8.3)", () => {
+		const message = "You have hit your ChatGPT usage limit (plus plan). Try again in ~42 min.";
+		assert.equal(classifyFailure(message), "quota");
+		assert.equal(classifyFailure("The usage limit has been reached"), "quota");
+		assert.equal(resetAtOf(message, 1_000), 1_000 + 42 * 60_000);
+		assert.equal(resetAtOf('{"resets_at": 1767225600}', 0), 1_767_225_600_000);
+		assert.equal(resetAtOf("402 Insufficient Balance", 0), undefined);
+	});
+});
+
+describe("gateway: common models (0.8.3)", () => {
+	it("shows every model of a short list, and the newest chat models of a long one", () => {
+		assert.equal(defaultCommon({ models: [{ id: "a" }, { id: "b" }] }), null);
+		const ids = ["gpt-4", "gpt-4o", "gpt-4o-2024-08-06", "gpt-4.1", "gpt-4.1-mini", "gpt-5", "gpt-5-mini", "gpt-5.5", "gpt-5.5-pro", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "gpt-realtime-2.1", "daybreak-blue"];
+		assert.deepEqual(defaultCommon({ models: ids.map((id) => ({ id })) }), ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol"]);
+	});
+});
+
+describe("gateway: pictures in a group (0.8.3)", () => {
+	it("knows when this turn carries a picture", () => {
+		const image = { type: "image", data: "x", mimeType: "image/png" };
+		assert.equal(turnHasImage([{ role: "user", content: [image] }]), true);
+		assert.equal(turnHasImage([{ role: "user", content: [image] }, { role: "assistant", content: [] }, { role: "user", content: "再问" }]), false, "an earlier turn's picture does not count");
+		assert.equal(turnHasImage(undefined), false);
+	});
+});
+
+describe("gateway: router", () => {
+	const entry = (channel: string, priority = 0, weight = 0): GroupEntry => ({ channel, model: "m", priority, weight });
+	const group = (entries: GroupEntry[], allowPaidOverflow = true): ModelGroup => ({ id: "g", name: "主力", entries, allowPaidOverflow });
+	const ok = (kind: CandidateInfo["kind"] = "payg"): CandidateInfo => ({ kind, name: "x", unavailable: null });
+
+	it("goes in order, stays on the session's entry, and moves on after a failure", () => {
+		const g = group([entry("a", 0), entry("b", 1)]);
+		const first = pickEntry(g, () => ok(), undefined, undefined);
+		assert.ok(first.ok && first.entry.channel === "a");
+		const sticky = pickEntry(g, () => ok(), { channel: "b", model: "m" }, undefined);
+		assert.ok(sticky.ok && sticky.entry.channel === "b", "a session stays where it is while that works");
+		const moved = pickEntry(g, () => ok(), { channel: "a", model: "m" }, { channel: "a", model: "m" });
+		assert.ok(moved.ok && moved.entry.channel === "b" && moved.switchedFrom?.channel === "a");
+	});
+
+	it("skips resting channels and splits a tier by weight only when weights are set", () => {
+		const resting: CandidateInfo = { kind: "payg", name: "A", unavailable: { kind: "rate_limit", message: "", until: Date.now() + 60_000 } };
+		const g = group([entry("a", 0), entry("b", 0), entry("c", 1)]);
+		const decision = pickEntry(g, (e) => (e.channel === "a" ? resting : ok()), undefined, undefined);
+		assert.ok(decision.ok && decision.entry.channel === "b");
+		const weighted = group([entry("a", 0, 1), entry("b", 0, 3)]);
+		assert.ok((pickEntry(weighted, () => ok(), undefined, undefined, () => 0.1) as { entry: GroupEntry }).entry.channel === "a");
+		assert.ok((pickEntry(weighted, () => ok(), undefined, undefined, () => 0.5) as { entry: GroupEntry }).entry.channel === "b");
+	});
+
+	it("keeps plan groups off paid channels when told to, and says why", () => {
+		const usedUp: CandidateInfo = { kind: "plan", name: "智谱", unavailable: { kind: "quota", message: "", until: Date.now() + 3_600_000 } };
+		const info = (e: GroupEntry) => (e.channel === "plan" ? usedUp : { kind: "payg" as const, name: "DeepSeek", unavailable: null });
+		const allowed = pickEntry(group([entry("plan", 0), entry("paid", 1)]), info, undefined, undefined);
+		assert.ok(allowed.ok && allowed.entry.channel === "paid");
+		const blocked = pickEntry(group([entry("plan", 0), entry("paid", 1)], false), info, undefined, undefined);
+		assert.ok(!blocked.ok);
+		assert.match(blocked.message, /智谱：额度用完，.*恢复/);
+		assert.match(blocked.message, /DeepSeek：本组不允许套餐用完后转到付费渠道/);
 	});
 });
 
@@ -64,13 +128,13 @@ describe("gateway: in a session", () => {
 		return t;
 	}
 
-	async function channel(name: string, platform: string, keys: string[]): Promise<string> {
+	async function channel(name: string, platform: string, keys: string[], input?: string[]): Promise<string> {
 		const result = (await t!.core.call("gateway.saveChannel", {
 			name,
 			platform,
 			api: "openai-completions",
 			baseUrl: "https://example.invalid/v1",
-			models: [{ id: "m", contextWindow: 200_000, maxTokens: 8_192 }],
+			models: [{ id: "m", contextWindow: 200_000, maxTokens: 8_192, ...(input ? { input } : {}) }],
 			keys: keys.map((secret) => ({ secret })),
 		})) as { id: string };
 		return result.id;
@@ -87,26 +151,67 @@ describe("gateway: in a session", () => {
 		return ends.at(-1)!.message as AssistantMessage;
 	}
 
-	it("takes a plan's used-up window as a quota, and rotates a channel's keys between sessions", async () => {
+	it("moves a conversation to the next channel when the first one's money runs out, and stays there", async () => {
+		await start();
+		const plan = await channel("套餐 A", "glm-coding", ["key-a"]);
+		const paid = await channel("按量 B", "deepseek", ["key-b"]);
+		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: plan, model: "m", priority: 0 }, { channel: paid, model: "m", priority: 1 }] });
+		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
+
+		const asked: { provider: string; key: string | undefined }[] = [];
+		const reply: FauxResponseFactory = (_context, options, _state, model) => {
+			asked.push({ provider: model.provider, key: options?.apiKey });
+			return model.provider === channelProvider(plan) ? fail("402 Insufficient Balance") : fauxAssistantMessage("来自 B");
+		};
+		t!.respond(reply, reply);
+		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await ask("s1", "你好");
+
+		assert.deepEqual(asked, [
+			{ provider: channelProvider(plan), key: "key-a" },
+			{ provider: channelProvider(paid), key: "key-b" },
+		]);
+		const answer = lastAssistant("s1");
+		assert.equal(answer.stopReason, "stop");
+		assert.equal(answer.content.map((c) => (c.type === "text" ? c.text : "")).join(""), "来自 B");
+		const switched = t!.messages.find((m) => m.event === "gateway.switched");
+		assert.ok(switched, "the window hears about the switch");
+		assert.match(String(switched.from), /套餐 A/);
+		assert.equal(switched.toPaid, true);
+
+		const rows = t!.core.db.all<{ channel: string; ok: number; error_kind: string | null }>("SELECT channel, ok, error_kind FROM gateway_requests ORDER BY id");
+		assert.deepEqual(rows.map((r) => ({ ...r })), [
+			{ channel: plan, ok: 0, error_kind: "balance" },
+			{ channel: paid, ok: 1, error_kind: null },
+		]);
+		const channels = (await t!.core.call("gateway.channels", {})) as { id: string; unavailable: { kind: string } | null }[];
+		assert.equal(channels.find((c) => c.id === plan)?.unavailable?.kind, "balance");
+
+		t!.respond(reply);
+		await ask("s1", "再问一次");
+		assert.equal(asked.length, 3);
+		assert.equal(asked[2]!.provider, channelProvider(paid), "the next question stays on the channel that works");
+	});
+
+	it("takes a plan's used-up window as a quota, and rotates a channel's keys", async () => {
 		await start();
 		const plan = await channel("套餐 A", "glm-coding", ["key-a"]);
 		const paid = await channel("按量 B", "deepseek", ["key-b1", "key-b2"]);
-		t!.core.settings.update({ defaultModel: `${channelProvider(plan)}/m` });
-		t!.respond(fail('429 {"error":{"code":"1316","message":"已达到 5 小时使用上限"}}'));
+		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: plan, model: "m", priority: 0 }, { channel: paid, model: "m", priority: 1 }] });
+		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
+		const keys: (string | undefined)[] = [];
+		const reply: FauxResponseFactory = (_context, options, _state, model) => {
+			keys.push(options?.apiKey);
+			return model.provider === channelProvider(plan) ? fail('429 {"error":{"code":"1316","message":"已达到 5 小时使用上限"}}') : fauxAssistantMessage("ok");
+		};
+		t!.respond(reply, reply, reply);
 		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await t!.core.call("slot.open", { slotId: "s2", cwd: t!.workspace }, t!.client);
 		await ask("s1", "一");
+		await ask("s2", "二");
 		const channels = (await t!.core.call("gateway.channels", {})) as { id: string; unavailable: { kind: string } | null }[];
 		assert.equal(channels.find((c) => c.id === plan)?.unavailable?.kind, "quota");
-
-		t!.core.settings.update({ defaultModel: `${channelProvider(paid)}/m` });
-		const keys: (string | undefined)[] = [];
-		const reply: FauxResponseFactory = (_context, options) => { keys.push(options?.apiKey); return fauxAssistantMessage("ok"); };
-		t!.respond(reply, reply);
-		await t!.core.call("slot.open", { slotId: "s2", cwd: t!.workspace }, t!.client);
-		await t!.core.call("slot.open", { slotId: "s3", cwd: t!.workspace }, t!.client);
-		await ask("s2", "二");
-		await ask("s3", "三");
-		assert.deepEqual(keys, ["key-b1", "key-b2"], "the second session gets the channel's next key");
+		assert.deepEqual(keys, ["key-a", "key-b1", "key-b2"], "the second session gets the channel's next key");
 	});
 
 	it("leaves the error alone when a channel's model was picked directly", async () => {
@@ -120,24 +225,95 @@ describe("gateway: in a session", () => {
 		assert.equal(t!.core.db.all("SELECT id FROM gateway_requests").length, 1, "and does not retry a balance error");
 	});
 
-	it("retired model groups: settings and old conversations move to the group's first model that still exists (0.8.1)", async () => {
+	it("retries with the channel's other key when its model was picked directly (0.8.1, kept in 0.8.3)", async () => {
 		await start();
-		const gone = await channel("已删除", "deepseek", ["key-x"]);
-		const kept = await channel("还在", "deepseek", ["key-y"]);
-		const entries = JSON.stringify([{ channel: kept, model: "m", priority: 1, weight: 0 }, { channel: gone, model: "m", priority: 0, weight: 0 }]);
-		t!.core.db.run("INSERT INTO gateway_groups(id, name, entries, allow_paid_overflow, created_at, sort) VALUES('main', '主力', ?, 1, 1, 0)", entries);
-		await t!.core.call("gateway.removeChannel", { id: gone });
-		t!.core.settings.update({ largeTaskModel: "dreamflutter/main", smallTaskModel: "dreamflutter/missing", modelOverrides: { title: "dreamflutter/main" }, fallbackModels: ["faux/faux-1"] });
+		const paid = await channel("按量 B", "deepseek", ["key-b1", "key-b2"]);
+		t!.core.settings.update({ defaultModel: `${channelProvider(paid)}/m` });
+		const keys: (string | undefined)[] = [];
+		const reply: FauxResponseFactory = (_context, options) => { keys.push(options?.apiKey); return options?.apiKey === "key-b1" ? fail("402 Insufficient Balance") : fauxAssistantMessage("ok"); };
+		t!.respond(reply, reply);
+		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await ask("s1", "你好");
+		assert.deepEqual(keys, ["key-b1", "key-b2"]);
+		assert.equal(lastAssistant("s1").stopReason, "stop");
+	});
+
+	it("sends a turn with a picture only to a member that can see it (0.8.3)", async () => {
+		await start();
+		const blind = await channel("只看字", "deepseek", ["key-a"], ["text"]);
+		const sees = await channel("能看图", "deepseek", ["key-b"], ["text", "image"]);
+		await t!.core.call("gateway.saveGroup", { id: "pics", name: "看图", entries: [{ channel: blind, model: "m", priority: 0 }, { channel: sees, model: "m", priority: 1 }] });
+		t!.core.settings.update({ defaultModel: "dreamflutter/pics" });
+		const asked: string[] = [];
+		const reply: FauxResponseFactory = (_context, _options, _state, model) => { asked.push(model.provider); return fauxAssistantMessage("ok"); };
+		t!.respond(reply, reply);
+		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await ask("s1", "只是文字");
+		const before = settledCount(t!.records("s1"));
+		await t!.send("s1", { id: "p-pic", type: "prompt", message: "看看这张", images: [{ type: "image", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", mimeType: "image/png" }] });
+		await t!.waitFor(() => settledCount(t!.records("s1")) > before, 15_000);
+		assert.deepEqual(asked, [channelProvider(blind), channelProvider(sees)]);
+		const switched = t!.messages.find((m) => m.event === "gateway.switched");
+		assert.match(String(switched?.reason), /看不了图/);
+	});
+
+	it("starts a new conversation on the group's first member once it is back, but keeps a running one where it is (0.8.3)", async () => {
+		await start();
+		const plan = await channel("套餐 A", "glm-coding", ["key-a"]);
+		const paid = await channel("按量 B", "deepseek", ["key-b"]);
+		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: plan, model: "m", priority: 0 }, { channel: paid, model: "m", priority: 1 }] });
+		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
+		const asked: string[] = [];
+		let planDown = true;
+		const reply: FauxResponseFactory = (_context, _options, _state, model) => { asked.push(model.provider); return model.provider === channelProvider(plan) && planDown ? fail("You have hit your ChatGPT usage limit (plus plan). Try again in ~1 min.") : fauxAssistantMessage("ok"); };
+		t!.respond(reply, reply, reply, reply);
+		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await ask("s1", "一");
+		const channels = (await t!.core.call("gateway.channels", {})) as { id: string; unavailable: { kind: string; until?: number } | null }[];
+		assert.equal(channels.find((c) => c.id === plan)?.unavailable?.kind, "quota");
+		planDown = false;
+		await t!.core.call("gateway.resetHealth", { channel: plan });
+		await ask("s1", "二");
+		await t!.core.call("slot.open", { slotId: "s2", cwd: t!.workspace }, t!.client);
+		await ask("s2", "新对话");
+		assert.deepEqual(asked, [channelProvider(plan), channelProvider(paid), channelProvider(paid), channelProvider(plan)]);
+	});
+
+	it("lets the user choose a channel's common models, and go back to the default", async () => {
+		await start();
+		const id = await channel("按量 B", "deepseek", ["key-b"]);
+		const common = async () => ((await t!.core.call("gateway.channels", {})) as { id: string; common: string[] | null }[]).find((c) => c.id === id)!.common;
+		assert.equal(await common(), null);
+		await t!.core.call("gateway.setCommonModels", { channel: id, models: ["m", "gone"] });
+		assert.deepEqual(await common(), ["m"], "a model the channel no longer has is not listed");
+		await t!.core.call("gateway.setCommonModels", { channel: id, models: null });
+		assert.equal(await common(), null);
+		await assert.rejects(() => t!.core.call("gateway.setCommonModels", { channel: id, models: "m" }));
+	});
+
+	it("explains why nothing is available instead of failing quietly", async () => {
+		await start();
+		const plan = await channel("套餐 A", "glm-coding", ["key-a"]);
+		const paid = await channel("按量 B", "deepseek", ["key-b"]);
+		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: plan, model: "m", priority: 0 }, { channel: paid, model: "m", priority: 1 }], allowPaidOverflow: false });
+		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
+		const quota: FauxResponseFactory = () => fail('429 {"error":{"code":"1316","message":"已达到 5 小时使用上限"}}');
+		t!.respond(quota);
+		await t!.core.call("slot.open", { slotId: "s1", cwd: t!.workspace }, t!.client);
+		await ask("s1", "你好");
+		const error = lastAssistant("s1").errorMessage ?? "";
+		assert.match(error, /套餐 A：额度用完/);
+		assert.match(error, /按量 B：本组不允许套餐用完后转到付费渠道/);
+	});
+
+	it("turns the old fallback chain into the group 「自动」 under the same model key", async () => {
+		await start();
+		t!.core.settings.update({ fallbackModels: ["faux/faux-1", "df-gone/m"] });
 		t = await t!.reopen();
-		const settings = t.core.settings.get();
-		assert.equal(settings.largeTaskModel, `${channelProvider(kept)}/m`, "the first entry whose channel still exists");
-		assert.equal(settings.smallTaskModel, null, "a group that is gone falls back to the default model");
-		assert.equal((settings.modelOverrides as Record<string, string>).title, `${channelProvider(kept)}/m`);
-		const gateway = t.core.module(Gateway)!;
-		assert.equal(gateway.retiredGroupTarget("dreamflutter/main"), `${channelProvider(kept)}/m`);
-		assert.equal(gateway.retiredGroupTarget("dreamflutter/auto"), "faux/faux-1", "the old fallback chain was group 「自动」");
-		assert.equal(gateway.retiredGroupTarget(`${channelProvider(kept)}/m`), undefined, "not a group reference");
-		await assert.rejects(() => t!.core.call("gateway.saveGroup", { name: "x", entries: [] }), "groups can no longer be made");
+		const groups = (await t.core.call("gateway.groups", {})) as { id: string; name: string; entries: { channel: string; model: string }[] }[];
+		const auto = groups.find((g) => g.id === "auto");
+		assert.equal(auto?.name, "自动");
+		assert.deepEqual(auto?.entries.map((e) => `${e.channel}|${e.model}`), ["pi:faux|faux-1", "gone|m"]);
 	});
 
 	it("sends OpenCode Go its conversation header, max_tokens and the model's own thinking levels", async () => {
@@ -366,8 +542,8 @@ describe("gateway: review fixes", () => {
 			models: [{ id: "m" }],
 			keys: [{ secret: "sk-spare-2222cccc" }],
 		})) as { id: string };
-		void other;
-		t!.core.settings.update({ defaultModel: `${channelProvider(id)}/m` });
+		await t!.core.call("gateway.saveGroup", { id: "main", name: "主力", entries: [{ channel: id, model: "m", priority: 0 }, { channel: other.id, model: "m", priority: 1 }] });
+		t!.core.settings.update({ defaultModel: "dreamflutter/main" });
 		const asked: (string | undefined)[] = [];
 		const reply: FauxResponseFactory = (_context, options) => {
 			asked.push(options?.apiKey);

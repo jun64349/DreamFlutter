@@ -47,7 +47,7 @@ test("Pi migration preserves four credential kinds, metadata and cc-switch origi
 		assert.equal(t.core.settings.get().defaultModel, ref); assert.equal(t.core.settings.get().visionModel, ref); assert.equal(t.core.settings.get().modelContextWindows[ref], 88000);
 		assert.notEqual(t.core.settings.get().auxModel, "command/model/a"); assert.equal(t.core.settings.get().memoryModel, `${env.provider}/model/a`);
 		assert.equal(t.core.settings.get().fallbackModels[1], "unknown/missing"); assert.ok(status.unresolved?.includes("unknown/missing"));
-		const retired = JSON.parse(t.core.db.get<{ entries: string }>("SELECT entries FROM gateway_groups WHERE id='g'")!.entries); assert.equal(retired[0].channel, migrated.id); assert.equal(retired[0].priority, 3);
+		assert.equal(t.gateway.groups()[0]!.entries[0]!.channel, migrated.id); assert.equal(t.gateway.groups()[0]!.entries[0]!.priority, 3);
 		assert.equal(t.migration.resolveReference("plain/model/a", 0), ref);
 		assert.equal(t.migration.resolveReference("plain/model/a"), "plain/model/a");
 		const config = readPiJson(join(t.agentDir, "models.json")), serialized = readFileSync(join(t.agentDir, "models.json"), "utf8");
@@ -127,7 +127,7 @@ test("Pi generated configuration loads through public SDK and bundled CLI and ol
 	} finally { await t.cleanup(); }
 });
 
-test("0.8.1: an old conversation that chose a model group reopens on the group's first model, or the default when the group is gone", { skip: process.platform !== "win32" }, async () => {
+test("0.8.3: a conversation that chose a model group reopens on it, and one whose group was deleted opens on the default model", { skip: process.platform !== "win32" }, async () => {
 	const t = fixture();
 	try {
 		t.put("models.json", { providers: { original: t.provider("T66_SYNTHETIC_GROUP_KEY") } });
@@ -135,9 +135,8 @@ test("0.8.1: an old conversation that chose a model group reopens on the group's
 		const chose = (id: string) => { const s = SessionManager.create(t.workspace, t.sessionDir); s.appendModelChange("dreamflutter", id); s.appendMessage({ role: "user", content: "synthetic history", timestamp: Date.now() }); return s.getSessionFile()!; };
 		const kept = chose("g"), gone = chose("deleted");
 		const status = await t.migration.migrate() as ReturnType<PiMigration["status"]>; assert.equal(status.status, "done", status.error);
-		const channel = t.gateway.channels().find((c) => c.name === "original")!;
 		await t.core.openSlot({ slotId: "kept", cwd: t.workspace, sessionFile: kept });
-		assert.equal(t.core.slots.get("kept")!.session.model?.provider, channel.provider); assert.equal(t.core.slots.get("kept")!.session.model?.id, "model/a");
+		assert.equal(t.core.slots.get("kept")!.session.model?.provider, "dreamflutter"); assert.equal(t.core.slots.get("kept")!.session.model?.id, "g");
 		await t.core.openSlot({ slotId: "gone", cwd: t.workspace, sessionFile: gone });
 		assert.ok(t.core.slots.get("gone"), "a conversation whose group is gone still opens (on the default model)");
 		assert.notEqual(t.core.slots.get("gone")!.session.model?.provider, "dreamflutter");

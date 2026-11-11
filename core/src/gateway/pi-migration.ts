@@ -8,7 +8,7 @@ import { CORE_VERSION, RpcError, requireStr, type Core, type CoreModule } from "
 import { createBackup } from "../backup/export.ts";
 import { redact, rememberSecret } from "../security/redaction.ts";
 import type { Providers } from "../modules/providers.ts";
-import type { Gateway } from "./gateway.ts";
+import { GROUP_PROVIDER, type Gateway } from "./gateway.ts";
 import { catalogModel } from "./catalog.ts";
 import { fileHash, PI_FILES, readPiJson, snapshotFiles, validatePiConfig, writeGenerated, type PiJson } from "./pi-config.ts";
 import { canLoginChannelOAuth } from "./pi-oauth-policy.ts";
@@ -45,13 +45,11 @@ export class PiMigration implements CoreModule {
 		core.restoreSessionModel = (ref, runtime, recordedAt) => {
 			if (this.state.status !== "done") return undefined;
 			gateway.installRuntime(runtime);
-			// 0.8.1: model groups are retired; a conversation that chose one continues with its first model, or the default.
-			const retired = gateway.retiredGroupTarget(ref);
-			if (retired === null) return undefined;
-			if (retired !== undefined) ref = retired;
 			const mapped = this.resolveReference(ref, recordedAt), slash = mapped.indexOf("/");
 			const model = runtime.getModel(mapped.slice(0, slash), mapped.slice(slash + 1));
 			if (model) return model;
+			// A conversation whose model group was deleted opens on the default model (0.8.3).
+			if (mapped.startsWith(`${GROUP_PROVIDER}/`)) return undefined;
 			this.save({ ...this.state, unresolved: [...new Set([...(this.state.unresolved ?? []), ref])] }); this.changed();
 			throw new RpcError("model_unavailable", `旧会话所选模型 ${ref} 当前无法解析；原引用已保留，请在渠道中补全后重新打开会话。`);
 		};

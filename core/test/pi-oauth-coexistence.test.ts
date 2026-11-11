@@ -66,8 +66,11 @@ test("T70b gate: migrated OpenAI API key and ChatGPT OAuth coexist through login
   try {
     await t.login();
     assert.ok(t.gateway.channels().some(c => c.id === "pi:openai" && c.oauth && c.enabled));
+    assert.equal(t.gateway.channels().find(c => c.id === "pi:openai")!.kind, "plan", "0.8.3: a ChatGPT sign-in is a subscription, used before pay-as-you-go channels in a group");
+    t.gateway.saveGroup({ id: "api-key", name: "Synthetic API key", entries: [{ channel: t.mapped, model: t.modelId, priority: 0, weight: 0 }] });
+    t.gateway.saveGroup({ id: "chatgpt", name: "Synthetic ChatGPT", entries: [{ channel: "pi:openai", model: t.modelId, priority: 0, weight: 0 }] });
     t.gateway.installRuntime(t.runtime);
-    for (const provider of [t.apiChannel.provider, "openai"]) { const result = await t.runtime.completeSimple(t.runtime.getModel(provider, t.modelId)!, { messages: [] }, { sessionId: `t70b-${provider}` }); assert.equal(result.stopReason, "stop", result.errorMessage); }
+    for (const group of ["api-key", "chatgpt"]) { const result = await t.runtime.completeSimple(t.runtime.getModel("dreamflutter", group)!, { messages: [] }, { sessionId: `t70b-${group}` }); assert.equal(result.stopReason, "stop", result.errorMessage); }
     assert.deepEqual(t.sent.map(s => [s.route, s.provider, s.credentialMatches]), [["api-key", t.apiChannel.provider, true], ["oauth", "openai", true]]);
     await t.core.call("piMigration.oauthLogout", { provider: "openai" }); t.assertIntact(); assert.equal(t.auth().openai, undefined);
     await t.runtime.completeSimple(t.runtime.getModel(t.apiChannel.provider, t.modelId)!, { messages: [] });

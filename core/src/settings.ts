@@ -49,6 +49,8 @@ export interface CoreSettings {
 	defaultThinking: string | null;
 	/** Per-model context window overrides, keyed by provider/id. */
 	modelContextWindows: Record<string, number>;
+	/** The models of a channel that model lists show, keyed by channel id (0.8.3). Absent = the channel's default. */
+	commonModels: Record<string, string[]>;
 	/** Cheap model for titles, memory extraction and summaries; null = session model. */
 	auxModel: string | null;
 	/** Model (or model group) that describes images for models without vision; null = pick one that can see. */
@@ -117,6 +119,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	sandboxSetupChoice: "later",
 	defaultThinking: null,
 	modelContextWindows: {},
+	commonModels: {},
 	auxModel: null,
 	visionModel: null,
 	fallbackModels: [],
@@ -257,6 +260,8 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 			return value === "local" || value === "deepseek";
 		case "securityPathExceptions":
 			return value !== null && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([cwd, paths]) => cwd.trim().length > 0 && Array.isArray(paths) && paths.every((path) => typeof path === "string" && path.trim().length > 0));
+		case "commonModels":
+			return value !== null && typeof value === "object" && !Array.isArray(value) && Object.values(value).every((ids) => Array.isArray(ids) && ids.every((id) => typeof id === "string" && id.length > 0));
 		case "modelContextWindows":
 			return value !== null && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([id, window]) => id.indexOf("/") > 0 && !id.endsWith("/") && Number.isSafeInteger(window) && window > 0);
 		case "memoryDetail":

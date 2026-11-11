@@ -30,6 +30,10 @@ const QUOTA = new RegExp(
 		codes(1309, 1310, 1316, 1317),
 		"exceeded_current_quota",
 		"usage.?limit.?(?:exceeded|reached)",
+		// ChatGPT sign-in (Pi's Codex provider): "You have hit your ChatGPT usage limit (plus plan). Try again in ~42 min."
+		"hit your [a-z ]{0,20}usage limit",
+		"usage_not_included",
+		"usage limit has been reached",
 		"quota.?exceeded",
 		"insufficient_quota",
 		"使用上限",
@@ -81,6 +85,19 @@ export function classifyFailure(message: string | undefined): FailureKind {
 	if (SERVER.test(text)) return "server";
 	if (NETWORK.test(text)) return "network";
 	return "other";
+}
+
+/**
+ * When a used-up plan comes back, if the message says so: "Try again in ~42 min"
+ * (ChatGPT sign-in), "resets_at": 1767225600 (seconds). Undefined when it does not say.
+ */
+export function resetAtOf(message: string | undefined, now: number): number | undefined {
+	const text = message ?? "";
+	const minutes = /try again in ~?\s*(\d+)\s*min/i.exec(text);
+	if (minutes) return now + Number(minutes[1]) * 60_000;
+	const at = /resets?_at\D{0,4}(\d{10})/i.exec(text);
+	if (at) return Number(at[1]) * 1000;
+	return undefined;
 }
 
 /** A failure that moving to another channel can fix. */
