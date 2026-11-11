@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import { isAbsolute, join, resolve } from "node:path";
@@ -61,6 +61,7 @@ function utf8From(buffer: Buffer): string {
  */
 export class OutputStream {
 	private chunks: Buffer[] = [];
+	private readonly listeners = new Set<(chunk: Buffer) => void>();
 	private memory = 0;
 	/** Bytes received so far; [dropped] of them are no longer in memory. */
 	total = 0;
@@ -89,6 +90,30 @@ export class OutputStream {
 			this.memory -= old.length;
 			this.dropped += old.length;
 		}
+		for (const listener of this.listeners) listener(chunk);
+	}
+
+	/** Mirrors the collected bytes without touching the model's read offsets. */
+	observe(listener: (chunk: Buffer) => void): () => void {
+		let mirrored = false;
+		if (this.dropped && this.spillPath) {
+			let fd: number | undefined;
+			try {
+				fd = openSync(this.spillPath, "r");
+				if (fstatSync(fd).size === this.total) {
+					mirrored = true;
+					const buffer = Buffer.allocUnsafe(64 * 1024);
+					for (let count; (count = readSync(fd, buffer, 0, buffer.length, null)) > 0;) {
+						listener(buffer.subarray(0, count));
+					}
+				}
+			} catch {
+				// A missing spill still leaves the recent tail and subsequent bytes available.
+			} finally { if (fd !== undefined) closeSync(fd); }
+		}
+		if (!mirrored) for (const chunk of this.chunks) listener(chunk);
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
 	}
 
 	private startSpill(): void {
@@ -128,6 +153,8 @@ function streamText(stream: OutputStream): string {
 // ---- background jobs ------------------------------------------------------------------------------
 
 export type JobStatus = "running" | "completed" | "failed" | "cancelled";
+export type ShellStopSource = "user" | "shutdown";
+export interface BackgroundCommand { cwd: string; label: string; service: boolean }
 
 export interface Job {
 	id: string;
@@ -142,6 +169,10 @@ export interface Job {
 	readErr: number;
 	child?: ChildProcess;
 	done: Promise<void>;
+	startedAt: number;
+	exitCode?: number | null;
+	stoppedBy?: ShellStopSource;
+	stopProcess?: () => void;
 	killedByModel?: boolean;
 }
 
@@ -157,21 +188,41 @@ export class JobRegistry {
 	readonly jobs = new Map<string, Job>();
 	/** Called when a job settles that the model did not kill itself. */
 	onSettled: ((job: Job, notice: string) => void) | undefined;
+	onBackground?: (job: Job, command: BackgroundCommand) => void;
 
 	start(kind: string, label: string, child: ChildProcess, stdout: OutputStream, stderr: OutputStream, timeoutKill?: () => void): Job {
 		let settle!: () => void;
-		const job: Job = { id: randomUUID(), kind, label, status: "running", stdout, stderr, readOut: 0, readErr: 0, child, done: new Promise((r) => (settle = r)) };
+		const job: Job = {
+			id: randomUUID(), kind, label, status: "running", stdout, stderr, readOut: 0, readErr: 0,
+			child, startedAt: Date.now(), done: new Promise((r) => (settle = r)),
+		};
 		child.on("close", (code) => {
 			timeoutKill?.();
+			job.exitCode = code;
 			if (job.status === "running") {
 				job.status = code === 0 ? "completed" : "failed";
 				if (code !== 0) job.detail = `exit code ${code ?? 1}`;
 			}
 			settle();
-			if (!job.killedByModel) this.onSettled?.(job, this.notice(job));
+			if (!job.killedByModel && job.stoppedBy !== "shutdown") this.onSettled?.(job, this.notice(job));
 		});
 		this.jobs.set(job.id, job);
 		return job;
+	}
+
+	publish(job: Job, command: BackgroundCommand): void {
+		this.onBackground?.(job, command);
+	}
+
+	stop(job: Job, source: ShellStopSource): void {
+		if (job.status !== "running" && !(job.stoppedBy && job.exitCode === undefined)) return;
+		if (!job.stoppedBy) {
+			job.stoppedBy = source;
+			job.status = "cancelled";
+			job.detail = source === "user" ? "用户停止了这个作业" : "后台退出时停止了这个作业";
+		}
+		if (job.stopProcess) job.stopProcess();
+		else if (job.child) killTree(job.child);
 	}
 
 	/** tool-jobs inlineCompletionNotice / fitCompletionNotice. */
@@ -221,9 +272,12 @@ export class JobRegistry {
 	}
 
 	killAll(): void {
-		for (const job of this.jobs.values()) if (job.status === "running" && job.child) killTree(job.child);
+		for (const job of this.jobs.values()) this.stop(job, "shutdown");
 	}
 }
+
+/** The harness and the window module see the same registry for each Pi session. */
+export const shellJobsBySession = new WeakMap<object, JobRegistry>();
 
 function validateJobId(value: unknown): string {
 	if (typeof value !== "string" || value.trim().length === 0) throw new Error("job_id must be a non-empty string");
@@ -350,10 +404,11 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 					type: "boolean",
 					description: "Run in the background and return a job id immediately (collect with job_output, stop with job_kill). No timeout applies.",
 				},
+				service: { type: "boolean", description: "Mark a background job as an ongoing service, such as a development server." },
 			},
 			required: ["description", "command"],
 		} as never,
-		async execute(_id, params: { description: string; command: string; timeoutMs?: number; workdir?: string; run_in_background?: boolean }, signal) {
+		async execute(_id, params: { description: string; command: string; timeoutMs?: number; workdir?: string; run_in_background?: boolean; service?: boolean }, signal) {
 			if (params.command.trim().length === 0) throw new Error("invalid command: expected a non-empty string");
 			if (params.description.trim().length === 0) throw new Error("invalid description: expected a non-empty string");
 			if (params.timeoutMs !== undefined && (!Number.isFinite(params.timeoutMs) || params.timeoutMs <= 0)) {
@@ -378,7 +433,9 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 			await spawned;
 			const job = jobs.start("pwsh", params.command, child, stdout, stderr);
 			const details = { cwd: workdir, description: params.description };
+			const background = { cwd: workdir, label: params.description, service: params.service === true };
 			if (params.run_in_background === true) {
+				jobs.publish(job, background);
 				return { content: [{ type: "text", text: `started background job ${job.id}` }], details: { ...details, jobId: job.id } };
 			}
 			// Foreground: the job is announced only if it outlives its timeout.
@@ -397,6 +454,7 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 			if (outcome === "timeout") {
 				timedOut = true;
 				job.killedByModel = false;
+				jobs.publish(job, background);
 				const partial = jobs.read(job);
 				const body = partial.length > 0 ? (partial.endsWith("\n") ? partial : `${partial}\n`) : "";
 				return {
@@ -412,6 +470,44 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 			};
 		},
 	};
+}
+
+// Keep a control pipe open until the job ends. Closing it stops the Linux process
+// group even though killing only wsl.exe need not stop its Linux descendants.
+export const BASH_JOB_SUPERVISOR = [
+	"exec 3<&0",
+	"export HOME=/workspace LANG=C.UTF-8 PYTHONIOENCODING=utf-8 MPLBACKEND=Agg",
+	"task=$(printf '%s' \"$1\" | base64 -d) || exit 1",
+	"setsid bash --noprofile --norc -c \"$task\" </dev/null 3<&- &",
+	"pid=$!",
+	"( IFS= read -r _ <&3; kill -KILL -- \"-$pid\" 2>/dev/null || { kill -KILL -- \"$pid\" 2>/dev/null; kill -KILL -- \"-$pid\" 2>/dev/null; }; ) &",
+	"watcher=$!",
+	"wait \"$pid\"; code=$?",
+	"kill \"$watcher\" 2>/dev/null || :",
+	"wait \"$watcher\" 2>/dev/null || :",
+	"exit \"$code\"",
+].join("\n");
+
+export async function startBashJob(jobs: JobRegistry, distro: string, command: string, environment: string, background: BackgroundCommand): Promise<Job> {
+	const encoded = Buffer.from([environment, command.replaceAll("\r", "")].filter(Boolean).join("\n")).toString("base64");
+	const child = spawn("wsl.exe", ["-d", distro, "-u", "agent", "--cd", background.cwd, "--exec", "bash", "--noprofile", "--norc", "-c", BASH_JOB_SUPERVISOR, "df-background", encoded], {
+		windowsHide: true,
+		stdio: ["pipe", "pipe", "pipe"],
+		env: { ...process.env, WSL_UTF8: "1" },
+	});
+	child.stdin!.on("error", () => {}); // The job may exit while a stop closes the control pipe.
+	const stdout = new OutputStream("stdout");
+	const stderr = new OutputStream("stderr");
+	child.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
+	child.stderr!.on("data", (chunk: Buffer) => stderr.push(chunk));
+	await new Promise<void>((resolveSpawn, reject) => {
+		child.once("spawn", resolveSpawn);
+		child.once("error", reject);
+	});
+	const job = jobs.start("bash", command, child, stdout, stderr);
+	job.stopProcess = () => child.stdin!.end();
+	jobs.publish(job, background);
+	return job;
 }
 
 // ---- minimal: one persistent shell -------------------------------------------------------------------
@@ -508,16 +604,16 @@ export class PersistentShell {
 		this.requestedDirectory = undefined;
 	}
 
-	run(command: string, signal: AbortSignal | undefined): Promise<string> {
+	run(command: string, signal: AbortSignal | undefined, receipt?: (exitCode: number) => void): Promise<string> {
 		const next = this.queue.then(
-			() => this.execute(command, signal),
-			() => this.execute(command, signal),
+			() => this.execute(command, signal, receipt),
+			() => this.execute(command, signal, receipt),
 		);
 		this.queue = next.catch(() => undefined);
 		return next;
 	}
 
-	private async execute(command: string, signal: AbortSignal | undefined): Promise<string> {
+	private async execute(command: string, signal: AbortSignal | undefined, receipt?: (exitCode: number) => void): Promise<string> {
 		if (signal?.aborted) return "";
 		const requested = this.cwd();
 		const cwd = this.requestedDirectory === requested ? this.directory ?? requested : requested;
@@ -553,6 +649,7 @@ export class PersistentShell {
 				if (location) { const decoded = Buffer.from(location[1]!, "base64").toString("utf8"); if (isAbsolute(decoded)) this.directory = decoded; }
 				captured = captured.replace(new RegExp(`^${cwdMarker}[^\\r\\n]*\\r?\\n?`, "m"), "");
 				const clean = captured.replace(/^\r?\n/, "").replace(/\r?\n$/, "").replaceAll("\r\n", "\n");
+				receipt?.(Number(status));
 				return withExitCode(maybeTruncate(clean), Number(status));
 			}
 			if (child.exitCode !== null || this.child !== child) {
@@ -594,8 +691,9 @@ export function persistentPwshTool(shell: PersistentShell): ToolDefinition {
 		executionMode: "sequential",
 		async execute(_id, params: { command: string }, signal) {
 			if (params.command.trim().length === 0) throw new Error("command must be a non-empty string");
-			const text = await shell.run(params.command, signal);
-			return { content: [{ type: "text", text }], details: {} };
+			const details: { exitCode?: number } = {};
+			const text = await shell.run(params.command, signal, exitCode => { details.exitCode = exitCode; });
+			return { content: [{ type: "text", text }], details };
 		},
 	};
 }

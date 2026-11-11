@@ -275,7 +275,7 @@ class _MemoryPageState extends State<MemoryPage> {
         ]),
         const SizedBox(height: 18),
         for (final e in _groupNames.entries)
-          if (_group.isEmpty || _group == e.key) _groupCard(e.value, byGroup[e.key]!, searching: words.isNotEmpty),
+          if (_group.isEmpty || _group == e.key) _groupCard(e.key, e.value, byGroup[e.key]!, searching: words.isNotEmpty),
         if (words.isNotEmpty && total == 0)
           Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text('没有找到', style: context.text.bodySmall?.copyWith(color: colors.muted)))),
         const SizedBox(height: 36),
@@ -283,10 +283,13 @@ class _MemoryPageState extends State<MemoryPage> {
     );
   }
 
-  Widget _groupCard(String title, List<Json> rows, {bool searching = false}) {
+  /// Keyed by group so switching the filter moves a card instead of reusing another group's card
+  /// by position (its rows fading out would then share GlobalKeys with the same rows coming in).
+  Widget _groupCard(String group, String title, List<Json> rows, {bool searching = false}) {
     final colors = context.colors;
-    if (searching && rows.isEmpty) return const SizedBox.shrink();
+    if (searching && rows.isEmpty) return SizedBox.shrink(key: ValueKey('memory-group-$group'));
     return Padding(
+      key: ValueKey('memory-group-$group'),
       padding: const EdgeInsets.only(bottom: 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

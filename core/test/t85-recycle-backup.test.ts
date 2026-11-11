@@ -8,6 +8,7 @@ import { stageBackup } from "../src/backup/restore.ts";
 import { applyPendingRestore, writeSwitchRecord } from "../src/backup/switch.ts";
 import { piSessionFolder } from "../src/backup/path-map.ts";
 import { SessionIndex } from "../src/modules/session-index.ts";
+import { MIGRATIONS } from "../src/schema.ts";
 import { startTestCore, type TestCore } from "./harness.ts";
 
 const cores: TestCore[] = [];
@@ -51,12 +52,16 @@ it("T85 backs up live recycle content, restores across workspace paths without r
 });
 
 it("T85 still upgrades and restores a schema-15 backup with no recycle metadata", async () => {
-	const source = await start(), target = await start(); session(source, "legacy");
-	await source.core.call("sessions.list", {}); await source.core.shutdown();
-	const db = new DatabaseSync(source.core.paths.dbFile);
-	db.exec("DROP TABLE butterfly_intents; DROP TABLE session_recycle; DROP TABLE memory_reply_receipts; DROP TABLE memory_boundary_decisions; PRAGMA user_version=15");
+	const source = await start(), target = await start(); const legacy = session(source, "legacy");
+	await source.core.shutdown();
+	const db = new DatabaseSync(join(source.dir, "schema-15.db"));
 	const out = join(source.dir, "legacy.dfbackup");
-	try { await createBackup({ paths: source.core.paths, agentDir: source.agentDir, sessionsDir: source.sessionDir, db, appVersion: "0.7.0" }, { out, kind: "manual", credentials: "none", includeMaterials: false }); } finally { db.close(); }
+	try {
+		for (const migration of MIGRATIONS.slice(0, 15)) db.exec(migration);
+		db.exec("PRAGMA user_version = 15");
+		db.prepare("INSERT INTO session_meta(path, cwd, session_id) VALUES(?, ?, 'legacy')").run(legacy, source.workspace);
+		await createBackup({ paths: source.core.paths, agentDir: source.agentDir, sessionsDir: source.sessionDir, db, appVersion: "0.7.0" }, { out, kind: "manual", credentials: "none", includeMaterials: false });
+	} finally { db.close(); }
 	const staged = await stageBackup(out, { paths: target.core.paths, agentDir: target.agentDir, sessionsDir: target.sessionDir, appVersion: "0.7.0" }, { parts: target.core.backupParts });
 	assert.equal(staged.manifest.dbVersion, 15); assert.equal(staged.sessions, 1);
 	writeSwitchRecord(target.core.paths, target.agentDir, staged, {}); await target.core.shutdown(); assert.equal(applyPendingRestore(target.core.paths)?.ok, true);

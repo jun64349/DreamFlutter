@@ -3,7 +3,7 @@ import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { SessionRecycle } from "../sessions/recycle.ts";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
-import { normalizeCwd, requireStr, samePath, str } from "../core.ts";
+import { normalizeCwd, requireStr, RpcError, samePath, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { textOf } from "../runs.ts";
 import type { Slot } from "../slots/slot.ts";
@@ -81,9 +81,10 @@ export class SessionIndex implements CoreModule {
 		core.declareBackup({
 			id: "sessions",
 			title: "会话索引、用量",
-			tables: ["session_meta", "session_fts", "usage_records", "session_inherited_history", "session_recycle"],
+			tables: ["session_meta", "session_fts", "usage_records", "session_inherited_history", "session_recycle", "session_seen"],
 			paths: {
 				session_meta: { path: "path", cwd: "path", parent_session: "path" },
+				session_seen: { session_key: "key" },
 				session_inherited_history: { parent_session: "path" },
 				session_fts: { path: "path" },
 				usage_records: { path: "path", cwd: "path" },
@@ -504,6 +505,16 @@ export class SessionIndex implements CoreModule {
 			await this.refresh();
 			const archived = params.archived === "only" || params.archived === "include" ? params.archived : "exclude";
 			return this.list({ cwd: str(params.cwd), archived });
+		});
+		core.register("sessions.markSeen", params => {
+			const file = requireStr(params.sessionFile, "sessionFile");
+			if (!isAbsolute(file) || !file.toLowerCase().endsWith(".jsonl") || !statSync(file, { throwIfNoEntry: false })?.isFile()) {
+				throw new RpcError("not_found", "找不到这段对话");
+			}
+			const key = normalizeCwd(file);
+			this.db.run(`INSERT INTO session_seen(session_key,seen_at) VALUES(?,?)
+				ON CONFLICT(session_key) DO UPDATE SET seen_at=MAX(seen_at,excluded.seen_at)`, key, Date.now());
+			return { ok: true };
 		});
 		core.register("sessions.search", async (params) => {
 			await this.refresh();

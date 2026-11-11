@@ -88,16 +88,16 @@ export class SandboxShell {
 		this.directory = "/workspace";
 	}
 
-	run(command: string, signal: AbortSignal | undefined): Promise<string> {
+	run(command: string, signal: AbortSignal | undefined, receipt?: (exitCode: number) => void): Promise<string> {
 		const next = this.queue.then(
-			() => this.execute(command, signal),
-			() => this.execute(command, signal),
+			() => this.execute(command, signal, receipt),
+			() => this.execute(command, signal, receipt),
 		);
 		this.queue = next.catch(() => undefined);
 		return next;
 	}
 
-	private async execute(command: string, signal: AbortSignal | undefined): Promise<string> {
+	private async execute(command: string, signal: AbortSignal | undefined, receipt?: (exitCode: number) => void): Promise<string> {
 		if (signal?.aborted) return "";
 		let child = await this.ensure();
 		const cwd = this.directory;
@@ -134,6 +134,7 @@ export class SandboxShell {
 				captured = captured.replace(new RegExp(`^${cwdMarker}[^\\n]*\\n?`, "m"), "").replace(/\n$/, "");
 				const content = truncate(captured);
 				const code = Number(status);
+				receipt?.(code);
 				return code === 0 ? content : content.length === 0 ? `[exit code: ${code}]` : `${content}\n[exit code: ${code}]`;
 			}
 			if (child.exitCode !== null || this.child !== child) {
@@ -168,8 +169,9 @@ export function sandboxBashTool(shell: SandboxShell): ToolDefinition {
 		executionMode: "sequential",
 		async execute(_id, params: { command: string }, signal) {
 			if (params.command.trim().length === 0) throw new Error("command must be a non-empty string");
-			const text = await shell.run(params.command, signal);
-			return { content: [{ type: "text", text }], details: {} };
+			const details: { exitCode?: number } = {};
+			const text = await shell.run(params.command, signal, exitCode => { details.exitCode = exitCode; });
+			return { content: [{ type: "text", text }], details };
 		},
 	};
 }

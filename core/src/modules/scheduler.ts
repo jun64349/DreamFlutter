@@ -1,24 +1,30 @@
 import { randomUUID } from "node:crypto";
 import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { Cron } from "croner";
+import { Cron, CronPattern } from "croner";
 import type { Core, CoreModule } from "../core.ts";
 import { num, RpcError, requireStr, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, now, parseJson } from "../db.ts";
 import { isReadOnlyCall, READ_ONLY_TOOLS, SHELL_TOOLS } from "../ext/approval.ts";
+import { recordedSandbox } from "../pi/host.ts";
 import type { Run } from "../runs.ts";
 import { textOf } from "../runs.ts";
 import type { Slot } from "../slots/slot.ts";
+import { backfillScheduleOwners, scheduleOwner } from "../t95-migration.ts";
+import { backfillScheduleCreators } from "../t96-migration.ts";
+import { GoalsModule } from "./goals.ts";
 import type { TasksModule } from "./tasks.ts";
 
 export type TriggerType = "once" | "interval" | "cron";
 /** task = do something; report = produce a result each time; monitor = check for changes, quiet when nothing changed. */
-export type ScheduleKind = "task" | "report" | "monitor";
+export type ScheduleKind = "task" | "report" | "monitor" | "reminder";
 /** What a report does with missed times: skip them, or catch up the most recent one. */
 export type MissedPolicy = "skip" | "latest";
 export type ScheduleStatus = "active" | "paused" | "pending_approval" | "finished" | "rejected";
 export type ScheduleRunStatus = "waiting" | "running" | "needs_input" | "done" | "no_change" | "failed" | "interrupted" | "skipped";
 export type DeliveryStatus = "delivered" | "undelivered" | "unknown";
+type ScheduleRole = "user" | "butterfly" | "patrol";
+const DAY_MS = 86_400_000;
 
 export interface Trigger {
 	type: TriggerType;
@@ -29,6 +35,8 @@ export interface Trigger {
 	anchor?: number;
 	/** cron: five-field expression evaluated in [timezone] (IANA). */
 	cron?: string;
+	/** A union of five-field expressions for times with different minute values. */
+	crons?: string[];
 	timezone?: string;
 }
 
@@ -37,6 +45,7 @@ export interface Schedule {
 	name: string;
 	prompt: string;
 	cwd: string;
+	owner: "workbench" | "butterfly";
 	kind: ScheduleKind;
 	trigger: Trigger;
 	missedPolicy: MissedPolicy;
@@ -53,6 +62,7 @@ export interface Schedule {
 	nextRunAt: number | null;
 	lastRunAt: number | null;
 	createdBy: "user" | "agent";
+	createdRole: ScheduleRole;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -89,6 +99,140 @@ export interface Delivery {
 	createdAt: number;
 }
 
+type EveryDay = { times: string[] } | { everyMs: number };
+type ScheduleChangeStatus = "applied" | "proposed" | "rejected";
+interface ScheduleChange {
+	id: string;
+	scheduleId: string;
+	versionBefore: number;
+	versionAfter: number;
+	actor: ScheduleRole;
+	reason: string;
+	before: Schedule | null;
+	after: Schedule | null;
+	summary: string;
+	at: number;
+	undoneAt: number | null;
+	status: ScheduleChangeStatus;
+}
+
+interface ScheduleChangeRow {
+	id: string;
+	schedule_id: string;
+	version_before: number;
+	version_after: number;
+	actor: ScheduleRole;
+	reason: string;
+	before: string | null;
+	after: string | null;
+	summary: string;
+	at: number;
+	undone_at: number | null;
+	status: ScheduleChangeStatus;
+}
+
+function toChange(row: ScheduleChangeRow): ScheduleChange {
+	return {
+		id: row.id, scheduleId: row.schedule_id, versionBefore: row.version_before, versionAfter: row.version_after,
+		actor: row.actor, reason: row.reason, before: parseJson(row.before, null), after: parseJson(row.after, null),
+		summary: row.summary, at: row.at, undoneAt: row.undone_at, status: row.status,
+	};
+}
+
+interface ScheduleOccurrence {
+	scheduleId: string;
+	at: number;
+	status: Exclude<ScheduleRunStatus, "waiting"> | "upcoming";
+	runId: string | null;
+	result: string | null;
+	error: string | null;
+}
+
+type ScheduleInput = Partial<Schedule> & { expectedVersion?: number; reason?: string };
+
+interface ToolScheduleInput {
+	name?: string;
+	prompt?: string;
+	kind?: ScheduleKind;
+	trigger?: TriggerType | "daily" | "weekly";
+	times?: string[];
+	weekdays?: number[];
+	at?: string;
+	every_minutes?: number;
+	cron?: string;
+	timezone?: string;
+	missedPolicy?: MissedPolicy;
+	reason?: string;
+}
+
+const TOOL_SCHEDULE_PROPERTIES = {
+	name: { type: "string" },
+	prompt: { type: "string", description: "What to do each time, or the optional second line of a reminder" },
+	kind: { type: "string", enum: ["task", "report", "monitor", "reminder"] },
+	trigger: { type: "string", enum: ["once", "interval", "daily", "weekly", "cron"] },
+	times: { type: "array", items: { type: "string" }, description: "daily/weekly: one or more HH:mm times" },
+	weekdays: { type: "array", items: { type: "integer", minimum: 0, maximum: 6 }, description: "weekly: 0 = Sunday, 1 = Monday, ..., 6 = Saturday" },
+	at: { type: "string", description: "once: ISO 8601 time" },
+	every_minutes: { type: "number", description: "interval: at least 10 minutes" },
+	cron: { type: "string", description: "cron: five-field expression" },
+	timezone: { type: "string", description: "IANA timezone. Defaults to the local timezone." },
+	missedPolicy: { type: "string", enum: ["skip", "latest"] },
+	reason: { type: "string" },
+};
+
+function toolSchedulePatch(input: ToolScheduleInput): ScheduleInput {
+	let trigger: Trigger | undefined;
+	switch (input.trigger) {
+		case "once": trigger = { type: "once", at: input.at ? Date.parse(input.at) : undefined }; break;
+		case "interval": trigger = { type: "interval", everyMs: Math.round((input.every_minutes ?? 0) * 60_000) }; break;
+		case "cron": trigger = { type: "cron", cron: input.cron, timezone: input.timezone }; break;
+		case "daily": case "weekly": {
+			const times = input.times;
+			const weekdays = input.weekdays ?? [];
+			if (!times?.length || times.some(time => !/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(time))) throw new RpcError("bad_request", "请填写有效的时间（时:分）");
+			if (input.trigger === "weekly" && (!weekdays.length || weekdays.some(day => !Number.isInteger(day) || day < 0 || day > 6))) throw new RpcError("bad_request", "请填写每周的日期（星期日为 0）");
+			const byMinute = new Map<number, Set<number>>();
+			const minutes = new Set<number>();
+			for (const time of times) {
+				const [hour, minute] = time.split(":").map(Number) as [number, number];
+				minutes.add(hour * 60 + minute);
+				const hours = byMinute.get(minute) ?? new Set<number>();
+				hours.add(hour);
+				byMinute.set(minute, hours);
+			}
+			const weekly = input.trigger === "weekly";
+			const days = weekly ? [...new Set(weekdays)].sort((a, b) => a - b) : [0];
+			const offsets = days.flatMap(day => [...minutes].sort((a, b) => a - b).map(minute => day * 1440 + minute));
+			const nextCycle = offsets[0]! + (weekly ? 7 : 1) * 1440;
+			if (offsets.some((offset, i) => ((offsets[i + 1] ?? nextCycle) - offset) * 60_000 < MIN_AGENT_INTERVAL_MS)) {
+				throw new RpcError("bad_request", "两次执行至少间隔 10 分钟");
+			}
+			const expressions = [...byMinute].sort(([a], [b]) => a - b).map(([minute, hours]) => `${minute} ${[...hours].sort((a, b) => a - b).join(",")} * * ${weekly ? days.join(",") : "*"}`);
+			trigger = { type: "cron", timezone: input.timezone, ...(expressions.length === 1 ? { cron: expressions[0] } : { crons: expressions }) };
+			break;
+		}
+	}
+	return { name: input.name, prompt: input.prompt, kind: input.kind, trigger, missedPolicy: input.missedPolicy };
+}
+
+function expectedVersion(value: unknown, required = false): number | undefined {
+	if (value === undefined && !required) return undefined;
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new RpcError("bad_request", "请提供有效的日程版本号");
+	return value;
+}
+
+function toolText(text: string, details: Record<string, unknown> = {}) {
+	return { content: [{ type: "text" as const, text }], details };
+}
+
+function toolError(error: unknown) {
+	return toolText(error instanceof Error ? error.message : String(error));
+}
+
+function toolResult(schedule: Schedule, action: "created" | "updated" | "removed" | "proposed" | "ran", line: string) {
+	return toolText(line, { scheduleId: schedule.id, action, line });
+}
+
 /** Late by more than this = missed (the computer was off or asleep). */
 export const MISSED_GRACE_MS = 2 * 60_000;
 /** Shortest period for schedules the agent creates. */
@@ -96,13 +240,16 @@ export const MIN_AGENT_INTERVAL_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS = [60_000, 5 * 60_000];
 const NO_CHANGE = /^\s*[【\[]?无变化[】\]]?/;
-export const SCHEDULE_TOOLS = ["schedule_state", "schedule_create"];
+const WORKBENCH_STATE_TOOL = "save_monitor_state";
+const SAFE_SCHEDULE_TOOLS = new Set(["schedule_state", "schedule_list", WORKBENCH_STATE_TOOL]);
+const TOOL_VERSION_CONFLICT = "这件事刚被改过，请先用 schedule_list 重新读一次";
 
 interface ScheduleRow {
 	id: string;
 	name: string;
 	prompt: string;
 	cwd: string;
+	owner: Schedule["owner"];
 	kind: string;
 	trigger: string;
 	missed_policy: string;
@@ -116,6 +263,7 @@ interface ScheduleRow {
 	last_run_at: number | null;
 	pending_at: number | null;
 	created_by: string;
+	created_role: ScheduleRole;
 	created_at: number;
 	updated_at: number;
 }
@@ -126,6 +274,7 @@ function toSchedule(row: ScheduleRow): Schedule {
 		name: row.name,
 		prompt: row.prompt,
 		cwd: row.cwd,
+		owner: row.owner,
 		kind: row.kind as ScheduleKind,
 		trigger: parseJson<Trigger>(row.trigger, { type: "once" }),
 		missedPolicy: row.missed_policy as MissedPolicy,
@@ -138,6 +287,7 @@ function toSchedule(row: ScheduleRow): Schedule {
 		nextRunAt: row.next_run_at,
 		lastRunAt: row.last_run_at,
 		createdBy: row.created_by === "agent" ? "agent" : "user",
+		createdRole: row.created_role,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
@@ -191,21 +341,60 @@ function toRun(row: RunRow): ScheduleRun {
 
 /** Next fire time strictly after [after], or null when the trigger is used up. */
 export function nextOccurrence(trigger: Trigger, after: number): number | null {
+	return occurrenceRule(trigger)(after);
+}
+
+function occurrenceRule(trigger: Trigger): (after: number) => number | null {
 	switch (trigger.type) {
 		case "once":
-			return trigger.at !== undefined && trigger.at > after ? trigger.at : null;
+			return (after) => trigger.at !== undefined && trigger.at > after ? trigger.at : null;
 		case "interval": {
 			const every = trigger.everyMs ?? 0;
-			if (every <= 0) return null;
-			const anchor = trigger.anchor ?? after;
-			if (anchor > after) return anchor;
-			return anchor + (Math.floor((after - anchor) / every) + 1) * every;
+			return (after) => {
+				if (every <= 0) return null;
+				const anchor = trigger.anchor ?? after;
+				if (anchor > after) return anchor;
+				return anchor + (Math.floor((after - anchor) / every) + 1) * every;
+			};
 		}
 		case "cron": {
-			const next = new Cron(trigger.cron ?? "", { timezone: trigger.timezone || undefined }).nextRun(new Date(after));
-			return next ? next.getTime() : null;
+			const rules = cronExpressions(trigger).map(expression => new Cron(expression, { timezone: trigger.timezone || undefined }));
+			return (after) => {
+				let first: number | null = null;
+				const date = new Date(after);
+				for (const rule of rules) {
+					const next = rule.nextRun(date)?.getTime();
+					if (next !== undefined && (first === null || next < first)) first = next;
+				}
+				return first;
+			};
 		}
 	}
+}
+
+function cronExpressions(trigger: Trigger): string[] {
+	return trigger.crons ?? [trigger.cron ?? ""];
+}
+
+function everyDay(trigger: Trigger): EveryDay | null {
+	if (trigger.type === "interval" && trigger.everyMs && trigger.everyMs < DAY_MS) return { everyMs: trigger.everyMs };
+	if (trigger.type !== "cron") return null;
+	if (cronExpressions(trigger).some(expression => !/^(?:\S+\s+){2}\*\s+\*\s+\*$/.test(expression.trim()))) return null;
+	return { times: cronClockTimes(trigger) };
+}
+
+function cronClockTimes(trigger: Trigger): string[] {
+	const times = new Set<string>();
+	for (const expression of cronExpressions(trigger)) {
+		const { hour, minute } = new CronPattern(expression, trigger.timezone);
+		for (let h = 0; h < hour.length; h++) {
+			if (!hour[h]) continue;
+			for (let m = 0; m < minute.length; m++) {
+				if (minute[m]) times.add(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+			}
+		}
+	}
+	return [...times].sort();
 }
 
 /** Checks a trigger and returns why it is invalid (or null). */
@@ -213,19 +402,24 @@ export function validateTrigger(trigger: Trigger, options: { minIntervalMs?: num
 	const at = options.at ?? now();
 	switch (trigger.type) {
 		case "once":
-			if (!trigger.at) return "请设置执行时间";
+			if (!trigger.at || !Number.isFinite(new Date(trigger.at).getTime())) return "请设置执行时间";
 			return null;
 		case "interval":
-			if (!trigger.everyMs || trigger.everyMs < 60_000) return "间隔至少 1 分钟";
+			if (trigger.everyMs === undefined || !Number.isSafeInteger(trigger.everyMs) || trigger.everyMs < 60_000) return "间隔至少 1 分钟";
 			if (options.minIntervalMs && trigger.everyMs < options.minIntervalMs) return `间隔至少 ${options.minIntervalMs / 60_000} 分钟`;
 			return null;
 		case "cron": {
 			try {
-				const runs = new Cron(trigger.cron ?? "", { timezone: trigger.timezone || undefined }).nextRuns(3, new Date(at));
-				if (!runs.length) return "这个日历规则不会再触发";
+				if (trigger.crons && (trigger.crons.length === 0 || trigger.crons.length > 60 || trigger.crons.some(expression => expression.trim().split(/\s+/).length !== 5))) return "请提供有效的五字段日历规则";
+				const next = occurrenceRule(trigger);
+				let previous = next(at);
+				if (previous === null) return "这个日历规则不会再触发";
 				if (options.minIntervalMs) {
-					for (let i = 1; i < runs.length; i++) {
-						if (runs[i]!.getTime() - runs[i - 1]!.getTime() < options.minIntervalMs) return `两次执行至少间隔 ${options.minIntervalMs / 60_000} 分钟`;
+					for (let i = 1; i < 3; i++) {
+						const following = next(previous);
+						if (following === null) break;
+						if (following - previous < options.minIntervalMs) return `两次执行至少间隔 ${options.minIntervalMs / 60_000} 分钟`;
+						previous = following;
 					}
 				}
 				return null;
@@ -248,8 +442,8 @@ function formatTime(at: number, timezone?: string): string {
  * triggers; stable trigger keys so a time is never claimed twice and edits
  * void old triggers; manual runs; missed-time handling by kind; no overlap
  * within a schedule; bounded retries only before any external effect;
- * per-schedule tools and state; quiet monitors; agent-proposed schedules
- * the user approves.
+ * per-schedule tools and state; quiet monitors; reminders and a versioned
+ * history of changes made by the user and 蝶君.
  */
 export class SchedulerModule implements CoreModule {
 	readonly modelFacing = true;
@@ -269,7 +463,9 @@ export class SchedulerModule implements CoreModule {
 		this.db = core.db;
 		this.tasks = tasks;
 		this.clock = clock;
-		core.exemptFromApproval(...SCHEDULE_TOOLS);
+		backfillScheduleOwners(this.db, core.paths.butterflyDir);
+		backfillScheduleCreators(this.db);
+		core.exemptFromApproval(...SAFE_SCHEDULE_TOOLS);
 		tasks.addInboxSource(() =>
 			this.list({ status: ["pending_approval"] }).map((s) => ({
 				kind: "schedule",
@@ -285,8 +481,8 @@ export class SchedulerModule implements CoreModule {
 		core.declareBackup({
 			id: "schedules",
 			title: "定时任务",
-			tables: ["schedules", "schedule_runs", "deliveries"],
-			paths: { schedules: { cwd: "path", session_file: "path" }, schedule_runs: { session_file: "path" } },
+			tables: ["schedules", "schedule_runs", "deliveries", "schedule_changes"],
+			paths: { schedules: { cwd: "path", session_file: "path" }, schedule_runs: { session_file: "path" }, schedule_changes: { before: "json", after: "json" } },
 			// Restored schedules wait until the user has looked them over.
 			onStage: (db) => db.run("UPDATE schedules SET status = 'paused' WHERE status = 'active'"),
 		});
@@ -355,43 +551,73 @@ export class SchedulerModule implements CoreModule {
 				const minutes = Math.round((trigger.everyMs ?? 0) / 60_000);
 				return minutes % 60 === 0 ? `每 ${minutes / 60} 小时` : `每 ${minutes} 分钟`;
 			}
-			case "cron":
-				return `按日历：${trigger.cron}（${trigger.timezone || "本地时区"}）`;
+			case "cron": {
+				const daily = everyDay(trigger);
+				if (daily && "times" in daily) return `每天 ${daily.times.map(time => time.replace(/^0/, "")).join("、")}`;
+				const expressions = cronExpressions(trigger);
+				const weekdays = expressions[0]?.trim().match(/^\S+\s+\S+\s+\*\s+\*\s+([0-6](?:,[0-6])*)$/)?.[1];
+				if (weekdays && expressions.every(expression => expression.trim().split(/\s+/).slice(2).join(" ") === `* * ${weekdays}`)) {
+					const days = weekdays.split(",").map(day => "日一二三四五六"[Number(day)]).join("、");
+					return `每周${days} ${cronClockTimes(trigger).map(time => time.replace(/^0/, "")).join("、")}`;
+				}
+				return `按日历：${expressions.join(" / ")}（${trigger.timezone || "本地时区"}）`;
+			}
 		}
 	}
 
-	save(input: Partial<Schedule> & { id?: string; createdBy?: "user" | "agent" }): Schedule {
+	private view(schedule: Schedule) {
+		return { ...schedule, describe: this.describeTrigger(schedule.trigger), everyDay: everyDay(schedule.trigger), lastRun: this.runs(schedule.id, 1)[0] ?? null };
+	}
+
+	private checkVersion(schedule: Schedule | undefined, expectedVersion?: number, message = "这件事刚被别人改过"): void {
+		if (expectedVersion !== undefined && expectedVersion !== schedule?.version) {
+			throw Object.assign(new RpcError("version_conflict", message), { data: schedule ? this.view(schedule) : null });
+		}
+	}
+
+	save(input: ScheduleInput, actor: ScheduleRole = "user"): Schedule {
 		const existing = input.id ? this.get(input.id) : undefined;
+		this.checkVersion(existing, input.expectedVersion);
 		if (input.id && !existing) throw new RpcError("not_found", "这个定时任务不存在");
+		const schedule = this.prepareSave(input, existing, actor);
+		this.applyChange(this.makeChange(existing ?? null, schedule, actor, input.reason ?? "save"));
+		return schedule;
+	}
+
+	private prepareSave(input: ScheduleInput, existing: Schedule | undefined, actor: ScheduleRole): Schedule {
 		const name = (input.name ?? existing?.name ?? "").trim();
 		const prompt = (input.prompt ?? existing?.prompt ?? "").trim();
-		const cwd = input.cwd ?? existing?.cwd;
+		const cwd = input.cwd ?? existing?.cwd ?? this.core.paths.butterflyDir;
+		const kind = (["task", "report", "monitor", "reminder"] as const).find((k) => k === (input.kind ?? existing?.kind)) ?? "task";
 		if (!name) throw new RpcError("bad_request", "请填写名称");
-		if (!prompt) throw new RpcError("bad_request", "请填写要做的事");
+		if (!prompt && kind !== "reminder") throw new RpcError("bad_request", "请填写要做的事");
 		if (!cwd) throw new RpcError("bad_request", "缺少工作区");
 		const trigger: Trigger = { ...(input.trigger ?? existing?.trigger ?? { type: "once" }) };
-		const createdBy = existing?.createdBy ?? input.createdBy ?? "user";
+		const createdRole = existing?.createdRole ?? actor;
+		const createdBy = existing?.createdBy ?? (createdRole === "user" ? "user" : "agent");
 		const at = this.clock();
 		if (trigger.type === "interval" && trigger.anchor === undefined) trigger.anchor = at + (trigger.everyMs ?? 0);
 		if (trigger.type === "cron" && !trigger.timezone) trigger.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-		const problem = validateTrigger(trigger, { minIntervalMs: createdBy === "agent" ? MIN_AGENT_INTERVAL_MS : undefined, at });
+		const problem = validateTrigger(trigger, { minIntervalMs: (input.trigger || !existing) && actor !== "user" ? MIN_AGENT_INTERVAL_MS : undefined, at });
 		if (problem) throw new RpcError("bad_request", problem);
-		const kind = (["task", "report", "monitor"] as const).find((k) => k === (input.kind ?? existing?.kind)) ?? "task";
 		const sessionMode = (input.sessionMode ?? existing?.sessionMode) === "bound" ? "bound" : "fresh";
 		const sessionFile = sessionMode === "bound" ? (input.sessionFile ?? existing?.sessionFile ?? null) : null;
 		if (sessionMode === "bound" && !sessionFile) throw new RpcError("bad_request", "绑定会话时需要指定会话");
 		if (sessionFile) this.core.assertTaskSession(sessionFile);
-		let status: ScheduleStatus = input.status ?? existing?.status ?? (createdBy === "agent" ? "pending_approval" : "active");
-		if (status === "finished" && input.trigger) status = "active"; // a used-up one-off given a new time
-		const nextRunAt = status === "active" ? nextOccurrence(trigger, at - 1) : (existing?.nextRunAt ?? null);
-		const schedule: Schedule = {
+		const owner = input.owner ?? (existing && existing.cwd === cwd && existing.sessionFile === sessionFile
+			? existing.owner : scheduleOwner(this.core.paths.butterflyDir, cwd, sessionFile));
+		const status = input.status ?? (existing?.status === "finished" && input.trigger ? "active" : existing?.status) ?? "active";
+		const nextRunAt = status === "active" ? nextOccurrence(trigger, at - 1) : null;
+		if (input.status === "active" && nextRunAt === null && trigger.type === "once") throw new RpcError("bad_request", "执行时间已经过了，请先修改时间");
+		return {
 			id: existing?.id ?? `s_${randomUUID().slice(0, 8)}`,
 			name,
 			prompt,
 			cwd,
+			owner,
 			kind,
 			trigger,
-			missedPolicy: (input.missedPolicy ?? existing?.missedPolicy) === "skip" ? "skip" : "latest",
+			missedPolicy: input.missedPolicy ?? existing?.missedPolicy ?? this.core.settings.get().scheduleMissedDefault,
 			sessionMode,
 			sessionFile,
 			allowedTools: input.allowedTools !== undefined ? input.allowedTools : (existing?.allowedTools ?? null),
@@ -401,15 +627,19 @@ export class SchedulerModule implements CoreModule {
 			nextRunAt: status === "active" ? nextRunAt : null,
 			lastRunAt: existing?.lastRunAt ?? null,
 			createdBy,
+			createdRole,
 			createdAt: existing?.createdAt ?? at,
 			updatedAt: at,
 		};
+	}
+
+	private writeSchedule(schedule: Schedule): void {
 		this.db.run(
-			`INSERT INTO schedules(id, name, prompt, cwd, kind, trigger, missed_policy, session_mode, session_file, allowed_tools, state, status, version, next_run_at, last_run_at, created_by, created_at, updated_at)
-			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO schedules(id, name, prompt, cwd, kind, trigger, missed_policy, session_mode, session_file, allowed_tools, state, status, version, next_run_at, last_run_at, created_by, created_at, updated_at, owner, created_role)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET name = excluded.name, prompt = excluded.prompt, cwd = excluded.cwd, kind = excluded.kind, trigger = excluded.trigger,
 			 missed_policy = excluded.missed_policy, session_mode = excluded.session_mode, session_file = excluded.session_file, allowed_tools = excluded.allowed_tools,
-			 status = excluded.status, version = excluded.version, next_run_at = excluded.next_run_at, updated_at = excluded.updated_at, pending_at = NULL`,
+			 status = excluded.status, version = excluded.version, next_run_at = excluded.next_run_at, updated_at = excluded.updated_at, owner = excluded.owner, pending_at = NULL`,
 			schedule.id,
 			schedule.name,
 			schedule.prompt,
@@ -428,30 +658,175 @@ export class SchedulerModule implements CoreModule {
 			schedule.createdBy,
 			schedule.createdAt,
 			schedule.updatedAt,
+			schedule.owner,
+			schedule.createdRole,
 		);
-		this.changed();
-		return schedule;
 	}
 
 	/** Pause, resume, approve or reject; resuming recomputes the next time from now. */
-	setStatus(id: string, status: ScheduleStatus): Schedule {
+	setStatus(id: string, status: ScheduleStatus, expectedVersion?: number): Schedule {
 		const schedule = this.get(id);
+		this.checkVersion(schedule, expectedVersion);
 		if (!schedule) throw new RpcError("not_found", "这个定时任务不存在");
 		const at = this.clock();
 		const next = status === "active" ? nextOccurrence(schedule.trigger, at - 1) : null;
 		if (status === "active" && next === null && schedule.trigger.type === "once") throw new RpcError("bad_request", "执行时间已经过了，请先修改时间");
-		this.db.run("UPDATE schedules SET status = ?, next_run_at = ?, version = version + 1, pending_at = NULL, updated_at = ? WHERE id = ?", status, next, at, id);
-		this.changed();
-		return this.get(id)!;
+		const after = { ...schedule, status, nextRunAt: next, version: schedule.version + 1, updatedAt: at };
+		this.applyChange(this.makeChange(schedule, after, "user", "status"));
+		return after;
 	}
 
-	remove(id: string): void {
-		this.db.run("DELETE FROM schedules WHERE id = ?", id);
-		this.changed();
+	remove(id: string, expectedVersion?: number, actor: ScheduleRole = "user", reason = "remove"): void {
+		const schedule = this.get(id);
+		this.checkVersion(schedule, expectedVersion);
+		if (schedule) this.applyChange(this.makeChange(schedule, null, actor, reason));
 	}
 
-	private changed(): void {
-		this.core.broadcast({ event: "schedules.changed" });
+	private summary(before: Schedule | null, after: Schedule | null): string {
+		if (!before) return "新建";
+		if (!after) return "删除";
+		if (before.status !== after.status) {
+			if (after.status === "paused") return "暂停";
+			if (after.status === "active") return "启用";
+			if (after.status === "rejected") return "拒绝";
+		}
+		if (json(before.trigger) !== json(after.trigger)) return `把时间从${this.describeTrigger(before.trigger)}改成${this.describeTrigger(after.trigger)}`;
+		if (before.name !== after.name) return `把名称从「${before.name}」改成「${after.name}」`;
+		return `修改「${after.name}」`;
+	}
+
+	private makeChange(before: Schedule | null, after: Schedule | null, actor: ScheduleRole, reason: string, versionBefore = before?.version ?? 0): ScheduleChange {
+		const summary = this.summary(before, after);
+		return {
+			id: randomUUID(), scheduleId: (after ?? before)!.id, versionBefore, versionAfter: versionBefore + 1,
+			actor, reason, before, after, summary: reason === "undo" ? `撤销改动，${summary}` : summary,
+			at: this.clock(), undoneAt: null, status: "applied",
+		};
+	}
+
+	private insertChange(change: ScheduleChange): void {
+		this.db.run(`INSERT INTO schedule_changes(id, schedule_id, version_before, version_after, actor, reason, before, after, summary, at, status)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		change.id, change.scheduleId, change.versionBefore, change.versionAfter, change.actor, change.reason,
+		change.before && json(change.before), change.after && json(change.after), change.summary, change.at, change.status);
+	}
+
+	private applyChange(change: ScheduleChange, options: { undoId?: string; proposed?: boolean } = {}): void {
+		this.db.transaction(() => {
+			if (change.after) this.writeSchedule(change.after);
+			else this.db.run("DELETE FROM schedules WHERE id = ?", change.scheduleId);
+			if (options.proposed) {
+				this.db.run("UPDATE schedule_changes SET status = 'applied', before = ?, after = ? WHERE id = ?", change.before && json(change.before), change.after && json(change.after), change.id);
+			} else this.insertChange(change);
+			if (options.undoId) this.db.run("UPDATE schedule_changes SET undone_at = ? WHERE id = ?", change.at, options.undoId);
+		});
+		this.changed([{ id: change.scheduleId, version: change.versionAfter }]);
+	}
+
+	private history(id: string): ScheduleChange[] {
+		return this.db.all<ScheduleChangeRow>("SELECT * FROM schedule_changes WHERE schedule_id = ? ORDER BY at DESC, rowid DESC", id).map(toChange);
+	}
+
+	private change(id: string): ScheduleChange | undefined {
+		const row = this.db.get<ScheduleChangeRow>("SELECT * FROM schedule_changes WHERE id = ?", id);
+		return row && toChange(row);
+	}
+
+	private deletion(id: string): ScheduleChange | undefined {
+		const row = this.db.get<ScheduleChangeRow>(`SELECT * FROM schedule_changes
+			WHERE schedule_id = ? AND status = 'applied' AND after IS NULL ORDER BY version_after DESC LIMIT 1`, id);
+		return row && toChange(row);
+	}
+
+	private reschedule(snapshot: Schedule, current: Schedule | null, version: number): Schedule {
+		const at = this.clock();
+		return {
+			...snapshot, version, updatedAt: at,
+			state: current?.state ?? snapshot.state,
+			lastRunAt: current ? current.lastRunAt : snapshot.lastRunAt,
+			nextRunAt: snapshot.status === "active" ? nextOccurrence(snapshot.trigger, at - 1) : null,
+		};
+	}
+
+	private undo(changeId: string) {
+		const change = this.change(changeId);
+		if (!change || change.status !== "applied") throw new RpcError("not_found", "没有可撤销的日程改动");
+		const current = this.get(change.scheduleId);
+		const version = current?.version ?? this.deletion(change.scheduleId)?.versionAfter;
+		if (version !== change.versionAfter || change.undoneAt !== null) {
+			throw Object.assign(new RpcError("version_conflict", "这件事刚被别人改过"), { data: current ? this.view(current) : null });
+		}
+		const restored = change.before && this.reschedule(change.before, current ?? null, version + 1);
+		this.applyChange(this.makeChange(current ?? null, restored, "user", "undo", version), { undoId: change.id });
+		return restored ? this.view(restored) : { ok: true };
+	}
+
+	proposedChanges(): ScheduleChange[] {
+		return this.db.all<ScheduleChangeRow>("SELECT * FROM schedule_changes WHERE status = 'proposed' ORDER BY at DESC, rowid DESC").map(toChange);
+	}
+
+	private propose(before: Schedule, after: Schedule | null, reason: string, actor: "butterfly" | "patrol"): void {
+		const change = { ...this.makeChange(before, after, actor, reason), status: "proposed" as const };
+		this.insertChange(change);
+		this.changed([before]);
+		this.core.notifications.publish("butterfly.waiting", {
+			title: "蝶君有件事等你决定", body: change.summary, target: { page: "attention", itemId: `schedule_change:${change.id}` },
+		});
+	}
+
+	resolveChange(id: string, approve: boolean) {
+		const change = this.change(id);
+		if (!change || change.status !== "proposed") throw new RpcError("gone", "这项日程改动已经处理过了");
+		const current = this.get(change.scheduleId);
+		if (!approve || !current || current.version !== change.versionBefore) {
+			this.db.run("UPDATE schedule_changes SET status = 'rejected' WHERE id = ?", id);
+			this.changed([{ id: change.scheduleId, version: current?.version ?? this.deletion(change.scheduleId)?.versionAfter ?? change.versionBefore }]);
+			if (approve) throw new RpcError("version_conflict", "这件事在你同意前又被改过");
+			return { ok: true };
+		}
+		const after = change.after && this.reschedule(change.after, current, change.versionAfter);
+		this.applyChange({ ...change, before: current, after }, { proposed: true });
+		return after ? this.view(after) : { ok: true };
+	}
+
+	private changed(schedules: readonly Pick<Schedule, "id" | "version">[], runId?: string): void {
+		const versions = Object.fromEntries(schedules.map(s => [s.id, s.version]));
+		this.core.broadcast({ event: "schedules.changed", ids: Object.keys(versions), versions, ...(runId ? { runId } : {}) });
+	}
+
+	private occurrences(from: unknown, to: unknown, includeEveryDay = true) {
+		if (typeof from !== "number" || typeof to !== "number" || !Number.isSafeInteger(from) || !Number.isSafeInteger(to)
+			|| Math.abs(from) > 8.64e15 || Math.abs(to) > 8.64e15 || to <= from || to - from > 45 * DAY_MS) {
+			throw new RpcError("bad_request", "请选择不超过 45 天的有效时间范围");
+		}
+		const at = this.clock();
+		const schedules = new Map<string, Schedule>();
+		const items: ScheduleOccurrence[] = [];
+		const eligible = new Map<string, Schedule | undefined>();
+		const find = (id: string) => {
+			if (!eligible.has(id)) {
+				const schedule = this.get(id) ?? this.deletion(id)?.before ?? undefined;
+				eligible.set(id, schedule && (includeEveryDay || !everyDay(schedule.trigger)) ? schedule : undefined);
+			}
+			return eligible.get(id);
+		};
+		const runs = this.db.all<RunRow>("SELECT * FROM schedule_runs WHERE scheduled_at >= ? AND scheduled_at < ?", from, to);
+		for (const run of runs) {
+			const schedule = find(run.schedule_id);
+			if (!schedule) continue;
+			schedules.set(schedule.id, schedule);
+			items.push({ scheduleId: schedule.id, at: run.scheduled_at!, status: run.status === "waiting" ? "running" : run.status as ScheduleOccurrence["status"], runId: run.id, result: run.result, error: run.error });
+		}
+		for (const schedule of this.list({ status: ["active"] })) {
+			if (schedule.nextRunAt === null || schedule.nextRunAt >= to || !find(schedule.id)) continue;
+			const next = occurrenceRule(schedule.trigger);
+			for (let time = next(Math.max(at, from, schedule.nextRunAt) - 1); time !== null && time < to; time = next(time)) {
+				schedules.set(schedule.id, schedule);
+				items.push({ scheduleId: schedule.id, at: time, status: "upcoming", runId: null, result: null, error: null });
+			}
+		}
+		items.sort((a, b) => a.at - b.at || a.scheduleId.localeCompare(b.scheduleId) || (a.runId ?? "").localeCompare(b.runId ?? ""));
+		return { items, schedules: [...schedules.values()].map(schedule => this.view(schedule)) };
 	}
 
 	// ---- runs and deliveries ------------------------------------------------------------
@@ -478,7 +853,8 @@ export class SchedulerModule implements CoreModule {
 		const keys = Object.keys(patch);
 		if (!keys.length) return;
 		this.db.run(`UPDATE schedule_runs SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`, ...keys.map((k) => patch[k as keyof RunRow] ?? null), id);
-		this.core.broadcast({ event: "schedules.changed", runId: id });
+		const run = this.getRun(id);
+		if (run) this.changed([{ id: run.scheduleId, version: this.get(run.scheduleId)?.version ?? this.deletion(run.scheduleId)?.versionAfter ?? run.version }], id);
 	}
 
 	/**
@@ -529,6 +905,7 @@ export class SchedulerModule implements CoreModule {
 
 	private async doTick(at: number): Promise<void> {
 		const starts: ScheduleRun[] = [];
+		const advanced: Schedule[] = [];
 		for (const row of this.db.all<RunRow>("SELECT * FROM schedule_runs WHERE status = 'waiting' AND retry_at IS NOT NULL AND retry_at <= ?", at)) {
 			if (!this.busy(row.schedule_id)) starts.push(toRun(row));
 		}
@@ -541,7 +918,8 @@ export class SchedulerModule implements CoreModule {
 			const note = skippedCount > 0 ? `错过了 ${count} 次，只补做最近一次` : missed ? "错过了原定时间，补做" : null;
 			// A trigger with no further times (a one-off, a cron that ended) is finished.
 			this.db.run("UPDATE schedules SET next_run_at = ?, status = ?, updated_at = ? WHERE id = ?", next, next === null ? "finished" : "active", at, schedule.id);
-			if (missed && schedule.kind === "report" && schedule.missedPolicy === "skip" && schedule.trigger.type !== "once") {
+			advanced.push(schedule);
+			if (missed && schedule.missedPolicy === "skip" && (schedule.kind === "reminder" || schedule.trigger.type !== "once")) {
 				this.claim(schedule, latest, { status: "skipped", note: `错过了原定时间（${count} 次），按设置跳过` });
 				continue;
 			}
@@ -554,7 +932,7 @@ export class SchedulerModule implements CoreModule {
 			const run = this.claim(schedule, scheduledAt, { catchUp: missed || skippedCount > 0, note: note ?? undefined });
 			if (run) starts.push(run);
 		}
-		this.changed();
+		if (advanced.length) this.changed(advanced);
 		for (const run of starts) await this.execute(run);
 	}
 
@@ -572,6 +950,7 @@ export class SchedulerModule implements CoreModule {
 
 	private composePrompt(schedule: Schedule, run: ScheduleRun): string {
 		const tz = schedule.trigger.timezone;
+		const stateTool = schedule.owner === "butterfly" ? "schedule_state" : WORKBENCH_STATE_TOOL;
 		const lines = [`<定时任务 名称="${schedule.name}">`];
 		if (run.manual) lines.push(`手动触发，时间：${formatTime(this.clock(), tz)}`);
 		else if (run.scheduledAt) {
@@ -582,9 +961,9 @@ export class SchedulerModule implements CoreModule {
 		if (Object.keys(schedule.state).length) lines.push(`上次保存的状态：${JSON.stringify(schedule.state)}`);
 		lines.push("</定时任务>", "", schedule.prompt, "");
 		if (schedule.kind === "monitor") {
-			lines.push("这是监控类任务：和上次保存的状态比较。如果没有值得报告的变化，回复的第一行只写「无变化」。无论有没有变化，结束前都用 schedule_state 工具保存这次检查的关键结果，供下次比较。检查失败时如实说明失败原因，不要写「无变化」。");
+			lines.push(`这是监控类任务：和上次保存的状态比较。如果没有值得报告的变化，回复的第一行只写「无变化」。无论有没有变化，结束前都用 ${stateTool} 工具保存这次检查的关键结果，供下次比较。检查失败时如实说明失败原因，不要写「无变化」。`);
 		} else {
-			lines.push("没有人在旁边看着，不要提问，按最合理的方式完成。需要下次参考的信息可以用 schedule_state 工具保存。");
+			lines.push(`没有人在旁边看着，不要提问，按最合理的方式完成。需要下次参考的信息可以用 ${stateTool} 工具保存。`);
 		}
 		if (!schedule.allowedTools?.length) lines.push("这个定时任务只允许使用只读工具（读取、查找、抓取网页等）。");
 		return lines.join("\n");
@@ -603,13 +982,53 @@ export class SchedulerModule implements CoreModule {
 		}
 		this.starting.add(schedule.id);
 		try {
-			await this.launch(run, schedule);
+			const goalId = this.db.get<{ goal_id: string | null }>("SELECT goal_id FROM schedules WHERE id=?", schedule.id)?.goal_id;
+			if (goalId) {
+				const goals = this.core.module(GoalsModule)?.scheduler;
+				if (!goals?.get(goalId)) {
+					this.finishRun(run.id, "failed", { error: "找不到这项日程所关联的目标" });
+					return;
+				}
+				goals.post(goalId, "schedule.fired", `schedule:${schedule.id}:${run.triggerKey}`, {
+					scheduleId: schedule.id, scheduleRunId: run.id, version: run.version, scheduledAt: run.scheduledAt,
+				});
+				const at = this.clock();
+				this.updateRun(run.id, { status: "done", started_at: at, ended_at: at, retry_at: null, result: "已交给目标调度者" });
+				this.db.run("UPDATE schedules SET last_run_at=? WHERE id=?", at, schedule.id);
+				return;
+			}
+			if (schedule.kind === "reminder") {
+				const at = this.clock();
+				this.db.run("UPDATE schedule_runs SET started_at = ?, retry_at = NULL WHERE id = ?", at, run.id);
+				this.db.run("UPDATE schedules SET last_run_at = ? WHERE id = ?", at, schedule.id);
+				this.finishRun(run.id, "done", { result: "已提醒", cost: 0 });
+			} else await this.launch(run, schedule);
 		} finally {
 			this.starting.delete(schedule.id);
 		}
 	}
 
 	private async launch(run: ScheduleRun, schedule: Schedule): Promise<void> {
+		const sandbox = schedule.owner === "butterfly";
+		const cwd = sandbox ? this.core.paths.butterflyDir : schedule.cwd;
+		if (sandbox) {
+			try {
+				const provider = this.core.sandboxProvider?.();
+				if (!provider) throw new Error("sandbox unavailable");
+				await provider.ready();
+			} catch {
+				this.finishRun(run.id, "failed", { error: "蝶君的沙箱还没准备好" });
+				return;
+			}
+			if (!this.stillWanted(run)) {
+				this.updateRun(run.id, { status: "skipped", ended_at: this.clock(), note: "计划已修改、暂停或删除，这次触发作废" });
+				return;
+			}
+			if (this.core.maintenance) {
+				this.updateRun(run.id, { retry_at: this.clock() + 60_000, note: `${this.core.maintenance}，稍后重试` });
+				return;
+			}
+		}
 		// Recheck persisted schedules too, before creating any general task.
 		try {
 			if (schedule.sessionMode === "bound" && schedule.sessionFile) this.core.assertTaskSession(schedule.sessionFile);
@@ -618,19 +1037,24 @@ export class SchedulerModule implements CoreModule {
 			return;
 		}
 		const task = run.taskId ? this.tasks.get(run.taskId) : undefined;
-		const taskId = task?.id ?? this.tasks.create({ cwd: schedule.cwd, goal: schedule.prompt, title: `定时：${schedule.name}`, source: "schedule", scheduleId: schedule.id }).id;
+		const taskId = task?.id ?? this.tasks.create({ cwd, goal: schedule.prompt, title: `定时：${schedule.name}`, source: "schedule", scheduleId: schedule.id }).id;
 		let slot: Slot;
 		try {
 			slot = await this.core.openSlot({
-				cwd: schedule.cwd,
+				cwd,
+				sandbox,
 				sessionFile: schedule.sessionMode === "bound" ? (schedule.sessionFile ?? undefined) : undefined,
 				taskId,
 				unattended: true,
-				// Scheduled runs report through schedule_state, a standard-mode tool.
+				// Scheduled runs need their state tool from standard mode.
 				agentMode: "standard",
 			});
 		} catch (error) {
 			this.finishRun(run.id, "failed", { error: error instanceof Error ? error.message : String(error) });
+			return;
+		}
+		if (sandbox && !slot.sandboxed) {
+			this.finishRun(run.id, "failed", { error: "绑定的会话不是蝶君的沙箱会话" });
 			return;
 		}
 		if (slot.running || this.active.has(slot.slotId)) {
@@ -666,7 +1090,7 @@ export class SchedulerModule implements CoreModule {
 		const runId = this.active.get(slot.slotId);
 		if (!runId || event.type !== "tool_execution_start") return;
 		// Memory candidates and skill proposals wait for the user: not external effects.
-		const internal = READ_ONLY_TOOLS.has(event.toolName) || SCHEDULE_TOOLS.includes(event.toolName) || event.toolName.startsWith("memory_") || event.toolName === "skill_propose";
+		const internal = READ_ONLY_TOOLS.has(event.toolName) || SAFE_SCHEDULE_TOOLS.has(event.toolName) || event.toolName.startsWith("memory_") || event.toolName === "skill_propose";
 		if (!internal) this.updateRun(runId, { external_effects: 1 });
 	}
 
@@ -684,7 +1108,7 @@ export class SchedulerModule implements CoreModule {
 		this.active.delete(slot.slotId);
 		const record = this.getRun(runId);
 		const schedule = record ? this.get(record.scheduleId) : undefined;
-		if (!record || !schedule) return;
+		if (!record) return;
 		const messages = slot.started ? (slot.session.messages as unknown as { role: string; content: unknown }[]) : [];
 		const reply = [...messages].reverse().find((m) => m.role === "assistant");
 		const result = reply ? textOf(reply.content).slice(0, 2000) : null;
@@ -692,11 +1116,11 @@ export class SchedulerModule implements CoreModule {
 		let status: ScheduleRunStatus;
 		if (limited) status = "needs_input";
 		else if (run.status === "failed") status = "failed";
-		else if (run.status === "done") status = schedule.kind === "monitor" && result && NO_CHANGE.test(result) ? "no_change" : "done";
+		else if (run.status === "done") status = schedule?.kind === "monitor" && result && NO_CHANGE.test(result) ? "no_change" : "done";
 		else status = "interrupted";
 
 		const fresh = this.getRun(runId)!;
-		if (status === "failed" && !fresh.externalEffects && fresh.attempt < MAX_ATTEMPTS) {
+		if (status === "failed" && schedule && !fresh.externalEffects && fresh.attempt < MAX_ATTEMPTS) {
 			// Nothing happened outside yet: safe to try again later.
 			this.updateRun(runId, {
 				status: "waiting",
@@ -712,7 +1136,7 @@ export class SchedulerModule implements CoreModule {
 		if (status === "no_change" && run.taskId) this.tasks.markNoChange(run.taskId);
 		if (slot.unattended && !this.watched(slot)) void this.core.closeSlot(slot.slotId);
 		else slot.taskId = null;
-		void this.afterRun(schedule.id);
+		void this.afterRun(record.scheduleId);
 	}
 
 	private watched(slot: Slot): boolean {
@@ -749,8 +1173,9 @@ export class SchedulerModule implements CoreModule {
 	 */
 	private deliver(run: ScheduleRun): void {
 		if (run.status === "no_change" || run.status === "skipped" || run.status === "waiting") return;
-		const schedule = this.get(run.scheduleId);
-		const title =
+		const schedule = this.get(run.scheduleId) ?? this.deletion(run.scheduleId)?.before;
+		const reminder = schedule?.kind === "reminder" && run.status === "done";
+		const label =
 			run.status === "failed"
 				? `定时任务失败：${schedule?.name}`
 				: run.status === "needs_input"
@@ -758,10 +1183,12 @@ export class SchedulerModule implements CoreModule {
 					: run.status === "interrupted"
 						? `定时任务已中断：${schedule?.name}`
 						: `定时任务完成：${schedule?.name}`;
-		const body = (run.status === "failed" ? run.error : run.result)?.replace(/\s+/g, " ").slice(0, 200) ?? "";
+		const title = reminder ? "提醒" : schedule?.owner === "butterfly" ? `蝶君 · ${label}` : label;
+		const body = reminder ? [schedule.name, schedule.prompt].filter(Boolean).join("\n")
+			: (run.status === "failed" ? run.error : run.result)?.replace(/\s+/g, " ").slice(0, 200) ?? "";
 		const record = (channel: Delivery["channel"], status: DeliveryStatus, detail: string | null) =>
 			this.db.run("INSERT INTO deliveries(id, run_id, channel, status, detail, created_at) VALUES(?, ?, ?, ?, ?, ?)", `d_${randomUUID().slice(0, 8)}`, run.id, channel, status, detail, now());
-		if (this.core.clients.size > 0) {
+		if (!reminder && this.core.clients.size > 0) {
 			this.core.broadcast({ event: "schedules.delivered", runId: run.id, title, body });
 			record("window", "delivered", null);
 			return;
@@ -778,7 +1205,7 @@ export class SchedulerModule implements CoreModule {
 		}
 		const deliveryId = `d_${randomUUID().slice(0, 8)}`;
 		this.db.run("INSERT INTO deliveries(id, run_id, channel, status, detail, created_at) VALUES(?, ?, 'toast', 'unknown', NULL, ?)", deliveryId, run.id, now());
-		void pending.then((status) => {
+		void pending.catch(() => "undelivered" as const).then((status) => {
 			try {
 				this.db.run("UPDATE deliveries SET status = ? WHERE id = ?", status, deliveryId);
 			} catch {}
@@ -795,7 +1222,7 @@ export class SchedulerModule implements CoreModule {
 	toolPolicy(slot: Slot, tool: string, input: Record<string, unknown> = {}): "allow" | "deny" | undefined {
 		const runId = this.active.get(slot.slotId);
 		if (!runId) return undefined;
-		if (isReadOnlyCall(tool, input) || SCHEDULE_TOOLS.includes(tool) || tool === "skill_propose") return "allow";
+		if (isReadOnlyCall(tool, input) || SAFE_SCHEDULE_TOOLS.has(tool) || tool === "skill_propose") return "allow";
 		if (tool.startsWith("memory_") && input.explicit !== true) return "allow";
 		const schedule = this.get(this.getRun(runId)?.scheduleId ?? "");
 		const allowed = schedule?.allowedTools ?? [];
@@ -805,69 +1232,167 @@ export class SchedulerModule implements CoreModule {
 	}
 
 	extensions(slot: { slotId: string }): ExtensionFactory[] {
-		const module = this;
-		const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: {} });
-		return [
-			(pi: ExtensionAPI) => {
-				pi.registerTool({
-					name: "schedule_state",
-					label: "保存定时任务状态",
-					description: "Only inside a scheduled run: save a small JSON object (merged into the schedule's state) that the next run of this schedule receives, e.g. the last checked values.",
-					parameters: { type: "object", properties: { state: { type: "object", description: "Keys to set; null removes a key" } }, required: ["state"] } as never,
-					async execute(_id, params: { state: Record<string, unknown> }) {
-						const runId = module.active.get(slot.slotId);
-						const run = runId ? module.getRun(runId) : undefined;
-						const schedule = run ? module.get(run.scheduleId) : undefined;
-						if (!schedule) return text("现在不是定时任务的运行，没有保存。");
-						const next = { ...schedule.state };
-						for (const [k, v] of Object.entries(params.state ?? {})) {
-							if (v === null) delete next[k];
-							else next[k] = v;
-						}
-						const serialized = json(next);
-						if (serialized.length > 4000) return text("状态太大（上限 4000 字符），请只保存关键结果。");
-						module.db.run("UPDATE schedules SET state = ? WHERE id = ?", serialized, schedule.id);
-						return text("已保存。");
-					},
+		return [pi => {
+			pi.on("session_start", (_event, ctx) => {
+				if (recordedSandbox(ctx.sessionManager)) {
+					this.registerStateTool(pi, slot.slotId, "schedule_state");
+					this.registerScheduleTools(pi, slot.slotId);
+					return;
+				}
+				// Legacy workbench schedules can still save state during a scheduler run.
+				let registered = false;
+				pi.on("before_agent_start", () => {
+					if (!this.active.has(slot.slotId)) return;
+					if (!registered) {
+						this.registerStateTool(pi, slot.slotId, WORKBENCH_STATE_TOOL);
+						registered = true;
+					} else if (!pi.getActiveTools().includes(WORKBENCH_STATE_TOOL)) {
+						pi.setActiveTools([...pi.getActiveTools(), WORKBENCH_STATE_TOOL]);
+					}
 				});
-				pi.registerTool({
-					name: "schedule_create",
-					label: "创建定时任务",
-					description:
-						"Propose a scheduled task when the user asks for something to happen later or repeatedly. The user approves it before it runs. trigger: once (at: ISO time), interval (every_minutes ≥ 10) or cron (5-field cron, timezone IANA). kind: task, report or monitor (monitor = only report changes).",
-					parameters: {
-						type: "object",
-						properties: {
-							name: { type: "string" },
-							prompt: { type: "string", description: "What to do each time, self-contained" },
-							kind: { type: "string", enum: ["task", "report", "monitor"] },
-							trigger: { type: "string", enum: ["once", "interval", "cron"] },
-							at: { type: "string", description: "once: ISO 8601 time" },
-							every_minutes: { type: "number" },
-							cron: { type: "string" },
-							timezone: { type: "string" },
-						},
-						required: ["name", "prompt", "trigger"],
-					} as never,
-					async execute(_id, params: { name: string; prompt: string; kind?: ScheduleKind; trigger: TriggerType; at?: string; every_minutes?: number; cron?: string; timezone?: string }) {
-						const live = module.core.slots.get(slot.slotId);
-						try {
-							const trigger: Trigger =
-								params.trigger === "once"
-									? { type: "once", at: params.at ? Date.parse(params.at) : undefined }
-									: params.trigger === "interval"
-										? { type: "interval", everyMs: Math.round((params.every_minutes ?? 0) * 60_000) }
-										: { type: "cron", cron: params.cron, timezone: params.timezone };
-							const schedule = module.save({ name: params.name, prompt: params.prompt, kind: params.kind, trigger, cwd: live?.cwd ?? process.cwd(), createdBy: "agent" });
-							if (!module.core.clients.size && module.core.settings.get().notifications) module.core.notifier.notify("Agent 想创建一个定时任务", schedule.name);
-							return text(`已提交给用户确认（${module.describeTrigger(schedule.trigger)}）。用户批准后才会开始。`);
-						} catch (error) {
-							return text(`没有创建：${error instanceof Error ? error.message : String(error)}`);
-						}
-					},
+				pi.on("agent_settled", () => {
+					if (registered) pi.setActiveTools(pi.getActiveTools().filter(name => name !== WORKBENCH_STATE_TOOL));
 				});
+			});
+		}];
+	}
+
+	private registerStateTool(pi: ExtensionAPI, slotId: string, name: string): void {
+		pi.registerTool({
+			name,
+			label: "保存定时任务状态",
+			description: "Inside a scheduled run, save a small JSON object for the next run. Null removes a key.",
+			parameters: { type: "object", properties: { state: { type: "object" } }, required: ["state"] } as never,
+			execute: async (_id, params: { state: Record<string, unknown> }) => {
+				const run = this.getRun(this.active.get(slotId) ?? "");
+				const schedule = run ? this.stillWanted(run) : undefined;
+				if (!schedule) return toolText("现在没有可保存状态的定时任务运行。");
+				const next = { ...schedule.state, ...params.state };
+				for (const key of Object.keys(next)) if (next[key] === null) delete next[key];
+				const serialized = json(next);
+				if (serialized.length > 4000) return toolText("状态太大（上限 4000 字符），请只保存关键结果。");
+				this.db.run("UPDATE schedules SET state = ? WHERE id = ?", serialized, schedule.id);
+				return toolText("已保存。");
 			},
-		];
+		});
+	}
+
+	private registerScheduleTools(pi: ExtensionAPI, slotId: string): void {
+		const verifySlot = () => {
+			const slot = this.core.slots.get(slotId);
+			if (!slot?.sandboxed) throw new RpcError("bad_request", "请在蝶君的沙箱会话里管理日程");
+			return slot;
+		};
+		const actor = (): "butterfly" | "patrol" => verifySlot().session.sessionManager.getEntries()
+			.some(entry => entry.type === "custom" && entry.customType === "df.patrol") ? "patrol" : "butterfly";
+		const find = (id: string) => {
+			verifySlot();
+			const schedule = this.get(id);
+			if (!schedule || schedule.owner !== "butterfly") throw new RpcError("not_found", "没有这件蝶君日程");
+			return schedule;
+		};
+		const versioned = (params: { id: string; version: number }) => {
+			verifySlot();
+			const schedule = this.get(params.id);
+			if (!schedule && this.deletion(params.id)?.before?.owner === "butterfly") throw new RpcError("version_conflict", TOOL_VERSION_CONFLICT);
+			const current = find(params.id);
+			this.checkVersion(current, expectedVersion(params.version, true), TOOL_VERSION_CONFLICT);
+			return current;
+		};
+		const idProperty = { type: "string", description: "ID returned by schedule_list" };
+		const versionProperty = { type: "integer", minimum: 1, description: "Version returned by schedule_list" };
+		pi.registerTool({
+			name: "schedule_create",
+			label: "新建日程",
+			description: "Create an active Butterfly schedule. Use reminder for a notification without a model run. Use daily/weekly with times, interval with every_minutes, once with at, or cron.",
+			parameters: { type: "object", properties: TOOL_SCHEDULE_PROPERTIES, required: ["name", "trigger"] } as never,
+			execute: async (_id, params: ToolScheduleInput) => {
+				try {
+					const schedule = this.save({ ...toolSchedulePatch(params), owner: "butterfly", reason: params.reason }, actor());
+					return toolResult(schedule, "created", `已加入日程：${this.describeTrigger(schedule.trigger)} ${schedule.name}`);
+				} catch (error) { return toolError(error); }
+			},
+		});
+		pi.registerTool({
+			name: "schedule_list",
+			label: "查看日程",
+			description: "Read Butterfly schedules and their current versions. Optionally supply both from and to (epoch ms, up to 45 days), or a status.",
+			parameters: { type: "object", properties: {
+				from: { type: "integer" }, to: { type: "integer" },
+				status: { type: "string", enum: ["active", "paused", "pending_approval", "finished", "rejected"] },
+			} } as never,
+			execute: async (_id, params: { from?: number; to?: number; status?: ScheduleStatus }) => {
+				try {
+					verifySlot();
+					const schedules = params.from !== undefined || params.to !== undefined
+						? this.occurrences(params.from, params.to).schedules : this.list({ status: params.status ? [params.status] : undefined });
+					const items = schedules
+						.filter(s => s.owner === "butterfly" && this.get(s.id) && (!params.status || s.status === params.status))
+						.map(s => ({ id: s.id, name: s.name, version: s.version, describe: this.describeTrigger(s.trigger), createdRole: s.createdRole, status: s.status, kind: s.kind }));
+					return toolText(items.length ? json(items) : "没有符合条件的日程。", { items });
+				} catch (error) { return toolError(error); }
+			},
+		});
+		pi.registerTool({
+			name: "schedule_update",
+			label: "修改日程",
+			description: "Edit a Butterfly schedule using its current version from schedule_list. User-created schedules need the user's approval.",
+			parameters: { type: "object", properties: {
+				...TOOL_SCHEDULE_PROPERTIES, id: idProperty, version: versionProperty,
+				status: { type: "string", enum: ["active", "paused"] },
+			}, required: ["id", "version"] } as never,
+			execute: async (_id, params: ToolScheduleInput & { id: string; version: number; status?: "active" | "paused" }) => {
+				try {
+					const before = versioned(params);
+					const role = actor();
+					const after = this.prepareSave({ ...toolSchedulePatch(params), status: params.status }, before, role);
+					const reason = params.reason ?? "update";
+					if (before.createdRole === "user") {
+						this.propose(before, after, reason, role);
+						return toolResult(before, "proposed", `想改你建的「${before.name}」，已放进等你处理`);
+					}
+					const change = this.makeChange(before, after, role, reason);
+					this.applyChange(change);
+					const description = before.status !== after.status ? change.summary
+						: json(before.trigger) !== json(after.trigger) ? `改成${this.describeTrigger(after.trigger)}`
+							: before.name !== after.name ? `改名为「${after.name}」` : "已更新";
+					return toolResult(after, "updated", `已改：「${before.name}」${description}`);
+				} catch (error) { return toolError(error); }
+			},
+		});
+		pi.registerTool({
+			name: "schedule_remove",
+			label: "删除日程",
+			description: "Remove a Butterfly schedule using its current version from schedule_list. User-created schedules need approval.",
+			parameters: { type: "object", properties: { id: idProperty, version: versionProperty, reason: { type: "string" } }, required: ["id", "version"] } as never,
+			execute: async (_id, params: { id: string; version: number; reason?: string }) => {
+				try {
+					const schedule = versioned(params);
+					const reason = params.reason ?? "remove";
+					const role = actor();
+					if (schedule.createdRole === "user") {
+						this.propose(schedule, null, reason, role);
+						return toolResult(schedule, "proposed", `想删你建的「${schedule.name}」，已放进等你处理`);
+					}
+					this.remove(schedule.id, params.version, role, reason);
+					return toolResult(schedule, "removed", `已删除日程：${schedule.name}`);
+				} catch (error) { return toolError(error); }
+			},
+		});
+		pi.registerTool({
+			name: "schedule_run_now",
+			label: "立即执行日程",
+			description: "Run one Butterfly schedule now without changing its next scheduled time. A reminder sends one notification.",
+			parameters: { type: "object", properties: { id: idProperty }, required: ["id"] } as never,
+			execute: async (_id, params: { id: string }) => {
+				try {
+					const schedule = find(params.id);
+					const run = await this.runNow(schedule.id);
+					if (run.status === "failed" || run.status === "skipped") return toolText(run.error ?? run.note ?? "这次日程没能执行。");
+					return toolResult(schedule, "ran", schedule.kind === "reminder" ? `已提醒：${schedule.name}` : `已触发日程：${schedule.name}`);
+				} catch (error) { return toolError(error); }
+			},
+		});
 	}
 
 	// ---- methods -----------------------------------------------------------------------
@@ -879,10 +1404,18 @@ export class SchedulerModule implements CoreModule {
 			const t = v as Record<string, unknown>;
 			const type = (["once", "interval", "cron"] as const).find((x) => x === t.type);
 			if (!type) return undefined;
-			return { type, at: num(t.at), everyMs: num(t.everyMs), anchor: num(t.anchor), cron: str(t.cron), timezone: str(t.timezone) };
+			let crons: string[] | undefined;
+			if (type === "cron" && t.crons !== undefined) {
+				if (!Array.isArray(t.crons) || !t.crons.every((expression): expression is string => typeof expression === "string")) throw new RpcError("bad_request", "请提供有效的日历规则");
+				crons = t.crons;
+			}
+			return { type, at: num(t.at), everyMs: num(t.everyMs), anchor: num(t.anchor), cron: str(t.cron), crons, timezone: str(t.timezone) };
 		};
-		const withRuns = (s: Schedule) => ({ ...s, describe: this.describeTrigger(s.trigger), lastRun: this.runs(s.id, 1)[0] ?? null });
+		const withRuns = (s: Schedule) => this.view(s);
 		core.register("schedules.list", () => this.list().map(withRuns));
+		core.register("schedules.occurrences", p => this.occurrences(p.from, p.to, p.everyDay !== false));
+		core.register("schedules.history", p => this.history(requireStr(p.id, "id")));
+		core.register("schedules.undo", p => this.undo(requireStr(p.changeId, "changeId")));
 		core.register("schedules.fromSession", (p) => {
 			const slot = core.slot(requireStr(p.slotId, "slotId"));
 			const file = slot.info().sessionFile;
@@ -901,12 +1434,14 @@ export class SchedulerModule implements CoreModule {
 			withRuns(
 				this.save({
 					id: str(p.id),
+					expectedVersion: expectedVersion(p.expectedVersion),
+					reason: str(p.reason),
 					name: str(p.name),
 					prompt: str(p.prompt),
 					cwd: str(p.cwd),
 					kind: str(p.kind) as ScheduleKind | undefined,
 					trigger: trigger(p.trigger),
-					missedPolicy: str(p.missedPolicy) as MissedPolicy | undefined,
+					missedPolicy: p.missedPolicy === "skip" || p.missedPolicy === "latest" ? p.missedPolicy : undefined,
 					sessionMode: p.sessionMode === "bound" ? "bound" : p.sessionMode === "fresh" ? "fresh" : undefined,
 					sessionFile: str(p.sessionFile),
 					allowedTools: Array.isArray(p.allowedTools) ? p.allowedTools.filter((x): x is string => typeof x === "string") : p.allowedTools === null ? null : undefined,
@@ -916,10 +1451,10 @@ export class SchedulerModule implements CoreModule {
 		core.register("schedules.setStatus", (p) => {
 			const status = (["active", "paused", "rejected"] as const).find((s) => s === p.status);
 			if (!status) throw new RpcError("bad_request", "status must be active, paused or rejected");
-			return withRuns(this.setStatus(requireStr(p.id, "id"), status));
+			return withRuns(this.setStatus(requireStr(p.id, "id"), status, expectedVersion(p.expectedVersion)));
 		});
 		core.register("schedules.remove", (p) => {
-			this.remove(requireStr(p.id, "id"));
+			this.remove(requireStr(p.id, "id"), expectedVersion(p.expectedVersion), "user", str(p.reason));
 			return { ok: true };
 		});
 		core.register("schedules.runNow", (p) => this.runNow(requireStr(p.id, "id")));
@@ -929,8 +1464,10 @@ export class SchedulerModule implements CoreModule {
 			const problem = validateTrigger(t);
 			if (problem) return { error: problem, next: [] };
 			const out: number[] = [];
-			for (let at: number | null = this.clock() - 1; out.length < 3; ) {
-				at = nextOccurrence(t.type === "interval" && t.anchor === undefined ? { ...t, anchor: this.clock() + (t.everyMs ?? 0) } : t, at);
+			const clock = this.clock();
+			const next = occurrenceRule(t.type === "interval" && t.anchor === undefined ? { ...t, anchor: clock + (t.everyMs ?? 0) } : t);
+			for (let at: number | null = clock - 1; out.length < 3; ) {
+				at = next(at);
 				if (at === null) break;
 				out.push(at);
 			}
@@ -952,12 +1489,13 @@ export function dueTimes(trigger: Trigger, first: number, at: number): { count: 
 	}
 	let count = 0;
 	let latest = first;
-	for (let t: number | null = first; t !== null && t <= at; t = nextOccurrence(trigger, t)) {
+	const next = occurrenceRule(trigger);
+	for (let t: number | null = first; t !== null && t <= at; t = next(t)) {
 		latest = t;
 		count++;
 		if (count === 50_000) {
 			// Very long gap: skip ahead and find the latest time from two days back.
-			const near = nextOccurrence(trigger, Math.max(t, at - 2 * 86_400_000));
+			const near = next(Math.max(t, at - 2 * DAY_MS));
 			if (near === null || near > at) break;
 			t = near;
 			latest = near;

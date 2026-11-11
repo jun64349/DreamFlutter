@@ -78,6 +78,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
     const image=join(repository,'core/sandbox-image/dreamflutter-sandbox.tar.gz');
     const info=JSON.parse(readFileSync(join(dirname(image),'dreamflutter-sandbox.json')));
     if(info.officeLayer?.lockSha256!==sha256(lockPath)||sha256(image)!==info.sha256)throw Error('Bundled sandbox office layer is missing or does not match the pinned lock/image hash');
+    const browserLockPath=join(repository,'core/sandbox-browser.lock.json');
+    const browserLock=JSON.parse(readFileSync(browserLockPath));
+    if(info.browserLayer?.lockSha256!==sha256(browserLockPath)||info.browserLayer.baseSha256!==browserLock.base.sha256
+      ||info.officeLayer.sha256!==browserLock.base.sha256)throw Error('Bundled sandbox browser layer is missing or does not match the pinned lock/base');
   }
   if(!args.includes('--download-only')&&!args.includes('--verify-only'))installWindows(option('--target',repository),cache);
 }

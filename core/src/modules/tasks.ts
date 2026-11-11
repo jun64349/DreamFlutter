@@ -11,6 +11,7 @@ import { textOf } from "../runs.ts";
 import type { Slot } from "../slots/slot.ts";
 import { sandboxEnv } from "../agent/state.ts";
 import { SANDBOX_WORKSPACE } from "../sandbox/sandbox.ts";
+import { GoalsModule } from "./goals.ts";
 
 export type TaskStatus = "waiting" | "running" | "needs_input" | "done" | "no_change" | "failed" | "interrupted";
 export type TaskSource = "chat" | "note" | "template" | "schedule";
@@ -25,6 +26,8 @@ export interface Task {
 	status: TaskStatus;
 	noteId: string | null;
 	scheduleId: string | null;
+	goalId?: string;
+	attempt?: number;
 	materialIds: string[];
 	/** Last reply of the agent (shortened). */
 	result: string | null;
@@ -73,7 +76,7 @@ export interface Artifact {
 	updatedAt: number;
 }
 
-export type NoticeKind = "limit_turns" | "limit_budget" | "limit_budget_month";
+export type NoticeKind = "limit_turns" | "limit_budget" | "limit_budget_month" | "goal_budget" | "goal_blocked" | "goal_acceptance";
 
 /** A card the core raises for the user (run limits...), resolved from the inbox. */
 export interface Notice {
@@ -84,6 +87,7 @@ export interface Notice {
 	slotId: string | null;
 	sessionFile: string | null;
 	taskId: string | null;
+	goalId?: string;
 	cwd: string | null;
 	status: "pending" | "continued" | "stopped";
 	createdAt: number;
@@ -102,6 +106,8 @@ interface TaskRow {
 	status: string;
 	note_id: string | null;
 	schedule_id: string | null;
+	goal_id: string | null;
+	attempt: number;
 	materials: string;
 	result: string | null;
 	error: string | null;
@@ -126,6 +132,7 @@ function toTask(row: TaskRow): Task {
 		status: row.status as TaskStatus,
 		noteId: row.note_id,
 		scheduleId: row.schedule_id,
+		...(row.goal_id ? { goalId: row.goal_id, attempt: row.attempt } : {}),
 		materialIds: parseJson<string[]>(row.materials, []),
 		result: row.result,
 		error: row.error,
@@ -174,6 +181,7 @@ export class TasksModule implements CoreModule {
 	private budgetOverrideMonth = 0;
 	/** Runs already stopped by a limit (one card per run). */
 	private readonly stoppedRuns = new Set<string>();
+	private readonly goalAttempts = new Map<string, { revision: number; generation: number }>();
 	/** Other modules' items for the inbox (e.g. schedules waiting for approval). */
 	private readonly inboxSources: (() => Record<string, unknown>[])[] = [];
 	/** Called when the user answers a limit card (before a continued run starts). */
@@ -235,11 +243,13 @@ export class TasksModule implements CoreModule {
 		source: TaskSource;
 		noteId?: string | null;
 		scheduleId?: string | null;
+		goalId?: string | null;
 		materialIds?: string[];
 		sessionFile?: string | null;
 	}): Task {
 		const goal = input.goal.trim();
 		if (!goal) throw new RpcError("bad_request", "任务目标不能为空");
+		if (input.goalId && !this.core.module(GoalsModule)?.scheduler.get(input.goalId)) throw new RpcError("not_found", "没有这个目标");
 		const at = now();
 		const task: Task = {
 			id: `t_${randomUUID().slice(0, 8)}`,
@@ -251,6 +261,7 @@ export class TasksModule implements CoreModule {
 			status: "waiting",
 			noteId: input.noteId ?? null,
 			scheduleId: input.scheduleId ?? null,
+			...(input.goalId ? { goalId: input.goalId, attempt: 0 } : {}),
 			materialIds: input.materialIds ?? [],
 			result: null,
 			error: null,
@@ -264,8 +275,8 @@ export class TasksModule implements CoreModule {
 			endedAt: null,
 		};
 		this.db.run(
-			`INSERT INTO tasks(id, title, goal, cwd, cwd_key, session_file, source, status, note_id, schedule_id, materials, created_at, updated_at)
-			 VALUES(?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?)`,
+			`INSERT INTO tasks(id, title, goal, cwd, cwd_key, session_file, source, status, note_id, schedule_id, goal_id, materials, created_at, updated_at)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, ?, ?, ?)`,
 			task.id,
 			task.title,
 			task.goal,
@@ -275,6 +286,7 @@ export class TasksModule implements CoreModule {
 			task.source,
 			task.noteId,
 			task.scheduleId,
+			task.goalId ?? null,
 			json(task.materialIds),
 			at,
 			at,
@@ -339,12 +351,15 @@ export class TasksModule implements CoreModule {
 		if (!run.taskId) return;
 		const task = this.get(run.taskId);
 		if (!task) return;
+		const goal = task.goalId ? this.core.module(GoalsModule)?.scheduler.get(task.goalId) : undefined;
+		if (goal) this.goalAttempts.set(run.id, { revision: goal.revision, generation: goal.leaseGeneration });
 		this.update(task.id, {
 			status: "running",
 			session_file: task.sessionFile ?? slot.info().sessionFile,
 			error: null,
 			current_step: null,
 			ended_at: null,
+			...(task.goalId ? { attempt: (task.attempt ?? 0) + 1 } : {}),
 		});
 	}
 
@@ -378,6 +393,8 @@ export class TasksModule implements CoreModule {
 	onRunFinished(slot: Slot, run: Run): void {
 		if (slot.isSideConversation) return;
 		this.stoppedRuns.delete(run.id);
+		const attempt = this.goalAttempts.get(run.id);
+		this.goalAttempts.delete(run.id);
 		if (!run.taskId) return;
 		const task = this.get(run.taskId);
 		if (!task) return;
@@ -418,6 +435,12 @@ export class TasksModule implements CoreModule {
 		}
 		this.changed(task.id);
 		if (task.noteId) this.core.broadcast({ event: "desk.changed", cwd: task.cwd });
+		const intent = task.goalId ? this.db.get<{ revision: number; generation: number }>(
+			"SELECT revision,generation FROM goal_intents WHERE run_id=? AND action='run' AND goal_id=?", run.id, task.goalId) : undefined;
+		if (task.goalId) this.core.module(GoalsModule)?.scheduler.post(task.goalId, "run.finished", `run:${run.id}`, {
+			runId: run.id, taskId: task.id, status: run.status,
+			revision: intent?.revision ?? attempt?.revision ?? 0, generation: intent?.generation ?? attempt?.generation ?? -1,
+		});
 	}
 
 	/** Marks the task of a schedule run as "no change" (monitoring found nothing new). */
@@ -429,10 +452,15 @@ export class TasksModule implements CoreModule {
 
 	private checkLimits(slot: Slot, run: Run): void {
 		if (this.stoppedRuns.has(run.id)) return;
+		const goalId = run.taskId ? this.db.get<{ goal_id: string | null }>("SELECT goal_id FROM tasks WHERE id=?", run.taskId)?.goal_id : null;
+		if (goalId && this.core.module(GoalsModule)?.scheduler.enforceBudget(goalId)) {
+			this.pauseRun(slot, run, "goal_budget", "目标预算已用完", "请先放宽这个目标的预算，再继续。", goalId);
+			return;
+		}
 		const settings = this.core.settings.get();
 		const turnLimit = (slot.unattended ? settings.maxTurnsUnattended : settings.maxTurnsPerRun) + (this.extraTurns.get(slot.slotId) ?? 0);
 		if (turnLimit > 0 && run.turns > turnLimit) {
-			this.pauseRun(slot, run, "limit_turns", `已达到单次运行的最大轮数（${turnLimit} 轮）`, "任务已暂停。可以让它继续，或者到此为止。");
+			this.pauseRun(slot, run, "limit_turns", `已达到单次运行的最大轮数（${turnLimit} 轮）`, "任务已暂停。可以让它继续，或者到此为止。", goalId);
 			return;
 		}
 		const budget = settings.dailyBudgetUsd;
@@ -440,7 +468,7 @@ export class TasksModule implements CoreModule {
 			// Finished runs are in the database; runs still going only know their cost in memory.
 			let spent = this.core.runs.costSince(startOfToday());
 			if (spent >= budget) {
-				this.pauseRun(slot, run, "limit_budget", `今天的花费已达到上限（$${spent.toFixed(2)} / $${budget.toFixed(2)}）`, "任务已暂停。可以今天内不再限制并继续，或者到此为止。");
+				this.pauseRun(slot, run, "limit_budget", `今天的花费已达到上限（$${spent.toFixed(2)} / $${budget.toFixed(2)}）`, "任务已暂停。可以今天内不再限制并继续，或者到此为止。", goalId);
 				return;
 			}
 		}
@@ -448,12 +476,12 @@ export class TasksModule implements CoreModule {
 		if (monthly > 0 && this.budgetOverrideMonth !== startOfMonth()) {
 			let spent = this.core.runs.costSince(startOfMonth());
 			if (spent >= monthly) {
-				this.pauseRun(slot, run, "limit_budget_month", `本月的花费已达到上限（$${spent.toFixed(2)} / $${monthly.toFixed(2)}）`, "任务已暂停。可以本月内不再限制并继续，或者到此为止。");
+				this.pauseRun(slot, run, "limit_budget_month", `本月的花费已达到上限（$${spent.toFixed(2)} / $${monthly.toFixed(2)}）`, "任务已暂停。可以本月内不再限制并继续，或者到此为止。", goalId);
 			}
 		}
 	}
 
-	private pauseRun(slot: Slot, run: Run, kind: NoticeKind, title: string, body: string): void {
+	private pauseRun(slot: Slot, run: Run, kind: NoticeKind, title: string, body: string, goalId?: string | null): void {
 		this.stoppedRuns.add(run.id);
 		const notice: Notice = {
 			id: `n_${randomUUID().slice(0, 8)}`,
@@ -463,13 +491,14 @@ export class TasksModule implements CoreModule {
 			slotId: slot.slotId,
 			sessionFile: slot.info().sessionFile,
 			taskId: run.taskId,
+			...(goalId ? { goalId } : {}),
 			cwd: slot.cwd,
 			status: "pending",
 			createdAt: now(),
 			resolvedAt: null,
 		};
 		this.db.run(
-			"INSERT INTO notices(id, kind, title, body, slot_id, session_file, task_id, cwd, status, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+			"INSERT INTO notices(id, kind, title, body, slot_id, session_file, task_id, goal_id, cwd, status, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
 			notice.id,
 			notice.kind,
 			notice.title,
@@ -477,6 +506,7 @@ export class TasksModule implements CoreModule {
 			notice.slotId,
 			notice.sessionFile,
 			notice.taskId,
+			notice.goalId ?? null,
 			notice.cwd,
 			notice.createdAt,
 		);
@@ -499,8 +529,10 @@ export class TasksModule implements CoreModule {
 		if (!row || row.status !== "pending") throw new RpcError("gone", "这张卡片已经处理过了");
 		const notice = toNotice(row);
 		if (action === "continue" && this.core.maintenance) throw new RpcError("busy", `${this.core.maintenance}，请稍后再继续`);
+		if (notice.goalId) this.core.module(GoalsModule)?.scheduler.control(notice.goalId, action === "continue" ? "resume" : "stop_run", `notice:${id}:${action}`);
 		this.db.run("UPDATE notices SET status = ?, resolved_at = ? WHERE id = ?", action === "continue" ? "continued" : "stopped", now(), id);
 		this.core.broadcast({ event: "notices.changed" });
+		if (notice.goalId && action === "continue") return { slotId: null };
 		if (action === "stop") {
 			if (notice.taskId) this.update(notice.taskId, { status: "interrupted" });
 			for (const listener of this.noticeListeners) listener(notice, "stop");
@@ -841,6 +873,7 @@ interface NoticeRow {
 	slot_id: string | null;
 	session_file: string | null;
 	task_id: string | null;
+	goal_id: string | null;
 	cwd: string | null;
 	status: string;
 	created_at: number;
@@ -856,6 +889,7 @@ function toNotice(row: NoticeRow): Notice {
 		slotId: row.slot_id,
 		sessionFile: row.session_file,
 		taskId: row.task_id,
+		...(row.goal_id ? { goalId: row.goal_id } : {}),
 		cwd: row.cwd,
 		status: row.status as Notice["status"],
 		createdAt: row.created_at,

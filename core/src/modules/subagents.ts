@@ -2,6 +2,8 @@ import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory, ExtensionUICont
 import { BUILT_IN_ROLES, type RoleCard, roleById, roleTools } from "../agent/roles.ts";
 import type { Core, CoreModule } from "../core.ts";
 import { APPROVAL_TITLE } from "../pi/dialogs.ts";
+import { textOf } from "../runs.ts";
+import { JobsModule } from "./jobs.ts";
 
 /**
  * The `agent` tool: the main agent sends a role card off with a task; the
@@ -58,6 +60,7 @@ export class SubagentsModule implements CoreModule {
 	}
 
 	private async acquire(signal: AbortSignal | undefined): Promise<void> {
+		if (signal?.aborted) throw new Error("stopped before the subagent started");
 		if (this.running < MAX_PARALLEL_SUBAGENTS) {
 			this.running++;
 			return;
@@ -131,6 +134,9 @@ export class SubagentsModule implements CoreModule {
 		onUpdate: ((result: { content: { type: "text"; text: string }[]; details: SubagentDetails }) => void) | undefined,
 	): Promise<{ content: { type: "text"; text: string }[]; details: SubagentDetails }> {
 		const parent = this.core.slot(parentSlotId);
+		const stopFromWindow = new AbortController();
+		const runSignal = signal ? AbortSignal.any([signal, stopFromWindow.signal]) : stopFromWindow.signal;
+		const job = this.core.module(JobsModule)?.trackSubagent(parent, cwd, description, () => stopFromWindow.abort());
 		const details: SubagentDetails = {
 			role: role.id,
 			roleName: role.name,
@@ -148,10 +154,13 @@ export class SubagentsModule implements CoreModule {
 		const files = new Set<string>();
 		const update = () => onUpdate?.({ content: [{ type: "text", text: details.activity ?? "" }], details: { ...details, tools: { ...details.tools } } });
 		update();
-		await this.acquire(signal);
 		const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 		let runtime: Awaited<ReturnType<Core["openSubagentRuntime"]>> | undefined;
+		let acquired = false;
+		let failure: string | undefined;
 		try {
+			await this.acquire(runSignal);
+			acquired = true;
 			details.status = "running";
 			update();
 			runtime = await this.core.openSubagentRuntime(parentSlotId, `${parentSlotId}/agent-${++this.counter}`, cwd, parent.ui, parent.sandboxed);
@@ -202,6 +211,8 @@ export class SubagentsModule implements CoreModule {
 				} else if (e.type === "message_end") {
 					const message = e.message as Record<string, unknown>;
 					if (message.role !== "assistant") return;
+					const text = textOf(message.content);
+					if (text) job?.append(text.endsWith("\n") ? text : text + "\n");
 					const u = (message.usage ?? {}) as Record<string, unknown>;
 					usage.input += num(u.input);
 					usage.output += num(u.output);
@@ -218,16 +229,16 @@ export class SubagentsModule implements CoreModule {
 				if (!details.stoppedBy) details.stoppedBy = "aborted";
 				void session.abort();
 			};
-			signal?.addEventListener("abort", stop, { once: true });
+			runSignal.addEventListener("abort", stop, { once: true });
 			try {
 				// Stopped while the child was being set up: it never starts.
-				if (signal?.aborted) stop();
+				if (runSignal.aborted) stop();
 				else {
 					await session.prompt(`${role.instructions}\n\n## Task\n\n${prompt}`, { source: "rpc" });
 					await session.waitForIdle();
 				}
 			} finally {
-				signal?.removeEventListener("abort", stop);
+				runSignal.removeEventListener("abort", stop);
 				unsubscribe();
 			}
 
@@ -243,10 +254,18 @@ export class SubagentsModule implements CoreModule {
 						: "";
 			if (details.status === "failed") throw new Error(`the subagent failed: ${details.error}`);
 			return { content: [{ type: "text", text: (reply || "(the subagent gave no final reply)") + note }], details };
+		} catch (error) {
+			failure = error instanceof Error ? error.message : String(error);
+			throw error;
 		} finally {
-			parent.absorbSubagent(usage, files);
-			await runtime?.dispose().catch(() => {});
-			this.release();
+			try {
+				if (acquired) parent.absorbSubagent(usage, files);
+				await runtime?.dispose().catch(() => {});
+			} finally {
+				if (acquired) this.release();
+				const status = details.status === "stopped" || runSignal.aborted ? "cancelled" : details.status === "done" ? "completed" : "failed";
+				job?.finish({ status, detail: details.stoppedBy === "maxTurns" ? "子 Agent 已达到轮数上限" : failure ?? details.error });
+			}
 		}
 	}
 }

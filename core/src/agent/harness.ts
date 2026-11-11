@@ -38,9 +38,10 @@ import { type Candidate, candidateProblem, chooseCut, type CompactionHooks, comp
 import { RICH_OUTPUT_GUIDANCE, SANDBOX_ENVIRONMENT } from "./host-text.ts";
 import { editTool, readImageTool, readTool, workingDirectoryTool, writeTool } from "./fs-tools.ts";
 import { askUserTool, exitPlanModeTool, skillTool, todoTool } from "./interaction-tools.ts";
-import { SandboxShell, sandboxBashTool } from "./sandbox-shell.ts";
+import { linuxSourceEnvironment, SandboxShell, sandboxBashTool } from "./sandbox-shell.ts";
 import { globTool, grepTool, ripgrepPath } from "./search-tools.ts";
-import { JobRegistry, jobTools, PersistentShell, persistentPwshTool, pwshTool } from "./shell.ts";
+import { JobRegistry, jobTools, PersistentShell, persistentPwshTool, pwshTool, shellJobsBySession, startBashJob } from "./shell.ts";
+import { currentToolEnvironment } from "./tool-environment.ts";
 import { HarnessState, sandboxEnv, type TodoItem } from "./state.ts";
 import { prepareWorkspace, workspaceGuidance } from "./toolchain.ts";
 import type { SecurityScope } from "../security/service.ts";
@@ -50,6 +51,9 @@ import type { WebCallContext, WebTools } from "../web/types.ts";
 import { WEB_SEARCH_GUIDANCE } from "./dsh-text.ts";
 import { gitTools } from "../git/tools.ts";
 import { GIT_TOOLS } from "../git/service.ts";
+import { pythonTool } from "./python-kernel.ts";
+import { registerProcessImageHooks } from "./process-images.ts";
+import { renderHtmlTool } from "./render-html.ts";
 
 /**
  * The two agent modes, reproducing DeepSeek Harness's presets on Pi:
@@ -88,8 +92,8 @@ export const MINIMAL_TOOLS = ["pwsh", "read_image", "working_directory"];
 /** Where a sandbox session starts (the agent's home in 蝶君's sandbox). */
 export const SANDBOX_HOME = "/workspace";
 
-/** A sandbox session's tools: bash instead of PowerShell and its background jobs. */
-export const SANDBOX_TOOLS = () => [...STANDARD_TOOLS.filter((t) => t !== "pwsh" && !t.startsWith("job_")), "bash"];
+/** A sandbox session runs Bash and Python, with read-only access to managed job output. */
+export const SANDBOX_TOOLS = () => [...STANDARD_TOOLS.filter((t) => t !== "pwsh" && t !== "job_list" && t !== "job_kill"), "bash", "python"];
 
 export const STANDARD_TOOLS = [
 	"ask_user_question",
@@ -104,6 +108,7 @@ export const STANDARD_TOOLS = [
 	"pwsh",
 	"read",
 	"read_image",
+	"render_html",
 	"skill",
 	"todo_write",
 	"web_fetch",
@@ -232,6 +237,35 @@ function webFetchTool(sandbox?: HarnessOptions["sandbox"], web?: WebTools, conte
 	};
 }
 
+function withBashJobs(tool: ToolDefinition, shell: SandboxShell, distro: string, jobs: JobRegistry,
+	sources: ReturnType<typeof currentToolEnvironment>): ToolDefinition {
+	const parameters = tool.parameters as unknown as { properties: Record<string, unknown> };
+	return {
+		...tool,
+		description: tool.description + "\n* Set run_in_background for a managed job in a fresh bash at the current directory.",
+		parameters: { ...tool.parameters, properties: {
+			...parameters.properties,
+			run_in_background: { type: "boolean", description: "Run as a managed background job and return its id immediately." },
+			service: { type: "boolean", description: "Mark a background job as an ongoing service." },
+		} } as never,
+		async execute(id, params, signal, onUpdate, ctx) {
+			const { command, description, run_in_background, service } = params as {
+				command: string; description?: string; run_in_background?: boolean; service?: boolean;
+			};
+			if (!run_in_background) return tool.execute(id, params, signal, onUpdate, ctx);
+			if (!command.trim()) throw new Error("command must be a non-empty string");
+			const cwd = (await shell.run("command pwd -P", signal)).trimEnd();
+			signal?.throwIfAborted();
+			if (!cwd.startsWith("/") || /[\r\n]/.test(cwd)) throw new Error("无法确定后台作业的沙箱目录");
+			const environment = await sources?.provider.sandbox(distro, cwd, SANDBOX_HOME, command);
+			signal?.throwIfAborted();
+			const job = await startBashJob(jobs, distro, command, environment ? linuxSourceEnvironment(environment) : "",
+				{ cwd, label: description?.trim() || command, service: service === true });
+			return { content: [{ type: "text", text: "started background job " + job.id }], details: { jobId: job.id } };
+		},
+	};
+}
+
 /** The DreamFlutter extension that turns a Pi session into one of the dsh-style agent modes. */
 export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 	return (pi: ExtensionAPI) => {
@@ -250,6 +284,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			return path;
 		};
 		const sandboxShell = sandbox ? new SandboxShell(sandbox.distro, sandbox.ready) : undefined;
+		const backgroundSources = currentToolEnvironment();
 		let currentModel: Model<never> | undefined;
 		let running = false;
 		/** A user turn counter for the time-context wording. */
@@ -269,7 +304,9 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 					: undefined;
 		}
 		const persistCwd = (cwd: string) => pi.appendEntry(CWD_ENTRY, { cwd });
-		const imageRoute = () => ({ ok: currentModel?.input?.includes("image") === true, model: currentModel?.id ?? "unknown" });
+		// Tool results keep their images; the provider context projects them for text-only models.
+		const imageRoute = () => ({ ok: true, model: "" });
+		registerProcessImageHooks(pi);
 		const webSearch = options.webTools?.searchTool(options.webContext ?? (() => ({})), sandbox);
 
 		const tools: ToolDefinition[] =
@@ -285,10 +322,12 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 						...gitTools(state, sandbox),
 						globTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
 						grepTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
-						// The sandbox has one persistent bash; this machine has PowerShell with background jobs.
-						...(sandboxShell ? [sandboxBashTool(sandboxShell)] : [...jobTools(jobs).sort((a, b) => (a.name < b.name ? -1 : 1)), pwshTool(state, jobs)]),
+						...(sandboxShell && sandbox ? [withBashJobs(sandboxBashTool(sandboxShell), sandboxShell, sandbox.distro, jobs, backgroundSources),
+							...jobTools(jobs).filter(tool => tool.name === "job_output"), pythonTool(pi, state, sandbox, jobs)]
+							: [...jobTools(jobs).sort((a, b) => (a.name < b.name ? -1 : 1)), pwshTool(state, jobs)]),
 						readTool(state),
 						readImageTool(state, imageRoute),
+						renderHtmlTool(pi, state, options.security?.workspace, sandbox),
 						skillTool(() => options.resources()?.getSkills().skills ?? [], state),
 						todoTool(state, (todos) => {
 							pi.appendEntry(TODO_ENTRY, { todos });
@@ -319,6 +358,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 		};
 
 		pi.on("session_start", (_event, ctx) => {
+			shellJobsBySession.set(ctx.sessionManager, jobs);
 			const branch = ctx.sessionManager.getBranch() as Entry[];
 			state.cwd = lastCustom<{ cwd: string }>(branch, CWD_ENTRY)?.cwd ?? (sandbox ? SANDBOX_HOME : ctx.cwd);
 			state.planMode = lastCustom<{ on: boolean }>(branch, PLAN_ENTRY)?.on === true;

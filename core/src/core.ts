@@ -16,7 +16,7 @@ import { NotificationCenter, type Notifier } from "./notify.ts";
 import { StartupProgress } from "./startup.ts";
 import type { CorePaths } from "./paths.ts";
 import { dialogKind } from "./pi/dialogs.ts";
-import { createSessionRuntime, isProjectTrusted, recordedSandbox, type PiHostConfig } from "./pi/host.ts";
+import { createSessionRuntime, isProjectTrusted, recordedSandbox, STANDARD_EXTRA_TOOLS, type PiHostConfig } from "./pi/host.ts";
 import { isSideFile } from "./pi/session-metadata.ts";
 import { RunStore, type Run } from "./runs.ts";
 import { SettingsStore } from "./settings.ts";
@@ -26,8 +26,21 @@ import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
 import type { WebTools } from "./web/types.ts";
 import { currentToolEnvironment, withToolEnvironment, type ToolEnvironmentProvider } from "./agent/tool-environment.ts";
 import type { Ledger } from "./ledger/ledger.ts";
+import { GoalsModule } from "./modules/goals.ts";
+import { JobsModule } from "./modules/jobs.ts";
+import { PatrolModule, type PatrolClock } from "./modules/patrol.ts";
+import { PythonFilesModule } from "./agent/python-files.ts";
+import { withSubagentImages } from "./agent/process-images.ts";
+import { SubagentsModule } from "./modules/subagents.ts";
+import { RenderHtmlFilesModule } from "./agent/render-html-files.ts";
+
+// The host allowlist admits these names; the patrol extension registers them only in the sandbox.
+STANDARD_EXTRA_TOOLS.push("patrol_update_log", "watch_add", "watch_done");
 
 export const CORE_VERSION = "0.8.3";
+
+// Only legacy workbench schedule runs register this internal state tool.
+STANDARD_EXTRA_TOOLS.push("save_monitor_state");
 
 export interface CoreOptions {
 	startup?: StartupProgress;
@@ -46,6 +59,8 @@ export interface CoreOptions {
 	gatewayTransport?: import("./gateway/gateway.ts").Transport;
 	/** Test hook: the sandbox's distro name, folder and wsl.exe runner. */
 	sandbox?: import("./sandbox/sandbox.ts").SandboxOptions;
+	/** Test hook for the independent patrol timer. */
+	patrolClock?: PatrolClock;
 	/** v0.3.1's data folders, to move into this one on its first start (main.ts gives them only for the default data folder). */
 	legacyData?: import("./backup/backup.ts").LegacyData;
 }
@@ -136,6 +151,7 @@ export class Core {
 	readonly library: LibraryRegistry;
 	readonly confirmations: ConfirmationStore;
 	readonly runs: RunStore;
+	private readonly patrol: PatrolModule;
 	readonly paths: CorePaths;
 	readonly agentDir: string;
 	readonly sessionDir: string | undefined;
@@ -230,7 +246,10 @@ export class Core {
 			trustDecisions: new Map(),
 			extensions: (slot, mode) => [
 				this.approval(slot.slotId),
-				...this.modules.filter((m) => !(mode === "minimal" && m.modelFacing)).flatMap((m) => m.extensions?.(slot) ?? []),
+				...this.modules.filter((m) => !(mode === "minimal" && m.modelFacing)).flatMap((m) => {
+					const extensions = m.extensions?.(slot) ?? [];
+					return m instanceof SubagentsModule ? extensions.map(withSubagentImages) : extensions;
+				}),
 			],
 			newSessionMode: (slot) => this.slotOrOpening(slot.slotId)?.newSessionMode ?? this.settings.get().agentMode,
 			autoCompaction: () => this.settings.get().autoCompaction,
@@ -254,6 +273,12 @@ export class Core {
 			},
 		});
 		this.registerBaseMethods();
+		this.use(new GoalsModule(this));
+		this.patrol = new PatrolModule(this, options.patrolClock);
+		this.use(this.patrol);
+		this.use(new JobsModule(this));
+		this.use(new PythonFilesModule(this));
+		this.use(new RenderHtmlFilesModule(this));
 	}
 
 	/** Whether [cwd]'s project resources (.pi/ skills, packages…) may be loaded. */
@@ -268,19 +293,22 @@ export class Core {
 	 * through [ui] (the parent's, so they appear in the parent conversation).
 	 */
 	openSubagentRuntime(parentSlotId: string, childId: string, cwd: string, ui: Slot["ui"], sandbox = false): Promise<AgentSessionRuntime> {
+		const goals = this.module(GoalsModule)?.executor;
 		const config: PiHostConfig = {
 			...this.hostConfig,
 			ledgerContext: () => ({ purpose: "subagent", slotId: childId, runId: this.slotOrOpening(parentSlotId)?.currentRun?.id, workspace: cwd }),
 			securityContext: () => ({ slotId: childId, runId: this.slotOrOpening(parentSlotId)?.currentRun?.id }),
 			extensions: () => [
 				this.approval(parentSlotId),
+				...(goals?.ownsSlot(parentSlotId) ? goals.extensions(parentSlotId, true) : []),
 				...this.modules.filter((m) => m.forSubagents).flatMap((m) => m.extensions?.({ slotId: parentSlotId, sideConversation: this.slots.get(parentSlotId)?.isSideConversation }) ?? []),
 			],
 			newSessionMode: () => "standard",
 			agentStateChanged: undefined,
 			harnessControls: undefined,
 		};
-		return createSessionRuntime(config, { slotId: childId }, ui, { cwd, inMemory: true, sandbox, unattended: this.slotOrOpening(parentSlotId)?.unattended });
+		return createSessionRuntime(config, { slotId: childId }, ui, { cwd, inMemory: true, sandbox, unattended: this.slotOrOpening(parentSlotId)?.unattended })
+			.then(runtime => { goals?.attachChild(parentSlotId, runtime.session); return runtime; });
 	}
 
 	/** Set by the sandbox module once 蝶君's sandbox is set up. */
@@ -471,7 +499,8 @@ export class Core {
 		);
 		this.opening.set(slotId, slot);
 		try {
-			await slot.start(this.hostConfig, target);
+			const config = this.patrol.owns(slotId) ? { ...this.hostConfig, sessionDir: this.patrol.sessionDir } : this.hostConfig;
+			await slot.start(config, target);
 			if (this.cancelledOpens.has(slotId)) {
 				// Closed while it was starting (e.g. during the trust prompt): never publish it.
 				await slot.dispose();
@@ -573,6 +602,10 @@ export class Core {
 				for (const module of this.modules) module.onSlotChanged?.(slot);
 			},
 			dialogOpened: (slot, request) => {
+				if (this.patrol.owns(slot.slotId)) {
+					queueMicrotask(() => slot.ui.cancelAll());
+					return;
+				}
 				this.confirmations.opened({ slotId: slot.slotId, sessionFile: slot.info().sessionFile ?? undefined, cwd: slot.cwd }, request);
 				this.broadcast({ event: "confirm.changed", confirmation: this.confirmations.get(request.id) });
 				const kind = dialogKind(request.title);
@@ -582,11 +615,16 @@ export class Core {
 					target: { page: "attention", slotId: slot.slotId, sessionFile: slot.info().sessionFile, itemId: request.id, runId: slot.currentRun?.id },
 				});
 			},
-			dialogClosed: (_slot, id, outcome, response) => {
+			dialogClosed: (slot, id, outcome, response) => {
+				if (this.patrol.owns(slot.slotId)) return;
 				this.confirmations.closed(id, outcome, response);
 				this.broadcast({ event: "confirm.changed", confirmation: this.confirmations.get(id) });
 			},
 			event: (slot, event) => {
+				if (this.patrol.owns(slot.slotId)) {
+					this.patrol.onSlotEvent(slot, event);
+					return;
+				}
 				for (const module of this.modules) module.onSlotEvent?.(slot, event);
 			},
 			sessionCreated: (slot) => this.applyDefaultModel(slot),
@@ -603,12 +641,18 @@ export class Core {
 				return null;
 			},
 			runStarted: (slot, run) => {
+				if (this.patrol.owns(slot.slotId)) return;
 				for (const module of this.modules) module.onRunStarted?.(slot, run);
 			},
 			runFinished: (slot, run) => {
+				if (this.patrol.owns(slot.slotId)) {
+					this.patrol.onRunFinished(slot, run);
+					return;
+				}
 				this.broadcast({ event: "run.finished", run });
 				for (const module of this.modules) module.onRunFinished?.(slot, run);
-				if (run.status === "done" && !this.db.get("SELECT id FROM notices WHERE slot_id=? AND status='pending'", slot.slotId)) this.notifications.publish(slot.sandboxed ? "butterfly.done" : "workbench.done", {
+				if (run.status === "done" && !this.module(GoalsModule)?.executor.ownsSlot(slot.slotId)
+					&& !this.db.get("SELECT id FROM notices WHERE slot_id=? AND status='pending'", slot.slotId)) this.notifications.publish(slot.sandboxed ? "butterfly.done" : "workbench.done", {
 					title: slot.sandboxed ? "蝶君做完了" : "工作台回复完了", body: slot.info().sessionName ?? run.prompt ?? "任务",
 					target: { page: slot.sandboxed ? "butterfly" : "chat", slotId: slot.slotId, sessionFile: run.sessionFile, taskId: run.taskId, runId: run.id },
 				});
@@ -712,7 +756,9 @@ export class Core {
 			if (!record || typeof record.type !== "string") throw new RpcError("bad_request", "record.type is required");
 			if (this.stopped && record.type === "prompt") throw new RpcError("unavailable", "后台正在退出");
 			if (this.maintenance && record.type === "prompt") throw new RpcError("busy", `${this.maintenance}，请稍后再发`);
-			void slot.handle(record as { type: string }, client?.id);
+			if (!this.module(GoalsModule)?.executor.routeInput(slot, record as { type: string }, client?.id)) {
+				void slot.handle(record as { type: string }, client?.id);
+			}
 			return { ok: true };
 		});
 		this.register("slot.close", async (params) => {

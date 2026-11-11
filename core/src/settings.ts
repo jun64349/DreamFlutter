@@ -7,6 +7,14 @@ export type ApprovalMode = "off" | "changes" | "all";
 export type AgentModeSetting = "standard" | "minimal";
 export type ModelPurpose = "title" | "memory" | "compaction" | "analysis";
 export type ModelOverrides = Partial<Record<ModelPurpose, string | null>>;
+export interface GoalDefaultBudget {
+	costUsd: number;
+	activeMinutes: number;
+	runs: number;
+	concurrency: number;
+}
+const patrolCheckKeys = ["failed", "goal_stuck", "stale_attention", "upcoming", "health", "watch"] as const;
+export type PatrolChecks = Record<(typeof patrolCheckKeys)[number], boolean>;
 
 /** Agent-behaviour settings owned by the core so they also apply without a UI. */
 export interface CoreSettings {
@@ -85,12 +93,27 @@ export interface CoreSettings {
 	/** Turn cap for one unattended run. */
 	maxTurnsUnattended: number;
 	notifications: boolean;
+	scheduleMissedDefault: "skip" | "latest";
+	goalDefaultBudget: GoalDefaultBudget;
+	goalButterflyBudgetFactor: number;
+	goalReviewModel: string | null;
+	goalProposalEnabled: boolean;
 	/** Minutes an idle session stays loaded with no UI attached. */
 	idleSessionMinutes: number;
 	/** 蝶君's sandbox may reach the internet (never the local network); false = offline. */
 	sandboxOnline: boolean;
 	/** Seconds the agent's questions wait before the recommended answer is taken; 0 = wait for the user. */
 	askTimeoutSeconds: number;
+	patrolEnabled: boolean;
+	patrolIntervalMin: 10 | 15 | 30 | 60;
+	patrolQuietEnabled: boolean;
+	patrolQuietStart: string;
+	patrolQuietEnd: string;
+	patrolModel: string | null;
+	patrolDailyBudget: number;
+	patrolStaleHours: number;
+	patrolKeepDays: number;
+	patrolChecks: PatrolChecks;
 }
 
 export const DEFAULT_SETTINGS: CoreSettings = {
@@ -140,8 +163,23 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	maxTurnsPerRun: 60,
 	maxTurnsUnattended: 40,
 	notifications: true,
+	scheduleMissedDefault: "skip",
+	goalDefaultBudget: { costUsd: 2, activeMinutes: 120, runs: 30, concurrency: 2 },
+	goalButterflyBudgetFactor: 0.5,
+	goalReviewModel: null,
+	goalProposalEnabled: true,
 	idleSessionMinutes: 10,
 	askTimeoutSeconds: 60,
+	patrolEnabled: true,
+	patrolIntervalMin: 30,
+	patrolQuietEnabled: true,
+	patrolQuietStart: "23:00",
+	patrolQuietEnd: "07:00",
+	patrolModel: null,
+	patrolDailyBudget: 0.5,
+	patrolStaleHours: 4,
+	patrolKeepDays: 30,
+	patrolChecks: { failed: true, goal_stuck: true, stale_attention: true, upcoming: true, health: true, watch: true },
 	sandboxOnline: true,
 };
 
@@ -245,6 +283,29 @@ function sameType(reference: unknown, value: unknown): boolean {
 
 function valid(key: keyof CoreSettings, value: unknown): boolean {
 	switch (key) {
+		case "scheduleMissedDefault": return value === "skip" || value === "latest";
+		case "goalDefaultBudget": {
+			if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+			const { costUsd, activeMinutes, runs, concurrency } = value as Partial<GoalDefaultBudget>;
+			return typeof costUsd === "number" && Number.isFinite(costUsd) && costUsd >= 0
+				&& typeof activeMinutes === "number" && Number.isSafeInteger(activeMinutes * 60_000) && activeMinutes > 0
+				&& typeof runs === "number" && Number.isSafeInteger(runs) && runs > 0
+				&& typeof concurrency === "number" && Number.isSafeInteger(concurrency) && concurrency > 0;
+		}
+		case "goalButterflyBudgetFactor": return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1;
+		case "goalReviewModel": return value === null || typeof value === "string" && /^[^/]+\/.+$/.test(value);
+		case "goalProposalEnabled": return typeof value === "boolean";
+		case "patrolIntervalMin": return value === 10 || value === 15 || value === 30 || value === 60;
+		case "patrolQuietStart":
+		case "patrolQuietEnd": return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+		case "patrolModel": return value === null || typeof value === "string" && /^[^/]+\/.+$/.test(value);
+		case "patrolDailyBudget": return typeof value === "number" && Number.isFinite(value) && value >= 0;
+		case "patrolStaleHours": return typeof value === "number" && Number.isFinite(value) && value > 0;
+		case "patrolKeepDays": return Number.isSafeInteger(value) && (value as number) > 0;
+		case "patrolChecks":
+			return value !== null && typeof value === "object" && !Array.isArray(value) &&
+				Object.keys(value).length === patrolCheckKeys.length &&
+				patrolCheckKeys.every(check => typeof (value as Record<string, unknown>)[check] === "boolean");
 		case "modelOverrides":
 			return value !== null && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([purpose, ref]) =>
 				["title", "memory", "compaction", "analysis"].includes(purpose) && (ref === null || typeof ref === "string" && (ref.includes("/") || purpose === "compaction" && ["session", "small"].includes(ref))));

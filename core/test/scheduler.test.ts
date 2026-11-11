@@ -84,7 +84,7 @@ describe("scheduler", () => {
 	});
 
 	it("missed times: one catch-up for monitors, skip for reports set to skip, one-offs always catch up", async () => {
-		const monitor = await save({ name: "监控", trigger: { type: "interval", everyMs: 10 * MIN }, kind: "monitor" });
+		const monitor = await save({ name: "监控", trigger: { type: "interval", everyMs: 10 * MIN }, kind: "monitor", missedPolicy: "latest" });
 		t.respond(fauxAssistantMessage("有变化：价格涨了"));
 		await tick(monitor.nextRunAt! + 65 * MIN);
 		await t.waitFor(() => doneRuns(monitor.id) === 1);
@@ -166,7 +166,7 @@ describe("scheduler", () => {
 		const s = await save({ trigger: { type: "interval", everyMs: 10 * MIN }, kind: "monitor" });
 		const seen: string[] = [];
 		t.respond(
-			fauxAssistantMessage([fauxToolCall("schedule_state", { state: { price: 100 } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("save_monitor_state", { state: { price: 100 } })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("价格是 100"),
 			capture(seen, "无变化\n价格仍是 100"),
 		);
@@ -212,22 +212,25 @@ describe("scheduler", () => {
 		assert.match(seen[0]!, /第一次：价格 100/, "the second run sees the first run's reply");
 	});
 
-	it("schedules proposed by the agent wait for approval and respect the minimum interval", async () => {
-		await t.core.call("slot.open", { slotId: "s1", cwd: t.workspace }, t.client);
+	it("schedules created by 蝶君 are immediately active and respect the minimum interval", async () => {
+		t.core.sandboxProvider = () => ({ distro: "df-schedule-test", ready: async () => {}, online: () => false });
+		await t.core.call("slot.open", { slotId: "s1", cwd: t.core.paths.butterflyDir, sandbox: true }, t.client);
 		t.respond(
 			fauxAssistantMessage([fauxToolCall("schedule_create", { name: "太频繁", prompt: "看看", trigger: "interval", every_minutes: 2 })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("schedule_create", { name: "每天天气", prompt: "查天气", trigger: "cron", cron: "0 8 * * *", kind: "report" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("已提交"),
+			fauxAssistantMessage("已安排"),
 		);
 		await t.send("s1", { id: "p", type: "prompt", message: "每天早上告诉我天气" });
 		await t.waitFor(() => t.records("s1").some((r) => r.type === "agent_settled"));
 		const all = (await t.core.call("schedules.list", {})) as Schedule[];
-		assert.deepEqual(all.map((x) => [x.name, x.status]), [["每天天气", "pending_approval"]]);
-		assert.equal(all[0]!.nextRunAt, null);
+		assert.deepEqual(all.map((x) => [x.name, x.status]), [["每天天气", "active"]]);
+		assert.ok(all[0]!.nextRunAt);
 		const inbox = (await t.core.call("inbox.list", {})) as { kind: string }[];
-		assert.ok(inbox.some((i) => i.kind === "schedule"));
-		const approved = (await t.core.call("schedules.setStatus", { id: all[0]!.id, status: "active" })) as Schedule;
-		assert.ok(approved.nextRunAt);
+		assert.ok(!inbox.some((i) => i.kind === "schedule"));
+		t.respond(fauxAssistantMessage("晴天"));
+		await tick(all[0]!.nextRunAt);
+		await t.waitFor(() => doneRuns(all[0]!.id) === 1);
+		assert.equal((await get(all[0]!.id)).runs[0]?.status, "done");
 	});
 
 	it("runs left running by a crashed core come back interrupted", async () => {

@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 import type { CompactionHooks } from "../agent/background-compaction.ts";
 import { type AgentMode, dshCompactionSettings, type HarnessControl, harnessExtension, MINIMAL_TOOLS, MODE_ENTRY, recordedMode, SANDBOX_TOOLS, STANDARD_TOOLS } from "../agent/harness.ts";
 import { RETRY } from "../agent/dsh-text.ts";
+import { GOAL_TOOLS } from "../modules/goals/tools.ts";
 import type { TodoItem } from "../agent/state.ts";
 import { DISTRUST_ONCE, DISTRUST_REMEMBER, TRUST_ONCE, TRUST_REMEMBER, TRUST_TITLE } from "./dialogs.ts";
 import type { UiBridge } from "./ui-bridge.ts";
@@ -292,7 +293,10 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			sessionStartEvent,
 			noTools: "builtin",
 			// read_document reads on this machine: not for 蝶君, whose files are in the sandbox.
-			tools: mode === "minimal" ? MINIMAL_TOOLS : sandbox ? [...SANDBOX_TOOLS(), ...STANDARD_EXTRA_TOOLS.filter((t) => t !== "read_document")] : [...STANDARD_TOOLS, ...STANDARD_EXTRA_TOOLS],
+			tools: [
+				...(mode === "minimal" ? MINIMAL_TOOLS : sandbox ? [...SANDBOX_TOOLS(), ...STANDARD_EXTRA_TOOLS.filter((t) => t !== "read_document")] : [...STANDARD_TOOLS, ...STANDARD_EXTRA_TOOLS]),
+				...GOAL_TOOLS, "goal_propose",
+			],
 		});
 		return { ...created, services, diagnostics: [...services.diagnostics] };
 	};

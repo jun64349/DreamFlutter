@@ -2,13 +2,15 @@ import { randomUUID } from "node:crypto";
 import { Core, RpcError, requireStr, str, type CoreModule } from "../core.ts";
 import { parseJson } from "../db.ts";
 import { redact } from "../security/redaction.ts";
+import { GoalsModule } from "./goals.ts";
 import { MemoryModule } from "./memory.ts";
+import { SchedulerModule } from "./scheduler.ts";
 import { TasksModule } from "./tasks.ts";
 
 export interface AttentionItem {
 	id: string; kind: string; group: "now" | "later"; title: string; reason: string;
 	origin: { role: "workbench" | "butterfly"; sessionName: string | null; sessionFile: string | null; slotId: string | null; cwd: string | null };
-	target: { page: string; sessionFile: string | null; slotId: string | null; itemId: string };
+	target: { page: string; sessionFile?: string | null; slotId?: string | null; itemId: string };
 	actions: string[]; data: Record<string, unknown>;
 }
 export interface ActionReceipt {
@@ -19,7 +21,7 @@ interface Action {
 	receipt: ActionReceipt; action: string; response?: Record<string, unknown>;
 	timer?: NodeJS.Timeout; executing?: Promise<void>;
 }
-const SOURCE_EVENTS = new Set(["confirm.changed", "notices.changed", "proposals.changed", "memory.changed", "schedules.changed", "tasks.changed", "run.finished", "runs.changed"]);
+const SOURCE_EVENTS = new Set(["confirm.changed", "notices.changed", "proposals.changed", "memory.changed", "schedules.changed", "tasks.changed", "run.finished", "runs.changed", "patrol.finished", "goal.proposals.changed"]);
 
 /** A projection over owner queues. Only the short cancellation window is owned here. */
 export class AttentionModule implements CoreModule {
@@ -28,6 +30,7 @@ export class AttentionModule implements CoreModule {
 	private readonly actions = new Map<string, Action>();
 	private closing = false;
 	private queued = false;
+	private goalApprovalKey = "";
 	private unsubscribe: (() => void) | undefined;
 	constructor(core: Core, tasks: TasksModule) {
 		this.core = core; this.tasks = tasks;
@@ -39,7 +42,12 @@ export class AttentionModule implements CoreModule {
 	}
 	start(): void {
 		this.unsubscribe = this.core.onBroadcast(message => {
-			if (!SOURCE_EVENTS.has(String(message.event))) return;
+			if (message.event === "goals.changed") {
+				const approvals = this.core.module(GoalsModule)?.scheduler.pendingApprovals() ?? [];
+				const key = approvals.map(approval => approval.id).join(",");
+				if (key === this.goalApprovalKey) return;
+				this.goalApprovalKey = key;
+			} else if (!SOURCE_EVENTS.has(String(message.event))) return;
 			if (message.event === "notices.changed" && message.notice) {
 				const n = message.notice as Record<string, unknown>, slot = this.core.slots.get(String(n.slotId));
 				// The original notice owner still delivers its legacy toast; do not deliver it twice.
@@ -67,6 +75,43 @@ export class AttentionModule implements CoreModule {
 		for (const r of this.core.db.all<{id: string}>("SELECT id FROM runs WHERE status='interrupted' AND acknowledged=0")) {
 			const run = this.core.runs.get(r.id)!;
 			keyed.set(`interrupted:${r.id}`, { kind: "interrupted", id: r.id, title: run.prompt ?? "被中断的任务", createdAt: run.startedAt, cwd: run.cwd, sessionFile: run.sessionFile, data: run });
+		}
+		for (const change of this.core.module(SchedulerModule)?.proposedChanges() ?? []) {
+			const kind = "schedule_change";
+			keyed.set(`${kind}:${change.id}`, {
+				kind, id: change.id, title: change.before?.name ?? change.summary, body: change.summary, createdAt: change.at,
+				cwd: this.core.paths.butterflyDir, data: { scheduleId: change.scheduleId, summary: change.summary, before: change.before, after: change.after },
+			});
+		}
+		for (const r of this.core.db.all<{ id: string; note: string; ended_at: number; session_file: string | null }>(
+			"SELECT id,note,ended_at,session_file FROM patrol_runs WHERE status='waiting_user' AND attention_resolved_at IS NULL",
+		)) {
+			keyed.set("patrol_finding:" + r.id, {
+				kind: "patrol_finding", id: r.id, title: r.note, createdAt: r.ended_at,
+				sessionFile: r.session_file, cwd: this.core.paths.butterflyDir,
+			});
+		}
+		const goals = this.core.module(GoalsModule)?.scheduler;
+		for (const approval of goals?.pendingApprovals() ?? []) {
+			const goal = goals?.get(approval.goalId);
+			if (!goal) continue;
+			const task = goal.currentTaskId ? this.tasks.get(goal.currentTaskId) : undefined;
+			const acceptance = approval.kind === "acceptance";
+			const kind = acceptance ? "goal_acceptance" : "goal_scope";
+			keyed.set(`${kind}:${approval.id}`, {
+				id: approval.id, kind, title: goal.title, body: acceptance ? "等你验收产物" : "等你确认新的执行范围",
+				cwd: goal.scope.cwd, sessionFile: task?.sessionFile, createdAt: approval.createdAt,
+				data: { goalId: goal.id, revision: approval.revision, partition: goal.scope.partition,
+					...(acceptance ? { acceptance: goal.spec.acceptance.filter(check => check.layer === "user") }
+						: { currentScope: goal.scope, proposed: approval.payload }) },
+			});
+		}
+		for (const proposal of this.core.module(GoalsModule)?.executor.proposals.pending() ?? []) {
+			const kind = "goal_proposal";
+			keyed.set(`${kind}:${proposal.id}`, { kind, id: proposal.id, title: proposal.draft.title, body: "要不要设为目标",
+				sessionFile: proposal.sessionFile, cwd: this.core.paths.butterflyDir, createdAt: proposal.createdAt,
+				data: { originText: proposal.originText, draft: proposal.draft },
+			});
 		}
 		return [...keyed.values()].sort((a,b) => Number(b.createdAt) - Number(a.createdAt));
 	}
@@ -99,9 +144,24 @@ export class AttentionModule implements CoreModule {
 			const cwd = str(row.cwd) ?? slot?.cwd ?? indexed?.cwd ?? null;
 			const sessionName = slot?.info().sessionName ?? indexed?.name ?? indexed?.first_message?.slice(0,80) ?? null;
 			const role = (slot?.sandboxed || cwd && this.core.paths.butterflyDir.toLowerCase() === cwd.toLowerCase()) ? "butterfly" as const : "workbench" as const;
-			const group = ["memory", "proposal", "schedule"].includes(kind) ? "later" as const : "now" as const;
-			const actions = ["memory", "proposal", "schedule"].includes(kind) ? ["allow", "reject"] : ["limit", "interrupted"].includes(kind) ? ["continue", "end"] : data.method === "confirm" ? ["allow", "reject"] : ["approval", "trust"].includes(kind) ? ["allow", "reject", "answer"] : ["answer", "reject"];
-			return { id: `${kind}:${id}`, kind, group, title: title.split("\n")[0]!.slice(0,180), reason, origin: { role, sessionName, sessionFile, slotId, cwd }, target: { page: kind === "memory" ? "memory" : kind === "proposal" ? "library" : "chat", sessionFile, slotId, itemId: id }, actions, data };
+			if (kind === "patrol_finding") {
+				return { id: kind + ":" + id, kind, group: "now", title, reason: "",
+					origin: { role: "butterfly", sessionName, sessionFile, slotId, cwd },
+					target: { page: "schedule", itemId: id }, actions: ["open", "reject"], data };
+			}
+			if (kind === "goal_acceptance" || kind === "goal_scope") {
+				return { id: `${kind}:${id}`, kind, group: "now", title: title.split("\n")[0]!.slice(0,180), reason,
+					origin: { role: data.partition === "butterfly" ? "butterfly" : "workbench", sessionName, sessionFile, slotId, cwd },
+					target: { page: "chat", sessionFile, slotId, itemId: id }, actions: ["accept", "reject"], data };
+			}
+			if (kind === "goal_proposal") {
+				return { id: `${kind}:${id}`, kind, group: "now", title: title.split("\n")[0]!.slice(0,180), reason,
+					origin: { role: "butterfly", sessionName, sessionFile, slotId, cwd },
+					target: { page: "chat", sessionFile, slotId, itemId: id }, actions: ["accept", "edit", "reject"], data };
+			}
+			const group = ["memory", "proposal", "schedule", "schedule_change"].includes(kind) ? "later" as const : "now" as const;
+			const actions = kind === "schedule_change" ? ["approve", "reject"] : ["memory", "proposal", "schedule"].includes(kind) ? ["allow", "reject"] : ["limit", "interrupted"].includes(kind) ? ["continue", "end"] : data.method === "confirm" ? ["allow", "reject"] : ["approval", "trust"].includes(kind) ? ["allow", "reject", "answer"] : ["answer", "reject"];
+			return { id: `${kind}:${id}`, kind, group, title: title.split("\n")[0]!.slice(0,180), reason, origin: { role, sessionName, sessionFile, slotId, cwd }, target: { page: kind === "memory" ? "memory" : kind === "proposal" ? "library" : kind === "schedule_change" ? "schedule" : "chat", sessionFile, slotId, itemId: id }, actions, data };
 		});
 	}
 	list() {
@@ -109,6 +169,14 @@ export class AttentionModule implements CoreModule {
 		const items = this.items().filter(i => !hidden.has(i.id));
 		const now = items.filter(i => i.group === "now"), later = items.filter(i => i.group === "later");
 		return { now, later, counts: { now: now.length, later: later.length, total: items.length }, pending: [...this.actions.values()].filter(a => a.receipt.status === "pending").map(a => this.view(a)) };
+	}
+	pendingForPatrol(): { id: string; title: string; createdAt: number }[] {
+		const pending = this.list();
+		const created = new Map(this.sourceItems().map(row => [String(row.kind) + ":" + String(row.id), Number(row.createdAt)]));
+		return [...pending.now, ...pending.later].flatMap(({ id, title }) => {
+			const createdAt = created.get(id);
+			return createdAt !== undefined && Number.isFinite(createdAt) ? [{ id, title, createdAt }] : [];
+		});
 	}
 	private view(a: Action): ActionReceipt {
 		const remainingMs = a.receipt.status !== "pending" || a.executing || a.receipt.undoUntil === null ? 0 : Math.max(0, a.receipt.undoUntil - Date.now());
@@ -122,6 +190,7 @@ export class AttentionModule implements CoreModule {
 		if (!item) throw new RpcError("gone", "这项已经处理过了");
 		if (!item.actions.includes(action)) throw new RpcError("bad_request", "这项不支持这个操作");
 		if (response !== undefined && (!response || typeof response !== "object" || Array.isArray(response))) throw new RpcError("bad_request", "回答格式无效");
+		if (item.kind === "goal_acceptance" && action === "reject" && !str(response?.reason)?.trim()) throw new RpcError("bad_request", "请填写退回原因");
 		if (action === "answer" && (typeof response?.value !== "string" || item.data.method === "select" && !(item.data.options as unknown[] | undefined)?.includes(response.value))) throw new RpcError("bad_request", "请提供有效回答");
 		const a: Action = { receipt: { id: randomUUID(), itemId: id, status: "pending", undoable: item.group === "later", undoUntil: item.group === "later" ? Date.now() + 5000 : null, remainingMs: item.group === "later" ? 5000 : 0 }, action, response: response ? structuredClone(response) : undefined };
 		this.actions.set(a.receipt.id, a);
@@ -146,6 +215,14 @@ export class AttentionModule implements CoreModule {
 			case "memory": return this.core.call(allow ? "memory.acceptPending" : "memory.rejectPending", { id });
 			case "proposal": return this.core.call(allow ? "proposals.accept" : "proposals.reject", { id });
 			case "schedule": return this.core.call("schedules.setStatus", { id, status: allow ? "active" : "rejected" });
+			case "schedule_change": return this.core.module(SchedulerModule)!.resolveChange(id, a.action === "approve");
+			case "goal_acceptance": case "goal_scope":
+				return this.core.call(a.action === "accept" ? "goals.accept" : "goals.reject", { id, reason: str(a.response?.reason) });
+			case "goal_proposal": return this.core.call("goals.proposals.resolve", { id, action: a.action, draft: a.response?.draft });
+			case "patrol_finding":
+				if (a.action === "open") return { target: item.target };
+				this.core.db.run("UPDATE patrol_runs SET attention_resolved_at=? WHERE id=?", Date.now(), id);
+				return { ok: true };
 			case "interrupted": {
 				if (a.action === "continue") {
 					if (!item.origin.sessionFile || !item.origin.cwd) throw new RpcError("gone", "这个任务的对话已经不在了");

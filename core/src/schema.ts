@@ -3,6 +3,14 @@
  * Never edit a shipped entry, append a new one.
  */
 import { T85_MIGRATION } from "./t85-migration.ts";
+import { T97_MIGRATION } from "./t97-migration.ts";
+import { T95_MIGRATION } from "./t95-migration.ts";
+import { T96_MIGRATION } from "./t96-migration.ts";
+import { T98_MIGRATION } from "./t98-migration.ts";
+import { T100_MIGRATION } from "./t100-migration.ts";
+import { T101_MIGRATION } from "./t101-migration.ts";
+import { T99_MIGRATION } from "./t99-migration.ts";
+import { T102_MIGRATION } from "./t102-migration.ts";
 
 export const MIGRATIONS: string[] = [
 	// 1: settings, persisted dialogs, run log.
@@ -751,4 +759,12 @@ export const MIGRATIONS: string[] = [
 	`,
 	// 16: T-85 boundary receipts, reply corrections, recycle bin and butterfly intents.
 	T85_MIGRATION,
+	T95_MIGRATION,
+	T97_MIGRATION,
+	T96_MIGRATION,
+	T98_MIGRATION,
+	T100_MIGRATION,
+	T101_MIGRATION,
+	T99_MIGRATION,
+	T102_MIGRATION,
 ];
