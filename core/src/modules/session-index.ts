@@ -98,6 +98,11 @@ export class SessionIndex implements CoreModule {
 	}
 
 	start(): void {
+		// 0.8.2: modified_at became "last message"; parse every file once more.
+		if (!this.db.get("SELECT key FROM app_flags WHERE key = ?", "session_index_last_message")) {
+			this.db.run("UPDATE session_meta SET indexed_mtime = -1");
+			this.db.run("INSERT INTO app_flags(key, value, at) VALUES(?, '1', ?)", "session_index_last_message", Date.now());
+		}
 		void this.refresh();
 		this.timer = setInterval(() => void this.refresh(), 60_000);
 		this.timer.unref();
@@ -191,6 +196,9 @@ export class SessionIndex implements CoreModule {
 		let name: string | null = null;
 		let firstMessage: string | null = null;
 		let messageCount = 0;
+		// 0.8.2: the list is ordered by the last message, not the file's mtime
+		// (opening a conversation can append model or title entries).
+		let lastMessageAt: number | null = null;
 		const texts: { entryId: string; role: string; text: string }[] = [];
 		const usage: { entryId: string; at: number; provider: string | null; model: string | null; u: Record<string, unknown> }[] = [];
 
@@ -220,6 +228,8 @@ export class SessionIndex implements CoreModule {
 					const entryId = String(entry.id ?? "");
 					if (role === "user" || role === "assistant") {
 						messageCount++;
+						const at = typeof message.timestamp === "number" ? message.timestamp : Date.parse(String(entry.timestamp ?? ""));
+						if (Number.isFinite(at) && at > (lastMessageAt ?? 0)) lastMessageAt = at;
 						const text = textOf(message.content);
 						if (text) {
 							texts.push({ entryId, role, text: text.slice(0, MAX_TEXT_PER_ENTRY) });
@@ -255,7 +265,7 @@ export class SessionIndex implements CoreModule {
 				name,
 				firstMessage,
 				createdAt,
-				mtime,
+				lastMessageAt ?? createdAt ?? mtime,
 				size,
 				messageCount,
 				mtime,

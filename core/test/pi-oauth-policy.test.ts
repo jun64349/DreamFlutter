@@ -76,6 +76,30 @@ test("ChatGPT first login, automatic refresh and logout use public Pi runtime wi
   } finally { await t.cleanup(); }
 });
 
+// 0.8.2 user test: "Sign in with ChatGPT requires a device ID (UUID) for this installation". Pi's own
+// terminal passes the installation's ID; the window's login must too, and the same one every time.
+test("ChatGPT login gets this installation's stable device ID, kept in Pi's settings", async () => {
+  const t = await fixture({}); const ids: (string | undefined)[] = [];
+  const base = builtinProviders().find(p => p.id === CHATGPT_OAUTH_PROVIDER)!;
+  t.runtime.registerNativeProvider({ ...base, auth: { oauth: { name: "T70 synthetic ChatGPT", isSubscription: true,
+    async login(_interaction, options) { ids.push(options?.getDeviceId?.(), options?.getDeviceId?.()); assert.equal(options?.agentName, "DreamFlutter", "OpenAI shows this name on its consent page"); return credential("T70_DEVICE"); },
+    async refresh(previous) { return previous; },
+    async toAuth(current) { return { apiKey: current.access }; },
+  } } });
+  try {
+    for (let round = 0; round < 2; round++) {
+      const flow = await t.core.call("piMigration.oauthStart", { provider: CHATGPT_OAUTH_PROVIDER }) as { id: string };
+      let status: any;
+      for (let i = 0; i < 500; i++) { status = await t.core.call("piMigration.oauthStatus", { id: flow.id }); if (status.status !== "running") break; await new Promise(done => setTimeout(done, 10)); }
+      assert.equal(status.status, "done", status.error);
+    }
+    assert.equal(ids.length, 4);
+    assert.match(ids[0]!, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    assert.ok(ids.every(id => id === ids[0]), "the same ID on every call and every login");
+    assert.equal(JSON.parse(readFileSync(join(t.authPath, "..", "settings.json"), "utf8")).deviceId, ids[0]);
+  } finally { await t.cleanup(); }
+});
+
 for (const retainedProvider of ["anthropic", "openai-codex"]) test(`retained ${retainedProvider} OAuth refreshes and bridges until logout; API keys cannot be logged out here`, async () => {
   const t = await fixture({ [retainedProvider]: credential("T70_OLD", Date.now() - 10000), openai: { type: "api_key", key: "T70_API_KEY" } });
   const base = builtinProviders().find(p => p.id === retainedProvider)!; let refreshed = 0;

@@ -56,6 +56,16 @@ describe("session index", () => {
 		assert.equal(rows.find((r) => r.title === "季度报告")!.messageCount, 2);
 	});
 
+	// 0.8.2 user test 4: opening a conversation appends model or title entries, which moved it to
+	// the top of the list. Its time is its last message, not the file's.
+	it("orders sessions by their last message, not by later non-message entries", async () => {
+		const path = join(dir, "a.jsonl");
+		writeFileSync(path, `${readFileSync(path, "utf8")}${JSON.stringify({ type: "model_change", id: "m9", parentId: null, timestamp: new Date().toISOString(), provider: "deepseek", modelId: "deepseek-flash" })}\n`);
+		const rows = (await t.core.call("sessions.list", { cwd: t.workspace })) as SessionRow[];
+		assert.deepEqual(rows.map((r) => r.title), ["翻译这段英文 hello world", "季度报告"], "b's last message is newer than a's");
+		assert.equal(rows.find((r) => r.title === "季度报告")!.modifiedAt, Date.parse("2026-10-01T09:00:00") + 1000);
+	});
+
 	it("searches message text, including short Chinese queries", async () => {
 		const long = (await t.core.call("sessions.search", { query: "销售报告" })) as SearchHit[];
 		assert.ok(long.some((h) => h.title === "季度报告" && h.snippet.includes("【销售报告】")));

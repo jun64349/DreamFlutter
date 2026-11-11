@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { CORE_VERSION, RpcError, requireStr, type Core, type CoreModule } from "../core.ts";
 import { createBackup } from "../backup/export.ts";
@@ -67,6 +67,19 @@ export class PiMigration implements CoreModule {
 		core.register("piMigration.oauthLogout", async (p) => { if (this.busy) throw new RpcError("busy", "请在迁移完成后管理登录。"); const id = requireStr(p.provider, "provider"); const credential = readPiJson(join(core.agentDir, "auth.json"))[id]; if (credential?.type !== "oauth") { if (!credential && (canLoginChannelOAuth(id) || providers.oauthProviders.has(id))) return { ok: true }; throw new RpcError("bad_request", "此项没有已保存的 OAuth 登录。"); } const runtime = await this.authRuntime(); await runtime.logout(id); await gateway.refreshConfiguration(); return { ok: true }; });
 	}
 	private authRuntime() { return this.options.oauthRuntime?.() ?? ModelRuntime.create({ authPath: join(this.core.agentDir, "auth.json"), modelsPath: join(this.core.agentDir, "models.json"), refreshOnCreate: false }); }
+	/**
+	 * This installation's stable ID, which Sign in with ChatGPT sends as its agent host ID (0.8.2,
+	 * user test: "requires a device ID (UUID) for this installation"). Pi keeps it in its own
+	 * settings and creates it on first use; the same one is used so a pi terminal and the window agree.
+	 */
+	private device?: string;
+	private async loadDeviceId(): Promise<string> {
+		if (this.device) return this.device;
+		const settings = SettingsManager.create(this.core.agentDir, this.core.agentDir);
+		this.device = settings.getOrCreateDeviceId();
+		await settings.flush(); // Pi writes settings in the background; the ID must be on disk before it is used
+		return this.device;
+	}
 	private async startOAuth(provider: string) {
 		if (this.busy) throw new RpcError("busy", "请在迁移完成后管理登录。");
 		if (!canLoginChannelOAuth(provider)) throw new RpcError("oauth_login_disabled", "渠道页只支持 ChatGPT 订阅登录；其他已有登录可以继续使用或退出。");
@@ -85,7 +98,7 @@ export class PiMigration implements CoreModule {
 			const { signal: _signal, ...visible } = question; login.state = { ...login.state, prompt: visible }; this.core.broadcast({ event: "piMigration.oauth", login: login.state });
 		});
 		login.pending = (async () => {
-			try { const runtime = await this.authRuntime(); await runtime.login(provider, "oauth", { signal: controller.signal, notify, prompt }); login.state = { id, provider, status: "done" }; await this.gateway.refreshConfiguration(); }
+			try { const runtime = await this.authRuntime(); const device = await this.loadDeviceId(); await runtime.login(provider, "oauth", { signal: controller.signal, notify, prompt }, { getDeviceId: () => device, agentName: "DreamFlutter" }); login.state = { id, provider, status: "done" }; await this.gateway.refreshConfiguration(); }
 			catch (error) { login.state = { id, provider, status: controller.signal.aborted ? "cancelled" : "failed", error: redact(error instanceof Error ? error.message : "登录失败", true) }; }
 			this.core.broadcast({ event: "piMigration.oauth", login: login.state });
 		})();
