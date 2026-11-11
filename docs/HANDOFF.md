@@ -1,5 +1,13 @@
 # DreamFlutter 开发交接
 
+**2026-11-11 夜：交接（最新状态，先读这段）**
+
+- **已定型，不要动**：用户实测 v0.8.3 后说长输出已经没问题，现在的操作逻辑和体验不错，这些不要动。清单和守着它们的测试在 [design/settled-0.8.3.md](design/settled-0.8.3.md)，AGENTS.md 里也写了。新功能装进现有位置，不改这些交互；只有用户明确要求才动。
+- **分工**：前端由 Claude 做；后端和测试派给 Codex。Claude 写派工单（`Claude Codex Bridge/任务模板.md`），用户贴进 Codex 窗口。
+- **已派出的第一张卡**：`Claude Codex Bridge/2026-11-11-01-T-94补已定型界面的行为测试.md`。给清单第 5、7、15、16 条（渠道编辑页、右栏文件、首页对齐、花费和记忆页）补行为测试，这几条现在只有截图守着。还没开始，等用户贴进 Codex。
+- **状态**：v0.8.3 已发布并推送（标签 v0.8.3，main 在 6ab1141 或更新）。工作区干净。GitHub 的 Release 页面等正式版（V1.0）再建。
+- **下一步**：用户实测 v0.8.3；然后按 [roadmap](roadmap.md) 做 v0.9（长任务与目标），后端那部分派给 Codex。
+
 **2026-11-11 晚：v0.8.3 发布（最新状态）**：用户说修完长输出卡顿就提交、推送、发布。按用户实测修了两件事：一是快速长输出跟不上、滚动条乱跳（`markdown_view.dart` 按段落画、写完的段落沿用；`chat_view.dart` 改 CustomScrollView，最后一行始终排好）；二是长输入折叠（`message_widgets.dart` 的 `_FoldingText`，超过 10 行折叠）。版本号改成 0.8.3（pubspec 0.8.3+14、core、CORE_VERSION、main.dart），发布说明见 [v0.8.3](releases/v0.8.3.md)。提交 63e6c22、6c53048、723d6c6 和 Release v0.8.3，带注释的标签 v0.8.3，main 和标签都已推送。便携包 `dist\v0.8.3\DreamFlutter`。**下一步：用户实测 v0.8.3；之后按 roadmap 做 0.9。**
 
 **2026-11-11 晚：0.8.3 候选包 0.8.3-test.3**：在 test.2 上理顺蝶君（用户：进过记忆/花费/设置后历史和新对话点不动；对话上悬着「没做成」的任务头）。侧栏改成和工作台一样列对话（`sidebar.dart` 不再有 `_ButterflyTaskList`）；对话页去掉 `ButterflyTaskHeader`、空白页去掉任务卡片、右栏改「这个对话」只放交付文件和定时；新对话会清掉选中的任务；删了 `butterfly_start_button.dart`、`butterflyTaskLabel`、`butterflyTasksHub`、`newTask`。窗口 263 项、端到端 10 个流程通过。便携包 `dist\v083-candidate-test.3\DreamFlutter`，说明见 [v0.8.3-test.3](releases/v0.8.3-test.3.md)。**没有提交**。**下一步：用户实测 test.3。**
