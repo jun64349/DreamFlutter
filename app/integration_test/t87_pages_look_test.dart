@@ -82,15 +82,21 @@ void main() {
         await tester.runAsync(() => agent.openButterfly());
         agent.butterfly!.setRunPanelOpen(false);
         await shot('butterfly_home_$color');
-        for (final status in ['进行中', '等你', '已完成', '没做成']) {
-          expect(find.text(status), findsOneWidget);
+        // 0.8.3 (user test): no task cards or state pills; the side lists conversations.
+        for (final status in ['进行中', '已完成', '没做成']) {
+          expect(find.text(status), findsNothing);
         }
-        await tester.tap(find.text('每周一整理上周的组会纪要').last);
+        expect(find.text('交给我吧，你去忙别的'), findsOneWidget);
+        // A conversation that delivered files: the right panel 「这个对话」 shows them and its schedule.
+        final complete = fixture.tasks.firstWhere((t) => t['id'] == 'complete');
+        await tester.runAsync(() => agent.butterfly!.openSession(complete['sessionFile'] as String));
         await wait();
-        expect(find.text('交付'), findsOneWidget);
+        expect(find.byTooltip('蝶君首页'), findsNothing, reason: 'no task header above the conversation');
         agent.butterfly!.setRunPanelOpen(true);
+        await wait();
+        expect(find.text('这个对话'), findsOneWidget);
+        expect(find.text('交付'), findsOneWidget);
         await shot('butterfly_delivery_$color');
-        expect(find.text('任务进度'), findsOneWidget);
         expect(find.text('暂停'), findsOneWidget);
         await tester.tap(find.text('暂停'));
         await wait();
@@ -102,13 +108,9 @@ void main() {
         await shot('butterfly_delivery_150_$color');
         agent.butterfly!.setRunPanelOpen(false);
         await agent.setZoom(1);
-        await tester.tap(find.byTooltip('蝶君首页'));
+        await tester.runAsync(() => agent.butterfly!.newSession());
         await wait();
-        await tester.runAsync(() => agent.butterfly!.send('整理本周的实验记录'));
-        await shot('butterfly_plan_$color');
-        expect(find.text('我会整理本周的实验记录'), findsOneWidget);
-        await tester.tap(find.byTooltip('蝶君首页'));
-        await wait();
+        expect(find.text('交给我吧，你去忙别的'), findsOneWidget, reason: 'a new conversation shows the empty page');
         await agent.setZoom(1.5);
         await shot('butterfly_home_150_$color');
         await agent.setZoom(1);

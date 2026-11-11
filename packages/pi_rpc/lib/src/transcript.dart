@@ -41,6 +41,9 @@ class AssistantItem extends TranscriptItem {
   String stopReason = 'pending';
   String? errorMessage;
   String model = '';
+
+  /// The provider that answered (a model group's member when the conversation uses a group).
+  String provider = '';
   Usage? usage;
 
   /// When the message was created (ms since epoch; 0 if unknown).
@@ -91,7 +94,7 @@ class ToolCallPart extends AssistantPart {
   final String toolCallId;
 }
 
-enum NoticeKind { retry, retryFailed, compaction, compactionFailed, shell, info, extensionError }
+enum NoticeKind { retry, retryFailed, compaction, compactionFailed, shell, info, extensionError, modelSwitch }
 
 class NoticeItem extends TranscriptItem {
   NoticeItem(super.key, this.kind, this.message, {this.detail = ''});
@@ -148,6 +151,9 @@ class ToolRun {
 
 class Transcript {
   Transcript({DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
+
+  /// A line the window adds itself (e.g. a model group switched channels).
+  void addNotice(NoticeKind kind, String message, {String detail = ''}) => _items.add(NoticeItem(_key('n'), kind, message, detail: detail));
 
   final DateTime Function() _clock;
   final List<TranscriptItem> _items = [];
@@ -295,6 +301,7 @@ class Transcript {
       case AssistantMessage():
         final item = AssistantItem(_key('a'))
           ..model = message.model
+          ..provider = message.provider
           ..timestamp = message.timestamp
           ..requestedAt = _turnStartedAt ?? _clock();
         _turnStartedAt = null;
@@ -430,6 +437,7 @@ class Transcript {
       ..stopReason = message.stopReason
       ..errorMessage = message.errorMessage
       ..model = message.model
+      ..provider = message.provider
       ..usage = message.usage
       ..timestamp = message.timestamp;
     lastUsage = message.usage;

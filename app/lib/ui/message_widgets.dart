@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/mentions.dart';
-import '../state/agent_controller.dart' show asJsonMap;
+import '../state/agent_controller.dart' show asJsonMap, groupProvider;
 import '../state/session_runtime.dart' show MessageBranch;
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -175,7 +175,7 @@ class _UserBubbleState extends State<_UserBubble> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(color: colors.userBubble, borderRadius: BorderRadius.circular(context.radiusLg)),
-                child: Text(question, style: context.text.bodyMedium?.copyWith(color: colors.onUserBubble, height: 1.7)),
+                child: _FoldingText(text: question, style: context.text.bodyMedium?.copyWith(color: colors.onUserBubble, height: 1.7)),
               ),
             ),
           SizedBox(
@@ -225,6 +225,61 @@ class _UserBubbleState extends State<_UserBubble> {
       ),
     );
   }
+}
+
+/// A long message you sent (0.8.3, user: "输入内容太长在对话中要自动默认折叠然后点击可展开"): over
+/// [lines] lines at the bubble's width it shows those lines and 「展开全文」; a click opens it, 「收起」 folds it.
+class _FoldingText extends StatefulWidget {
+  const _FoldingText({required this.text, required this.style});
+
+  static const lines = 10;
+
+  final String text;
+  final TextStyle? style;
+
+  @override
+  State<_FoldingText> createState() => _FoldingTextState();
+}
+
+class _FoldingTextState extends State<_FoldingText> {
+  var _open = false;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, constraints) {
+    final painter = TextPainter(
+      text: TextSpan(text: widget.text, style: widget.style),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: _FoldingText.lines,
+    )..layout(maxWidth: constraints.maxWidth);
+    final long = painter.didExceedMaxLines;
+    painter.dispose();
+    final text = Text(widget.text, style: widget.style, maxLines: long && !_open ? _FoldingText.lines : null, overflow: long && !_open ? TextOverflow.ellipsis : null);
+    if (!long) return text;
+    return AnimatedSize(
+      duration: AppTokens.motion(context, AppTokens.medium),
+      curve: AppTokens.curve,
+      alignment: Alignment.topCenter,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        text,
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: InkWell(
+            key: const ValueKey('message-fold'),
+            borderRadius: BorderRadius.circular(context.radiusSm),
+            onTap: () => setState(() => _open = !_open),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(_open ? '收起' : '展开全文', style: context.text.labelMedium?.copyWith(color: context.colors.accent)),
+                Icon(_open ? Icons.expand_less : Icons.expand_more, size: 16, color: context.colors.accent),
+              ]),
+            ),
+          ),
+        ),
+      ]),
+    );
+  });
 }
 
 /// "‹ 2/3 ›": switches between versions of an edited message in place.
@@ -354,6 +409,9 @@ List<_Segment> _segments(ReplyRow row, Transcript transcript, AppColors colors) 
 
   for (final item in row.items) {
     switch (item) {
+      // The gateway's own retry to another key or channel is not news: the switch line says it.
+      case NoticeItem(kind: NoticeKind.retry, :final message) when isGatewayHandOver(message):
+        break;
       case NoticeItem():
         segments.add(_NoticeSegment(item));
       case AssistantItem():
@@ -431,7 +489,21 @@ class _ReplyView extends StatelessWidget {
     final work = segments.whereType<_WorkSegment>().toList();
     final steps = [for (final segment in work) ...segment.steps];
     final awaitingApproval = live && AgentScope.of(context).active?.pendingDialogs.any(isConversationApproval) == true;
-    if (live && !awaitingApproval) children.add(const ConversationPresence());
+    // 0.8.3 (user): the big butterfly and its phrase stand in for the reply only until its first words;
+    // then they fold away and a small butterfly stays at the reply's start, like a friend's avatar in a
+    // chat — breathing while it writes, resting once it is done. Nothing vanishes in one frame.
+    final hasText = segments.any((s) => s is _TextSegment);
+    final presence = AnimatedSize(
+      duration: AppTokens.motion(context, AppTokens.medium),
+      curve: AppTokens.curve,
+      alignment: Alignment.topLeft,
+      child: AnimatedSwitcher(
+        duration: AppTokens.motion(context, AppTokens.medium),
+        child: live && !awaitingApproval && !hasText
+            ? const Padding(key: ValueKey('presence'), padding: EdgeInsets.symmetric(vertical: 5), child: ConversationPresence())
+            : const SizedBox(key: ValueKey('no-presence'), width: double.infinity),
+      ),
+    );
     if (!awaitingApproval && (steps.isNotEmpty || live && segments.isEmpty)) children.add(WorkBlock(steps: steps, active: live, waiting: work.any((s) => s.waiting)));
     for (final (index, segment) in segments.indexed) {
       if (segment is _WorkSegment) continue;
@@ -447,22 +519,92 @@ class _ReplyView extends StatelessWidget {
       });
     }
     if (failure != null) children.add(ConversationErrorCard(reason: failure.errorMessage ?? '模型没有返回回复，请重试或换个模型', question: row.info.question, model: failure.model, attempts: attempts));
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [for (final child in children) Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: child)],
-    );
-    if (live) return content;
-    return _ReplyFrame(row: row, child: content);
+    final content = Stack(clipBehavior: Clip.none, children: [
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [presence, for (final child in children) Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: child)],
+      ),
+      // In the conversation's side margin, so the text never moves when it comes or goes.
+      Positioned(left: -_ReplyMark.gutter, top: 7, child: _ReplyMark(shown: !live || hasText || awaitingApproval, writing: live && !awaitingApproval)),
+    ]);
+    // The same frame while writing and after, so the reply (and its butterfly) keep their place.
+    return _ReplyFrame(row: row, live: live, child: content);
   }
+}
+
+/// The small butterfly at a reply's start (0.8.3): it breathes while the reply is written and rests
+/// when it is done. Reduced motion keeps it still.
+class _ReplyMark extends StatefulWidget {
+  const _ReplyMark({required this.shown, required this.writing});
+
+  /// How far left of the reply it sits (inside the conversation's 28px side margin).
+  static const gutter = 26.0;
+  static const size = 18.0;
+
+  final bool shown;
+  final bool writing;
+
+  @override
+  State<_ReplyMark> createState() => _ReplyMarkState();
+}
+
+class _ReplyMarkState extends State<_ReplyMark> with SingleTickerProviderStateMixin {
+  late final _breath = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600), value: 1);
+
+  void _sync() {
+    final animate = widget.writing && widget.shown && !MediaQuery.disableAnimationsOf(context) && TickerMode.valuesOf(context).enabled;
+    if (animate) {
+      if (!_breath.isAnimating) _breath.repeat(reverse: true);
+    } else if (_breath.isAnimating || _breath.value != 1) {
+      // Settle into the resting pose instead of stopping mid-breath.
+      _breath.animateTo(1, duration: AppTokens.motion(context, AppTokens.medium), curve: AppTokens.curve);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(_ReplyMark old) {
+    super.didUpdateWidget(old);
+    if (old.writing != widget.writing || old.shown != widget.shown) _sync();
+  }
+
+  @override
+  void dispose() {
+    _breath.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedOpacity(
+    opacity: widget.shown ? 1 : 0,
+    duration: AppTokens.motion(context, AppTokens.medium),
+    curve: AppTokens.curve,
+    child: AnimatedBuilder(
+      animation: _breath,
+      builder: (context, child) {
+        final t = Curves.easeInOut.transform(_breath.value);
+        return Opacity(opacity: 0.55 + 0.45 * t, child: Transform.scale(scale: 0.88 + 0.12 * t, child: child));
+      },
+      child: const ButterflyMark(key: ValueKey('reply-mark'), size: _ReplyMark.size),
+    ),
+  );
 }
 
 /// A finished reply with its numbers and actions. The latest reply always
 /// shows the actions; older ones on hover or keyboard focus.
 class _ReplyFrame extends StatefulWidget {
-  const _ReplyFrame({required this.row, required this.child});
+  const _ReplyFrame({required this.row, required this.child, this.live = false});
 
   final ReplyRow row;
   final Widget child;
+
+  /// Still being written: no actions or numbers yet.
+  final bool live;
 
   @override
   State<_ReplyFrame> createState() => _ReplyFrameState();
@@ -481,8 +623,13 @@ class _ReplyFrameState extends State<_ReplyFrame> {
     final branch = question == null ? null : agent.active?.branchFor(question);
     final canRegenerate = branch != null && !busy;
     final others = agent.models.where((m) => m != agent.model).toList();
-    final visible = _hovered || _focused;
-    String modelName(String id) => agent.models.where((m) => m.id == id).firstOrNull?.name ?? id;
+    final visible = !widget.live && (_hovered || _focused);
+    // Through a model group the reply says which channel answered it (0.8.3).
+    final answeredBy = widget.row.assistants.lastOrNull?.provider ?? '';
+    String modelName(String id) {
+      if (agent.model?.provider == groupProvider && answeredBy.isNotEmpty && answeredBy != groupProvider) return agent.memberLabel(answeredBy, id);
+      return agent.models.where((m) => m.id == id && (answeredBy.isEmpty || m.provider == answeredBy)).firstOrNull?.name ?? agent.models.where((m) => m.id == id).firstOrNull?.name ?? id;
+    }
     final short = replyFactsShort(widget.row.assistants, modelName: modelName);
     return MouseRegion(
       hitTestBehavior: HitTestBehavior.translucent,
@@ -1485,8 +1632,21 @@ class _NoticeView extends StatelessWidget {
       NoticeKind.shell => (Icons.terminal, colors.muted, '\$ ${notice.message}'),
       NoticeKind.info => (Icons.info_outline, colors.muted, notice.message),
       NoticeKind.extensionError => (Icons.extension_off_outlined, colors.danger, '扩展出错：${notice.message}'),
+      NoticeKind.modelSwitch => _switchLine(colors),
     };
     return _InlineNote(icon: icon, color: color, text: text);
+  }
+
+  /// 「ChatGPT · gpt-6.1-sol 额度用完，16:20 恢复，换到 中转 A · gpt-6.1-sol」; to pay-as-you-go in the accent.
+  (IconData, Color, String) _switchLine(AppColors colors) {
+    var info = const <String, dynamic>{};
+    try {
+      info = (jsonDecode(notice.detail) as Map).cast<String, dynamic>();
+    } catch (_) {}
+    final reason = '${info['reason'] ?? ''}'.trim();
+    final from = '${info['from'] ?? ''}'.trim();
+    final head = [if (from.isNotEmpty) from, if (reason.isNotEmpty) reason].join(' ');
+    return (Icons.swap_horiz, info['toPaid'] == true ? colors.ochre : colors.muted, '${head.isEmpty ? '' : '$head，'}换到 ${notice.message}');
   }
 
   static String _attempt(String detail) {
@@ -1514,6 +1674,9 @@ class _InlineNote extends StatelessWidget {
     );
   }
 }
+
+/// The core's own retry message when a key or a group's channel could not take the request (gateway.ts relay).
+bool isGatewayHandOver(String message) => message.startsWith('渠道「') && message.contains('（service temporarily unavailable）');
 
 /// Descriptions the core made of images for models that cannot see (hash → description).
 final _visionCache = <String, ({String model, String text})?>{};

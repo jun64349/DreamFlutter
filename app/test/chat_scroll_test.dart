@@ -195,7 +195,7 @@ void main() {
     final position = listPosition();
     // The reader scrolls back up to an earlier question.
     final reading = find.descendant(of: find.byType(SelectionArea), matching: find.text('question 3'));
-    await tester.dragUntilVisible(reading, find.descendant(of: find.byType(SelectionArea), matching: find.byType(ListView)), const Offset(0, 200));
+    await tester.dragUntilVisible(reading, find.byKey(const ValueKey('conversation-list')), const Offset(0, 200));
     await tester.pumpAndSettle();
     expect(position.maxScrollExtent - position.pixels, greaterThan(500));
     final before = tester.getTopLeft(reading).dy;
@@ -214,5 +214,36 @@ void main() {
     pi.finishRun();
     await tester.pumpAndSettle();
     expect(position.maxScrollExtent - position.pixels, lessThan(0.5));
+  });
+
+  // 0.8.3 (user test: while a fast model wrote a very long reply the scrollbar jumped about). The list
+  // used to guess the height of rows it had not laid out from their average; one long reply among many
+  // short ones swung the guess. The last reply is now always laid out, so the end stays where it is.
+  testWidgets('a very long last reply among short ones keeps the list height steady while scrolling', (tester) async {
+    await startApp(tester);
+    for (var i = 0; i < 30; i++) {
+      pi.startRun('短问题 $i');
+      reply('短回答 $i');
+      pi.finishRun();
+    }
+    pi.startRun('写一篇长文');
+    reply(List.generate(400, (i) => '第 $i 段，这是一段很长的文章里的一段文字，写得比较长，好让整篇有一万多字。').join('\n\n'));
+    pi.finishRun();
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+    await tester.pumpAndSettle();
+    final position = listPosition();
+    final atEnd = position.maxScrollExtent;
+    final seen = <double>{};
+    for (final fraction in [0.0, 0.15, 0.3, 0.05, 0.6, 0.0]) {
+      position.jumpTo(atEnd * fraction);
+      await tester.pump();
+      seen.add(position.maxScrollExtent.roundToDouble());
+    }
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
+    final spread = seen.reduce((a, b) => a > b ? a : b) - seen.reduce((a, b) => a < b ? a : b);
+    // The short rows above are still laid out lazily, so a few pixels of guessing remain; the long reply no longer swings it.
+    expect(spread, lessThan(atEnd * 0.01), reason: 'the total height (and so the scrollbar) holds still while scrolling: $seen');
+    expect((position.maxScrollExtent - atEnd).abs(), lessThan(atEnd * 0.01));
   });
 }

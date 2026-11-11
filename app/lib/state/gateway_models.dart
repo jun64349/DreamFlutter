@@ -5,6 +5,9 @@ import 'work_models.dart' show jsonRows;
 
 /// The model gateway as the core reports it (docs/v0.2-gateway.md).
 
+/// Provider id the model groups are listed under.
+const groupProvider = 'dreamflutter';
+
 const channelKindNames = {'payg': '按量付费', 'plan': '编程套餐', 'relay': '中转站'};
 
 /// Why a channel or key cannot take requests right now.
@@ -79,7 +82,8 @@ class GatewayChannel {
       topUp = (json['topUp'] as num?)?.toDouble(),
       lowBalance = (json['lowBalance'] as num?)?.toDouble(),
       keys = jsonRows(json['keys']).map(ChannelKey.fromJson).toList(),
-      unavailable = json['unavailable'] is Map ? Unavailable.fromJson(asJsonMap(json['unavailable'])) : null;
+      unavailable = json['unavailable'] is Map ? Unavailable.fromJson(asJsonMap(json['unavailable'])) : null,
+      common = json['common'] is List ? [for (final id in json['common'] as List) '$id'] : null;
 
   final String id;
 
@@ -103,6 +107,43 @@ class GatewayChannel {
 
   bool get fromPi => source == 'pi';
   List<String> get modelIds => [for (final m in models) m['id'] as String];
+
+  /// The models that model lists show (0.8.3); null = all of them.
+  final List<String>? common;
+
+  bool isCommon(String model) => common == null || common!.contains(model);
+}
+
+class GroupEntry {
+  GroupEntry({required this.channel, required this.model, this.priority = 0, this.weight = 0});
+
+  GroupEntry.fromJson(Json json)
+    : channel = json['channel'] as String,
+      model = json['model'] as String,
+      priority = (json['priority'] as num?)?.toInt() ?? 0,
+      weight = (json['weight'] as num?)?.toDouble() ?? 0;
+
+  String channel;
+  String model;
+  int priority;
+  double weight;
+
+  Json toJson() => {'channel': channel, 'model': model, 'priority': priority, 'weight': weight};
+}
+
+class ModelGroup {
+  ModelGroup.fromJson(Json json)
+    : id = json['id'] as String,
+      name = json['name'] as String? ?? '',
+      entries = jsonRows(json['entries']).map(GroupEntry.fromJson).toList(),
+      allowPaidOverflow = json['allowPaidOverflow'] != false;
+
+  final String id;
+  final String name;
+  final List<GroupEntry> entries;
+  final bool allowPaidOverflow;
+
+  String get modelKey => '$groupProvider/$id';
 }
 
 class GatewayPlatform {

@@ -6,6 +6,7 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
+import 'model_group_pages.dart' show CommonModelsDialog;
 import 'providers_page.dart';
 import 'pi_compatibility_panel.dart';
 import 'settings_controls.dart';
@@ -88,6 +89,7 @@ class _ChannelListState extends State<ChannelList> {
         _OAuthRow(
           name: canLoginPiOAuth(channel.provider) ? 'ChatGPT' : channel.name,
           signedIn: channel.enabled,
+          onCommon: channel.enabled && channel.models.length > 1 ? () => showDialog<void>(context: context, builder: (_) => CommonModelsDialog(channel: channel)) : null,
           action: canLoginPiOAuth(channel.provider) ? (channel.enabled ? '管理 ChatGPT 登录' : '登录 ChatGPT') : '查看登录与退出',
           onTap: () => showDialog<void>(context: context, builder: (_) => PiOAuthDialog(provider: channel.provider, configured: channel.enabled)),
         ),
@@ -174,8 +176,9 @@ class _ChannelRow extends StatelessWidget {
 }
 
 class _OAuthRow extends StatelessWidget {
-  const _OAuthRow({required this.name, required this.signedIn, required this.action, required this.onTap});
+  const _OAuthRow({required this.name, required this.signedIn, required this.action, required this.onTap, this.onCommon});
   final String name;
+  final VoidCallback? onCommon;
   final bool signedIn;
   final String action;
   final VoidCallback onTap;
@@ -190,6 +193,7 @@ class _OAuthRow extends StatelessWidget {
         Expanded(child: Text(name, style: context.text.bodyLarge)),
         Text(signedIn ? '已登录' : '未登录', style: context.text.bodySmall?.copyWith(color: colors.muted)),
         const SizedBox(width: 8),
+        if (onCommon != null) TextButton(key: ValueKey('oauth-common-$name'), onPressed: onCommon, child: const Text('常用模型')),
         TextButton(onPressed: onTap, child: Text(action)),
       ]),
     );
@@ -558,6 +562,13 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
                 SettingsCard(
                   title: '模型',
                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (_editing && !_dirty && _models.length > 1)
+                      TextButton.icon(
+                        key: const ValueKey('channel-common-models'),
+                        onPressed: () { final saved = _agent.gatewayChannels.where((c) => c.id == _id).firstOrNull; if (saved != null) showDialog<void>(context: context, builder: (_) => CommonModelsDialog(channel: saved)); },
+                        icon: const Icon(Icons.star_outline, size: 16),
+                        label: const Text('常用模型'),
+                      ),
                     TextButton.icon(onPressed: _busy ? null : _fetchModels, icon: const Icon(Icons.cloud_download_outlined, size: 16), label: const Text('获取模型列表')),
                     TextButton.icon(onPressed: () => _editModel(null), icon: const Icon(Icons.add, size: 16), label: const Text('手动添加')),
                   ]),

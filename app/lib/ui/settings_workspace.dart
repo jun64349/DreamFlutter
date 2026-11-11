@@ -7,6 +7,7 @@ import 'settings_controls.dart';
 import 'shell_widgets.dart';
 import 'zoom.dart';
 import 'gateway_pages.dart';
+import 'model_group_pages.dart';
 import 'sandbox_panel.dart';
 import 'backup_panel.dart';
 import 'data_storage_panel.dart';
@@ -63,6 +64,7 @@ class _SettingsPageState extends State<SettingsPage>{
         _Setting('小任务模型 标题 记忆整理',card:'用哪个模型',model('小任务模型','smallTaskModel')),
         _Setting('大任务模型 整理上下文 深度分析',card:'用哪个模型',model('大任务模型','largeTaskModel')),
         _Setting('看图模型 图片',card:'用哪个模型',model('看图模型','visionModel')),
+        const _Setting('模型组 自动切换 按顺序 订阅',card:'模型组',GroupList()),
         const _Setting('渠道 服务商 密钥 连接 添加',card:'渠道',ChannelList()),
       ],[
         _Setting('标题 小任务',override('起标题时使用','title')),
@@ -206,9 +208,24 @@ String modelDisplayName(AgentController agent,String? key,{Map<String,String> fa
 class ModelSettingMenu extends StatelessWidget {
   const ModelSettingMenu({super.key,required this.label,required this.selected,required this.onChanged,this.extra=const {},this.inheritLabel='自动'});
   final String label;final String? selected;final Future<void> Function(String?) onChanged;final Map<String,String> extra;final String inheritLabel;
+
+  Future<void> _choose(BuildContext context,String? value)async{
+    try{await onChanged(value);}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('未保存：${SessionRuntime.describeError(e)}')));}
+  }
+
+  /// 0.8.3: model groups first, then each channel's common models under its name; 「更多模型…」 for the rest.
   @override
   Widget build(BuildContext context){final a=AgentScope.of(context);final model=a.models.where((m)=>m.key==selected).firstOrNull;
-    final choices=<String,String>{'':inheritLabel,...extra,for(final m in a.models)m.key:'${m.name} · ${a.providerLabel(m.provider)}'};
-    return SettingMenu<String>(key:ValueKey('model-menu-$label'),value:selected??'',choices:choices,label:model?.name??extra[selected]??(selected==null?inheritLabel:'暂不可用'),onSelected:(v)async{try{await onChanged(v.isEmpty?null:v);}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('未保存：${SessionRuntime.describeError(e)}')));}});
+    final sections=a.modelSections(keep:selected);
+    final choices=<String,String>{'':inheritLabel,...extra};
+    final headers=<String>{};
+    for(final section in sections){
+      if(sections.length>1){final h='#${section.title}';headers.add(h);choices[h]=section.title;}
+      for(final m in section.models){choices[m.key]=m.name;}
+    }
+    return SettingMenu<String>(key:ValueKey('model-menu-$label'),value:selected??'',choices:choices,headers:headers,
+      label:model==null?(extra[selected]??(selected==null?inheritLabel:'暂不可用')):'${model.name} · ${a.providerLabel(model.provider)}',
+      more:a.hasMoreModels?('更多模型…',()async{final picked=await showModelSearch(context);if(picked!=null&&context.mounted)await _choose(context,picked.key);}):null,
+      onSelected:(v)=>_choose(context,v.isEmpty?null:v));
   }
 }

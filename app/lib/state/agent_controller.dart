@@ -231,6 +231,7 @@ class AgentController extends ChangeNotifier {
 
   /// The model gateway's channels and model groups (names for model menus, the settings pages).
   List<GatewayChannel> gatewayChannels = const [];
+  List<ModelGroup> modelGroups = const [];
 
   /// Bumped when channels, groups or their state change in the core.
   final gatewayRevision = ValueNotifier<int>(0);
@@ -370,6 +371,7 @@ class AgentController extends ChangeNotifier {
     coreInfo = parent.coreInfo;
     coreSettings = parent.coreSettings;
     gatewayChannels = parent.gatewayChannels;
+    modelGroups = parent.modelGroups;
     _backendEvents = backend.events.listen(_onBackendEvent);
     // Idle sessions are let go of by the main controller's timer.
     await _attachLiveSlots(coreInfo);
@@ -436,6 +438,49 @@ class AgentController extends ChangeNotifier {
   List<Object?> get todos => _active?.todos ?? const [];
   List<PiModel> get models => _active?.models ?? const [];
 
+  /// The model lists (0.8.3): model groups first, in their order, then each channel's models under
+  /// its name. A channel shows only its common models unless [all]; the chosen ones ([keep], the
+  /// session's model) always show.
+  List<({String title, List<PiModel> models})> modelSections({String? keep, bool all = false}) {
+    final order = {for (final (i, g) in modelGroups.indexed) g.id: i};
+    final groups = [for (final m in models) if (m.provider == groupProvider) m]..sort((a, b) => (order[a.id] ?? 999).compareTo(order[b.id] ?? 999));
+    final sections = <({String title, List<PiModel> models})>[if (groups.isNotEmpty) (title: '模型组', models: groups)];
+    final byProvider = <String, List<PiModel>>{};
+    for (final m in models) {
+      if (m.provider == groupProvider) continue;
+      final channel = gatewayChannels.where((c) => c.provider == m.provider).firstOrNull;
+      if (all || channel == null || channel.isCommon(m.id) || m.key == keep || m.key == model?.key) byProvider.putIfAbsent(m.provider, () => []).add(m);
+    }
+    final channelOrder = {for (final (i, c) in gatewayChannels.indexed) c.provider: i};
+    final providers = byProvider.keys.toList()..sort((a, b) => (channelOrder[a] ?? 999).compareTo(channelOrder[b] ?? 999));
+    for (final p in providers) {
+      sections.add((title: providerLabel(p), models: byProvider[p]!));
+    }
+    return sections;
+  }
+
+  /// When the conversation uses a model group: the member that answered last, as
+  /// 「渠道 · 模型」 (0.8.3); null otherwise or before the first reply.
+  String? get currentGroupMember {
+    if (model?.provider != groupProvider) return null;
+    final reply = _active?.transcript.items.whereType<AssistantItem>().where((a) => a.provider.isNotEmpty && a.provider != groupProvider).lastOrNull;
+    if (reply == null) return null;
+    return memberLabel(reply.provider, reply.model);
+  }
+
+  /// 「渠道 · 模型」 for a channel's model.
+  String memberLabel(String provider, String id) {
+    final name = models.where((m) => m.provider == provider && m.id == id).firstOrNull?.name ??
+        gatewayChannels.where((c) => c.provider == provider).firstOrNull?.models.where((m) => m['id'] == id).firstOrNull?['name'] as String? ??
+        id;
+    return '${providerLabel(provider)} · $name';
+  }
+
+  /// [modelSections] as one list.
+  List<PiModel> pickableModels({String? keep}) => [for (final s in modelSections(keep: keep)) ...s.models];
+
+  /// Whether some models are left out of the lists (then 「更多模型…」 shows them).
+  bool get hasMoreModels => models.length > pickableModels().length;
   List<String> get thinkingLevels => _active?.thinkingLevels ?? const [];
   SessionStats get stats => _active?.stats ?? SessionStats.empty;
   String? get currentSessionPath => _active?.sessionPath;
@@ -735,6 +780,17 @@ class AgentController extends ChangeNotifier {
         if (title is String) _toast(title);
       case 'gateway.changed':
         unawaited(refreshGateway(models: true));
+      case 'gateway.switched':
+        // 0.8.3: the conversation that switched shows it as a line of its own; a switch outside one
+        // (titles, memory) has no conversation to show it in.
+        final sessionId = message['sessionId'];
+        final runtime = sessionId is String ? _runtimes.where((r) => r.state?.sessionId == sessionId).firstOrNull : null;
+        if (runtime != null) {
+          runtime.noteSwitch(from: '${message['from']}', to: '${message['to']}', reason: '${message['reason'] ?? ''}', toPaid: message['toPaid'] == true);
+        } else if (message['toPaid'] == true && !sandbox) {
+          _toast('订阅用完了，已转到按量付费的「${message['to']}」');
+        }
+        unawaited(refreshGateway());
       case 'sandbox.changed':
         if (message['status'] is Map) sandboxStatus.value = asJsonMap(message['status']);
       case 'backup.job':
@@ -763,10 +819,11 @@ class AgentController extends ChangeNotifier {
     }
   }
 
-  /// Loads the channels; with [models], sessions also reload their model lists.
+  /// Loads channels and groups; with [models], sessions also reload their model lists.
   Future<void> refreshGateway({bool models = false}) async {
     try {
       gatewayChannels = jsonRows(await backend.call('gateway.channels')).map(GatewayChannel.fromJson).toList();
+      modelGroups = jsonRows(await backend.call('gateway.groups')).map(ModelGroup.fromJson).toList();
     } catch (_) {
       return; // an older core without the gateway
     }
@@ -779,8 +836,9 @@ class AgentController extends ChangeNotifier {
     _notify();
   }
 
-  /// A model's provider as people know it: the channel's name.
+  /// A model's provider as people know it: the channel's name, or 「模型组」.
   String providerLabel(String provider) {
+    if (provider == groupProvider) return '模型组';
     return gatewayChannels.where((c) => c.provider == provider).firstOrNull?.name ?? provider;
   }
 

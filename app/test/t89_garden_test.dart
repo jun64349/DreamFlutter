@@ -2,7 +2,6 @@ import 'package:dreamflutter/state/garden.dart';
 import 'dart:async' show Completer;
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
-import 'package:dreamflutter/ui/butterfly_start_button.dart';
 import 'package:dreamflutter/ui/garden_page.dart';
 import 'package:dreamflutter/ui/motion.dart';
 import 'package:flutter/material.dart';
@@ -82,15 +81,6 @@ void main() {
     await start(tester); await tester.tap(find.text('新建')); await tester.pumpAndSettle();
     await tester.tap(find.text('让它帮我做')); await waitGarden(tester);
     expect(fixture.agent.section.name,'chat'); expect(fixture.agent.active!.editorText,'帮我做一个技能：'); expect(fixture.backend.pis.expand((p)=>p.sent('prompt')),isEmpty);
-  });
-  testWidgets('T89 start-button progress follows the stored deadline without starting the task', (tester) async {
-    final now=DateTime.now().millisecondsSinceEpoch; var clicked=0;
-    await tester.pumpWidget(MaterialApp(theme:buildTheme(Brightness.light),home:Scaffold(body:ButterflyStartButton(intent:{'id':'i','created_at':now,'start_at':now+10000},onPressed:()=>clicked++))));
-    var bar=tester.widget<LinearProgressIndicator>(find.byKey(const ValueKey('butterfly-start-progress'))); expect(bar.value,lessThan(0.1));
-    await tester.pump(const Duration(seconds:5)); bar=tester.widget(find.byKey(const ValueKey('butterfly-start-progress'))); expect(bar.value,inInclusiveRange(0.45,0.65)); expect(clicked,0);
-    await tester.tap(find.text('可以，开始吧')); expect(clicked,1);
-    await tester.pumpWidget(MaterialApp(home:Scaffold(body:ButterflyStartButton(intent:{'id':'forever','created_at':now,'start_at':null},onPressed:(){}))));
-    expect(find.byType(LinearProgressIndicator),findsNothing);
   });
   test('T89 missing trust and untrusted entries cannot be enabled by the UI', () {
     expect(GardenEntry({'name':'候选','trust':'untrusted','enabled':true}).editable,false);

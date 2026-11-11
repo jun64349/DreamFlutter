@@ -477,12 +477,7 @@ class _MessageListState extends State<_MessageList> {
       child: Builder(
         builder: (context) {
           final registrar = SelectionContainer.maybeOf(context)!;
-          return SelectionContainer.disabled(
-            child: ListView.builder(
-              controller: _scroll,
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              itemCount: rows.length + (queued.isEmpty ? 0 : 1) + 1,
-              itemBuilder: (context, index) {
+          Widget item(int index) {
                 final child = index < rows.length
                     ? FadeSlideIn(
                         key: ValueKey(rows[index].key),
@@ -507,7 +502,25 @@ class _MessageListState extends State<_MessageList> {
                     ),
                   ),
                 );
-              },
+          }
+          final count = rows.length + (queued.isEmpty ? 0 : 1) + 1;
+          // 0.8.3 (user test: with a long reply the scrollbar jumped about). The rows above stay lazy,
+          // but the last row — the reply being written — and what follows it are always laid out: a
+          // lazy list only guesses the height of rows it has not laid out, from their average, and one
+          // very long reply made that guess (and with it the scrollbar) swing as it came in and out.
+          final tail = rows.isEmpty ? 0 : rows.length - 1;
+          return SelectionContainer.disabled(
+            child: CustomScrollView(
+              key: const ValueKey('conversation-list'),
+              controller: _scroll,
+              slivers: [
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                SliverList(delegate: SliverChildBuilderDelegate((context, index) => item(index), childCount: tail)),
+                SliverToBoxAdapter(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [for (var i = tail; i < count; i++) item(i)]),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              ],
             ),
           );
         },

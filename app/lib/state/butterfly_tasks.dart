@@ -9,16 +9,6 @@ import 'package:pi_rpc/pi_rpc.dart';
 import 'agent_controller.dart';
 import 'memory_ui.dart';
 
-String butterflyTaskLabel(Json task) => switch (task['status']) {
-  'waiting' => '等你',
-  'completed' => '已完成',
-  'failed' => '没做成',
-  _ => '进行中',
-};
-
-/// The live 蝶君 task list, for the sidebar (the page owns it; null until 蝶君 is first opened).
-final butterflyTasksHub = ValueNotifier<ButterflyTasks?>(null);
-
 class ButterflyTasks extends ChangeNotifier {
   ButterflyTasks(this.root) {
     _events = root.backend.events.listen((event) {
@@ -130,17 +120,10 @@ class ButterflyTasks extends ChangeNotifier {
     final intentSlot = memoryMap(selected?['intent'])['slot_id'];
     if (match != null) {
       selectedId = match['id'] as String?;
-    } else if (intentSlot != worker?.active?.slotId) {
+    } else if (file == null || intentSlot != worker?.active?.slotId) {
+      // A new conversation reuses the slot: it is not the old task's any more.
       selectedId = null;
     }
-    _notify();
-  }
-
-  Future<void> newTask() async {
-    if (worker == null) return;
-    final pending = memoryMap(selected?['intent']).isNotEmpty;
-    selectedId = null;
-    await worker!.newSession(forceNew: pending);
     _notify();
   }
 

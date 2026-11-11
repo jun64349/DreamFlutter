@@ -260,4 +260,24 @@ void main() {
     expect(displayedAfterDisable,false,reason:'T91-P05: the tool switch must reflect the saved disabled state, not stale connection-test results');
     // The sandbox script trial and adopting the proposal remain explicit T88/WSL boundaries.
   });
+
+  scenario('4.13','模型组：订阅额度用完，自动换到下一个，对话里说一声（0.8.3）',(tester,h) async {
+    final seeded=asJsonMap(await h.rpc('test.modelGroup'));
+    await tester.runAsync(()=>h.agent.refreshGateway(models:true));
+    await h.wait(tester,()=>h.agent.models.any((m)=>m.key=='dreamflutter/pool'));
+    await h.tap(tester,find.byKey(const ValueKey('composer-model')));
+    expect(find.text('模型组'),findsOneWidget);
+    await h.tap(tester,find.text('主力').last);
+    await h.wait(tester,()=>h.agent.model?.key=='dreamflutter/pool');
+    await h.script([{'error':'You have hit your ChatGPT usage limit (plus plan). Try again in ~42 min.'},{'text':'按量 B 接着回答了。'}]);
+    await h.send(tester,'帮我看看今天的实验记录。');
+    expect(reply(h.agent),contains('按量 B 接着回答了'));
+    expect(find.textContaining('换到 按量 B'),findsOneWidget);
+    expect(find.textContaining('service temporarily unavailable'),findsNothing);
+    expect(h.agent.currentGroupMember,startsWith('按量 B'));
+    final channels=(await h.rpc('gateway.channels') as List).cast<Map>();
+    final a=channels.firstWhere((c)=>c['id']==seeded['a']);
+    expect((a['unavailable'] as Map?)?['kind'],'quota',reason:'the subscription rests until ChatGPT says it is back');
+    expect((a['unavailable'] as Map?)?['until'],isNotNull);
+  });
 }

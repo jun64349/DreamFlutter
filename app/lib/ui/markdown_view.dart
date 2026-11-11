@@ -15,13 +15,112 @@ import 'rich_blocks.dart';
 /// A reply's Markdown in the reading style: Song body text with generous
 /// leading, serif headings, ruled tables, and code blocks with highlighting
 /// and a copy button.
+///
+/// 0.8.3 (user test: a 400 token/s model writing ten thousand characters left the window behind and
+/// stuttering): the text is drawn block by block. A block that is finished keeps its built widgets, so
+/// each update parses and lays out only the block still being written, not the whole reply again.
 class ReplyMarkdown extends StatelessWidget {
   const ReplyMarkdown({super.key, required this.text});
 
   final String text;
 
+  /// The gap between blocks: MarkdownBody's own blockSpacing.
+  static const blockGap = 10.0;
+
   @override
   Widget build(BuildContext context) {
+    final blocks = markdownBlocks(text);
+    if (blocks.length <= 1) return _MarkdownBlock(text: text);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final (i, block) in blocks.indexed)
+          Padding(
+            padding: EdgeInsets.only(top: i == 0 ? 0 : blockGap),
+            child: _MarkdownBlock(key: ValueKey(i), text: block),
+          ),
+      ],
+    );
+  }
+}
+
+/// Splits Markdown into top-level blocks at blank lines, so each can be drawn on its own. It never
+/// splits inside a fenced code block or a `$$` formula, and never before an indented line (a list
+/// item's next paragraph, indented code), which belongs to the block above. A blank line at the very
+/// end (the next block not written yet) does not split either.
+List<String> markdownBlocks(String text) {
+  final lines = text.split('\n');
+  final blocks = <String>[];
+  final current = <String>[];
+  String? fence;
+  var formula = false;
+  void flush() {
+    if (current.any((l) => l.trim().isNotEmpty)) blocks.add(current.join('\n'));
+    current.clear();
+  }
+
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trimLeft();
+    if (fence != null) {
+      current.add(line);
+      if (trimmed.startsWith(fence) && trimmed.substring(fence.length).trim().isEmpty) fence = null;
+      continue;
+    }
+    final opening = RegExp(r'^(`{3,}|~{3,})').firstMatch(trimmed);
+    if (opening != null) {
+      fence = opening.group(1);
+      current.add(line);
+      continue;
+    }
+    if (r'$$'.allMatches(line).length.isOdd) formula = !formula;
+    if (line.trim().isEmpty && !formula) {
+      var next = '';
+      for (var j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim().isNotEmpty) { next = lines[j]; break; }
+      }
+      if (next.isNotEmpty && !next.startsWith(' ') && !next.startsWith('\t')) {
+        flush();
+        continue;
+      }
+    }
+    current.add(line);
+  }
+  flush();
+  return blocks;
+}
+
+/// One block of a reply. It keeps what it built until its text or the theme changes: handing Flutter
+/// the same widget again skips the subtree, so a finished paragraph costs nothing while the reply grows.
+class _MarkdownBlock extends StatefulWidget {
+  const _MarkdownBlock({super.key, required this.text});
+
+  final String text;
+
+  @override
+  State<_MarkdownBlock> createState() => _MarkdownBlockState();
+}
+
+class _MarkdownBlockState extends State<_MarkdownBlock> {
+  Widget? _built;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _built = null;
+  }
+
+  @override
+  void didUpdateWidget(_MarkdownBlock old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) _built = null;
+  }
+
+  @override
+  Widget build(BuildContext context) => _built ??= _replyMarkdownBody(context, widget.text);
+}
+
+Widget _replyMarkdownBody(BuildContext context, String text) {
     final colors = context.colors;
     final body = context.serif(context.text.bodyLarge).copyWith(fontSize: 15, height: 1.85, color: colors.ink);
     TextStyle heading(double size) => context.serif(body).copyWith(fontSize: size, fontWeight: FontWeight.w600, height: 1.5);
@@ -78,7 +177,6 @@ class ReplyMarkdown extends StatelessWidget {
         if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) launchUrl(uri);
       },
     );
-  }
 }
 
 // ---------------------------------------------------------------------------

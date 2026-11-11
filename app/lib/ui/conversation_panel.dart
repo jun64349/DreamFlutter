@@ -74,7 +74,9 @@ class _ConversationContextSectionState extends State<ConversationContextSection>
     final percent = known ? stats.contextPercent.clamp(0, 100).toDouble() : 0.0;
     final barColor = percent >= 85 ? colors.danger : percent >= 60 ? colors.warning : colors.accent;
     final seen = stats.inputTokens + stats.cacheReadTokens;
+    final member = agent.currentGroupMember;
     final rows = <(String, String)>[
+      if (member != null) (agent.model!.name, '现在用 $member'),
       if (stats.inputTokens > 0 || stats.cacheReadTokens > 0) ('输入', formatWan(stats.inputTokens + stats.cacheReadTokens)),
       if (stats.outputTokens > 0) ('输出', formatWan(stats.outputTokens)),
       if (seen > 0 && stats.cacheReadTokens > 0) ('缓存命中', '${(stats.cacheReadTokens * 100 / seen).round()}%'),

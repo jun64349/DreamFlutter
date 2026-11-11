@@ -9,6 +9,7 @@ import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/chat_view.dart';
 import 'package:dreamflutter/ui/conversation_actions.dart';
+import 'package:dreamflutter/ui/conversation_cards.dart' show ConversationPresence;
 import 'package:dreamflutter/ui/conversation_controls.dart';
 import 'package:dreamflutter/ui/conversation_memory.dart';
 import 'package:dreamflutter/ui/run_summary.dart';
@@ -217,7 +218,7 @@ void main() {
     agent.transcript.loadHistory(history.map(AgentMessage.fromJson));
     await tester.runAsync(agent.active!.refreshEntryIds);
     await agent.setZoom(1.25); agent.setRunPanelOpen(false); await settle(tester);
-    final list=find.descendant(of:find.byType(SelectionArea),matching:find.byType(ListView));
+    final list=find.byKey(const ValueKey('conversation-list'));
     final position=tester.state<ScrollableState>(find.descendant(of:list,matching:find.byType(Scrollable)).first).position;
     expect(position.maxScrollExtent,greaterThan(position.viewportDimension*3),reason:'the fixture must require real scrolling');
     expect(position.pixels,closeTo(position.maxScrollExtent,2),reason:'a newly opened conversation starts at its end');
@@ -290,5 +291,41 @@ void main() {
     agent.showSection(AppSection.memory); await settle(tester);
     expect(backend.callsTo('notifications.presence').last['slotId'], isNull);
     agent.setWindowFocused(false); expect(backend.callsTo('notifications.presence').last['foreground'], false);
+  });
+
+  testWidgets("0.8.3: the big butterfly folds away at the first words; a small one stays at the reply's start", (tester) async {
+    await start(tester); final pi=backend.pis.single;
+    Future<void> pumps() async { for (var i=0;i<6;i++) { await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5))); await tester.pump(const Duration(milliseconds: 100)); } }
+    double markOpacity() => tester.widget<AnimatedOpacity>(find.ancestor(of: find.byKey(const ValueKey('reply-mark')), matching: find.byType(AnimatedOpacity)).first).opacity;
+    pi.startRun('你是谁');
+    final empty={'role':'assistant','content':<Json>[],'timestamp':2,'stopReason':'pending'};
+    pi.emit({'type':'message_start','message':empty}); await pumps();
+    expect(find.byType(ConversationPresence), findsOneWidget, reason: 'before the first words the big butterfly stands in for the reply');
+    expect(markOpacity(), 0);
+    pi.emit({'type':'message_update','assistantMessageEvent':{'type':'text_start','contentIndex':0}});
+    pi.emit({'type':'message_update','assistantMessageEvent':{'type':'text_delta','contentIndex':0,'delta':'我是蝶君里的助手。'}}); await pumps();
+    expect(find.textContaining('我是蝶君里的助手', findRichText: true), findsWidgets, reason: 'the words arrived');
+    await pumps(); // the fold takes a moment after the words arrive
+    expect(find.byType(ConversationPresence), findsNothing, reason: 'it folds away once the reply has words');
+    expect(markOpacity(), 1, reason: "and the small butterfly sits at the reply's start");
+    final done={'role':'assistant','content':[{'type':'text','text':'我是蝶君里的助手。'}],'timestamp':3,'stopReason':'stop'};
+    pi.emit({'type':'message_end','message':done}); pi.finishRun(); await settle(tester);
+    expect(find.byKey(const ValueKey('reply-mark')), findsOneWidget, reason: 'it stays when the reply is done, like an avatar');
+    expect(markOpacity(), 1);
+  });
+  testWidgets('0.8.3: a long message you sent is folded to ten lines and opens with a click', (tester) async {
+    await start(tester); final pi=backend.pis.single;
+    final long=List.generate(30, (i)=>'第 ${i+1} 行，这是一段很长的输入。').join('\n');
+    pi.startRun(long); pi.finishRun(); await settle(tester);
+    Text bubble() => tester.widget<Text>(find.descendant(of: find.byKey(const ValueKey('conversation-list')), matching: find.textContaining('第 1 行')));
+    expect(find.text('展开全文'), findsOneWidget);
+    expect(bubble().maxLines, 10);
+    await tester.tap(find.text('展开全文')); await settle(tester);
+    expect(find.text('收起'), findsOneWidget);
+    expect(bubble().maxLines, isNull);
+    await tester.tap(find.text('收起')); await settle(tester);
+    expect(bubble().maxLines, 10);
+    pi.startRun('短的一句'); pi.finishRun(); await settle(tester);
+    expect(find.text('展开全文'), findsOneWidget, reason: 'the short one has no 展开全文 of its own');
   });
 }

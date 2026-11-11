@@ -10,7 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/mentions.dart';
-import '../state/agent_controller.dart' show asJsonMap, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
+import '../state/agent_controller.dart' show AgentController, asJsonMap, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
 import '../state/side_chat.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -18,6 +18,7 @@ import 'commands_dialog.dart' show commandSourceLabels;
 import 'common.dart' show memoryImageOf;
 import 'conversation_controls.dart';
 import 'keys.dart';
+import 'model_group_pages.dart' show showModelSearch;
 import 'motion.dart';
 import 'run_summary.dart' show mentionOf;
 import 'dashboard_page.dart' show formatCost;
@@ -561,7 +562,12 @@ class _ComposerState extends State<Composer> {
                           Row(children: [...controls, const Spacer(), send]),
                         ]);
                       }
-                      return Row(children: [...controls, const Spacer(), const _ContextRing(), const SizedBox(width: 6), const Flexible(child: _ModelThinkingChips()), const SizedBox(width: 8), send]);
+                      return Row(children: [
+                        ...controls,
+                        const Expanded(child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [SizedBox(width: 8), _ContextRing(), SizedBox(width: 6), Flexible(child: _ModelThinkingChips())])),
+                        const SizedBox(width: 8),
+                        send,
+                      ]);
                     }),
                   ],
                 ),
@@ -587,9 +593,23 @@ class _ToolbarButton extends StatelessWidget {
 
 const _levelNames = {'off': '关闭', 'minimal': '极低', 'low': '低', 'medium': '中', 'high': '高', 'xhigh': '很高', 'max': '最高'};
 
+/// The chips' label text, also what their widths are measured with (0.8.3: measuring with a smaller
+/// font cut short labels that had room, e.g. 「Fau…」).
+TextStyle _chipTextStyle(BuildContext context) => (context.text.bodySmall ?? const TextStyle()).copyWith(fontSize: 12.5);
+const _chipLabelWidth = 180.0;
+const _modelLabelWidth = 300.0;
+
+/// The model chip's label (0.8.3, user: "名称显示要完整，信息都要完整不然选错了"): the model and
+/// where it comes from — 「GPT-6.1 Sol · 中转 A」, a group as 「主力 · 模型组」.
+String composerModelLabel(AgentController agent) {
+  final model = agent.model;
+  if (model == null) return '选择模型';
+  return '${model.name} · ${agent.providerLabel(model.provider)}';
+}
+
 /// A quiet chip in the input box's toolbar that opens a menu.
 class _Chip<T> extends StatelessWidget {
-  const _Chip({super.key, required this.label, required this.tooltip, required this.enabled, required this.items, required this.onSelected, this.filled = false, this.icon, this.tightLabel = false});
+  const _Chip({super.key, required this.label, required this.tooltip, required this.enabled, required this.items, required this.onSelected, this.filled = false, this.icon, this.tightLabel = false, this.maxLabelWidth = _chipLabelWidth});
 
   final String label;
   final String tooltip;
@@ -599,6 +619,7 @@ class _Chip<T> extends StatelessWidget {
   final bool filled;
   final IconData? icon;
   final bool tightLabel;
+  final double maxLabelWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -618,12 +639,12 @@ class _Chip<T> extends StatelessWidget {
           children: [
             Flexible(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 180),
+                constraints: BoxConstraints(maxWidth: maxLabelWidth),
                 child: Text(
                   label,
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
-                  style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: enabled ? colors.ink2 : colors.muted),
+                  style: _chipTextStyle(context).copyWith(color: enabled ? colors.ink2 : colors.muted),
                 ),
               ),
             ),
@@ -701,23 +722,24 @@ class _ModelThinkingChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     double textWidth(String text) {
-      final painter = TextPainter(text: TextSpan(text: text, style: context.text.bodySmall), textDirection: Directionality.of(context), textScaler: MediaQuery.textScalerOf(context))..layout();
-      final width = painter.width;
+      final painter = TextPainter(text: TextSpan(text: text, style: _chipTextStyle(context)), textDirection: Directionality.of(context), textScaler: MediaQuery.textScalerOf(context))..layout();
+      // A pixel of slack: the chip's Text and this painter may round differently.
+      final width = painter.width.ceilToDouble() + 1;
       painter.dispose();
       return width;
     }
     // _Chip: 20px horizontal padding + 2px gap + 15px menu chevron.
-    final modelWidth = textWidth(agent.model?.name ?? '选择模型').clamp(0.0, 180.0) + 37;
-    final thinkingWidth = textWidth('思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}').clamp(0.0, 180.0) + 37;
+    final thinkingWidth = textWidth('思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}').clamp(0.0, _chipLabelWidth) + 37;
     final minimumModelWidth = textWidth('…') + 37;
     return LayoutBuilder(builder: (context, constraints) {
       final iconOnly = constraints.maxWidth < minimumModelWidth + 4 + thinkingWidth;
-      final desired = modelWidth + 4 + (iconOnly ? 38 : thinkingWidth);
-      return SizedBox(width: desired.clamp(0.0, constraints.maxWidth), child: Row(children: [
-        Expanded(child: _ModelChip(tightLabel: constraints.maxWidth - 4 - (iconOnly ? 38 : thinkingWidth) < minimumModelWidth)),
+      // 0.8.3: the model chip takes the room that is really left (it read 「Fau…」 with room to spare);
+      // it only shortens when the toolbar is narrower than the whole label.
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        Flexible(child: _ModelChip(tightLabel: constraints.maxWidth - 4 - (iconOnly ? 38 : thinkingWidth) < minimumModelWidth)),
         const SizedBox(width: 4),
         _ThinkingChip(iconOnly: iconOnly),
-      ]));
+      ]);
     });
   }
 }
@@ -730,28 +752,36 @@ class _ModelChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final model = agent.model;
-    // Model groups first, then each channel's models under its name.
-    final byProvider = <String, List<PiModel>>{};
-    for (final m in agent.models) {
-      byProvider.putIfAbsent(m.provider, () => []).add(m);
-    }
-    final providers = byProvider.keys.toList();
+    // 0.8.3: model groups first, then each channel's common models under its name; 「更多模型…」 for the rest.
+    final sections = agent.modelSections();
+    final member = agent.currentGroupMember;
     return _Chip<PiModel>(
       key: const ValueKey('composer-model'),
       tightLabel: tightLabel,
-      label: model?.name ?? '选择模型',
-      tooltip: model == null ? '模型' : '模型：${model.name} · ${agent.providerLabel(model.provider)}',
+      label: composerModelLabel(agent),
+      maxLabelWidth: _modelLabelWidth,
+      tooltip: model == null ? '模型' : member != null ? '模型组「${model.name}」：现在用 $member' : '模型：${model.name} · ${agent.providerLabel(model.provider)}',
       enabled: agent.isReady && agent.models.isNotEmpty,
       filled: true,
       items: [
-        for (final provider in providers) ...[
-          if (providers.length > 1) _MenuHeader(agent.providerLabel(provider)),
-          for (final m in byProvider[provider]!)
+        for (final section in sections) ...[
+          if (sections.length > 1) _MenuHeader(section.title),
+          for (final m in section.models)
             PopupMenuItem(
               value: m,
               child: _MenuRow(title: m.name, selected: m == model),
             ),
         ],
+        if (agent.hasMoreModels)
+          PopupMenuItem(
+            key: const ValueKey('composer-more-models'),
+            // The menu closes first; then the search opens over the conversation.
+            onTap: () => WidgetsBinding.instance.addPostFrameCallback((_) async {
+              final picked = await showModelSearch(context);
+              if (picked != null) await agent.selectModel(picked);
+            }),
+            child: const _MenuRow(title: '更多模型…', selected: false),
+          ),
       ],
       onSelected: agent.selectModel,
     );

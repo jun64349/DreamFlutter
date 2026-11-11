@@ -15,7 +15,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(model, findsOneWidget);
     expect(thinking, findsOneWidget);
-    final modelText = find.descendant(of: model, matching: find.text(composerModelName));
+    final modelText = find.descendant(of: model, matching: find.text(composerChipLabel));
     expect(tester.renderObject<RenderParagraph>(modelText).didExceedMaxLines, isTrue);
     final smallSend = tester.getSize(find.byTooltip('发送'));
     final smallImage = tester.getSize(find.byTooltip('添加图片'));
@@ -28,7 +28,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(model);
     await tester.pumpAndSettle();
-    expect(find.text(composerModelName), findsNWidgets(2), reason: 'full model menu remains available');
+    expect(find.text(composerModelName), findsOneWidget, reason: 'full model menu remains available');
     await tester.tapAt(const Offset(5, 5));
     await tester.pumpAndSettle();
 
@@ -50,7 +50,7 @@ void main() {
       expect(tester.takeException(), isNull, reason: 'composer width $width');
       final compact = find.descendant(of: thinking, matching: find.byIcon(Icons.psychology_outlined)).evaluate().isNotEmpty;
       if (tester.getTopLeft(thinking).dy < tester.getTopLeft(find.byTooltip('发送')).dy) sawTwoRows = true;
-      if (!compact && tester.renderObject<RenderParagraph>(find.descendant(of: model, matching: find.text(composerModelName))).didExceedMaxLines) sawTruncatedModel = true;
+      if (!compact && tester.renderObject<RenderParagraph>(find.descendant(of: model, matching: find.text(composerChipLabel))).didExceedMaxLines) sawTruncatedModel = true;
       if (compact) {
         expect(sawTruncatedModel, isTrue, reason: 'truncate model before hiding thinking text');
         await tester.tap(thinking);

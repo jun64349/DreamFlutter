@@ -86,7 +86,7 @@ class _SettingsSwitchState extends State<SettingsSwitch>{
 /// The one dropdown of the settings pages (0.8.1 S.3): the current value in the accent colour with a
 /// chevron; the list opens just below it at its own width (it never covers the row), the chosen item ticked.
 class SettingMenu<T> extends StatelessWidget {
-  const SettingMenu({super.key, required this.value, required this.choices, required this.onSelected, this.enabled = true, this.label});
+  const SettingMenu({super.key, required this.value, required this.choices, required this.onSelected, this.enabled = true, this.label, this.headers = const {}, this.more});
   final T value;
   final Map<T, String> choices;
   final void Function(T) onSelected;
@@ -94,6 +94,12 @@ class SettingMenu<T> extends StatelessWidget {
 
   /// Shown instead of the chosen choice's name (for a value outside [choices]).
   final String? label;
+
+  /// Choices that are section titles (a channel's name in a model list), not something to pick.
+  final Set<T> headers;
+
+  /// A last item that opens something else (「更多模型…」).
+  final (String, VoidCallback)? more;
 
   @override
   Widget build(BuildContext context) {
@@ -108,11 +114,24 @@ class SettingMenu<T> extends StatelessWidget {
       ),
       menuChildren: [
         for (final e in choices.entries)
+          if (headers.contains(e.key))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 16, 4),
+              child: Text(e.value, style: context.text.labelSmall?.copyWith(color: scheme.outline, letterSpacing: 0.4)),
+            )
+          else
           MenuItemButton(
             style: MenuItemButton.styleFrom(minimumSize: const Size(0, 36), padding: const EdgeInsets.only(left: 10, right: 16), textStyle: context.text.bodyMedium),
             leadingIcon: SizedBox(width: 18, child: e.key == value ? Icon(Icons.check, size: 16, color: scheme.primary) : null),
             onPressed: () => onSelected(e.key),
             child: Text(e.value),
+          ),
+        if (more case (final text, final open))
+          MenuItemButton(
+            style: MenuItemButton.styleFrom(minimumSize: const Size(0, 36), padding: const EdgeInsets.only(left: 10, right: 16), textStyle: context.text.bodyMedium),
+            leadingIcon: const SizedBox(width: 18, child: Icon(Icons.search, size: 16)),
+            onPressed: open,
+            child: Text(text),
           ),
       ],
       builder: (context, menu, _) => TextButton(

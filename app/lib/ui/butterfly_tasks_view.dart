@@ -11,28 +11,12 @@ import '../state/memory_ui.dart';
 import '../theme.dart';
 import 'artifact_widgets.dart';
 import 'butterfly_motion.dart';
-import 'butterfly_start_button.dart';
 import 'common.dart';
 import 'greetings.dart';
-import 'motion.dart';
 import 'shell_widgets.dart';
 
-Color taskColor(BuildContext context, Json task) => switch (task['status']) {
-  'waiting' => context.colors.warning,
-  'completed' => context.colors.success,
-  'failed' => context.colors.danger,
-  _ => context.colors.accent,
-};
-
-class ButterflyTaskStatus extends StatelessWidget {
-  const ButterflyTaskStatus({super.key, required this.task});
-  final Json task;
-  @override
-  Widget build(BuildContext context) => ShellStatusChip(butterflyTaskLabel(task), tone: switch (task['status']) {
-    'waiting' => ShellTone.wait, 'completed' => ShellTone.ok, 'failed' => ShellTone.bad, _ => ShellTone.run,
-  });
-}
-
+/// 蝶君's empty page (0.8.3): the greeting and a few things to hand over. Its conversations are in the
+/// sidebar; what needs you is in 「等你处理」, so there are no task cards or state pills here.
 class ButterflyTasksHome extends StatelessWidget {
   const ButterflyTasksHome({super.key, required this.tasks});
   final ButterflyTasks tasks;
@@ -47,14 +31,7 @@ class ButterflyTasksHome extends StatelessWidget {
     return ShellColumn(children: [
       Column(children: [
         const SizedBox(height: 12),
-        ButterflyAvatar(
-          size: 56,
-          activity: tasks.tasks.any((t) => t['status'] == 'in_progress')
-              ? ButterflyActivity.working
-              : tasks.tasks.any((t) => t['status'] == 'waiting')
-              ? ButterflyActivity.waiting
-              : ButterflyActivity.idle,
-        ),
+        const ButterflyAvatar(size: 56, activity: ButterflyActivity.idle),
         const SizedBox(height: 18),
         const ShellGreeting('交给我吧，你去忙别的', size: 30),
         const SizedBox(height: 18),
@@ -66,150 +43,7 @@ class ButterflyTasksHome extends StatelessWidget {
         ]),
         const SizedBox(height: 6),
       ]),
-      if (tasks.tasks.isNotEmpty) const ShellSectionLabel('正在做和最近做完的'),
-      MotionRows(children: [for (final task in tasks.tasks)
-          KeyedSubtree(key: ValueKey(task['id']), child: ButterflyTaskRow(task: task, onTap: () => tasks.open(task)))]),
     ]);
-  }
-}
-
-class ButterflyTaskRow extends StatelessWidget {
-  const ButterflyTaskRow({super.key, required this.task, required this.onTap});
-  final Json task;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) {
-    final progress = task['progress'] as String? ?? '';
-    final n = (task['done'] as num?)?.toDouble(), of = (task['total'] as num?)?.toDouble();
-    return ShellCard(onTap: onTap, child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(task['title'] as String? ?? '任务', maxLines: 2, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w500, color: context.colors.ink)),
-        if (progress.isNotEmpty && progress != butterflyTaskLabel(task))
-          Text(progress, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: context.colors.muted)),
-        if (task['status'] == 'in_progress' && n != null && of != null && of > 0)
-          Padding(padding: const EdgeInsets.only(top: 6), child: ClipRRect(borderRadius: BorderRadius.circular(2), child: LinearProgressIndicator(value: (n / of).clamp(0, 1), minHeight: 4, color: context.colors.ochre, backgroundColor: context.colors.hairline))),
-      ])),
-      const SizedBox(width: 12),
-      ButterflyTaskStatus(task: task),
-    ]));
-  }
-}
-
-class ButterflyTaskHeader extends StatelessWidget {
-  const ButterflyTaskHeader({super.key, required this.tasks});
-  final ButterflyTasks tasks;
-  Future<void> _act(
-    BuildContext context,
-    Future<void> Function() action,
-  ) async {
-    try {
-      await action();
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('没有完成：${SessionRuntime.describeError(e)}')),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final task = tasks.selected!;
-    final intent = memoryMap(task['intent']);
-    final delivery = memoryMap(task['delivery']);
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.56,
-      ),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 14, 24, 10),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 860),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    IconButton(
-                      tooltip: '蝶君首页',
-                      onPressed: tasks.newTask,
-                      icon: const Icon(Icons.arrow_back, size: 19),
-                    ),
-                    Expanded(
-                      child: Text(
-                        task['title'] as String? ?? '任务',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.text.titleMedium,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    ButterflyTaskStatus(task: task),
-                  ],
-                ),
-                if (intent.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: context.colors.accentSoft,
-                      borderRadius: BorderRadius.circular(context.radius),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          intent['restatement'] as String? ?? '',
-                          style: context.text.titleLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          intent['plan'] as String? ?? '',
-                          style: context.text.bodyMedium?.copyWith(height: 1.6),
-                        ),
-                        if (intent['missing'] != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 10),
-                            child: Text(intent['missing'] as String),
-                          ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          children: [
-                            if (intent['state'] != 'needs_input')
-                              ButterflyStartButton(
-                                intent: intent,
-                                onPressed: tasks.preparing
-                                    ? null
-                                    : () => _act(
-                                        context,
-                                        () => tasks.start(intent),
-                                      ),
-                              ),
-                            TextButton(
-                              onPressed: tasks.preparing
-                                  ? null
-                                  : () => _act(
-                                      context,
-                                      () => tasks.cancel(intent),
-                                    ),
-                              child: const Text('取消'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                if (delivery.isNotEmpty)
-                  ButterflyDelivery(delivery: delivery, agent: tasks.worker!),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -318,6 +152,8 @@ class ButterflyDeliveryFile extends StatelessWidget {
   }
 }
 
+/// 蝶君's right panel, 「这个对话」 like the workbench's (0.8.3): what this conversation handed over
+/// and its schedules. No state pills: a failure shows in the conversation, a question in 「等你处理」.
 class ButterflyTaskProgress extends StatelessWidget {
   const ButterflyTaskProgress({super.key, required this.tasks});
   final ButterflyTasks tasks;
@@ -331,9 +167,9 @@ class ButterflyTaskProgress extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(18, 10, 8, 0),
           child: Row(
             children: [
-              Expanded(child: Text('任务进度', style: context.text.titleSmall)),
+              Expanded(child: Text('这个对话', style: context.text.titleSmall)),
               IconButton(
-                tooltip: '收起任务进度',
+                tooltip: '收起详情',
                 onPressed: () => tasks.worker?.setRunPanelOpen(false),
                 icon: const Icon(Icons.close, size: 18),
               ),
@@ -346,45 +182,21 @@ class ButterflyTaskProgress extends StatelessWidget {
   );
   Widget _content(BuildContext context) {
     final task = tasks.selected;
-    if (task == null) {
-      return ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          for (final t in tasks.tasks)
-            ButterflyTaskRow(task: t, onTap: () => tasks.open(t)),
-        ],
-      );
-    }
-    final schedules = tasks.schedules.where(
+    final delivery = memoryMap(task?['delivery']);
+    final worker = tasks.worker;
+    final schedules = task == null ? const <Json>[] : tasks.schedules.where(
       (s) =>
           s['id'] == task['scheduleId'] ||
           task['sessionFile'] != null &&
               s['sessionFile'] == task['sessionFile'],
-    );
+    ).toList();
     return ListView(
       padding: const EdgeInsets.all(18),
       children: [
-        Text(task['title'] as String? ?? '', style: context.text.titleMedium),
-        const SizedBox(height: 12),
-        ButterflyTaskStatus(task: task),
-        const SizedBox(height: 12),
-        Text(
-          task['progress'] as String? ?? '',
-          style: context.text.bodyMedium?.copyWith(height: 1.6),
-        ),
-        if (task['error'] != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 14),
-            child: Text(
-              task['error'] as String,
-              style: TextStyle(color: context.colors.danger),
-            ),
-          ),
-        if (task['status'] == 'waiting' && memoryMap(task['intent']).isEmpty)
-          TextButton(
-            onPressed: () => tasks.root.showSection(AppSection.tasks),
-            child: const Text('等你处理'),
-          ),
+        if (delivery.isNotEmpty && worker != null)
+          ButterflyDelivery(delivery: delivery, agent: worker)
+        else
+          Text('这段对话还没有交付的文件', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
         for (final s in schedules)
           Padding(
             padding: const EdgeInsets.only(top: 28),

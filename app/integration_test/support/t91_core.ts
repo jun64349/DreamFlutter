@@ -4,11 +4,18 @@ import {execFileSync} from 'node:child_process';
 import {createServer} from 'node:http';
 import {mkdirSync, readFileSync, writeFileSync, existsSync} from 'node:fs';
 import {join} from 'node:path';
-import {fauxAssistantMessage, fauxToolCall} from '../../../core/node_modules/@earendil-works/pi-ai/dist/index.js';
+import {createAssistantMessageEventStream, fauxAssistantMessage, fauxToolCall} from '../../../core/node_modules/@earendil-works/pi-ai/dist/index.js';
 import {startTestCore} from '../../../core/test/harness.ts';
 import {startServer} from '../../../core/src/server.ts';
 
-const t=await startTestCore();
+// Channel requests (0.8.3 model groups) go to the same scripted Faux model; no network.
+// Like a real channel, the reply carries the channel's provider and model.
+const channelStream=(model:any,context:any,options:any)=>{
+  const out=createAssistantMessageEventStream();
+  void (async()=>{for await(const event of t.faux.streamSimple(model,context,options) as AsyncIterable<any>){const message=event.message??event.partial??event.error;if(message){message.provider=model.provider;message.model=model.id;}out.push(event);}out.end();})();
+  return out;
+};
+const t:any=await startTestCore(undefined,{gatewayTransport:channelStream});
 const other=join(t.dir,'other-project'); mkdirSync(other);
 mkdirSync(t.core.paths.butterflyDir,{recursive:true});
 const git=(...args:string[])=>execFileSync('git',['-c','core.hooksPath=/dev/null','-c','commit.gpgSign=false',...args],{cwd:t.workspace,encoding:'utf8',windowsHide:true}).trim();
@@ -47,6 +54,13 @@ t.core.register('test.library',async()=>{
 const server=await startServer(t.core,{port:0,token:'t91-isolated'});
 let closing=false;
 async function close(){if(closing)return;closing=true;download.close();await server.close();await t.cleanup();process.exit(0);}
+// 0.8.3: a subscription and a pay-as-you-go channel with fake keys, queued in the model group 「主力」.
+t.core.register('test.modelGroup',async()=>{
+  const save=async(name:string,platform:string,key:string)=>(await t.core.call('gateway.saveChannel',{name,platform,api:'openai-completions',baseUrl:'https://example.invalid/v1',models:[{id:'pool-model',name:'主力模型',contextWindow:200000,maxTokens:8192}],keys:[{secret:key}]}) as any).id as string;
+  const a=await save('订阅 A','glm-coding','t91-fake-key-a');const b=await save('按量 B','deepseek','t91-fake-key-b');
+  await t.core.call('gateway.saveGroup',{id:'pool',name:'主力',entries:[{channel:a,model:'pool-model',priority:0},{channel:b,model:'pool-model',priority:1}]});
+  return {a,b};
+});
 t.core.register('test.shutdown',()=>{setTimeout(()=>void close(),50);return {ok:true};});
 process.stdin.resume();process.stdin.on('end',()=>void close());process.on('SIGTERM',()=>void close());
 process.stdout.write(JSON.stringify({port:server.port,token:'t91-isolated',workspace:t.workspace,other,home:t.core.paths.butterflyDir,sessions:t.sessionDir,root:t.dir})+'\n');

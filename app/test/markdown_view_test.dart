@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -39,6 +40,32 @@ void main() {
     expect(mathIn(r'苹果 $5 和梨 $10，一共 $15。'), isEmpty);
     expect(mathIn(r'花费 $0.01'), isEmpty);
     expect(mathIn('`\$x\$` 在代码里'), isEmpty);
+  });
+
+  // 0.8.3 (user test: a 400 token/s model writing ten thousand characters left the window behind).
+  test('a reply splits into blocks at blank lines, but not inside code, formulas or indented parts', () {
+    expect(markdownBlocks('第一段\n\n第二段\n\n- 一\n- 二'), ['第一段', '第二段', '- 一\n- 二']);
+    expect(markdownBlocks('前\n\n```python\na = 1\n\nb = 2\n```\n\n后'), ['前', '```python\na = 1\n\nb = 2\n```', '后'], reason: 'a code block keeps its blank lines');
+    expect(markdownBlocks('1. 第一项\n\n   第一项的第二段\n\n2. 第二项'), ['1. 第一项\n\n   第一项的第二段', '2. 第二项'], reason: 'an indented paragraph belongs to its list item');
+    expect(markdownBlocks('\$\$\na\n\nb\n\$\$\n\n后'), ['\$\$\na\n\nb\n\$\$', '后'], reason: 'a formula is one block');
+    expect(markdownBlocks('正在写\n\n'), ['正在写\n\n'], reason: 'a blank line at the end waits for the next block');
+    expect(markdownBlocks(''), isEmpty);
+  });
+
+  testWidgets('a growing reply rebuilds only its last block', (tester) async {
+    Future<void> show(String text) => tester.pumpWidget(MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: SingleChildScrollView(child: ReplyMarkdown(text: text)))));
+    const done = '# 标题\n\n第一段已经写完了。\n\n| 列 | 值 |\n|---|---|\n| a | 1 |';
+    await show('$done\n\n最后一段正在');
+    final before = tester.widgetList<MarkdownBody>(find.byType(MarkdownBody)).toList();
+    expect(before, hasLength(4));
+    await show('$done\n\n最后一段正在写，还在继续。');
+    final after = tester.widgetList<MarkdownBody>(find.byType(MarkdownBody)).toList();
+    for (var i = 0; i < 3; i++) {
+      expect(identical(before[i], after[i]), isTrue, reason: 'finished block $i is handed back as is, so Flutter skips it');
+    }
+    expect(identical(before[3], after[3]), isFalse);
+    expect(find.textContaining('还在继续', findRichText: true), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a reply draws its formulas', (tester) async {

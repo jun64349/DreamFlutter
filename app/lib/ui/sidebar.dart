@@ -6,7 +6,6 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/agent_controller.dart';
-import '../state/butterfly_tasks.dart';
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -102,9 +101,9 @@ class _SidebarState extends State<Sidebar> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: onButterfly
-                        ? const _ButterflyTaskList()
-                        : lists == null
+                    // 0.8.3 (user test): 蝶君's side lists its conversations like the workbench — a click opens
+                    // one from any page; what needs you is in 「等你处理」, not on the list.
+                    child: lists == null
                         ? Padding(
                             padding: const EdgeInsets.all(10),
                             child: const SizedBox.shrink(),
@@ -935,44 +934,5 @@ Future<String?> _askName(BuildContext context, String current) {
         FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('保存')),
       ],
     ),
-  );
-}
-
-
-/// 蝶君's tasks in the sidebar (1.0 prototype): a state dot and the title; the open one is on a card.
-class _ButterflyTaskList extends StatelessWidget {
-  const _ButterflyTaskList();
-  @override
-  Widget build(BuildContext context) => ValueListenableBuilder<ButterflyTasks?>(
-    valueListenable: butterflyTasksHub,
-    builder: (context, tasks, _) {
-      if (tasks == null) return const SizedBox.shrink();
-      return ListenableBuilder(listenable: tasks, builder: (context, _) {
-        final colors = context.colors;
-        return ListView(padding: EdgeInsets.zero, children: [
-          Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 4), child: Text('蝶君的任务', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted, letterSpacing: 0.8))),
-          if (tasks.tasks.isEmpty) Padding(padding: const EdgeInsets.all(10), child: Text('还没有任务', style: context.text.bodySmall?.copyWith(color: colors.muted))),
-          for (final task in tasks.tasks)
-            Material(
-              color: tasks.selectedId == task['id'] ? colors.card : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () { tasks.open(task); closeShellDrawer(context); },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                  child: Row(children: [
-                    Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: switch (task['status']) {
-                      'waiting' => colors.ochre, 'completed' => colors.success, 'failed' => colors.seal, _ => colors.ochre.withValues(alpha: 0.7),
-                    })),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(task['title'] as String? ?? '任务', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13.5, color: tasks.selectedId == task['id'] ? colors.ink : colors.ink2))),
-                  ]),
-                ),
-              ),
-            ),
-        ]);
-      });
-    },
   );
 }

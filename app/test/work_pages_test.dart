@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dreamflutter/main.dart';
@@ -5,6 +6,7 @@ import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/ui/butterfly_page.dart';
 import 'package:dreamflutter/ui/chat_view.dart';
+import 'package:dreamflutter/ui/sidebar.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -127,6 +129,34 @@ void main() {
     expect(find.text('蝶君准备开工'), findsNothing);
     expect(backend.pis.where((p) => !p.target.sandbox).every((p) => p.sent('prompt').isEmpty), isTrue);
     expect(backend.callsTo('desk.get'), isEmpty);
+  });
+
+  // 0.8.3 (user test of 0.8.3-test.2): after 记忆/花费/设置, 蝶君's history and 新对话 did nothing, and an old
+  // task page with a 「没做成」 pill hung over the conversation. The side lists conversations and opens them.
+  testWidgets('butterfly side lists conversations that open from any page; 新对话 shows the empty page', (tester) async {
+    await startApp(tester);
+    await tester.tap(find.text('蝶君')); await settle(tester);
+    for (var i = 0; i < 20 && agent.butterfly?.isReady != true; i++) { await settle(tester); }
+    // An earlier 蝶君 conversation, as the core's index lists it.
+    final home = agent.butterfly!.workspace;
+    final elsewhere = Directory.systemTemp.createTempSync('df_butterfly_old_');
+    addTearDown(() { try { elsewhere.deleteSync(recursive: true); } catch (_) {} });
+    final old = File(p.join(elsewhere.path, 'earlier.jsonl'))..writeAsStringSync('${jsonEncode({'type': 'session', 'id': 'earlier', 'cwd': home, 'timestamp': '2026-11-11T08:00:00Z'})}\n');
+    backend.sessionRows = [{'path': old.path, 'cwd': home, 'title': '帮我看看传感器', 'modifiedAt': DateTime.now().millisecondsSinceEpoch, 'createdAt': 0, 'pinned': false, 'archived': false}];
+    await tester.runAsync(agent.butterfly!.refreshSessions); await settle(tester);
+    expect(find.text('蝶君的任务'), findsNothing, reason: 'the side lists conversations, not tasks');
+    expect(find.text('没做成'), findsNothing);
+
+    await tester.tap(find.text('记忆')); await settle(tester);
+    expect(agent.section, AppSection.memory);
+    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.text('新对话')).first); await settle(tester);
+    expect(agent.section, AppSection.butterfly, reason: '新对话 from another page goes back to 蝶君');
+    expect(find.text('交给我吧，你去忙别的'), findsOneWidget);
+
+    await tester.tap(find.text('花费')); await settle(tester);
+    await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.textContaining('帮我看看传感器')).first); await settle(tester);
+    expect(agent.section, AppSection.butterfly, reason: 'a conversation in the side opens from another page');
+    expect(SessionStore.samePath(agent.butterfly!.currentSessionPath ?? '', old.path), isTrue);
   });
 
   testWidgets('only the page on screen takes dropped files (v0.3.2 test)', (tester) async {

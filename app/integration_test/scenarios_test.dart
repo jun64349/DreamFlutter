@@ -147,7 +147,7 @@ void main() {
     };
   }
 
-  Finder messageList() => find.descendant(of: find.byType(SelectionArea), matching: find.byType(ListView));
+  Finder messageList() => find.byKey(const ValueKey('conversation-list'));
   ScrollPosition listPosition(WidgetTester tester) => tester.state<ScrollableState>(find.descendant(of: messageList(), matching: find.byType(Scrollable)).first).position;
 
   /// Drags across the paragraph starting with [word] and copies with Ctrl+C.

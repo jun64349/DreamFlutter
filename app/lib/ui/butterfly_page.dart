@@ -18,12 +18,10 @@ class _ButterflyPageState extends State<ButterflyPage> {
   void initState() {
     super.initState();
     _tasks = ButterflyTasks(AgentScope.read(context))..load();
-    butterflyTasksHub.value = _tasks;
   }
 
   @override
   void dispose() {
-    if (butterflyTasksHub.value == _tasks) butterflyTasksHub.value = null;
     _tasks.dispose();
     super.dispose();
   }
@@ -73,7 +71,6 @@ class _ButterflyPageState extends State<ButterflyPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_tasks.selected != null) ButterflyTaskHeader(tasks: _tasks),
             if (_tasks.error != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -92,9 +89,7 @@ class _ButterflyPageState extends State<ButterflyPage> {
             if (_tasks.preparing) const LinearProgressIndicator(minHeight: 2),
             Expanded(
               child: ChatView(
-                emptyStateBuilder: (context, agent) => _tasks.selected == null
-                    ? ButterflyTasksHome(tasks: _tasks)
-                    : const SizedBox.shrink(),
+                emptyStateBuilder: (context, agent) => ButterflyTasksHome(tasks: _tasks),
                 detailsPanelBuilder: (context, agent) =>
                     ButterflyTaskProgress(tasks: _tasks),
               ),

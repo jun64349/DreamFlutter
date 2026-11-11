@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -491,6 +492,13 @@ class SessionRuntime extends ChangeNotifier {
   }
 
   void _touch() => lastActivity = _clock();
+
+  /// A model group moved this conversation to another member (0.8.3): one line in the reply.
+  /// Live only: a reopened conversation shows the member each reply used under it instead.
+  void noteSwitch({required String from, required String to, required String reason, required bool toPaid}) {
+    transcript.addNotice(NoticeKind.modelSwitch, to, detail: jsonEncode({'from': from, 'reason': reason, 'toPaid': toPaid}));
+    _notifyNow();
+  }
 
   // --- Actions -------------------------------------------------------------
 

@@ -10,6 +10,9 @@ import 'fake_backend.dart';
 
 const composerModelName = 'DeepSeek-V4.1-Flash · 工作区验证模型';
 
+/// What the model chip shows: the model and where it comes from (0.8.3).
+const composerChipLabel = '$composerModelName · layout-test';
+
 Future<({AgentController agent, FakeBackend backend, GlobalKey capture})> startComposerLayout(WidgetTester tester) async {
   await tester.binding.setSurfaceSize(const Size(1000, 800));
   final directory = Directory.systemTemp.createTempSync('df_composer_layout_');
