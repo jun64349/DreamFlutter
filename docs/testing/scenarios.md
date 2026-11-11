@@ -178,7 +178,8 @@ PowerShell先切到仓库对应目录。真窗口一次只跑一个，不能最�
 | 收件箱批准、上限卡片 | 组件 work_pages_test | |
 | 定时任务新建、批准、立即运行、绑定会话 | 组件 work_pages_test，e2e 17 | |
 | 模板 | e2e 15 | |
-| 渠道、同渠道多 Key 自动换 Key | core gateway.test（review fixes） | 模型组 2026-11-10 去掉；旧设置/旧对话里的模型组换成具体模型：core gateway.test、pi-migration.test |
+| 渠道、同渠道多 Key 自动换 Key；模型组按顺序自动换渠道（0.8.3） | core gateway.test（换 Key、订阅优先、ChatGPT 额度用完、带图只给能看图的、恢复后新对话从第一个开始）、pi-migration.test（删掉的组用默认模型）；窗口 model_groups_test；e2e 4.13 | 0.8.3 恢复模型组（2026-11-10 曾去掉）；真实多渠道切换要用户自己的密钥 |
+| 常用模型、「更多模型…」、输入框模型名完整 | core gateway.test（默认规则、RPC）；窗口 model_groups_test、composer_layout_test | 截图 build/v083_shots |
 | 仪表盘有表头（v0.3.1 实测 10） | 场景（打开） | 表头内容手动看一眼 |
 
 ### 6. 数据、备份、安装包

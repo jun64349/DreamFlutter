@@ -1,6 +1,12 @@
 # DreamFlutter 开发交接
 
-**2026-11-11 晚：0.8.2 候选包 0.8.2-test.2（最新状态）**：在 test.1 上只改 ChatGPT 登录：带上 Pi 的本机设备 ID（`SettingsManager.getOrCreateDeviceId`，应用名 DreamFlutter）；登录对话框自动打开浏览器、浏览器跳回后显示「已登录」，长链接和英文步骤不再显示，手动粘贴地址折叠成「登录完没有自动回来？」。便携包 `dist\v082-candidate-test.2\DreamFlutter`，说明见 [v0.8.2-test.2](releases/v0.8.2-test.2.md)。**没有提交**。真实 ChatGPT 登录仍未验证。**下一步：用户实测 test.2。**
+**2026-11-11 晚：0.8.3 候选包 0.8.3-test.3（最新状态）**：在 test.2 上理顺蝶君（用户：进过记忆/花费/设置后历史和新对话点不动；对话上悬着「没做成」的任务头）。侧栏改成和工作台一样列对话（`sidebar.dart` 不再有 `_ButterflyTaskList`）；对话页去掉 `ButterflyTaskHeader`、空白页去掉任务卡片、右栏改「这个对话」只放交付文件和定时；新对话会清掉选中的任务；删了 `butterfly_start_button.dart`、`butterflyTaskLabel`、`butterflyTasksHub`、`newTask`。窗口 263 项、端到端 10 个流程通过。便携包 `dist\v083-candidate-test.3\DreamFlutter`，说明见 [v0.8.3-test.3](releases/v0.8.3-test.3.md)。**没有提交**。**下一步：用户实测 test.3。**
+
+**2026-11-11 晚：0.8.3 候选包 0.8.3-test.2**：在 test.1 上改等回复的蝴蝶（用户：写完时大蝴蝶突然消失）。出字前照旧是大蝴蝶和短句，出字后收成回复开头左边的小蝴蝶，写的时候呼吸，写完后留着当头像。改在 `message_widgets.dart` 的 `_ReplyView` 和 `_ReplyMark`，写着和写完的回复用同一个 `_ReplyFrame`。窗口 263 项通过，端到端 10 个流程通过。便携包 `dist\v083-candidate-test.2\DreamFlutter`，说明见 [v0.8.3-test.2](releases/v0.8.3-test.2.md)。**没有提交**。**下一步：用户实测 test.2。**
+
+**2026-11-11 晚：0.8.3 候选包 0.8.3-test.1**：模型组恢复（用户定，设计 [design/model-groups.md](design/model-groups.md)，过程 [v0.8.3 计划](v0.8.3-plan.md)）。用户自己建、数量不限，统一叫「模型组」不叫「号池」；常用模型和「更多模型…」；对话里一行说换到了哪；输入框模型名显示完整（「模型 · 渠道」）。后台 619 / 窗口 262 项通过，端到端 10 个流程通过（新 4.13），截图 `appuild083_shots`。便携包 `dist083-candidate-test.1DreamFlutter`，说明见 [v0.8.3-test.1](releases/v0.8.3-test.1.md)。0.8.2 已在本地提交（7399422、4fcbd18、5c8d5a8），**0.8.3 没有提交**。真实多渠道切换未验证。**下一步：用户实测 0.8.3-test.1。**
+
+**2026-11-11 晚：0.8.2 候选包 0.8.2-test.2**：在 test.1 上只改 ChatGPT 登录：带上 Pi 的本机设备 ID（`SettingsManager.getOrCreateDeviceId`，应用名 DreamFlutter）；登录对话框自动打开浏览器、浏览器跳回后显示「已登录」，长链接和英文步骤不再显示，手动粘贴地址折叠成「登录完没有自动回来？」。便携包 `dist\v082-candidate-test.2\DreamFlutter`，说明见 [v0.8.2-test.2](releases/v0.8.2-test.2.md)。**没有提交**。真实 ChatGPT 登录仍未验证。**下一步：用户实测 test.2。**
 
 **2026-11-11：0.8.2 候选包 0.8.2-test.1（最新状态）**：用户实测 0.8.1-test.2 很不满意（12 条，最生气的是蝶君每句话都进「等你处理」）。全部做完，见 [v0.8.2 计划](v0.8.2-plan.md)：蝶君改成直接对话（复述和开工在蝶君回复里，只有提问工具进等你处理）、设置限宽居中分卡片 + 「开发者选项」「归档/回收」两组、渠道编辑页重做（测试连接 / 保存、所有选项都存）、对话列表按最后一条消息排序（打开不再跳到最前）、工作区挪到侧栏、花费图表、记忆页搜索和分组卡片、右栏「文件」合并 + 右栏内预览 + 右键菜单、回复下显示速度和时间。交互设计按用户这次的决定改了（标「0.8.2」）。后台 604 / 窗口 257 项通过，端到端九个流程通过，截图在 `app\build\v082_shots`、`app\build\t86_shots`。便携包 `dist\v082-candidate-test.1\DreamFlutter`，说明见 [v0.8.2-test.1](releases/v0.8.2-test.1.md)。同日补丁：ChatGPT 登录缺本机设备 ID（`pi-migration.ts` 传 `getDeviceId`），已替换进候选包，后台 605 项通过。**没有提交**（等用户说）。真实模型和真实 ChatGPT 登录仍未验证。**下一步：用户实测 0.8.2-test.1。**
 
@@ -647,6 +653,7 @@ Flutter 窗口 ──WebSocket(127.0.0.1 + 令牌)── core/（Node 后台，�
 - **渠道** = Pi 服务商 `df-<id>`，`streamSimple` 经过包装（选 Key、记录 `gateway_requests`、熔断）；Pi 自己配置的服务商以 `pi:<id>` 出现，只在被模型组用到时包装它的流。**模型组** = Pi 虚拟模型 `dreamflutter/<id>`；旧的备用链迁成模型组 `auto`（同一个模型键，旧会话照常），`ext/fallback.ts` 已删。
 - **关键机制**：Pi 不重试额度、余额、Key 错误。经由模型组、还没输出内容时，包装把这类错误改写成「渠道「X」余额不足，换下一个渠道（service temporarily unavailable）」，Pi 重试时路由换渠道。是否经由模型组靠 sessionId 判断（路由时记下，请求的 options.sessionId 对上才改写）。直接选渠道里的模型时不改写。
 - 后台小任务（标题、记忆）也能用模型组：`Llm.runtime()` 装上网关，`complete` 对模型组最多再试两次。
+- **0.8.1 去掉、0.8.3 恢复模型组**（[design/model-groups.md](design/model-groups.md)）。0.8.3 加的：同渠道先换 Key 再换渠道（直接选渠道模型时也换 Key）；ChatGPT「usage limit」认成额度用完并读恢复时间（`classify.ts` 的 `resetAtOf`）；ChatGPT 登录渠道算订阅（`kind: plan`）；组里有一个能看图就注册成能看图，带图的这一轮只给能看图的成员（`turnHasImage`）；常用模型设置 `commonModels` + `gateway.setCommonModels`，超过 12 个模型的渠道默认只列最新两个版本号（`defaultCommon`）；删掉的组对应的旧对话用默认模型打开。窗口：`model_group_pages.dart`（卡片、编辑页、添加、常用模型、更多模型），换渠道在对话里一行（`NoticeKind.modelSwitch`），后台自己的换 Key/换渠道重试提示不显示。
 - 每月花费上限 `monthlyBudgetUsd`，暂停卡片类型 `limit_budget_month`。
 - 窗口：`state/gateway_models.dart`，控制器 `gatewayChannels` / `modelGroups` / `providerLabel()`，事件 `gateway.changed` / `gateway.switched`（提示「已从 A 换到 B」）/ `gateway.alert`；`ui/gateway_pages.dart`（渠道列表和编辑页、模型组列表和编辑框）；`ui/dashboard_page.dart` 替换了用量统计页；`ui/settings_page.dart` 改成左侧分类 + 搜索；输入框模型菜单按「模型组 / 各渠道」分组。旧的服务商页保留为「Pi 配置」。
 - 人工端到端：用户用 computer-use Agent 按 [testing/computer-use-e2e.md](testing/computer-use-e2e.md) 测，报告写到 `docs/test-reports/<日期>/report.md`（Agent 写不进项目目录时在它自己的输出目录），交回给 Claude 处理。
