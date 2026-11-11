@@ -6,7 +6,7 @@
 
 **2026-11-11 晚：0.8.3 候选包 0.8.3-test.2**：在 test.1 上改等回复的蝴蝶（用户：写完时大蝴蝶突然消失）。出字前照旧是大蝴蝶和短句，出字后收成回复开头左边的小蝴蝶，写的时候呼吸，写完后留着当头像。改在 `message_widgets.dart` 的 `_ReplyView` 和 `_ReplyMark`，写着和写完的回复用同一个 `_ReplyFrame`。窗口 263 项通过，端到端 10 个流程通过。便携包 `dist\v083-candidate-test.2\DreamFlutter`，说明见 [v0.8.3-test.2](releases/v0.8.3-test.2.md)。**没有提交**。**下一步：用户实测 test.2。**
 
-**2026-11-11 晚：0.8.3 候选包 0.8.3-test.1**：模型组恢复（用户定，设计 [design/model-groups.md](design/model-groups.md)，过程 [v0.8.3 计划](v0.8.3-plan.md)）。用户自己建、数量不限，统一叫「模型组」不叫「号池」；常用模型和「更多模型…」；对话里一行说换到了哪；输入框模型名显示完整（「模型 · 渠道」）。后台 619 / 窗口 262 项通过，端到端 10 个流程通过（新 4.13），截图 `appuild083_shots`。便携包 `dist083-candidate-test.1DreamFlutter`，说明见 [v0.8.3-test.1](releases/v0.8.3-test.1.md)。0.8.2 已在本地提交（7399422、4fcbd18、5c8d5a8），**0.8.3 没有提交**。真实多渠道切换未验证。**下一步：用户实测 0.8.3-test.1。**
+**2026-11-11 晚：0.8.3 候选包 0.8.3-test.1**：模型组恢复（用户定，设计 [design/model-groups.md](design/model-groups.md)，过程 [v0.8.3 计划](v0.8.3-plan.md)）。用户自己建、数量不限，统一叫「模型组」不叫「号池」；常用模型和「更多模型…」；对话里一行说换到了哪；输入框模型名显示完整（「模型 · 渠道」）。后台 619 / 窗口 262 项通过，端到端 10 个流程通过（新 4.13），截图 `app\build\v083_shots`。便携包 `dist\v083-candidate-test.1\DreamFlutter`，说明见 [v0.8.3-test.1](releases/v0.8.3-test.1.md)。0.8.2 已在本地提交（7399422、4fcbd18、5c8d5a8），**0.8.3 没有提交**。真实多渠道切换未验证。**下一步：用户实测 0.8.3-test.1。**
 
 **2026-11-11 晚：0.8.2 候选包 0.8.2-test.2**：在 test.1 上只改 ChatGPT 登录：带上 Pi 的本机设备 ID（`SettingsManager.getOrCreateDeviceId`，应用名 DreamFlutter）；登录对话框自动打开浏览器、浏览器跳回后显示「已登录」，长链接和英文步骤不再显示，手动粘贴地址折叠成「登录完没有自动回来？」。便携包 `dist\v082-candidate-test.2\DreamFlutter`，说明见 [v0.8.2-test.2](releases/v0.8.2-test.2.md)。**没有提交**。真实 ChatGPT 登录仍未验证。**下一步：用户实测 test.2。**
 
