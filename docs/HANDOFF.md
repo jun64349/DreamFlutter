@@ -1,6 +1,8 @@
 # DreamFlutter 开发交接
 
-**2026-11-11 晚：0.8.3 候选包 0.8.3-test.3（最新状态）**：在 test.2 上理顺蝶君（用户：进过记忆/花费/设置后历史和新对话点不动；对话上悬着「没做成」的任务头）。侧栏改成和工作台一样列对话（`sidebar.dart` 不再有 `_ButterflyTaskList`）；对话页去掉 `ButterflyTaskHeader`、空白页去掉任务卡片、右栏改「这个对话」只放交付文件和定时；新对话会清掉选中的任务；删了 `butterfly_start_button.dart`、`butterflyTaskLabel`、`butterflyTasksHub`、`newTask`。窗口 263 项、端到端 10 个流程通过。便携包 `dist\v083-candidate-test.3\DreamFlutter`，说明见 [v0.8.3-test.3](releases/v0.8.3-test.3.md)。**没有提交**。**下一步：用户实测 test.3。**
+**2026-11-11 晚：v0.8.3 发布（最新状态）**：用户说修完长输出卡顿就提交、推送、发布。按用户实测修了两件事：一是快速长输出跟不上、滚动条乱跳（`markdown_view.dart` 按段落画、写完的段落沿用；`chat_view.dart` 改 CustomScrollView，最后一行始终排好）；二是长输入折叠（`message_widgets.dart` 的 `_FoldingText`，超过 10 行折叠）。版本号改成 0.8.3（pubspec 0.8.3+14、core、CORE_VERSION、main.dart），发布说明见 [v0.8.3](releases/v0.8.3.md)。提交 63e6c22、6c53048、723d6c6 和 Release v0.8.3，带注释的标签 v0.8.3，main 和标签都已推送。便携包 `dist\v0.8.3\DreamFlutter`。**下一步：用户实测 v0.8.3；之后按 roadmap 做 0.9。**
+
+**2026-11-11 晚：0.8.3 候选包 0.8.3-test.3**：在 test.2 上理顺蝶君（用户：进过记忆/花费/设置后历史和新对话点不动；对话上悬着「没做成」的任务头）。侧栏改成和工作台一样列对话（`sidebar.dart` 不再有 `_ButterflyTaskList`）；对话页去掉 `ButterflyTaskHeader`、空白页去掉任务卡片、右栏改「这个对话」只放交付文件和定时；新对话会清掉选中的任务；删了 `butterfly_start_button.dart`、`butterflyTaskLabel`、`butterflyTasksHub`、`newTask`。窗口 263 项、端到端 10 个流程通过。便携包 `dist\v083-candidate-test.3\DreamFlutter`，说明见 [v0.8.3-test.3](releases/v0.8.3-test.3.md)。**没有提交**。**下一步：用户实测 test.3。**
 
 **2026-11-11 晚：0.8.3 候选包 0.8.3-test.2**：在 test.1 上改等回复的蝴蝶（用户：写完时大蝴蝶突然消失）。出字前照旧是大蝴蝶和短句，出字后收成回复开头左边的小蝴蝶，写的时候呼吸，写完后留着当头像。改在 `message_widgets.dart` 的 `_ReplyView` 和 `_ReplyMark`，写着和写完的回复用同一个 `_ReplyFrame`。窗口 263 项通过，端到端 10 个流程通过。便携包 `dist\v083-candidate-test.2\DreamFlutter`，说明见 [v0.8.3-test.2](releases/v0.8.3-test.2.md)。**没有提交**。**下一步：用户实测 test.2。**
 

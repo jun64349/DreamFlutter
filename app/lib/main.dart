@@ -23,7 +23,7 @@ import 'ui/setup_wizard.dart';
 import 'update_bootstrap.dart';
 
 /// Shown in the settings page.
-const appVersion = String.fromEnvironment('DREAMFLUTTER_VERSION', defaultValue: '0.7.0');
+const appVersion = String.fromEnvironment('DREAMFLUTTER_VERSION', defaultValue: '0.8.3');
 const appBuild = String.fromEnvironment('DREAMFLUTTER_BUILD', defaultValue: '11');
 
 Future<void> main([List<String> args = const []]) async {
