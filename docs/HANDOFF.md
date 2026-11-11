@@ -6,7 +6,9 @@
 - **分工**：前端由 Claude 做；后端和测试派给 Codex。Claude 写派工单（`Claude Codex Bridge/任务模板.md`），用户贴进 Codex 窗口。
 - **已派出的第一张卡**：`Claude Codex Bridge/2026-11-11-01-T-94补已定型界面的行为测试.md`。给清单第 5、7、15、16 条（渠道编辑页、右栏文件、首页对齐、花费和记忆页）补行为测试，这几条现在只有截图守着。还没开始，等用户贴进 Codex。
 - **状态**：v0.8.3 已发布并推送（标签 v0.8.3，main 在 6ab1141 或更新）。工作区干净。GitHub 的 Release 页面等正式版（V1.0）再建。
-- **下一步**：用户实测 v0.8.3；然后按 [roadmap](roadmap.md) 做 v0.9（长任务与目标），后端那部分派给 Codex。
+- **0.9 加了新东西**（用户 2026-11-11）：蝶君的日程板块（月历，看得到、改得了，比如“每天白天四次提醒吃药”）和蝶君巡检（参考 OpenHanako 的心跳巡检）。只做蝶君，工作台的定时先不做；设置都放进「设置 › 日程与巡检」。设计 [design/schedule-and-patrol.md](design/schedule-and-patrol.md)，第九节五个问题用户已定：入口在蝶君侧栏「等你处理」下面；一切正常不叫模型，有需要判断或值得汇报的才叫（触发规则在第六节）；改你建的日程先问；一律通知，要判断的进等你处理；间隔默认 30 分钟，可在设置里改。roadmap v0.9 加了 8.12–8.14。
+- **0.9 开工第一步**：修“蝶君建的定时任务跑到了工作台”（原因：`scheduler.ts` 的 `launch` 没传 `sandbox`，`schedules` 没记归属）。派工单 `Claude Codex Bridge/2026-11-11-02-T-95蝶君定时任务跑到工作台.md`，用户说不急着修，0.9 开头交给 Codex。
+- **下一步**：用户会新开一个窗口开始 0.9。0.9 开工先派 T-95，然后按 [roadmap](roadmap.md) v0.9 做。后端和测试派给 Codex，前端 Claude 做。
 
 **2026-11-11 晚：v0.8.3 发布（最新状态）**：用户说修完长输出卡顿就提交、推送、发布。按用户实测修了两件事：一是快速长输出跟不上、滚动条乱跳（`markdown_view.dart` 按段落画、写完的段落沿用；`chat_view.dart` 改 CustomScrollView，最后一行始终排好）；二是长输入折叠（`message_widgets.dart` 的 `_FoldingText`，超过 10 行折叠）。版本号改成 0.8.3（pubspec 0.8.3+14、core、CORE_VERSION、main.dart），发布说明见 [v0.8.3](releases/v0.8.3.md)。提交 63e6c22、6c53048、723d6c6 和 Release v0.8.3，带注释的标签 v0.8.3，main 和标签都已推送。便携包 `dist\v0.8.3\DreamFlutter`。**下一步：用户实测 v0.8.3；之后按 roadmap 做 0.9。**
 
