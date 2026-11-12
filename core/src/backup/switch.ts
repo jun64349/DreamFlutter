@@ -66,7 +66,8 @@ export function writeSwitchRecord(paths: CorePaths, agentDir: string, staged: St
 	const add = (label: string, target: string, source?: string) => items.push({ label, source, target, old: join(oldDir, String(items.length)) });
 
 	// The data folder: the backup's entries replace the current ones, current ones it lacks move aside.
-	const stagedNames = new Set(existsSync(appdata) ? readdirSync(appdata) : []);
+	// Older exporters included private patrol transcripts. The local directory is kept by excludedFromData.
+	const stagedNames = new Set(existsSync(appdata) ? readdirSync(appdata).filter(name => name.toLowerCase() !== "patrol-sessions") : []);
 	for (const name of stagedNames) add(`数据 ${name}`, dataTarget(name), join(appdata, name));
 	for (const name of ["cards", "butterfly"]) if (!stagedNames.has(name) && existsSync(dataTarget(name))) add(`数据 ${name}`, dataTarget(name));
 	for (const suffix of ["-wal", "-shm"]) if (existsSync(paths.dbFile + suffix)) add(`数据库 ${suffix}`, paths.dbFile + suffix);

@@ -11,6 +11,7 @@ import { T100_MIGRATION } from "./t100-migration.ts";
 import { T101_MIGRATION } from "./t101-migration.ts";
 import { T99_MIGRATION } from "./t99-migration.ts";
 import { T102_MIGRATION } from "./t102-migration.ts";
+import { T112_MIGRATION } from "./t112-migration.ts";
 
 export const MIGRATIONS: string[] = [
 	// 1: settings, persisted dialogs, run log.
@@ -767,4 +768,5 @@ export const MIGRATIONS: string[] = [
 	T101_MIGRATION,
 	T99_MIGRATION,
 	T102_MIGRATION,
+	T112_MIGRATION,
 ];

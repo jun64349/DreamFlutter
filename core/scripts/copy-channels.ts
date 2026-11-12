@@ -7,9 +7,10 @@
  * Prints one JSON line: [{ "channel": id, "name": ..., "models": [ids] }].
  */
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Db } from "../src/db.ts";
-import { SecretStore } from "../src/modules/secrets.ts";
+import { SecretStore, relocateSecretRef, secretFileOf } from "../src/modules/secrets.ts";
 import { corePaths } from "../src/paths.ts";
 
 const [from, to, platform = "opencode-go"] = process.argv.slice(2);
@@ -18,6 +19,9 @@ if (!from || !to) {
 	process.exit(2);
 }
 const source = corePaths(from);
+const destination = corePaths(to);
+const pathKey = (path: string) => resolve(path).toLowerCase();
+if (pathKey(source.dbFile) === pathKey(destination.dbFile)) throw new Error("The destination database must differ from the source");
 if (!existsSync(source.dbFile)) {
 	console.error(`no database in ${from}`);
 	process.exit(1);
@@ -31,19 +35,27 @@ read.close();
 
 mkdirSync(to, { recursive: true });
 // Opening through Db creates the schema the core expects.
-const target = new Db(corePaths(to).dbFile);
+const target = new Db(destination.dbFile);
 const insert = (table: string, row: Row) => {
 	const columns = Object.keys(row);
 	target.raw.prepare(`INSERT OR REPLACE INTO ${table}(${columns.join(", ")}) VALUES(${columns.map(() => "?").join(", ")})`).run(...columns.map((c) => row[c]!));
 };
-for (const channel of channels) insert("gateway_channels", channel);
 const fromSecrets = new SecretStore(from);
 const toSecrets = new SecretStore(to);
-mkdirSync(toSecrets.dir, { recursive: true });
-for (const key of keys) {
-	insert("gateway_keys", key);
-	copyFileSync(fromSecrets.fileFor(`gateway-${key.id}`), toSecrets.fileFor(`gateway-${key.id}`));
-}
-target.raw.close();
+try {
+	if (pathKey(fromSecrets.dir) === pathKey(toSecrets.dir)) throw new Error("The destination secrets directory must differ from the source");
+	mkdirSync(toSecrets.dir, { recursive: true });
+	const copiedKeys = keys.map(key => {
+		const ref = String(key.secret ?? "");
+		const sourceFile = fromSecrets.fileFor(`gateway-${key.id}`), file = secretFileOf(ref);
+		if (!file || pathKey(file) !== pathKey(sourceFile)) throw new Error("Expected a key stored in the source secrets directory");
+		copyFileSync(sourceFile, toSecrets.fileFor(`gateway-${key.id}`));
+		return { ...key, secret: relocateSecretRef(ref, toSecrets.dir) };
+	});
+	target.raw.exec("BEGIN");
+	for (const channel of channels) insert("gateway_channels", channel);
+	for (const key of copiedKeys) insert("gateway_keys", key);
+	target.raw.exec("COMMIT");
+} finally { target.raw.close(); }
 
 console.log(JSON.stringify(channels.map((c) => ({ channel: c.id, name: c.name, models: (JSON.parse(String(c.models)) as { id: string }[]).map((m) => m.id) }))));

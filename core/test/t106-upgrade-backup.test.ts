@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { registerHooks } from "node:module";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { it } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Job } from "../src/backup/backup.ts";
+import { Archive } from "../src/backup/archive.ts";
 import { applyPendingRestore } from "../src/backup/switch.ts";
-import { normalizeCwd } from "../src/core.ts";
+import { CORE_VERSION, normalizeCwd } from "../src/core.ts";
 import { Db } from "../src/db.ts";
 import { GoalsModule, type GoalScheduler } from "../src/modules/goals.ts";
 import type { Schedule } from "../src/modules/scheduler.ts";
@@ -66,6 +68,55 @@ async function backupJob(t: TestCore, method: string, params: Record<string, unk
 		.find(job => job?.id === started.id && (job.status === "done" || job.status === "failed" || job.status === "cancelled")), 120_000);
 	assert.equal(result.status, "done", JSON.stringify(result));
 }
+
+it("T111 restores patrol records from an old exporter without installing its transcripts or replacing local ones", async () => {
+	const source = await startTestCore();
+	let target: TestCore | undefined;
+	try {
+		const sourceDir = join(source.core.paths.dataDir, "patrol-sessions");
+		const oldTranscript = join(sourceDir, "old.jsonl");
+		mkdirSync(sourceDir);
+		writeFileSync(oldTranscript, '{"content":"旧巡检原文"}\n');
+		source.core.db.run("INSERT INTO patrol_runs(id,started_at,status,manual,note,session_file) VALUES('old',1,'notified',0,'旧巡检记录',?)", oldTranscript);
+		const exporter = new URL("../src/backup/export.ts", import.meta.url);
+		const legacy = new URL(exporter);
+		legacy.search = "t111-legacy";
+		const current = readFileSync(exporter, "utf8");
+		const prior = current.replace(' || n === "patrol-sessions"', "");
+		assert.notEqual(prior, current);
+		const hook = registerHooks({ load(url, context, next) {
+			return url === legacy.href ? { format: "module-typescript", source: prior, shortCircuit: true } : next(url, context);
+		} });
+		let createBackup: typeof import("../src/backup/export.ts").createBackup;
+		try { ({ createBackup } = await import(legacy.href)); }
+		finally { hook.deregister(); }
+		const archivePath = join(source.dir, "old.dfbackup");
+		await createBackup({ paths: source.core.paths, agentDir: source.agentDir, sessionsDir: source.sessionDir, db: source.core.db.raw, appVersion: CORE_VERSION },
+			{ out: archivePath, kind: "manual", credentials: "none", includeMaterials: false });
+		const archive = await Archive.open(archivePath);
+		try { assert.match((await archive.readBuffer("data/appdata/patrol-sessions/old.jsonl")).toString(), /旧巡检原文/); }
+		finally { archive.close(); }
+
+		target = await startTestCore();
+		const paths = target.core.paths;
+		const localDir = join(paths.dataDir, "patrol-sessions");
+		const localTranscript = join(localDir, "current.jsonl");
+		mkdirSync(localDir);
+		writeFileSync(localTranscript, "这台电脑的巡检原文");
+		await backupJob(target, "backup.stage", { path: archivePath });
+		await backupJob(target, "backup.apply", {});
+		await target.core.shutdown();
+		assert.equal(applyPendingRestore(paths)?.ok, true);
+		const restored = new Db(paths.dbFile);
+		try {
+			const old = restored.get<{ note: string; session_file: string }>("SELECT note,session_file FROM patrol_runs WHERE id='old'");
+			assert.equal(old?.note, "旧巡检记录");
+			assert.equal(old.session_file, join(localDir, "old.jsonl"));
+			assert.equal(existsSync(old.session_file), false);
+			assert.equal(readFileSync(localTranscript, "utf8"), "这台电脑的巡检原文");
+		} finally { restored.close(); }
+	} finally { await target?.cleanup(); await source.cleanup(); }
+});
 
 it("T106 restores 0.9 rows and remaps their owned paths into a new data directory", async () => {
 	const source = await startTestCore();
@@ -128,8 +179,8 @@ it("T106 restores 0.9 rows and remaps their owned paths into a new data director
 			assert.ok(restored.get("SELECT 1 FROM schedule_changes WHERE schedule_id=? AND json_extract(after,'$.cwd')=? AND json_extract(after,'$.sessionFile')=?", schedule.id, target.workspace, session.path));
 			assert.ok(restored.get("SELECT 1 FROM patrol_runs WHERE id='patrol' AND session_file=?", session.path));
 			assert.ok(restored.get("SELECT 1 FROM goal_proposals WHERE id='proposal' AND session_file=? AND json_extract(draft,'$.scope.cwd')=?", session.path, target.workspace));
-			assert.ok(restored.get("SELECT 1 FROM jobs WHERE id='job' AND exit_code=0 AND goal_id=? AND session_file=? AND cwd=? AND output_path=?",
-				goal.id, session.path, target.workspace, join(paths.cacheDir, "jobs", "job.log")));
+			assert.ok(restored.get("SELECT 1 FROM jobs WHERE id='job' AND exit_code=0 AND goal_id=? AND session_file=? AND cwd=? AND output_path IS NULL",
+				goal.id, session.path, target.workspace));
 		} finally { restored.close(); }
 	} finally { await target?.cleanup(); await source.cleanup(); }
 });

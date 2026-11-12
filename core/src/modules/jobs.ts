@@ -77,6 +77,7 @@ export class JobsModule implements CoreModule {
 		core.declareBackup({
 			id: "jobs", title: "后台作业", tables: ["jobs"],
 			paths: { jobs: { session_file: "path", cwd: "path", output_path: "path" } },
+			onStage: db => { db.run("UPDATE jobs SET output_path=NULL WHERE output_path IS NOT NULL"); },
 		});
 		core.register("jobs.list", p => this.list(p));
 		core.register("jobs.output", p => this.output(p));
@@ -314,7 +315,7 @@ export class JobsModule implements CoreModule {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.core.log.warn("无法读取后台作业输出", error);
 			} finally { if (fd !== undefined) closeSync(fd); }
 		}
-		return { text: "", next: 0, truncated: false, ended };
+		return { text: "", next: 0, truncated: false, ended, available: false };
 	}
 
 	private readChunk(buffer: Buffer, from: number, total: number, ended: boolean, lost: boolean) {

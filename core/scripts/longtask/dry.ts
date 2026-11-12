@@ -10,6 +10,7 @@ import { RecordingNotifier } from "../../src/notify.ts";
 import { corePaths } from "../../src/paths.ts";
 import { evaluate, readSessionEvidence, wordHeadings, type Check, type Evidence } from "./checks.ts";
 import type { Case } from "./cases.ts";
+import type { RequestReceipt } from "./request-evidence.ts";
 import { DATA_ROWS, generateFixture, makeDocx, MIN_HEADINGS, SALES_ROWS, SCRIPT_SECONDS, sha256, type Answers } from "./fixtures/generate.ts";
 
 export interface RunRow {
@@ -18,9 +19,12 @@ export interface RunRow {
 	partition: string;
 	passed: boolean;
 	runs: number;
+	rawRuns?: number;
+	runNotes?: string;
 	costUsd: number | null;
 	budgetUsd?: number;
 	requests?: number;
+	receipts?: RequestReceipt[];
 	elapsedMs: number;
 	reason: string;
 	goalStatus: string;

@@ -33,7 +33,7 @@ export function excludedFromData(name: string): boolean {
 		["webview2", "core.json", "core.lock", "core-startup.json", "core.db", "core.db-wal", "core.db-shm", "sandbox", "backups", "trash", "secrets", "pi", "window", "cache", "migration.json"].includes(n) ||
 		n.startsWith("core.log") ||
 		["application-data", "user-content"].includes(n) || n.startsWith("storage-") ||
-		n === "updates" ||
+		n === "updates" || n === "patrol-sessions" ||
 		n.startsWith("restore-")
 	);
 }
@@ -173,7 +173,8 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 		step("复制会话");
 		let sessions = 0;
 		for (const file of sessionFiles) {
-			if (!isInside(source.sessionsDir, file) || (options.sessionFilter && !options.sessionFilter(file))) continue;
+			if (!isInside(source.sessionsDir, file) || isInside(join(source.paths.dataDir, "patrol-sessions"), file)
+				|| (options.sessionFilter && !options.sessionFilter(file))) continue;
 			let size: number;
 			try {
 				size = statSync(file).size;

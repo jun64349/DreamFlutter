@@ -11,9 +11,12 @@ import type { CoreSettings } from "../../settings.ts";
 import { AttentionModule } from "../attention.ts";
 
 export type FactKind = "failed" | "stale_attention" | "health" | "upcoming" | "report" | "goal_stuck";
-export interface Fact { key: string; kind: FactKind; text: string }
+export interface GoalFinding {
+	id: string; status: string; revision: number; generation: number; reason: string | null; noticeKey: string;
+}
+export interface Fact { key: string; kind: FactKind; text: string; alreadyNotified?: boolean; goal?: GoalFinding }
 export interface FactWindow { since: number; at: number }
-export type GoalSource = (window: FactWindow) => readonly Omit<Fact, "kind">[];
+export type GoalSource = (window: FactWindow) => readonly Omit<Fact, "kind">[] | Promise<readonly Omit<Fact, "kind">[]>;
 export type HealthState = Record<string, string>;
 
 const HOUR = 3_600_000;
@@ -155,8 +158,8 @@ function affectedSchedules(core: Core, gateway: Gateway | undefined, bad: Channe
 	});
 }
 
-export function collectFacts(core: Core, settings: CoreSettings, window: FactWindow, runId: string,
-	sessionDir: string, goalSources: ReadonlySet<GoalSource>, previous: HealthState, sandboxFailed: boolean): { facts: Fact[]; health: HealthState | null } {
+export async function collectFacts(core: Core, settings: CoreSettings, window: FactWindow, runId: string,
+	sessionDir: string, goalSources: ReadonlySet<GoalSource>, previous: HealthState, sandboxFailed: boolean): Promise<{ facts: Fact[]; health: HealthState | null }> {
 	const checks = settings.patrolChecks;
 	const { at } = window;
 	const facts: Fact[] = [];
@@ -167,7 +170,7 @@ export function collectFacts(core: Core, settings: CoreSettings, window: FactWin
 		if (checks.watch) facts.push(...watchDue(core, at));
 		facts.push(...unreadDeliveries(core, window, belongs));
 		if (checks.goal_stuck) for (const source of goalSources) {
-			for (const fact of source(window)) facts.push({ ...fact, text: oneLine(fact.text), kind: "goal_stuck" });
+			for (const fact of await source(window)) facts.push({ ...fact, text: oneLine(fact.text), kind: "goal_stuck" });
 		}
 	}
 

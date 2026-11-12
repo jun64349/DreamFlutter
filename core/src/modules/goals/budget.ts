@@ -1,5 +1,7 @@
+import type { Model } from "@earendil-works/pi-ai";
 import { RpcError } from "../../core.ts";
 import type { Db } from "../../db.ts";
+import { estimate } from "../../ledger/rules.ts";
 import type { LedgerRow } from "../../ledger/types.ts";
 import type { CoreSettings } from "../../settings.ts";
 import { object, type BudgetReason, type Goal, type GoalBudget } from "./types.ts";
@@ -17,6 +19,17 @@ export interface Reservation {
 	outputTokens?: number;
 	activeMs?: number;
 }
+export interface SettlementEstimate { model: Model<any>; outputTokens: number }
+export type NormalRequest = Pick<Reservation, "costUsd"> & { outputTokens: number };
+const UNSENT_REASONS = ["budget_denied", "prep_failed"] as const;
+// The run receipt stays in history. Known pre-send failures do not consume a goal round.
+export const COUNTED_GOAL_RUN = `NOT (
+	EXISTS(SELECT 1 FROM goal_intents i WHERE i.goal_id=t.goal_id AND i.run_id=r.id AND i.action='run' AND i.reason='channel_unavailable')
+	OR ((COALESCE(r.error LIKE '目标预算限制：%',0) OR EXISTS(
+		SELECT 1 FROM goal_intents i WHERE i.goal_id=t.goal_id AND i.run_id=r.id AND i.action='run'
+			AND i.reason IN ('${UNSENT_REASONS.join("','")}')
+	)) AND NOT EXISTS(SELECT 1 FROM request_ledger q WHERE q.run_id=r.id))
+)`;
 interface ChargeRow {
 	id: string; goal_id: string; task_id: string | null; run_id: string | null; request_id: string | null;
 	kind: ChargeKind; state: "reserved" | "settled" | "released";
@@ -30,6 +43,16 @@ interface Usage { costUsd: number; tokens: number; activeMs: number; runs: numbe
 export interface BudgetView { limits: GoalBudget; used: Usage; reserved: Usage; remaining: Omit<Usage, "tokens"> & { tokens: number | null } }
 const COST_EPSILON = 1e-9;
 const CAP_KEYS = ["maxCostUsd", "maxTokens", "maxActiveMs", "maxRuns", "maxParallel"] as const;
+
+export function estimateGoalCost(model: Model<any>, input: number, output: number, cacheRead = 0, cacheWrite = 0): number | null {
+	return estimate(model, { input, output, cacheRead, cacheWrite, totalTokens: input + output + cacheRead + cacheWrite,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
+}
+
+export function costDenial(remaining: number, estimated: number): string {
+	const usd = (value: number) => "$" + value.toLocaleString("en-US", { useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 9 });
+	return `剩余 ${usd(remaining)}，这一次预计要 ${usd(estimated)}。放宽目标预算后继续。`;
+}
 
 export function budgetPatch(input: unknown): Partial<GoalBudget> | null {
 	if (input === null) return null;
@@ -95,6 +118,14 @@ export class GoalLedger {
 	}
 
 	get(id: string) { return this.db.get<ChargeRow>("SELECT * FROM goal_ledger WHERE id = ?", id); }
+	hasRequest(runId: string): boolean {
+		return !!this.db.get("SELECT 1 FROM request_ledger WHERE run_id=? LIMIT 1", runId);
+	}
+	markUnsentRun(goalId: string, generation: number, reason: typeof UNSENT_REASONS[number]): void {
+		this.db.run(`UPDATE goal_intents SET reason=? WHERE goal_id=? AND generation=? AND action='run'
+			AND status='started' AND run_id IS NOT NULL
+			AND NOT EXISTS(SELECT 1 FROM request_ledger r WHERE r.run_id=goal_intents.run_id)`, reason, goalId, generation);
+	}
 	costUnknown(goalId: string): boolean {
 		return !!this.db.get("SELECT 1 FROM goal_ledger WHERE goal_id=? AND state<>'released' AND cost_unknown=1 LIMIT 1", goalId);
 	}
@@ -118,17 +149,18 @@ export class GoalLedger {
 			count(DISTINCT CASE WHEN g.kind='main' AND r.id IS NULL THEN COALESCE('run:' || run_id, 'charge:' || g.id) END) totalRuns,
 			count(CASE WHEN state='reserved' AND cost_estimated=0 THEN 1 END) parallel
 			FROM goal_ledger g LEFT JOIN runs r ON r.id=g.run_id WHERE goal_id = ? AND state IN ('reserved','settled')`, goal.id)!;
-		const runs = this.db.all<{ started_at: number; ended_at: number | null }>(
-			"SELECT r.started_at,r.ended_at FROM runs r JOIN tasks t ON t.id=r.task_id WHERE t.goal_id=? AND r.started_at IS NOT NULL ORDER BY r.started_at", goal.id);
+		const runs = this.db.all<{ started_at: number; ended_at: number | null; counted: number }>(
+			`SELECT r.started_at,r.ended_at,${COUNTED_GOAL_RUN} counted FROM runs r JOIN tasks t ON t.id=r.task_id
+			WHERE t.goal_id=? AND r.started_at IS NOT NULL ORDER BY r.started_at`, goal.id);
 		const now = Date.now();
 		let covered = 0;
 		for (const run of runs) {
 			const end = run.ended_at ?? now;
 			row.usedTime += Math.max(0, end - Math.max(covered, run.started_at));
 			covered = Math.max(covered, end);
+			row.usedRuns += run.counted;
+			row.totalRuns += run.counted;
 		}
-		row.usedRuns += runs.length;
-		row.totalRuns += runs.length;
 		const limits = effectiveBudget(goal, this.settings());
 		return {
 			limits,
@@ -182,7 +214,7 @@ export class GoalLedger {
 		this.db.run("UPDATE goal_ledger SET request_id=? WHERE id=? AND (request_id IS NULL OR request_id=?)", requestId, id, requestId);
 	}
 
-	settle(id: string, requestId: string, at: number) {
+	settle(id: string, requestId: string, at: number, fallback?: SettlementEstimate) {
 		const entry = this.get(id);
 		if (!entry) throw new RpcError("not_found", "找不到目标预算预留");
 		if (entry.request_id && entry.request_id !== requestId) throw new RpcError("conflict", "预留已绑定到另一笔请求");
@@ -193,10 +225,15 @@ export class GoalLedger {
 		if (this.db.get("SELECT 1 FROM goal_ledger WHERE request_id = ? AND id <> ?", requestId, id)) throw new RpcError("conflict", "这笔请求已经记入目标账本");
 		const usd = request.currency === "USD" && request.amount !== null && nonnegative(request.amount) ? request.amount : null;
 		const unknown = usd === null && !!entry.cost_unknown;
+		const input = request.input ?? entry.est_input_tokens;
+		const output = request.output ?? fallback?.outputTokens ?? entry.est_output_tokens;
+		const cacheRead = request.cache_read ?? 0, cacheWrite = request.cache_write ?? 0;
+		const estimateUsage = fallback && !unknown && usd === null
+			? estimateGoalCost(fallback.model, input, output, cacheRead, cacheWrite) : null;
 		this.db.run(`UPDATE goal_ledger SET state='settled', request_id=?, cost=?, input_tokens=?, output_tokens=?, active_ms=?, cost_estimated=?, cost_unknown=?, settled_at=?
 			WHERE id=? AND state='reserved'`,
-		requestId, unknown ? null : usd ?? entry.est_cost, (request.input ?? entry.est_input_tokens) + (request.cache_read ?? 0) + (request.cache_write ?? 0),
-		request.output ?? entry.est_output_tokens, request.duration_ms ?? entry.est_active_ms,
+		requestId, unknown ? null : usd ?? estimateUsage ?? entry.est_cost, input + cacheRead + cacheWrite,
+		output, request.duration_ms ?? entry.est_active_ms,
 		Number(!unknown && (usd === null || ["price_estimate", "provider_estimate"].includes(request.amount_source))), Number(unknown), at, id);
 		return chargeView(this.get(id)!);
 	}

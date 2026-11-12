@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import math
 import os
 import reprlib
 import signal
@@ -18,11 +19,6 @@ with open(os.devnull, "rb") as devnull:
     os.dup2(devnull.fileno(), 0)
 os.dup2(2, 1)
 sys.stdin = io.StringIO("")
-try:
-    os.setsid()
-except PermissionError:
-    if os.getpgrp() != os.getpid():
-        raise
 
 
 def send(kind, **fields):
@@ -33,6 +29,10 @@ namespace = {"__name__": "__main__"}
 saved_figures = weakref.WeakKeyDictionary()
 active = False
 active_folder = None
+preview_count = preview_bytes = 0
+MAX_PIXELS = 16_000_000
+MAX_PREVIEWS = 10
+MAX_PREVIEW_BYTES = 8 * 1024 * 1024
 
 
 def interrupt(_signum, _frame):
@@ -76,6 +76,7 @@ def send_traceback(limit):
 
 
 def show_plots(folder):
+    global preview_count, preview_bytes
     pyplot = sys.modules.get("matplotlib.pyplot")
     if not pyplot:
         return
@@ -86,12 +87,24 @@ def show_plots(folder):
         if not figure.axes:
             continue
         png = io.BytesIO()
-        figure.savefig(png, format="png")
+        dpi = pyplot.rcParams["savefig.dpi"]
+        dpi = figure.dpi if dpi == "figure" else float(dpi)
+        width, height = figure.get_size_inches() * dpi
+        pixels = width * height
+        if not math.isfinite(pixels) or min(width, height) <= 0:
+            raise ValueError("图像尺寸无效")
+        reduced = pixels > MAX_PIXELS
+        if reduced:
+            dpi *= math.sqrt(MAX_PIXELS / pixels) * 0.999999
+        with pyplot.rc_context({"savefig.bbox": None}):
+            figure.savefig(png, format="png", dpi=dpi)
         original = png.getvalue()
         digest = hashlib.sha256(original).digest()
         if saved_figures.get(figure) == digest:
             continue
         saved_figures[figure] = digest
+        if reduced:
+            print("图像超过 1600 万像素，已按比例缩小。")
         name = f"python-{os.urandom(12).hex()}.png"
         if folder:
             os.makedirs(folder, mode=0o700, exist_ok=True)
@@ -99,6 +112,9 @@ def show_plots(folder):
                 raise ValueError("Python 产物目录不能是符号链接")
             with open(os.path.join(folder, name), "xb") as file:
                 file.write(original)
+        if preview_count >= MAX_PREVIEWS or preview_bytes >= MAX_PREVIEW_BYTES:
+            send("figure", name=name)
+            continue
         image = Image.open(png)
         width, height = image.size
         image.thumbnail((1536, 1536))
@@ -108,7 +124,12 @@ def show_plots(folder):
             thumb = io.BytesIO()
             image.convert("RGB").save(thumb, "JPEG", quality=85)
             data, mime = thumb.getvalue(), "image/jpeg"
-        send("figure", name=name, data=base64.b64encode(data).decode("ascii"), mime=mime)
+        if preview_bytes + len(data) > MAX_PREVIEW_BYTES:
+            send("figure", name=name)
+        else:
+            preview_bytes += len(data)
+            preview_count += 1
+            send("figure", name=name, data=base64.b64encode(data).decode("ascii"), mime=mime)
 
 
 def capture_before(action):
@@ -127,9 +148,7 @@ except ImportError:
     pass
 
 
-with open("/proc/self/stat") as stat_file:
-    start_time = stat_file.read().rsplit(")", 1)[1].split()[19]
-send("ready", pid=os.getpid(), start=start_time)
+send("ready")
 
 for line in input_pipe:
     request = json.loads(line)
@@ -137,6 +156,7 @@ for line in input_pipe:
     old_stdout, old_stderr = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = output
     status = "completed"
+    preview_count = preview_bytes = 0
     try:
         active = True
         active_folder = request["folder"]

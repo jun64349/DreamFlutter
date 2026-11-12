@@ -63,7 +63,8 @@ export async function allowedTool(core: Core, goal: Goal, tool: string, input: R
 	if (!scopeTools(goal.scope).includes(tool)) return false;
 	if (STATE_TOOLS.includes(tool)) return true;
 	if (tool === "agent") return !input.cwd && !input.worktree;
-	if (FILE_TOOLS.includes(tool)) {
+	if (tool === "python") return goal.scope.sandbox && goal.scope.partition === "butterfly";
+	if (FILE_TOOLS.includes(tool) || tool === "render_html") {
 		// The general document reader uses the host cwd. Sandbox reads use the sandbox filesystem tools.
 		if (tool === "read_document" && goal.scope.sandbox) return false;
 		const raw = toolPath(tool, input) ?? (tool === "glob" || tool === "grep" ? "." : undefined);
@@ -77,7 +78,7 @@ export async function allowedTool(core: Core, goal: Goal, tool: string, input: R
 }
 
 export function toolPath(tool: string, input: Record<string, unknown>): string | undefined {
-	const value = FILE_PATH_TOOLS.includes(tool) ? input.file_path : input.path;
+	const value = FILE_PATH_TOOLS.includes(tool) || tool === "render_html" ? input.file_path : input.path;
 	return typeof value === "string" ? value : undefined;
 }
 

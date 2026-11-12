@@ -9,11 +9,15 @@ import { SessionManager, type AgentSessionEvent, type ExtensionFactory } from "@
 import type { Run } from "../runs.ts";
 import { recordedSandbox } from "../pi/host.ts";
 import { redact } from "../security/redaction.ts";
+import { notificationQueueState, type NotificationState } from "../notify.ts";
 import { widensScope, type ProgramReport, type ReviewVerdict, type ToolReceipt } from "./goals/acceptance.ts";
+import { goalChannelFailure, type ChannelFailure } from "./goals/channel.ts";
 import { GoalExecutor } from "./goals/executor.ts";
 import { GoalWaits, LOST_JOB, type WaitRequest } from "./goals/waits.ts";
 import { GOAL_NOTICE_TITLES, GOAL_VIEWS, GoalViews, goalNotice, type GoalView } from "./goals/presentation.ts";
-import { budgetPatch, chargeView, effectiveBudget, exhausted, GoalLedger, validateReservation, type Reservation } from "./goals/budget.ts";
+import { goalNoticeReceipt, recordGoalNotice, recoverGoalNotices } from "./goals/notices.ts";
+import { budgetPatch, chargeView, costDenial, effectiveBudget, exhausted, GoalLedger, validateReservation,
+	type NormalRequest, type Reservation, type SettlementEstimate } from "./goals/budget.ts";
 import {
 	GOAL_STATUSES, isTerminal, object, readScope, readSpec, ready, toEvent, toGoal, toIntent, validMandate,
 	type BudgetReason, type EventRow, type Goal, type GoalBudget, type GoalControl, type GoalEventKind,
@@ -654,11 +658,14 @@ export class GoalScheduler {
 				this.handled(event, current.lease_generation);
 				continue;
 			}
+			const runRecord = managed && run.status === "failed" ? this.core.runs.get(run.runId) : undefined;
+			const channel = runRecord ? goalChannelFailure(runRecord.error, this.db, runRecord) : null;
 			const limit = managed ? this.turnBudgetReason(current) : exhausted(this.ledger.view(goal));
+			const prepFailed = managed && run.status === "failed" && !this.ledger.hasRequest(run.runId);
 			const hasSteps = !managed && !limit && run.status === "done" && this.hasProgramSteps(goal);
 			const canContinue = hasSteps && !run.reportedComplete;
-			const status = limit ? "paused" : managed ? "reviewing" : run.status !== "done" ? "failed" : canContinue ? "queued" : "reviewing";
-			if (!this.commitRun(current, event, run, status, limit, managed)) return;
+			const status = channel || limit ? "paused" : prepFailed ? "failed" : managed ? "reviewing" : run.status !== "done" ? "failed" : canContinue ? "queued" : "reviewing";
+			if (!this.commitRun(current, event, run, status, limit, managed, prepFailed, channel)) return;
 		}
 		const current = this.required(id);
 		if (current.status === "queued" && current.lease_owner === this.owner && !current.stop_intent && ready(toGoal(current))) {
@@ -666,7 +673,7 @@ export class GoalScheduler {
 		}
 	}
 
-	private commitRun(row: GoalRow, event: EventRow, run: RunFinished, status: GoalStatus, limit: BudgetReason | null, managed: boolean): boolean {
+	private commitRun(row: GoalRow, event: EventRow, run: RunFinished, status: GoalStatus, limit: BudgetReason | null, managed: boolean, prepFailed: boolean, channel: ChannelFailure | null): boolean {
 		const committed = write(this.db, () => {
 			if (!this.stillIdle(row.id) || this.db.get<{ handled_at: number | null }>("SELECT handled_at FROM goal_events WHERE id=?", event.id)?.handled_at !== null) return false;
 			const at = this.clock();
@@ -674,10 +681,15 @@ export class GoalScheduler {
 			const fresh = this.required(row.id);
 			// Costs can change while the read-only program check runs. Re-evaluate before committing.
 			const currentLimit = limit ?? (managed ? this.turnBudgetReason(fresh) : exhausted(this.ledger.view(toGoal(fresh))));
-			const patch: GoalPatch = currentLimit ? pause(row, currentLimit, "放宽目标预算后继续") : {
-				status, reason: status === "failed" ? "run_failed" : null, resume_when: null, ended_at: status === "failed" ? at : null,
+			const patch: GoalPatch = channel ? pause(row, "channel_unavailable", channel.detail)
+				: currentLimit ? pause(row, currentLimit, "放宽目标预算后继续") : {
+				status, reason: prepFailed ? "prep_failed" : status === "failed" ? "run_failed" : null,
+				resume_when: prepFailed ? redact(this.core.runs.get(run.runId)?.error ?? "模型请求未发出", true) : null,
+				ended_at: status === "failed" ? at : null,
 			};
 			if (!compare(this.db, row, { ...patch, current_task_id: run.taskId }, at)) return false;
+			if (channel?.permanent) this.db.run("UPDATE goal_intents SET reason='channel_unavailable' WHERE goal_id=? AND action='run' AND status='started' AND run_id=?", row.id, run.runId);
+			else if (prepFailed) this.ledger.markUnsentRun(row.id, row.lease_generation, "prep_failed");
 			this.db.run("UPDATE goal_intents SET status='done' WHERE goal_id=? AND revision=? AND generation=? AND status='started'",
 				row.id, row.revision, row.lease_generation);
 			if (status === "queued" && !currentLimit) this.insertIntent(row, "run.finished");
@@ -726,9 +738,33 @@ export class GoalScheduler {
 	private enqueueNotification(row: GoalRow): void {
 		const notice = goalNotice(row);
 		if (!notice) return;
-		this.db.run(`INSERT INTO goal_intents(id,goal_id,revision,generation,idem_key,action,status,reason,created_at)
+		const inserted = this.db.run(`INSERT INTO goal_intents(id,goal_id,revision,generation,idem_key,action,status,reason,created_at)
 			VALUES(?, ?, ?, ?, ?, 'notify','pending',?, ?) ON CONFLICT(idem_key) DO NOTHING`,
 			randomUUID(), row.id, row.revision, row.lease_generation, notice.key, notice.kind, this.clock());
+		if (inserted.changes && !goalNoticeReceipt(this.db, notice.key)) {
+			recordGoalNotice(this.db, row.id, notice.key, "goal", notificationQueueState(this.core), this.clock());
+		}
+	}
+	mutePendingNotifications(): void {
+		for (const intent of this.db.all<IntentRow>(`SELECT * FROM goal_intents i WHERE action='notify' AND (status='pending'
+			OR (status='done' AND reason='decision' AND EXISTS(SELECT 1 FROM goals g WHERE g.id=i.goal_id
+				AND g.status='waiting_user' AND g.revision=i.revision AND g.lease_generation=i.generation)))`)) {
+			const receipt = goalNoticeReceipt(this.db, intent.idem_key);
+			if (!receipt && intent.status === "pending" || receipt?.sender === "goal" && receipt.state === "queued") {
+				recordGoalNotice(this.db, intent.goal_id, intent.idem_key, "goal", "muted", this.clock());
+			}
+		}
+	}
+	questionNotification<T>(goalId: string, slotId: string, open: () => T): T {
+		const row = this.required(goalId);
+		const notice = goalNotice(row);
+		if (notice?.kind !== "decision" || !toGoal(row).scope.sandbox) return open();
+		const prior = goalNoticeReceipt(this.db, notice.key);
+		const muted = prior?.state === "muted" || notificationQueueState(this.core) === "muted";
+		const report = (state: NotificationState) => {
+			if (prior?.state !== "sent") recordGoalNotice(this.db, row.id, notice.key, "goal", state, this.clock());
+		};
+		return this.core.notifications.withSlotDelivery(slotId, muted || prior?.state === "sent", report, open);
 	}
 	takeNotification(intent: IntentRow) {
 		return write(this.db, () => {
@@ -739,12 +775,22 @@ export class GoalScheduler {
 			const updated = this.db.run("UPDATE goal_intents SET status=?,started_at=? WHERE id=? AND status='pending'", valid ? "done" : "dropped", this.clock(), intent.id);
 			if (!updated.changes || !valid) return null;
 			const goal = toGoal(row);
+			const prior = goalNoticeReceipt(this.db, notice.key);
+			if (prior && (prior.state !== "queued" || prior.sender !== "goal")) return null;
+			if (notificationQueueState(this.core) === "muted") {
+				recordGoalNotice(this.db, row.id, notice.key, "goal", "muted", this.clock());
+				return null;
+			}
 			// Existing task notices and butterfly question dialogs already deliver these prompts.
 			if (notice.kind === "budget" && this.db.get(`SELECT 1 FROM notices WHERE goal_id=? AND kind='goal_budget'
-				AND created_at>=? LIMIT 1`, row.id, intent.created_at)) return null;
+				AND created_at>=? LIMIT 1`, row.id, intent.created_at)) {
+				recordGoalNotice(this.db, row.id, notice.key, "goal", "failed", this.clock(), "任务已接管提醒，无法确认系统送达");
+				return null;
+			}
+			recordGoalNotice(this.db, row.id, notice.key, "goal", "queued", this.clock());
 			if (notice.kind === "decision" && goal.scope.sandbox && this.waits.open(row).some(wait => wait.kind === "user")
 				&& (goal.sessionFile || this.db.get("SELECT 1 FROM tasks WHERE id=? AND session_file IS NOT NULL", row.current_task_id))) return null;
-			return { goal, title: GOAL_NOTICE_TITLES[notice.kind] };
+			return { goal, key: notice.key, title: GOAL_NOTICE_TITLES[notice.kind] };
 		});
 	}
 	private insertIntent(row: GoalRow, reason: string): void {
@@ -829,8 +875,10 @@ export class GoalScheduler {
 	abandon(intent: IntentRow, failure?: string): void {
 		const changed = write(this.db, () => {
 			const row = this.required(intent.goal_id);
+			const failed = failure && this.validClaim(intent, row, row.status) && ["queued", "running", "reviewing"].includes(row.status);
+			if (failed && intent.action === "run") this.ledger.markUnsentRun(row.id, row.lease_generation, "prep_failed");
 			this.db.run("UPDATE goal_intents SET status='dropped' WHERE id=? AND status='started'", intent.id);
-			if (!failure || !this.validClaim(intent, row, row.status) || !["queued", "running", "reviewing"].includes(row.status)) return false;
+			if (!failure || !failed) return false;
 			return compare(this.db, row, {
 				...fenced(row), status: "failed", reason: "prep_failed", resume_when: redact(failure, true), ended_at: this.clock(),
 			}, this.clock());
@@ -929,7 +977,7 @@ export class GoalScheduler {
 			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, row.id, row.revision, version, layer, verdict, json(missing), json(reasons), model, cost, this.clock());
 		return id;
 	}
-	finishReview(intent: IntentRow, version: number, verdict: ReviewVerdict | null, model: string | null, cost: number): boolean {
+	finishReview(intent: IntentRow, version: number, verdict: ReviewVerdict | null, model: string | null, cost: number, channel: ChannelFailure | null = null): boolean {
 		const changed = write(this.db, () => {
 			const row = this.required(intent.goal_id);
 			if (!this.validClaim(intent, row, "reviewing") || !this.isCurrent(intent, "reviewing") || this.evidenceVersion(row.id) !== version
@@ -955,12 +1003,15 @@ export class GoalScheduler {
 					status = questions.length ? "queued" : "blocked"; reason = questions.length ? null : "needs_decision";
 					break;
 				}
-				default: status = "blocked"; reason = "review_unparsable"; resumeWhen = "审查结果无法读取";
+				default:
+					status = channel ? "paused" : "blocked";
+					reason = channel ? "channel_unavailable" : "review_unparsable";
+					resumeWhen = channel?.detail ?? "审查结果无法读取";
 			}
-			const reviewId = this.recordReview(row, version, "model", verdict?.verdict === "done" && verdict.missing.length ? "continue" : verdict?.verdict ?? "unparsable",
-				verdict?.missing ?? [], { next: verdict?.next ?? null, questions: verdict?.questions ?? [] }, model, cost);
+			const reviewId = this.recordReview(row, version, "model", verdict?.verdict === "done" && verdict.missing.length ? "continue" : verdict?.verdict ?? (channel ? "channel_unavailable" : "unparsable"),
+				verdict?.missing ?? [], { next: verdict?.next ?? channel?.detail ?? null, questions: verdict?.questions ?? [] }, model, cost);
 			if (!compare(this.db, row, {
-				status, reason, resume_when: resumeWhen, latest_review_id: reviewId, ended_at: status === "completed" ? at : null,
+				...(channel ? fenced(row) : {}), status, reason, resume_when: resumeWhen, latest_review_id: reviewId, ended_at: status === "completed" ? at : null,
 			}, at)) throw new RpcError("version_conflict", "审查结论已过期");
 			const event = this.insertEvent(row.id, "review.done", `review:${reviewId}`, { reviewId, revision: row.revision, evidenceVersion: version });
 			this.handled(event, row.lease_generation);
@@ -974,15 +1025,19 @@ export class GoalScheduler {
 		return changed;
 	}
 
-	private pauseBudget(row: GoalRow, reason: BudgetReason): boolean {
+	private pauseBudget(row: GoalRow, reason: BudgetReason, detail = "放宽目标预算后继续"): boolean {
 		if (row.stop_intent || isTerminal(row.status) || row.status === "paused") return false;
-		if (!compare(this.db, row, pause(row, reason, "放宽目标预算后继续"), this.clock())) return false;
+		if (!compare(this.db, row, pause(row, reason, detail), this.clock())) return false;
+		this.ledger.markUnsentRun(row.id, row.lease_generation, "budget_denied");
 		dropIntents(this.db, row.id);
 		return true;
 	}
 
-	reserve(id: string, input: Reservation, finishing?: IntentRow) {
+	reserve(id: string, requested: Reservation, finishing?: IntentRow, normal?: NormalRequest) {
+		let input = requested;
 		validateReservation(input);
+		const normalInput = normal && { ...input, ...normal };
+		if (normalInput) validateReservation(normalInput);
 		let paused = false;
 		const result = write(this.db, () => {
 			const row = this.required(id);
@@ -993,6 +1048,7 @@ export class GoalScheduler {
 				&& (pausedRun || !row.stop_intent && ["queued", "running", "reviewing"].includes(row.status));
 			const prior = this.ledger.get(input.id);
 			if (prior) {
+				if (normalInput && prior.est_output_tokens === normalInput.outputTokens && prior.est_cost === normalInput.costUsd) input = normalInput;
 				if (prior.goal_id !== id || prior.kind !== input.kind || prior.run_id !== (input.runId ?? null)
 					|| prior.task_id !== (input.taskId ?? null) || prior.est_cost !== input.costUsd || !!prior.cost_unknown !== !!input.costUnknown
 					|| prior.est_input_tokens !== (input.inputTokens ?? 0) || prior.est_output_tokens !== (input.outputTokens ?? 0)
@@ -1006,9 +1062,15 @@ export class GoalScheduler {
 			if (!available) {
 				return { ok: false as const, reason: budgetReason(row.reason) ?? "unavailable" as const };
 			}
-			const reason = this.ledger.wouldExceed(toGoal(row), input);
+			const goal = toGoal(row);
+			let reason = this.ledger.wouldExceed(goal, input);
+			if (reason === "budget_cost" && normalInput) {
+				input = normalInput;
+				reason = this.ledger.wouldExceed(goal, input);
+			}
 			if (reason) {
-				if (reason !== "concurrency") paused = this.pauseBudget(row, reason);
+				const detail = reason === "budget_cost" ? costDenial(this.ledger.view(goal).remaining.costUsd, input.costUsd) : undefined;
+				if (reason !== "concurrency") paused = this.pauseBudget(row, reason, detail);
 				return { ok: false as const, reason };
 			}
 			return { ok: true as const, entry: this.ledger.reserve(id, input, this.clock()) };
@@ -1017,9 +1079,9 @@ export class GoalScheduler {
 		return result;
 	}
 
-	settle(id: string, requestId: string) {
+	settle(id: string, requestId: string, fallback?: SettlementEstimate) {
 		const result = write(this.db, () => {
-			const entry = this.ledger.settle(id, requestId, this.clock());
+			const entry = this.ledger.settle(id, requestId, this.clock(), fallback);
 			const row = this.required(entry.goalId);
 			const view = this.ledger.view(toGoal(row));
 			const reason = !entry.costUnknown && view.used.costUsd > view.limits.maxCostUsd + 1e-9 ? "budget_cost" : this.turnBudgetReason(row);
@@ -1057,9 +1119,10 @@ export class GoalScheduler {
 		write(this.db, () => {
 			const at = this.clock();
 			this.ledger.recover(at);
+			recoverGoalNotices(this.db, at);
 			for (const row of this.db.all<GoalRow>(`SELECT * FROM goals g WHERE g.status NOT IN ('completed','failed','cancelled')
 				AND (g.status IN ('running','reviewing','waiting_dependency','waiting_user')
-					OR EXISTS (SELECT 1 FROM goal_intents i WHERE i.goal_id=g.id AND i.status IN ('pending','started'))
+					OR EXISTS (SELECT 1 FROM goal_intents i WHERE i.goal_id=g.id AND i.action<>'notify' AND i.status IN ('pending','started'))
 					OR EXISTS (SELECT 1 FROM goal_ledger l WHERE l.goal_id=g.id AND l.state='reserved'))`)) {
 				const waiting = this.waits.open(row);
 				if (!row.stop_intent && row.status === "waiting_dependency" && waiting.length
@@ -1094,6 +1157,7 @@ export class GoalsModule implements CoreModule {
 	readonly scheduler: GoalScheduler;
 	readonly executor: GoalExecutor;
 	private unsubscribe?: () => void;
+	private unlistenSettings?: () => void;
 	constructor(core: Core) {
 		this.core = core;
 		const scheduler = this.scheduler = new GoalScheduler(core);
@@ -1152,12 +1216,16 @@ export class GoalsModule implements CoreModule {
 	}
 	start(): void {
 		this.scheduler.recover();
+		if (notificationQueueState(this.core) === "muted") this.scheduler.mutePendingNotifications();
+		this.unlistenSettings = this.core.settings.onChange((settings, changed) => {
+			if (!settings.notifications && changed.includes("notifications")) this.scheduler.mutePendingNotifications();
+		});
 		this.unsubscribe = this.core.onBroadcast(message => {
 			if (message.event === "jobs.changed" && typeof message.goalId === "string" && typeof message.id === "string") this.scheduler.jobChanged(message.id);
 		});
 		this.executor.start();
 	}
-	stop(): void { this.unsubscribe?.(); this.executor.stop(); }
+	stop(): void { this.unsubscribe?.(); this.unlistenSettings?.(); this.executor.stop(); }
 	extensions(slot: { slotId: string; sideConversation?: boolean }): ExtensionFactory[] {
 		return slot.sideConversation ? [] : this.executor.extensions(slot.slotId);
 	}

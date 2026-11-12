@@ -13,18 +13,37 @@ export interface NotificationTarget {
 	itemId?: string | null;
 }
 
+interface SlotDelivery {
+	muted: boolean;
+	report: (state: "muted" | "sent" | "failed") => void;
+	accepted: boolean;
+}
+
 /** Window presence is per live connection; attached record streams do not imply visibility. */
 export class NotificationCenter {
 	private readonly core: Core;
 	private readonly presence = new Map<Client, { foreground: boolean; slotId: string | null }>();
 	private readonly sent = new Set<string>();
+	private readonly slotDelivery = new Map<string, SlotDelivery>();
 	constructor(core: Core) { this.core = core; }
 	setPresence(client: Client, state: { foreground: boolean; slotId: string | null }): void { this.presence.set(client, state); }
 	remove(client: Client): void { this.presence.delete(client); }
 	foreground(): boolean { return [...this.presence].some(([client, p]) => this.core.clients.has(client) && p.foreground); }
 	viewing(slotId: string): boolean { return [...this.presence].some(([client, p]) => this.core.clients.has(client) && p.foreground && p.slotId === slotId); }
+	withSlotDelivery<T>(slotId: string, muted: boolean, report: SlotDelivery["report"], open: () => T): T {
+		const delivery = { muted, report, accepted: false };
+		this.slotDelivery.set(slotId, delivery);
+		try { return open(); } finally {
+			this.slotDelivery.delete(slotId);
+			if (!delivery.accepted) report(muted ? "muted" : "failed");
+		}
+	}
 	publish(kind: NotificationKind, input: { title: string; body: string; target: NotificationTarget }, options: { legacyFallback?: boolean } = {}): boolean {
-		if (!this.core.settings.get().notifications) return false;
+		const delivery = input.target.slotId ? this.slotDelivery.get(input.target.slotId) : undefined;
+		if (notificationQueueState(this.core) === "muted" || delivery?.muted) {
+			if (delivery) { delivery.accepted = true; delivery.report("muted"); }
+			return false;
+		}
 		// Transitional clients have no visibility protocol. Preserve their former attached-slot rule
 		// until a window explicitly reports presence; then only actual visibility counts.
 		const legacyWatching = !this.presence.size && !!input.target.slotId && [...this.core.clients].some(c => c.attached.has(input.target.slotId!));
@@ -35,7 +54,13 @@ export class NotificationCenter {
 		if (key) { this.sent.add(key); if (this.sent.size > 1000) this.sent.delete(this.sent.values().next().value!); }
 		this.core.broadcast({ event: "notification", id: randomUUID(), kind, ...input, at: Date.now() });
 		// Old windows do not consume the new event. Keep their existing native fallback.
-		if (!this.presence.size && options.legacyFallback !== false) this.core.notifier.notify(input.title, input.body);
+		const native = !this.presence.size && options.legacyFallback !== false;
+		if (delivery) {
+			delivery.accepted = true;
+			if (native) void deliverNotification(this.core, input.title, input.body).then(delivery.report)
+				.catch(error => this.core.log.warn("无法记录确认通知结果", error));
+			else delivery.report("sent");
+		} else if (native) this.core.notifier.notify(input.title, input.body);
 		return true;
 	}
 }
@@ -44,6 +69,24 @@ export interface Notifier {
 	notify(title: string, body: string): void;
 	/** Like notify, reporting whether the toast was handed to Windows. */
 	deliver?(title: string, body: string): Promise<"delivered" | "undelivered" | "unknown">;
+}
+
+export type NotificationState = "queued" | "muted" | "sent" | "failed";
+
+export function notificationQueueState(core: Core): "queued" | "muted" {
+	return core.settings.get().notifications ? "queued" : "muted";
+}
+
+export async function deliverNotification(core: Core, title: string, body: string): Promise<"muted" | "sent" | "failed"> {
+	if (notificationQueueState(core) === "muted") return "muted";
+	try {
+		if (core.notifier.deliver) return await core.notifier.deliver(title, body) === "delivered" ? "sent" : "failed";
+		core.notifier.notify(title, body);
+		return "sent";
+	} catch (error) {
+		core.log.warn("通知发送失败", error);
+		return "failed";
+	}
 }
 
 /** PowerShell's registered AppUserModelID; lets an unpackaged process raise toasts. */

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, it } from "node:test";
@@ -10,6 +12,8 @@ import { stageBackup } from "../src/backup/restore.ts";
 import { normalizeCwd, RpcError } from "../src/core.ts";
 import { Gateway, type ChannelInfo } from "../src/gateway/gateway.ts";
 import { PatrolModule, type PatrolClock } from "../src/modules/patrol.ts";
+import { GoalsModule } from "../src/modules/goals.ts";
+import { goalNoticeReceipt } from "../src/modules/goals/notices.ts";
 import { SANDBOX_ENTRY, recordedSandbox } from "../src/pi/host.ts";
 import { readSessionEntries } from "../src/pi/session-metadata.ts";
 import { startTestCore, type TestCore } from "./harness.ts";
@@ -39,6 +43,8 @@ interface Log {
 	id: string; status: string; note: string; cost: number; error: string | null;
 	notified: boolean; sessionFile: string | null; sessionAvailable: boolean; model: string | null;
 	newFacts: { key: string; kind: string; text: string }[];
+	notificationState: string | null; notificationNote: string | null;
+	actions: { kind: string; note?: string }[];
 }
 interface Status {
 	enabled: boolean; running: boolean; nextAt: number; intervalMin: number;
@@ -355,7 +361,7 @@ it("T97 15 skips unavailable sandbox, but reports a new readiness failure and af
 	assert.equal(t.notifier.sent.length, 1);
 });
 
-it("T97 16 exports and stages the patrol history, deferred notification and watch list", async () => {
+it("T97 16 / T108 Q-03 exports patrol history and excludes the original conversation", async () => {
 	const target = await startTestCore(undefined, { patrolClock: new Clock() });
 	try {
 		assert.deepEqual(t.core.backupParts.find(part => part.id === "patrol")?.tables, ["patrol_runs", "watch_items", "patrol_reported"]);
@@ -363,6 +369,7 @@ it("T97 16 exports and stages the patrol history, deferred notification and watc
 		schedule("morning"); failed("backup");
 		report("notified", "等到早上提醒");
 		const run = await patrol();
+		assert.ok(run.sessionFile && existsSync(run.sessionFile));
 		const item = await t.core.call("watch.save", { text: "留意备份", until: clock.at + DAY }) as Watch;
 		const out = join(t.dir, "patrol.dfbackup");
 		await createBackup({
@@ -371,6 +378,8 @@ it("T97 16 exports and stages the patrol history, deferred notification and watc
 		const staged = await stageBackup(out, {
 			paths: target.core.paths, agentDir: target.agentDir, sessionsDir: target.sessionDir, appVersion: "0.8.3",
 		}, { parts: target.core.backupParts });
+		assert.equal(existsSync(join(staged.dir, "raw", "data", "appdata", "patrol-sessions")), false);
+		assert.equal(staged.sessionTargets.length, 0);
 		const db = new DatabaseSync(join(staged.dir, "raw", "data", "appdata", "core.db"), { readOnly: true });
 		try {
 			const restored = db.prepare("SELECT status,notification,notified,session_file FROM patrol_runs WHERE id=?").get(run.id);
@@ -381,6 +390,231 @@ it("T97 16 exports and stages the patrol history, deferred notification and watc
 			assert.equal(db.prepare("SELECT text FROM watch_items WHERE id=?").get(item.id)?.text, "留意备份");
 		} finally { db.close(); }
 	} finally { await target.cleanup(); }
+});
+
+it("T108 Q-02 checks a blocked Butterfly goal once and suppresses an existing goal notification", async () => {
+	const service = t.core.module(GoalsModule)!;
+	service.executor.stop();
+	const create = (butterfly: boolean) => t.core.call("goals.create", {
+		title: butterfly ? "蝶君阻塞夹具" : "工作台不可巡检夹具", originText: "交付合成材料", mandateRef: "user:t108",
+		scope: { cwd: butterfly ? t.core.paths.butterflyDir : t.workspace, partition: butterfly ? "butterfly" : "workbench", sandbox: butterfly },
+		spec: { objective: "核对合成材料" },
+	}) as Promise<{ id: string }>;
+	const butterfly = await create(true), workbench = await create(false);
+	for (const goal of [butterfly, workbench]) t.core.db.run("UPDATE goals SET status='blocked',reason='missing_input' WHERE id=?", goal.id);
+	t.core.db.run("UPDATE goal_intents SET status='dropped' WHERE action='run'");
+	const id = butterfly.id, key = `goal:${id}:blocked:1`;
+	const generation = t.core.db.get<{ lease_generation: number }>("SELECT lease_generation FROM goals WHERE id=?", id)!.lease_generation;
+	t.core.db.run(`INSERT INTO goal_intents(id,goal_id,revision,generation,idem_key,action,status,reason,created_at)
+		VALUES('notify-t108',?,1,?,?,'notify','pending','blocked',?)`, id, generation, `notify:${id}:1:blocked:${generation}:missing_input`, clock.at);
+	service.executor.start();
+	await t.waitFor(() => t.notifier.sent.some(item => item.title === "目标遇到阻塞"));
+	t.respond(context => {
+		const prompt = JSON.stringify(context.messages);
+		assert.match(prompt, /蝶君阻塞夹具/);
+		assert.doesNotMatch(prompt, /工作台不可巡检夹具/);
+		return fauxAssistantMessage(fauxToolCall("patrol_update_log", { status: "notified", note: "重复通知目标阻塞" }), { stopReason: "toolUse" });
+	}, fauxAssistantMessage("完成检查"));
+	const first = await patrol();
+	assert.equal(t.faux.state.callCount, 2);
+	assert.equal(first.status, "quiet", first.error ?? undefined);
+	assert.deepEqual(first.newFacts, []);
+	assert.equal(t.notifier.sent.length, 1);
+	assert.ok(t.core.db.get("SELECT 1 FROM patrol_reported WHERE fact_key=?", key));
+	nextManual();
+	assert.equal((await patrol()).status, "quiet");
+	assert.equal(t.faux.state.callCount, 2);
+	assert.equal(t.notifier.sent.length, 1);
+
+	t.core.db.run("UPDATE goals SET revision=2 WHERE id=?", id);
+	const revised = enqueueGoalNotice(id, 2, "missing_input");
+	await t.waitFor(() => goalNoticeReceipt(t.core.db, revised)?.state === "sent");
+	t.respond(fauxAssistantMessage(fauxToolCall("patrol_update_log", { status: "waiting_user", note: "这条通用提醒已发过",
+		goalActions: [{ key: `goal:${id}:blocked:2`, kind: "questions", note: "请确认采用合成来源 A 还是 B。" }] }), { stopReason: "toolUse" }),
+	fauxAssistantMessage("完成检查"));
+	nextManual();
+	const second = await patrol();
+	assert.equal(second.status, "handled", second.error ?? undefined);
+	assert.equal(second.note, "请确认采用合成来源 A 还是 B。");
+	assert.deepEqual(second.newFacts.map(fact => fact.key), [`goal:${id}:blocked:2`]);
+	assert.equal(t.notifier.sent.length, 2);
+});
+
+async function blockedGoal(status: "blocked" | "paused" = "blocked"): Promise<string> {
+	t.core.module(GoalsModule)!.executor.stop();
+	const { id } = await t.core.call("goals.create", {
+		title: "巡检回归目标", originText: "核对合成记录", mandateRef: "user:t112",
+		scope: { cwd: t.core.paths.butterflyDir, partition: "butterfly", sandbox: true },
+		spec: { objective: "核对合成记录" },
+	}) as { id: string };
+	t.core.db.run("UPDATE goals SET status=?,reason='stalled' WHERE id=?", status, id);
+	t.core.db.run("UPDATE goal_intents SET status='dropped' WHERE goal_id=? AND action='run'", id);
+	return id;
+}
+
+function enqueueGoalNotice(id: string, revision = 1, reason = "stalled"): string {
+	const generation = t.core.db.get<{ lease_generation: number }>("SELECT lease_generation FROM goals WHERE id=?", id)!.lease_generation;
+	const key = `notify:${id}:${revision}:blocked:${generation}:${reason}`;
+	t.core.db.run(`INSERT INTO goal_intents(id,goal_id,revision,generation,idem_key,action,status,reason,created_at)
+		VALUES(?,?,?,?,?,'notify','pending','blocked',?)`, key, id, revision, generation, key, clock.at);
+	t.core.module(GoalsModule)!.executor.start();
+	return key;
+}
+
+async function reopenPatrol(): Promise<void> {
+	t = await t.reopen();
+	t.core.sandboxProvider = () => ({ distro: "df-test-patrol", ready: async () => {}, online: () => false });
+}
+
+it("T112 mute suppresses both senders but records goal and patrol outcomes", async () => {
+	const id = await blockedGoal();
+	t.core.settings.update({ notifications: false });
+	const key = enqueueGoalNotice(id);
+	await t.waitFor(() => t.core.db.get<{ status: string }>("SELECT status FROM goal_intents WHERE idem_key=?", key)?.status === "done");
+	schedule("morning"); failed("muted");
+	report("notified", "需要检查两项记录");
+	const row = await patrol();
+	assert.equal(row.notificationState, "muted");
+	assert.equal(row.notificationNote, "通知关着");
+	assert.equal(t.faux.state.callCount, 2);
+	assert.deepEqual(goalNoticeReceipt(t.core.db, key), { notificationKey: key, sender: "goal", state: "muted", note: "通知关着" });
+	assert.deepEqual(t.notifier.sent, []);
+});
+
+it("T112 reopening notifications never replays muted goal or patrol notices", async () => {
+	clock.jump(new Date(2026, 10, 11, 23, 5).getTime());
+	await blockedGoal();
+	schedule("morning"); failed("queued-then-muted");
+	report("notified", "这个摘要在静默时段排队");
+	const queued = await patrol();
+	assert.equal(queued.notificationState, "queued");
+	t.core.settings.update({ notifications: false });
+	assert.equal((await logs()).find(row => row.id === queued.id)?.notificationState, "muted");
+	const id = await blockedGoal();
+	const key = enqueueGoalNotice(id);
+	await t.waitFor(() => t.core.db.get<{ status: string }>("SELECT status FROM goal_intents WHERE idem_key=?", key)?.status === "done");
+	t.core.settings.update({ notifications: true });
+	await reopenPatrol();
+	clock.jump(new Date(2026, 10, 12, 7, 5).getTime());
+	report("notified", "这个目标需要注意");
+	assert.equal((await patrol()).status, "quiet");
+	assert.equal(t.faux.state.callCount, 2);
+	assert.equal((await logs()).find(row => row.id === queued.id)?.notificationState, "muted");
+	assert.equal(goalNoticeReceipt(t.core.db, key)?.state, "muted");
+	assert.deepEqual(t.notifier.sent, []);
+});
+
+for (const changed of [false, true]) {
+	it(`T112 quiet notice rechecks ${changed ? "changed goal state" : "native delivery"} after restart`, async () => {
+		clock.jump(new Date(2026, 10, 11, 23, 5).getTime());
+		const id = await blockedGoal();
+		report("notified", "阻塞目标需要注意");
+		const queued = await patrol();
+		assert.equal(queued.notificationState, "queued");
+		if (changed) t.core.db.run("UPDATE goals SET status='cancelled' WHERE id=?", id);
+		else {
+			const key = enqueueGoalNotice(id);
+			await t.waitFor(() => goalNoticeReceipt(t.core.db, key)?.state === "sent");
+		}
+		await reopenPatrol();
+		clock.jump(new Date(2026, 10, 12, 7, 5).getTime());
+		await patrol();
+		const old = (await logs()).find(row => row.id === queued.id)!;
+		assert.equal(old.notified, false);
+		assert.match(old.notificationNote ?? "", changed ? /状态或修订已变化/ : /已由原发送方处理/);
+		assert.equal(t.notifier.sent.length, 0);
+	});
+}
+
+it("T112 an attempted intent with failed delivery can be supplemented exactly once", async () => {
+	const id = await blockedGoal();
+	const deliver = t.notifier.deliver.bind(t.notifier);
+	const attempts: string[] = [];
+	let failNative!: (result: "undelivered") => void;
+	const native = new Promise<"undelivered">(resolve => { failNative = resolve; });
+	Object.defineProperty(t.notifier, "deliver", { configurable: true, value: async (title: string, body: string) => {
+		attempts.push(title);
+		return title === "目标遇到阻塞" ? native : deliver(title, body);
+	} });
+	const key = enqueueGoalNotice(id);
+	await t.waitFor(() => attempts.length === 1);
+	assert.equal(goalNoticeReceipt(t.core.db, key)?.state, "queued");
+	report("notified", "目标提醒仍在队列");
+	assert.equal((await patrol()).status, "quiet");
+	assert.equal(attempts.length, 1);
+	failNative("undelivered");
+	await t.waitFor(() => goalNoticeReceipt(t.core.db, key)?.state === "failed");
+	nextManual();
+	report("notified", "补发阻塞提醒");
+	assert.equal((await patrol()).notificationState, "sent");
+	assert.equal(goalNoticeReceipt(t.core.db, key)?.sender, "patrol");
+	nextManual();
+	assert.equal((await patrol()).status, "quiet");
+	assert.deepEqual(attempts, ["目标遇到阻塞", "蝶君巡检"]);
+});
+
+for (const started of [false, true]) {
+	it(`T112 an interrupted finding ${started ? "with" : "without"} a model call follows the persisted phase`, async () => {
+		const fact = { key: "report:interrupted", kind: "report", text: "重启前发现的报告" };
+		t.core.db.run("INSERT INTO patrol_runs(id,started_at,manual,model_started) VALUES('interrupted',?,0,?)", clock.at, Number(started));
+		t.core.db.run("INSERT INTO patrol_reported(fact_key,state,run_id,fact) VALUES(?,'processing','interrupted',?)", fact.key, JSON.stringify(fact));
+		await reopenPatrol();
+		const phase = () => t.core.db.get<{ state: string }>("SELECT state FROM patrol_reported WHERE fact_key=?", fact.key)?.state;
+		assert.equal(phase(), started ? "processed" : "discovered");
+		if (!started) report("handled", "补处理发现");
+		const before = t.faux.state.callCount;
+		const row = await patrol();
+		assert.equal(row.status, started ? "quiet" : "handled", row.error ?? undefined);
+		assert.equal(t.faux.state.callCount - before, started ? 0 : 2);
+		assert.equal(phase(), "processed");
+		assert.equal((await logs()).find(log => log.id === "interrupted")?.status, "error");
+	});
+}
+
+for (const changed of [false, true]) {
+	it(`T112 a route claim ${changed ? "accepts this goal's revision" : "rejects an unrelated successful read"}`, async test => {
+		const id = await blockedGoal();
+		const key = enqueueGoalNotice(id);
+		await t.waitFor(() => goalNoticeReceipt(t.core.db, key)?.state === "sent");
+		const file = join(t.core.paths.butterflyDir, "route-check.txt");
+		writeFileSync(file, "unrelated synthetic material");
+		const translate = (path: unknown) => typeof path === "string" && path.startsWith("\\\\wsl.localhost\\df-test-patrol\\")
+			&& path.endsWith("\\route-check.txt") ? file : path;
+		const stat = fs.stat, readFile = fs.readFile, realpath = fs.realpath;
+		test.mock.method(fs, "stat", (path: unknown, options: unknown) => Reflect.apply(stat, fs, [translate(path), options]));
+		test.mock.method(fs, "readFile", (path: unknown, options: unknown) => Reflect.apply(readFile, fs, [translate(path), options]));
+		test.mock.method(fs, "realpath", (path: unknown, options: unknown) => Reflect.apply(realpath, fs, [translate(path), options]));
+		syncBuiltinESMExports();
+		test.after(() => { test.mock.restoreAll(); syncBuiltinESMExports(); });
+		t.respond(fauxAssistantMessage(fauxToolCall("read", { file_path: "/workspace/route-check.txt" }), { stopReason: "toolUse" }), context => {
+			const receipt = context.messages.at(-1);
+			assert.equal(receipt?.role, "toolResult");
+			assert.equal(receipt?.isError, false, JSON.stringify(receipt?.content));
+			if (changed) t.core.db.run("UPDATE goals SET revision=2 WHERE id=?", id);
+			return fauxAssistantMessage(fauxToolCall("patrol_update_log", { status: "handled", note: "我换路了",
+				goalActions: [{ key: `goal:${id}:blocked:1`, kind: "route", note: "我换路了" }] }), { stopReason: "toolUse" });
+		}, fauxAssistantMessage("检查完成"));
+		const row = await patrol();
+		assert.equal(row.status, changed ? "handled" : "quiet", row.error ?? undefined);
+		assert.equal(row.actions.at(-1)?.kind, changed ? "route" : "observed");
+		assert.equal(row.note, changed ? "我换路了" : "看过，没有动作");
+	});
+}
+
+it("T112 a paused stalled goal stays deduplicated after restart and patrol pruning", async () => {
+	const id = await blockedGoal("paused");
+	report("notified", "目标停滞");
+	const first = await patrol();
+	assert.equal(first.notificationState, "sent");
+	await reopenPatrol();
+	const before = t.faux.state.callCount;
+	const notices = t.notifier.sent.length;
+	clock.advance(32 * DAY);
+	assert.equal((await patrol()).status, "quiet");
+	assert.ok(!(await logs()).some(row => row.id === first.id));
+	assert.equal(t.faux.state.callCount, before);
+	assert.equal(t.notifier.sent.length, notices);
+	assert.ok(t.core.db.get("SELECT 1 FROM patrol_reported WHERE fact_key=? AND state='processed'", `goal:${id}:paused:1`));
 });
 
 it("T97 17 shuts down an active patrol and persists its stopped result before closing the database", async () => {

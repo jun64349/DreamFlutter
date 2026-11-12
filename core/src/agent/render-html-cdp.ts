@@ -142,6 +142,7 @@ export async function captureHtmlPage(pipe: BrowserPipe, resources: RenderHtmlRe
 	await send("Page.enable");
 	await send("Page.setLifecycleEventsEnabled", { enabled: true });
 	await send("Network.enable");
+	await send("Network.setBlockedURLs", { urls: ["ws://*", "wss://*"] });
 	await send("Network.setBypassServiceWorker", { bypass: true });
 	await send("Audits.enable");
 	await send("Log.enable");
@@ -173,5 +174,5 @@ export async function captureHtmlPage(pipe: BrowserPipe, resources: RenderHtmlRe
 	if (!png.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")) || !size?.width || !size.height || size.width * size.height > MAX_RENDER_PIXELS) {
 		throw new Error("截图浏览器未返回有效的 PNG。");
 	}
-	return { png, ...size, cropped, blocked: [...resources.blocked] };
+	return { png, ...size, cropped, blocked: resources.publicBlocked() };
 }

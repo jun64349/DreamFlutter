@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, it } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { SandboxShell } from "../src/agent/sandbox-shell.ts";
+import { createBackup } from "../src/backup/export.ts";
+import { stageBackup } from "../src/backup/restore.ts";
+import { Core } from "../src/core.ts";
+import { Logger } from "../src/log.ts";
 import { settledCount, startTestCore, type TestCore } from "./harness.ts";
 
 interface Job {
@@ -39,6 +43,32 @@ async function openAndPrompt(options: { sandbox?: boolean; incognito?: boolean }
 function list(params = {}): Promise<Job[]> { return t.core.call("jobs.list", params) as Promise<Job[]>; }
 function output(id: string, from?: number): Promise<JobOutput> { return t.core.call("jobs.output", { id, from }) as Promise<JobOutput>; }
 function stop(id: string) { return t.core.call("jobs.stop", { id }); }
+
+it("T108 Q-01 restores job history with unavailable output even if a local cache file has the same name", async () => {
+	const id = "restore-job";
+	const cache = join(t.core.paths.cacheDir, "jobs");
+	mkdirSync(cache, { recursive: true });
+	const log = join(cache, id + ".log");
+	writeFileSync(log, "original output");
+	t.core.db.run(`INSERT INTO jobs(id,slot_id,cwd,sandboxed,kind,label,status,exit_code,started_at,ended_at,output_path)
+		VALUES(?,'slot',?,0,'pwsh','缓存夹具','completed',0,1,2,?)`, id, t.workspace, log);
+	assert.equal((await output(id)).text, "original output");
+	const out = join(t.dir, "job.dfbackup");
+	await createBackup({ paths: t.core.paths, agentDir: t.agentDir, sessionsDir: t.sessionDir,
+		db: t.core.db.raw, appVersion: "0.9.0" }, { out, kind: "manual", credentials: "none", includeMaterials: false });
+	const stage = await stageBackup(out, { paths: t.core.paths, agentDir: t.agentDir, sessionsDir: t.sessionDir,
+		appVersion: "0.9.0" }, { parts: t.core.backupParts });
+	const appdata = join(stage.dir, "raw", "data", "appdata");
+	assert.equal(existsSync(join(appdata, "cache", "jobs", id + ".log")), false);
+	const restored = new Core({ paths: { ...t.core.paths, dbFile: join(appdata, "core.db") },
+		agentDir: t.agentDir, sessionDir: t.sessionDir, log: new Logger(), notifier: t.notifier });
+	try {
+		const jobs = await restored.call("jobs.list", {}) as Job[];
+		assert.equal(jobs.find(row => row.id === id)?.exit_code, 0);
+		assert.deepEqual(await restored.call("jobs.output", { id }),
+			{ text: "", next: 0, truncated: false, ended: true, available: false });
+	} finally { await restored.shutdown(); }
+});
 async function started(): Promise<string> {
 	const event = await t.waitFor(() => t.messages.find(event => event.event === "jobs.changed" && event.status === "running"), 15_000);
 	return String(event.id);

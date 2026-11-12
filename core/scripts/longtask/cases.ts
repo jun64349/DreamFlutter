@@ -36,10 +36,17 @@ export function selectCases(value?: string): Case[] {
 
 export const TOTAL_USD = 3;
 export const PER_GOAL_USD = 0.5;
+export const L2L3_TOTAL_USD = 1;
+const OBSERVATION_GRACE_MS = 60_000;
+
+export function observationMs(id: Case["id"], maxActiveMs: number): number {
+	const special = id === "L5" ? 415_000 : id === "L7" ? 140_000 : 0;
+	return Math.max(maxActiveMs + OBSERVATION_GRACE_MS, special);
+}
 
 /** One sequential round. A driver must stop on unknown cost and account for holds. */
-export function allowance(spentUsd: number, reservedUsd: number): number {
+export function allowance(spentUsd: number, reservedUsd: number, totalUsd = TOTAL_USD): number {
 	if (![spentUsd, reservedUsd].every(value => Number.isFinite(value) && value >= 0)) return 0;
 	const held = Math.ceil(spentUsd * 1e6) + Math.ceil(reservedUsd * 1e6);
-	return Math.max(0, Math.min(PER_GOAL_USD, (TOTAL_USD * 1e6 - held) / 1e6));
+	return Math.max(0, Math.min(PER_GOAL_USD, (totalUsd * 1e6 - held) / 1e6));
 }

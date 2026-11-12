@@ -25,7 +25,12 @@ export function sessionTrace(core: Core, id: string) {
 }
 
 export type Trace = ReturnType<typeof sessionTrace>;
-export const toolFacts = (trace: Trace) => trace.flatMap(record => readSessionEvidence(record.text, record.session));
+export function toolFacts(trace: Trace) {
+	const tools = trace.flatMap(record => readSessionEvidence(record.text, record.session));
+	// Session line numbers are local. Merge timestamped traces before looking
+	// for source reads after the initial Python call.
+	return tools.every(tool => tool.at !== undefined) ? tools.sort((a, b) => a.at! - b.at!) : tools;
+}
 
 export function jobEvidence(core: Core, goal: string, trace: Trace, sentAt: number | undefined): Evidence["job"] {
 	const job = backgroundJob(core, goal);

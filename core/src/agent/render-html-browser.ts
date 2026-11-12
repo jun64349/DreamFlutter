@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -14,6 +14,7 @@ export const OFFLINE_BROWSER_FLAGS = [
 	"--remote-debugging-pipe", "--no-first-run", "--no-default-browser-check", "--disable-background-networking",
 	"--disable-component-update", "--disable-domain-reliability", "--disable-sync", "--disable-extensions", "--disable-gpu",
 	"--disable-breakpad", "--disable-crash-reporter",
+	"--disable-preconnect", "--dns-prefetch-disable",
 	"--disable-quic", "--proxy-server=http://127.0.0.1:1", "--proxy-bypass-list=<-loopback>",
 	"--host-resolver-rules=MAP * ~NOTFOUND", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
 	"--disable-features=OptimizationGuideModelDownloading,MediaRouter,Translate,NetworkPrediction,SpeculationRulesPrefetch",
@@ -64,6 +65,9 @@ export class EdgeHtmlBrowser {
 		const profile = await mkdtemp(join(tmpdir(), "df-html-edge-"));
 		const cleanup = () => rm(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
 		try {
+			const preferences = join(profile, "Default");
+			await mkdir(preferences);
+			await writeFile(join(preferences, "Preferences"), JSON.stringify({ net: { network_prediction_options: 2 } }), { flag: "wx" });
 			signal.throwIfAborted();
 			const child = spawn(binary, ["--headless", ...OFFLINE_BROWSER_FLAGS, "--user-data-dir=" + profile, "about:blank"], {
 				windowsHide: true, env: browserEnvironment(), stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],

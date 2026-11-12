@@ -4,6 +4,7 @@ import { sandboxEnv } from "../../agent/state.ts";
 import { normalizeCwd, type Core } from "../../core.ts";
 import { parseJson } from "../../db.ts";
 import { SANDBOX_WORKSPACE } from "../../sandbox/sandbox.ts";
+import { COUNTED_GOAL_RUN } from "./budget.ts";
 import { toGoal, type Goal, type GoalRow, type GoalStatus } from "./types.ts";
 
 export const GOAL_VIEWS = ["decide", "blocked", "accept", "running", "paused", "done"] as const;
@@ -40,6 +41,7 @@ const oneLine = (text: string | undefined | null) => text?.replace(/\s+/g, " ").
 const LABELS: Record<string, string> = {
 	budget_cost: "费用预算已用完", budget_tokens: "Token 预算已用完", budget_time: "活跃时长已用完", budget_runs: "执行次数已用完",
 	restart_check: "等你核对恢复情况", imported: "等你核对导入的范围", needs_permission: "等你确认执行范围",
+	channel_unavailable: "渠道不可用",
 	waiting_job: "等待后台作业", waiting_subagent: "等待子任务", waiting_event: "等待外部事件",
 };
 interface RunFiles { id: string; task_id: string; cwd: string; files: string | null }
@@ -85,7 +87,7 @@ export class GoalViews {
 
 	private runs(id: string) {
 		return this.core.db.all<RunFiles>(`SELECT r.id,r.task_id,r.cwd,r.files FROM runs r JOIN tasks t ON t.id=r.task_id
-			WHERE t.goal_id=? AND r.kind='conversation' ORDER BY r.started_at,r.rowid`, id);
+			WHERE t.goal_id=? AND r.kind='conversation' AND ${COUNTED_GOAL_RUN} ORDER BY r.started_at,r.rowid`, id);
 	}
 
 	artifacts(goal: Goal) {
@@ -124,7 +126,7 @@ export class GoalViews {
 		const recovery = oneLine(goal.resumeWhen);
 		const reason = goal.reason && LABELS[goal.reason];
 		const round = () => this.core.db.get<{ count: number }>(`SELECT count(*) count FROM runs r JOIN tasks t ON t.id=r.task_id
-			WHERE t.goal_id=? AND r.kind='conversation'`, goal.id)!.count;
+			WHERE t.goal_id=? AND r.kind='conversation' AND ${COUNTED_GOAL_RUN}`, goal.id)!.count;
 		const inRound = (text: string, pending = false) => `第 ${Math.max(1, round() + Number(pending))} 轮 · ${text}`;
 		switch (goal.status) {
 			case "draft": return { stage: "等你补齐目标", next: recovery ?? "补齐目标结果和工作区" };

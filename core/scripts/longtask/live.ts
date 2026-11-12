@@ -1,16 +1,15 @@
-import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { buildCore } from "../../src/app.ts";
 import type { Core } from "../../src/core.ts";
 import { Gateway } from "../../src/gateway/gateway.ts";
 import { sandboxEnv } from "../../src/agent/state.ts";
 import { Logger } from "../../src/log.ts";
+import { COUNTED_GOAL_RUN } from "../../src/modules/goals/budget.ts";
 import type { GoalScheduler } from "../../src/modules/goals.ts";
 import { RecordingNotifier } from "../../src/notify.ts";
 import { corePaths } from "../../src/paths.ts";
@@ -19,14 +18,15 @@ import { bundledImage } from "../../src/sandbox/image.ts";
 import { runWsl } from "../../src/sandbox/sandbox.ts";
 import { redact } from "../../src/security/redaction.ts";
 import { evaluate, type Check, type Evidence } from "./checks.ts";
-import type { Case } from "./cases.ts";
+import { copyOpenCodeGoChannel, LIVE_MODEL } from "./channel-config.ts";
+import { observationMs, type Case } from "./cases.ts";
 import type { RunRow } from "./dry.ts";
 import { generateFixture, sha256 } from "./fixtures/generate.ts";
 import { LiveBudget, priced } from "./live-budget.ts";
 import { backgroundJob, jobEvidence, L5_QUESTION, sessionTrace, toolFacts } from "./live-evidence.ts";
+import { requestReceipts, type RequestLedgerReceipt } from "./request-evidence.ts";
 
 type Goal = ReturnType<GoalScheduler["detail"]>;
-type ModelChannel = { channel: string; models: string[] };
 type Publish = (model: string, rows: readonly RunRow[]) => void;
 const JOB_COMMAND = "& './long-job.ps1'";
 const BASIC_TOOLS = ["read", "write", "edit", "glob", "grep", "todo"];
@@ -41,29 +41,23 @@ async function wsl(args: string[], timeoutMs = 20_000) {
 
 function unrun(item: Case, reason: string): RunRow {
 	return { id: item.id, title: item.title, partition: item.sandbox ? "butterfly" : "workbench",
-		passed: false, goalStatus: "未运行", runs: 0, costUsd: 0, budgetUsd: 0, requests: 0, elapsedMs: 0,
-		reason, checks: [{ id: "run", title: "运行真实目标", passed: false, detail: reason }] };
+		passed: false, goalStatus: "未运行", runs: 0, rawRuns: 0, costUsd: 0, budgetUsd: 0, requests: 0, elapsedMs: 0,
+		reason, checks: [{ id: "run", title: "运行真实目标", passed: false, detail: reason,
+			conditions: [{ title: "取得目标验收所需回执", passed: false }] }] };
 }
 
-function pickModel(copied: ModelChannel[]) {
-	for (const candidate of copied) {
-		const id = candidate.models.find(model => model === "deepseek-v4.1-flash")
-			?? candidate.models.find(model => /deepseek.*flash/i.test(model));
-		if (id) return { provider: `df-${candidate.channel}`, id };
-	}
-	throw new Error("已配置的 OpenCode Go 渠道没有 DeepSeek Flash，未发请求");
-}
-
-export async function runLiveRound(items: readonly Case[], source: string, publish: Publish) {
+export async function runLiveRound(items: readonly Case[], source: string, publish: Publish, options: { totalUsd?: number; channel?: string } = {}) {
 	const root = mkdtempSync(join(resolve(tmpdir()), "df-t105-live-"));
 	const paths = corePaths(join(root, "data")), agentDir = join(root, "agent"), sessionDir = join(root, "sessions");
 	const distro = "DF-T105-" + randomUUID().replaceAll("-", "");
-	const budget = new LiveBudget(), rows: RunRow[] = [];
+	const budget = new LiveBudget(options.totalUsd), rows: RunRow[] = [];
 	let modelName = "opencode-go", qualified = "";
+	let published = false;
 	let core: Core | undefined, imported = false, sandboxError: string | undefined;
 	const boot = async () => {
-		const log = new Logger(paths.logFile, false);
+		const log = new Logger();
 		const runtime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: null, refreshOnCreate: false });
+		budget.observeGateway(runtime);
 		await configurePiNetworking(agentDir, log);
 		core = buildCore({ paths, agentDir, sessionDir, log, notifier: new RecordingNotifier(), modelRuntime: () => runtime,
 			piMigration: { automatic: false }, gatewayTransport: budget.transport, sandbox: { distro } });
@@ -79,10 +73,7 @@ export async function runLiveRound(items: readonly Case[], source: string, publi
 	try {
 		mkdirSync(agentDir);
 		mkdirSync(sessionDir);
-		const copied = JSON.parse(execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning",
-			fileURLToPath(new URL("../copy-channels.ts", import.meta.url)), resolve(source), paths.dataDir, "opencode-go"],
-			{ encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })) as ModelChannel[];
-		const model = pickModel(copied);
+		const model = { provider: `df-${copyOpenCodeGoChannel(source, paths.dataDir, options.channel)}`, id: LIVE_MODEL };
 		modelName = model.id;
 		qualified = `${model.provider}/${model.id}`;
 		budget.configure(model.provider, model.id);
@@ -90,6 +81,7 @@ export async function runLiveRound(items: readonly Case[], source: string, publi
 		const available = (await runtime.getAvailable()).find(candidate => candidate.provider === model.provider && candidate.id === model.id);
 		if (!available || !priced(core!.resolveModel(available))) throw new Error("OpenCode Go 模型不可用或缺少可核对的价格，未发请求");
 		publish(modelName, rows);
+		published = true;
 		if (items.some(item => item.sandbox)) {
 			try {
 				const image = bundledImage();
@@ -142,8 +134,8 @@ export async function runLiveRound(items: readonly Case[], source: string, publi
 					budget: { maxCostUsd: budget.remaining(), maxParallel: 1, maxRuns: 8, maxActiveMs: 10 * 60_000 },
 				}) as Goal;
 				id = detail.id;
-				const deadline = Date.now() + (item.id === "L5" ? 415_000 : item.id === "L7" ? 140_000 : 85_000);
-				while (Date.now() < deadline) {
+				const deadline = performance.now() + observationMs(item.id, detail.budgetStatus.limits.maxActiveMs);
+				while (performance.now() < deadline) {
 					detail = await current(id);
 					if (item.id === "L5" && !sentAt) {
 						const job = backgroundJob(core!, id);
@@ -178,7 +170,7 @@ export async function runLiveRound(items: readonly Case[], source: string, publi
 					await delay(300);
 				}
 				detail = await current(id);
-				reason ||= budget.snapshot().denied ?? budget.stopped() ?? detail.reason ?? (Date.now() >= deadline ? "单项目标观察超时" : detail.status);
+				reason ||= budget.snapshot().denied ?? budget.stopped() ?? detail.reason ?? (performance.now() >= deadline ? "单项目标观察超时" : detail.status);
 				if (!DONE.has(detail.status)) {
 					await core!.call("goals.control", { id, action: "stop_run" });
 					await core!.call("goals.control", { id, action: "pause" });
@@ -189,12 +181,14 @@ export async function runLiveRound(items: readonly Case[], source: string, publi
 				const evidence: Evidence = { status: detail.status, missing: detail.missing.map(check => check.id), tools,
 					job: item.id === "L5" ? jobEvidence(core!, id, trace, sentAt) : undefined, restart: phase };
 				checks = evaluate(item, workspace, answers, evidence);
-				if (item.id !== "L6") checks.push({ id: "goal", title: "目标通过验收", passed: detail.completed, detail: `目标状态 ${detail.status}。` });
+				if (item.id !== "L6") checks.push({ id: "goal", title: "目标通过验收", passed: detail.completed, detail: `目标状态 ${detail.status}。`,
+					conditions: [{ title: "目标标记完成", passed: detail.completed }] });
 				const deniedTools = tools.filter(tool => !tool.ok && ["render_html", "python", "pwsh"].includes(tool.name));
 				if (deniedTools.length) reason += "；工具未成功：" + [...new Set(deniedTools.map(tool => tool.name))].join("、");
 			} catch (error) {
 				reason = failure(error);
-				checks = [{ id: "run", title: "运行真实目标", passed: false, detail: reason }];
+				checks = [{ id: "run", title: "运行真实目标", passed: false, detail: reason,
+					conditions: [{ title: "取得目标验收所需回执", passed: false }] }];
 			}
 			if (id && core) {
 				const remainingJob = backgroundJob(core, id);
@@ -204,23 +198,36 @@ export async function runLiveRound(items: readonly Case[], source: string, publi
 					await core.call("goals.control", { id, action: "stop_run" }).catch(() => {});
 					await core.call("goals.control", { id, action: "pause" }).catch(() => {});
 				}
+				const settling = Date.now() + 3_000;
+				while (Date.now() < settling && (budget.snapshot().pending ||
+					core.db.get("SELECT 1 FROM request_ledger WHERE rowid>? AND state='pending' LIMIT 1", rowid))) await delay(50);
+				detail = await current(id);
 			}
 			const account = budget.snapshot();
-			const requests = core?.db.all<{ amount: number | null; currency: string | null; amount_source: string }>(
-				"SELECT amount,currency,amount_source FROM request_ledger WHERE rowid>?", rowid) ?? [];
+			const requests = core?.db.all<RequestLedgerReceipt>(
+				"SELECT id,state,success,error_code,amount,currency,amount_source FROM request_ledger WHERE rowid>? ORDER BY rowid", rowid) ?? [];
 			const known = requests.length === account.requests && requests.every(request => request.currency === "USD" && request.amount !== null
 				&& ["provider_actual", "plan_occupancy"].includes(request.amount_source));
-			const runs = id && core ? core.db.get<{ n: number }>(
-				"SELECT count(*) n FROM runs r JOIN tasks t ON t.id=r.task_id WHERE t.goal_id=?", id)?.n ?? 0 : 0;
+			const counts = id && core ? core.db.get<{ raw: number; unstarted: number; rejected: number }>(`
+				SELECT count(*) raw, count(CASE WHEN r.started_at IS NULL THEN 1 END) unstarted,
+				count(CASE WHEN r.started_at IS NOT NULL AND NOT (${COUNTED_GOAL_RUN}) THEN 1 END) rejected
+				FROM runs r JOIN tasks t ON t.id=r.task_id WHERE t.goal_id=?`, id) : undefined;
+			const runs = detail?.budgetStatus.used.runs ?? 0;
+			const rawRuns = counts?.raw ?? 0;
+			const runNotes = counts && rawRuns !== runs
+				? `原始回执中有 ${counts.unstarted} 条尚未开始、${counts.rejected} 条启动后在发出请求前被预算或准备阶段拦住。` +
+					(rawRuns - runs !== counts.unstarted + counts.rejected ? " 其余差异涉及目标账本单独统计的轮次。" : "") : undefined;
 			rows.push({ id: item.id, title: item.title, partition: item.sandbox ? "butterfly" : "workbench",
-				passed: checks.length > 0 && checks.every(check => check.passed), runs,
+				passed: checks.length > 0 && checks.every(check => check.passed), runs, rawRuns, runNotes,
 				costUsd: known ? requests.reduce((sum, request) => sum + request.amount!, 0) : null,
-				budgetUsd: account.budgetUsd, requests: account.requests, elapsedMs: Math.round(performance.now() - start),
-				goalStatus: detail?.status ?? "未运行", reason: reason + (account.incomplete ? `；${account.incomplete} 次请求无最终用量，预算保留预留金额` : ""), checks });
+				budgetUsd: account.budgetUsd, requests: account.requests, receipts: requestReceipts(requests, account.receipts),
+				elapsedMs: Math.round(performance.now() - start), goalStatus: detail?.status ?? "未运行",
+				reason: reason + (account.incomplete ? `；${account.incomplete} 次请求缺可结算用量，预算保留预留金额` : ""), checks });
 			publish(modelName, rows);
 			console.log(`${item.id} ${rows.at(-1)!.goalStatus}，${account.requests} 请求，预算计入 $${account.budgetUsd.toFixed(6)}`);
 		}
 	} catch (error) {
+		if (!published) throw error;
 		for (const item of items.slice(rows.length)) rows.push(unrun(item, failure(error)));
 		publish(modelName, rows);
 	} finally {
