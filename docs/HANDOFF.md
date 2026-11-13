@@ -12,7 +12,7 @@
 
 - 用户定了 0.10 蝶君的方向，写在 [roadmap](roadmap.md) 0.10 节末「用户 2026-11-12 定的方向」：当真人助手设计；性格只给预设选；沙箱里什么都能做，出沙箱要用户明确要求；主动性强、高频，长期目标自己决定学什么写什么，程度可调；验收蝶君自己做；可以主动找用户聊天。
 - 同日又定：四种性格预设（静 / 暖 / 利落 / 灵动）、主动性三档（默认高）、主动聊天的分寸、自己验收的硬门槛，都写进 0.10 节末。
-- 接着讨论「可控可靠」（用户是做可靠性系统工程和测试的）：结论写进 roadmap 第七节「蝶君的可控可靠」，2.0 以后做。完整记录 [design/butterfly-reliability-notes.md](design/butterfly-reliability-notes.md)；调研提示词 [research/butterfly-reliability-research-prompt.md](research/butterfly-reliability-research-prompt.md) 已交给用户，由用户的调研 Agent 做，报告回来放 `docs/research/`。
+- 接着讨论「可控可靠」（用户是做可靠性系统工程和测试的）：结论写进 roadmap 第七节「蝶君的可控可靠」，2.0 以后做。完整记录 [design/butterfly-reliability-notes.md](design/butterfly-reliability-notes.md)；调研提示词 [research/butterfly-reliability-research-prompt.md](research/butterfly-reliability-research-prompt.md) 已交给用户，由用户的调研 Agent 做。2026-11-13 报告回来了：[research/2026-11-13-agent-reliability-survey.md](research/2026-11-13-agent-reliability-survey.md)，对照写在讨论记录第八节。自己验收已按报告改（用户 2026-11-13 同意，roadmap 0.10 已改）；沙箱外改成只扩权才问（用户同意）；低成本的三条（假成功校验、「做不下去了」出口、人设每轮重放）用户定等 2.0 一起做；不同家族模型复核、只扩权才问也放 2.0（0.10 代码里没有）。
 
 **2026-11-12 规划讨论（只改了文档，0.9 进行中的任务不动）**
 
