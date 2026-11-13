@@ -1020,7 +1020,11 @@ export class MemoryModule implements CoreModule {
 		).map((r) => ({ ...this.correction(r.batch_id), runId: r.run_id, entryId: r.entry_id, at: r.at })));
 		this.core.register("memory.boundaries", (p) => this.tasks.decisions(requireStr(p.sessionId, "sessionId")));
 		this.core.register("memory.undoBoundary", (p) => {
-			const result = this.tasks.undoDecision(requireStr(p.id, "id"));
+			const id = requireStr(p.id, "id");
+			if (!this.db.get("SELECT 1 FROM memory_boundary_decisions WHERE id=? AND undone_at IS NULL", id)) {
+				throw new RpcError("not_found", "这次判断不存在或已经撤销");
+			}
+			const result = this.tasks.undoDecision(id);
 			this.refreshRequested.add(result.sessionId);
 			this.core.broadcast({ event: "memory.task", sessionId: result.sessionId, kind: "user_continued", taskId: result.task?.id ?? null });
 			return result;
@@ -1247,31 +1251,6 @@ export class MemoryModule implements CoreModule {
 			if (statuses.includes("deleted")) itemStatuses.push("forgotten", "withdrawn", "ended");
 			if (itemStatuses.length) out.push(...store.list({ statuses: itemStatuses, set, query: str(p.query), limit: num(p.limit) }).filter((m) => !isBlockItem(m)).map((m) => this.legacy(m)));
 			return out;
-		});
-		core.register("memory.add", (p) => {
-			const kind = (ITEM_KINDS.find((k) => k === p.kind) ?? "background") as ItemKind;
-			const result = this.userCommit([{ kind: "add", item: { content: requireStr(p.content, "content"), kind, level: 2, ...this.userTarget(p), confidence: "user_explicit" }, sources: [{ kind: "user_edit" }] }], "user");
-			return this.legacy(store.get(result.applied[0]!.itemId)!);
-		});
-		core.register("memory.edit", (p) => {
-			const id = requireStr(p.id, "id");
-			const patch = patchOf({ content: p.content, kind: p.kind, ...(typeof p.scope === "string" ? { scope: p.scope, cwd: p.cwd } : {}) });
-			this.userCommit([{ kind: "edit", id, patch, sources: [{ kind: "user_edit" }] }], "user");
-			return this.legacy(store.get(id)!);
-		});
-		core.register("memory.remove", (p) => {
-			const item = store.get(requireStr(p.id, "id"));
-			if (item && LIVE_STATUSES.includes(item.status)) this.userCommit([{ kind: "status", id: item.id, status: "forgotten" }], "user");
-			return { ok: true };
-		});
-		core.register("memory.history", (p) => store.versions(requireStr(p.id, "id")).map((v) => this.legacy(v.item)));
-		core.register("memory.accept", (p) => {
-			store.acceptPending(requireStr(p.id, "id"), { content: str(p.content) });
-			return { ok: true };
-		});
-		core.register("memory.reject", (p) => {
-			store.rejectPending(requireStr(p.id, "id"));
-			return { ok: true };
 		});
 		core.register("memory.blocks", () => this.blocks());
 		core.register("memory.setBlock", (p) => {

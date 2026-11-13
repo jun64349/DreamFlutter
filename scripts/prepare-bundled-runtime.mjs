@@ -8,17 +8,60 @@ import { pathToFileURL } from 'node:url';
 export const repository = resolve(import.meta.dirname, '..');
 export const lockPath = join(repository, 'core/bundled-runtime.lock.json');
 export const lock = JSON.parse(readFileSync(lockPath));
+const voiceLock = JSON.parse(readFileSync(join(repository, 'core/src/modules/voice/runtime.lock.json')));
 export const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 export function run(exe, args, options = {}) { return execFileSync(exe, args, { encoding:'utf8', windowsHide:true, maxBuffer:16e6, ...options }); }
 export function verify(file, entry) { if (!existsSync(file) || sha256(file) !== entry.sha256) throw Error(`Pinned SHA-256 mismatch or missing file: ${entry.file}`); }
 export function assets() { return [...new Map([lock.git, lock.font, ...lock.windows, ...lock.linux, ...lock.licenses].map(e=>[e.file,e])).values()]; }
 export function cachedAssets(cache, offline) {
+  cacheAssets(cache, offline, assets());
+}
+function cacheAssets(cache, offline, entries) {
   mkdirSync(cache,{recursive:true});
-  for (const entry of assets()) {
+  for (const entry of entries) {
     const file=join(cache,entry.file);
     if (existsSync(file)) { verify(file,entry); continue; } // Corruption is never silently replaced.
     if (offline) throw Error(`Offline build cache is missing ${entry.file}; run prepare-bundled-runtime.mjs --download --cache <dir> first.`);
     run('curl.exe',['--fail','--location','--silent','--show-error','--retry','3',entry.url,'--output',file]); verify(file,entry);
+  }
+}
+export function prepareVoice(target, cache, offline, { verifyOnly = false, testAudio = false } = {}) {
+  const { senseVoice, sileroVad, engine } = voiceLock;
+  cacheAssets(cache, offline, [senseVoice, sileroVad]);
+  if (verifyOnly) return;
+  const bin = join(resolve(target), 'core/bin');
+  mkdirSync(bin, { recursive: true });
+  if (realpathSync(bin) !== join(realpathSync(resolve(target)), 'core/bin')) throw Error('Unsafe voice runtime parent');
+  const destination = join(bin, 'voice');
+  const scratch = mkdtempSync(join(bin, '.voice-'));
+  const root = senseVoice.file.replace(/\.tar\.bz2$/, '');
+  const files = ['model.int8.onnx', 'tokens.txt', 'LICENSE', ...(testAudio ? ['test_wavs/zh.wav'] : [])];
+  try {
+    const tar = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/tar.exe') : 'tar';
+    run(tar, ['-xf', join(cache, senseVoice.file), '-C', scratch, ...files.map(file => `${root}/${file}`)]);
+    const unpacked = join(scratch, root);
+    copyFileSync(join(cache, sileroVad.file), join(unpacked, sileroVad.file));
+    if (existsSync(destination) && lstatSync(destination).isSymbolicLink()) throw Error('Unsafe voice model destination');
+    mkdirSync(destination, { recursive: true });
+    for (const file of [...files, sileroVad.file]) {
+      const output = join(destination, file);
+      if (dirname(output) !== destination) {
+        mkdirSync(dirname(output), { recursive: true });
+        if (realpathSync(dirname(output)) !== dirname(output)) throw Error('Unsafe voice fixture destination');
+      }
+      if (existsSync(output) && lstatSync(output).isSymbolicLink()) throw Error('Unsafe voice model file');
+      copyFileSync(join(unpacked, file), output);
+    }
+    const installed = ['sherpa-onnx-node', 'sherpa-onnx-win-x64'];
+    if (process.platform === 'win32' && process.arch === 'x64') {
+      for (const [index, name] of installed.entries()) {
+        const pkg = JSON.parse(readFileSync(join(target, 'core/node_modules', name, 'package.json')));
+        if (pkg.version !== engine[index].version) throw Error(`Voice runtime version mismatch: ${name}`);
+      }
+    }
+  } finally {
+    if (dirname(realpathSync(scratch)) !== realpathSync(bin)) throw Error('Unsafe voice scratch cleanup');
+    rmSync(scratch, { recursive: true, force: true });
   }
 }
 export function treeFiles(root) {
@@ -73,6 +116,12 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
   const args=process.argv.slice(2), option=(name,fallback)=>args.includes(name)?args[args.indexOf(name)+1]:fallback;
   const cache=resolve(option('--cache',process.env.DREAMFLUTTER_BUNDLE_CACHE??join(repository,'core/bin/.bundle-cache')));
   if(!args.includes('--offline')&&!args.includes('--download'))throw Error('Choose --download for preparation or --offline for packaging');
+  const voiceOnly = args.includes('--voice-only');
+  prepareVoice(option('--target', repository), cache, args.includes('--offline'), {
+    verifyOnly: args.includes('--verify-only') || args.includes('--download-only'),
+    testAudio: voiceOnly && args.includes('--test-audio'),
+  });
+  if (voiceOnly) process.exit(0);
   cachedAssets(cache,args.includes('--offline'));
   if(args.includes('--verify-image')){
     const image=join(repository,'core/sandbox-image/dreamflutter-sandbox.tar.gz');

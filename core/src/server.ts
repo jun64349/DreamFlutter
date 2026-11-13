@@ -99,7 +99,8 @@ export function startServer(core: Core, options: ServerOptions): Promise<{ port:
 					const code = error instanceof RpcError ? error.code : "internal";
 					const message = error instanceof Error ? error.message : String(error);
 					if (code === "internal") core.log.error(`method ${String(request.method)} failed`, error);
-					client.send({ id, error: { code, message } });
+					const data = error instanceof RpcError ? error.data : undefined;
+					client.send({ id, error: { code, message, ...(data !== undefined && { data }) } });
 				});
 		});
 		socket.on("close", () => core.removeClient(client));

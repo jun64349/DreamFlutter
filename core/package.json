@@ -18,6 +18,7 @@
     "@earendil-works/pi-mcp": "1.4.0",
     "croner": "9.1.0",
     "pdfjs-dist": "4.10.38",
+    "pinyin-pro": "3.29.5",
     "undici": "8.10.2",
     "ws": "8.18.3",
     "yauzl": "3.4.0",
@@ -31,5 +32,9 @@
     "@types/yazl": "3.3.1",
     "jsdom": "29.0.2",
     "typescript": "5.9.3"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-node": "1.13.8",
+    "sherpa-onnx-win-x64": "1.13.8"
   }
 }

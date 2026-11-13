@@ -84,10 +84,12 @@ export interface Client {
 
 export class RpcError extends Error {
 	readonly code: string;
+	readonly data?: unknown;
 
-	constructor(code: string, message: string) {
+	constructor(code: string, message: string, data?: unknown) {
 		super(message);
 		this.code = code;
+		if (data !== undefined) this.data = data;
 	}
 }
 
@@ -391,6 +393,7 @@ export class Core {
 	}
 
 	async call(method: string, params: Params, client?: Client): Promise<unknown> {
+		if (client && this.stopped) throw new RpcError("unavailable", "后台正在退出");
 		this.beforeRpc?.(method);
 		const handler = this.methods.get(method);
 		if (!handler) throw new RpcError("unknown_method", `Unknown method: ${method}`);

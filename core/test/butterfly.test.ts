@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { ButterflyModule, INBOX, OUTBOX, safeName, type OutboxFile } from "../src/modules/butterfly.ts";
-import type { Material, Note, Task } from "../src/modules/tasks.ts";
+import { TasksModule, type Material, type Note, type Task } from "../src/modules/tasks.ts";
 import { startTestCore, type TestCore } from "./harness.ts";
 
 /** 蝶君 (roadmap 3.5): its home, the desk moving over, hand-off through the inbox, the outbox. */
@@ -42,22 +42,22 @@ describe("蝶君", () => {
 		writeFileSync(file, "a,b\n1,2\n");
 		await t.core.call("notes.save", { cwd: t.workspace, content: "# 甲" });
 		await t.core.call("notes.save", { cwd: other, content: "# 乙" });
-		await t.core.call("materials.add", { cwd: t.workspace, kind: "file", path: file });
-		await t.core.call("materials.add", { cwd: other, kind: "file", path: file });
-		await t.core.call("materials.add", { cwd: other, kind: "text", content: "一段文字" });
+		t.core.module(TasksModule)!.addMaterial({ cwd: t.workspace, kind: "file", path: file });
+		t.core.module(TasksModule)!.addMaterial({ cwd: other, kind: "file", path: file });
+		t.core.module(TasksModule)!.addMaterial({ cwd: other, kind: "text", content: "一段文字" });
 		// As if this database came from v0.2.
 		t.core.db.run("DELETE FROM app_flags");
 		t = await t.reopen();
 		const home = t.core.paths.butterflyDir;
-		const notes = (await t.core.call("notes.list", { cwd: home })) as Note[];
+		const notes = (await t.core.call("desk.get", { cwd: home }) as { notes: Note[] }).notes;
 		assert.deepEqual(notes.map((n) => n.title).sort(), ["乙", "甲"]);
-		const materials = (await t.core.call("materials.list", { cwd: home })) as Material[];
+		const materials = (await t.core.call("desk.get", { cwd: home }) as { materials: Material[] }).materials;
 		assert.equal(materials.length, 2, "the same file on two desks is one material now");
-		assert.equal(((await t.core.call("notes.list", { cwd: t.workspace })) as Note[]).length, 0, "the workbench has no desk any more");
+		assert.equal(((await t.core.call("desk.get", { cwd: t.workspace }) as { notes: Note[] }).notes).length, 0, "the workbench has no desk any more");
 		// Once only: a note written in a workspace later stays there.
 		await t.core.call("notes.save", { cwd: t.workspace, content: "# 丙" });
 		t = await t.reopen();
-		assert.equal(((await t.core.call("notes.list", { cwd: t.workspace })) as Note[]).length, 1);
+		assert.equal(((await t.core.call("desk.get", { cwd: t.workspace }) as { notes: Note[] }).notes).length, 1);
 	});
 
 	it("hands a note over with copies of the materials in the inbox", async () => {
@@ -68,9 +68,9 @@ describe("蝶君", () => {
 		const folder = join(t.workspace, "图");
 		mkdirSync(folder);
 		writeFileSync(join(folder, "a.txt"), "甲");
-		await t.core.call("materials.add", { cwd: home, kind: "file", path: file });
-		await t.core.call("materials.add", { cwd: home, kind: "folder", path: folder });
-		await t.core.call("materials.add", { cwd: home, kind: "text", title: "要求: 画/图", content: "用柱状图" });
+		t.core.module(TasksModule)!.addMaterial({ cwd: home, kind: "file", path: file });
+		t.core.module(TasksModule)!.addMaterial({ cwd: home, kind: "folder", path: folder });
+		t.core.module(TasksModule)!.addMaterial({ cwd: home, kind: "text", title: "要求: 画/图", content: "用柱状图" });
 		const note = (await t.core.call("notes.save", { cwd: home, content: "# 出图\n把销量画成图" })) as Note;
 
 		const { task, prompt } = (await t.core.call("butterfly.handOff", { noteId: note.id })) as { task: Task; prompt: string };
@@ -94,7 +94,7 @@ describe("蝶君", () => {
 		const home = t.core.paths.butterflyDir;
 		const note = (await t.core.call("notes.save", { cwd: home, content: "做事" })) as Note;
 		await assert.rejects(t.core.call("butterfly.handOff", { noteId: note.id }), /沙箱还没有建好/);
-		await t.core.call("materials.add", { cwd: home, kind: "text", content: "x" });
+		t.core.module(TasksModule)!.addMaterial({ cwd: home, kind: "text", content: "x" });
 		await assert.rejects(t.core.call("butterfly.handOff", { noteId: note.id }), /沙箱还没有建好/);
 		assert.equal(((await t.core.call("tasks.list", { cwd: home })) as Task[]).length, 0);
 	});

@@ -194,6 +194,11 @@ DreamFlutter $version（Windows x64 可更新免安装版，测试版未签名�
     $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
     $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
     $releases = Join-Path $outputRoot 'Velopack'
+    foreach ($hookFile in @('runtime/node.exe', 'app/velopack_libc.dll', 'core/src/uninstall/hook.ts')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $target $hookFile) -PathType Leaf)) {
+            throw "Velopack uninstall hook payload missing: $hookFile"
+        }
+    }
     & (Join-Path $VelopackToolsDir 'dotnet/dotnet.exe') (Join-Path $VelopackToolsDir 'vpk/tools/net8.0/any/vpk.dll') pack --packId DreamFlutter --packVersion $version --channel win-x64 --runtime win-x64 --packDir $target --mainExe 'app/dreamflutter.exe' --delta None --outputDir $releases
     if ($LASTEXITCODE -ne 0) { throw 'Velopack packaging failed' }
     Write-Host "Update package and self-updating portable output: $releases"

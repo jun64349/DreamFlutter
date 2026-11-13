@@ -21,6 +21,7 @@ import type { TransportReceipt } from "../longtask/request-evidence.ts";
 
 export interface Profile {
 	core: Core;
+	live?: boolean;
 	local(path: string): string;
 	notices: { title: string; body: string }[];
 	faux?: TestCore;
@@ -59,16 +60,18 @@ function put(profile: Profile, path: string, value: string) {
 	writeFileSync(local, value);
 }
 
-async function until<T>(p: Profile, description: string, read: () => T | undefined | false, timeout = 120_000): Promise<T> {
-	const limit = Date.now() + timeout;
+async function until<T>(p: Profile, description: string, read: () => T | undefined | false,
+	{ timeout = 120_000, status }: { timeout?: number; status?: () => string } = {}): Promise<T> {
+	const start = performance.now();
 	do {
 		const stop = p.stopReason?.();
 		if (stop) throw new Error(stop);
 		const value = read();
 		if (value !== false && value !== undefined) return value;
 		await delay(100);
-	} while (Date.now() < limit);
-	throw new Error(description + "超时");
+	} while (performance.now() - start < timeout);
+	const elapsed = ((performance.now() - start) / 1000).toFixed(1);
+	throw new Error(`${description}超时：已等待 ${elapsed} 秒${status ? "；" + status() : ""}`);
 }
 
 async function chat(profile: Profile, sessionFile?: string) {
@@ -98,13 +101,18 @@ async function chat(profile: Profile, sessionFile?: string) {
 	};
 }
 
-function goalDone(profile: Profile, id: string) {
-	return until(profile, "目标 " + id, () => {
+function goalStatus(profile: Profile, id: string): string {
+	const goal = scheduler(profile).get(id);
+	return `目标 ${id} 状态：${goal?.status ?? "未找到"}${goal?.reason ? "（" + goal.reason + "）" : ""}`;
+}
+
+function goalDone(profile: Profile, id: string, description = "目标 " + id, timeout?: number) {
+	return until(profile, description, () => {
 		const goal = scheduler(profile).get(id);
 		if (goal?.status === "completed") return scheduler(profile).detail(id);
 		if (goal && ["failed", "cancelled", "blocked", "paused", "waiting_user"].includes(goal.status))
 			throw new Error("目标停止在 " + goal.status + "：" + (goal.reason ?? "无原因"));
-	});
+	}, { timeout, status: () => goalStatus(profile, id) });
 }
 
 function countedRuns(core: Core, rowid: number): number {
@@ -291,13 +299,22 @@ async function learning(p: Profile): Promise<Evidence> {
 		const run = p.core.db.get<{ id: string; goal_id: string | null; state: string; reason: string | null; plan: string | null }>(
 			"SELECT id,goal_id,state,reason,plan FROM selfwork_runs WHERE source='learning' ORDER BY rowid DESC LIMIT 1");
 		if (!run?.goal_id) throw new Error("学习未立项：" + (run?.reason ?? run?.state ?? "无规划记录"));
-		const goal = await goalDone(p, run.goal_id);
-		const memory = await until(p, "学习来源记忆", () => p.core.db.get("SELECT 1 FROM memory_sources WHERE ref=? AND kind='learning'", run.goal_id));
+		const goalId = run.goal_id;
+		const timeout = p.live ? 5 * 60_000 : undefined;
+		const goal = await goalDone(p, goalId, "B4 学习目标完成", timeout);
+		const memory = await until(p, "B4 学习来源记忆",
+			() => p.core.db.get("SELECT 1 FROM memory_sources WHERE ref=? AND kind='learning'", goalId),
+			{ status: () => goalStatus(p, goalId) });
 		const plan = JSON.parse(run.plan ?? "{}") as { share?: boolean };
-		const proactive = plan.share ? await until(p, "学习主动聊天", () => {
-			const row = p.core.db.get<{ state: string; reason: string | null }>("SELECT state,reason FROM butterfly_proactive WHERE ref_id=?", "selfwork:" + run.id);
+		const readProactive = () => p.core.db.get<{ state: string; reason: string | null }>(
+			"SELECT state,reason FROM butterfly_proactive WHERE ref_id=?", "selfwork:" + run.id);
+		const proactive = plan.share ? await until(p, "B4 学习主动聊天送达", () => {
+			const row = readProactive();
 			return row && isProactiveTerminal(row.state) ? row : undefined;
-		}) : { state: "未申请", reason: "学习计划的 share 未开启" };
+		}, { timeout, status: () => {
+			const row = readProactive();
+			return `${goalStatus(p, goalId)}；主动聊天状态：${row?.state ?? "未入队"}${row?.reason ? "（" + row.reason + "）" : ""}`;
+		} }) : { state: "未申请", reason: "学习计划的 share 未开启" };
 		return { contextSeededWithoutRequest: true, goalId: run.goal_id, planId: run.id, memory: !!memory, delivery: goal.selfwork?.delivery,
 			proactive, failure: proactive.state === "sent" ? undefined : "主动聊天未送达：" + (proactive.reason ?? proactive.state) };
 	} finally {

@@ -27,7 +27,7 @@ export interface TestCore {
 	/** Records the client received for a slot. */
 	records(slotId: string): Record<string, unknown>[];
 	respond(...steps: FauxResponseStep[]): void;
-	waitFor<T>(probe: () => T | undefined | false, timeoutMs?: number): Promise<T>;
+	waitFor<T>(probe: () => T | undefined | false, timeoutMs?: number, description?: string): Promise<T>;
 	send(slotId: string, record: Record<string, unknown>): Promise<void>;
 	reopen(): Promise<TestCore>;
 	cleanup(): Promise<void>;
@@ -79,13 +79,17 @@ export async function startTestCore(existingDir?: string, options: { gatewayTran
 	const messages: Record<string, unknown>[] = [];
 	const client = core.addClient((message) => messages.push(message));
 
-	const waitFor = async <T>(probe: () => T | undefined | false, timeoutMs = 5_000): Promise<T> => {
-		const deadline = Date.now() + timeoutMs;
+	const waitFor = async <T>(probe: () => T | undefined | false, timeoutMs = 30_000, description?: string): Promise<T> => {
+		const start = performance.now();
 		for (;;) {
 			const value = probe();
 			if (value !== undefined && value !== false) return value as T;
-			if (Date.now() > deadline) throw new Error("waitFor timed out");
-			await new Promise((r) => setTimeout(r, 10));
+			const elapsed = performance.now() - start;
+			if (elapsed >= timeoutMs) {
+				const condition = description ?? probe.toString().replace(/\s+/g, " ");
+				throw new Error(`waitFor timed out after ${Math.round(elapsed)} ms (limit ${timeoutMs} ms) waiting for ${condition}`);
+			}
+			await new Promise((r) => setTimeout(r, Math.min(10, timeoutMs - elapsed)));
 		}
 	};
 

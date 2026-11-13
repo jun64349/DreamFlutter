@@ -790,29 +790,9 @@ export class TasksModule implements CoreModule {
 			this.changed(id);
 			return { ok: true };
 		});
-		core.register("notes.list", (p) => this.listNotes(requireStr(p.cwd, "cwd")));
-		core.register("notes.get", (p) => this.getNote(requireStr(p.id, "id")) ?? null);
 		core.register("notes.save", (p) =>
 			this.saveNote({ id: str(p.id), cwd: requireStr(p.cwd, "cwd"), title: typeof p.title === "string" ? p.title : undefined, content: typeof p.content === "string" ? p.content : undefined }),
 		);
-		core.register("notes.remove", (p) => {
-			this.removeNote(requireStr(p.id, "id"));
-			return { ok: true };
-		});
-		core.register("materials.list", (p) => this.listMaterials(requireStr(p.cwd, "cwd")));
-		core.register("materials.add", (p) =>
-			this.addMaterial({
-				cwd: requireStr(p.cwd, "cwd"),
-				kind: (["file", "folder", "text"] as const).find((k) => k === p.kind) ?? "file",
-				path: str(p.path),
-				content: str(p.content),
-				title: str(p.title),
-			}),
-		);
-		core.register("materials.remove", (p) => {
-			this.removeMaterial(requireStr(p.id, "id"));
-			return { ok: true };
-		});
 		core.register("artifacts.list", (p) => this.listArtifacts({ cwd: str(p.cwd), taskId: str(p.taskId), noteId: str(p.noteId), limit: num(p.limit) }));
 		core.register("desk.get", (p) => {
 			const cwd = requireStr(p.cwd, "cwd");

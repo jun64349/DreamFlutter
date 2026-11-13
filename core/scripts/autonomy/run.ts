@@ -31,7 +31,9 @@ function publish(report: unknown, out?: number): void {
 
 function args(argv: string[]) {
 	const mode = argv.shift() ?? "--dry";
-	if (!["--screen", "--dry", "--live"].includes(mode)) throw new Error("用法：--screen | --dry [--cases B4,B5] | --live --source <数据目录> --max-usd <批准额度> [--cases B4,B5] [--out <报告.json>]");
+	if (!["--screen", "--dry", "--live"].includes(mode)) {
+		throw new Error("用法：--screen | --dry [--cases B4,B5] | --live --source <数据目录> --max-usd <批准额度> [--cases B4,B5] [--out <报告.json>]\nB4 单项复跑建议上限 0.15 美元。");
+	}
 	const flags = new Map<string, string>();
 	while (argv.length) {
 		const key = argv.shift()!, value = argv.shift();
@@ -145,6 +147,7 @@ async function live(source: string, totalUsd: number, selected: readonly TrialCa
 		console.error("临时 WSL 和隔离后台已就绪：" + distro);
 		const profile: Profile = {
 			get core() { return core!; }, notices: notifier.sent,
+			live: true,
 			local: path => sandboxEnv(distro).local(path),
 			idle: clock.idle,
 			async restart() { await core!.shutdown(); await boot(); configureProfile(profile); },

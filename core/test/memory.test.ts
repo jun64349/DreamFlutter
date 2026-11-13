@@ -333,19 +333,19 @@ describe("memory", () => {
 		assert.equal((await item("m_pref")).item.status, "review");
 	});
 
-	it("v0.2's memory page methods still work on the new store", async () => {
-		const m = (await t.core.call("memory.add", { content: "使用 Node 18", kind: "experience", scope: "workspace", cwd: t.workspace })) as Memory;
-		assert.equal(m.cwd, t.workspace);
-		const edited = (await t.core.call("memory.edit", { id: m.id, content: "使用 Node 22" })) as Memory;
+	it("preserves version history and old read projections through the current memory methods", async () => {
+		const { item: m } = await t.core.call("memory.save", { content: "使用 Node 18", kind: "experience", scope: "workspace", cwd: t.workspace }) as { item: MemoryItem & { workspacePath: string } };
+		assert.equal(m.workspacePath, t.workspace);
+		const { item: edited } = await t.core.call("memory.update", { id: m.id, content: "使用 Node 22" }) as { item: MemoryItem };
 		assert.equal(edited.id, m.id, "an edit is a new version of the same memory");
-		const history = (await t.core.call("memory.history", { id: m.id })) as Memory[];
-		assert.deepEqual(history.map((h) => h.content), ["使用 Node 22", "使用 Node 18"]);
+		const { versions } = await t.core.call("memory.item", { id: m.id }) as { versions: { item: MemoryItem }[] };
+		assert.deepEqual(versions.map(({ item }) => item.content), ["使用 Node 22", "使用 Node 18"]);
 		await t.core.call("memory.setBlock", { key: "agreements", content: "- 周报每周五发\n- 会议纪要当天发", locked: true });
 		const blocks = (await t.core.call("memory.blocks", {})) as { key: string; content: string; locked: boolean }[];
 		const agreements = blocks.find((b) => b.key === "agreements")!;
 		assert.deepEqual([agreements.content, agreements.locked], ["周报每周五发\n会议纪要当天发", true]);
 		assert.deepEqual(((await t.core.call("memory.list", {})) as Memory[]).map((x) => x.content), ["使用 Node 22"], "block lines show in the blocks, not the list");
-		await t.core.call("memory.remove", { id: m.id });
+		await t.core.call("memory.setStatus", { id: m.id, status: "forgotten" });
 		assert.equal(((await t.core.call("memory.list", {})) as Memory[]).length, 0);
 	});
 });

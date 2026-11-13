@@ -19,6 +19,9 @@ export type PatrolChecks = Record<(typeof patrolCheckKeys)[number], boolean>;
 
 /** Agent-behaviour settings owned by the core so they also apply without a UI. */
 export interface CoreSettings {
+	voiceMode: "local" | "cloud";
+	voiceCloudProvider: string;
+	voiceIdleMinutes: number;
 	autoCheckUpdates: boolean;
 	startOnLogin: boolean;
 	closeBehavior: "tray" | "quit";
@@ -123,6 +126,9 @@ export interface CoreSettings {
 }
 
 export const DEFAULT_SETTINGS: CoreSettings = {
+	voiceMode: "local",
+	voiceCloudProvider: "bailian",
+	voiceIdleMinutes: 10,
 	autoCheckUpdates: true,
 	startOnLogin: false,
 	closeBehavior: "tray",
@@ -294,6 +300,9 @@ function sameType(reference: unknown, value: unknown): boolean {
 
 function valid(key: keyof CoreSettings, value: unknown): boolean {
 	switch (key) {
+		case "voiceMode": return value === "local" || value === "cloud";
+		case "voiceCloudProvider": return typeof value === "string" && /^[a-z][a-z0-9-]{0,31}$/.test(value);
+		case "voiceIdleMinutes": return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 120;
 		case "scheduleMissedDefault": return value === "skip" || value === "latest";
 		case "goalDefaultBudget": {
 			if (!value || typeof value !== "object" || Array.isArray(value)) return false;

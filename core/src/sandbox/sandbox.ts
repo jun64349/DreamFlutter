@@ -78,6 +78,11 @@ export interface WslResult {
 /** Runs wsl.exe; tests swap it. */
 export type WslRunner = (args: string[], options?: { input?: string | Buffer; timeoutMs?: number }) => Promise<WslResult>;
 
+/** Shared WSL operation. Callers decide how to handle an unsuccessful result. */
+export function unregisterSandbox(wsl: WslRunner, distro: string, timeoutMs = 60_000): Promise<WslResult> {
+	return wsl(["--unregister", distro], { timeoutMs });
+}
+
 export const runWsl: WslRunner = (args, options = {}) =>
 	new Promise((resolve) => {
 		// WSL_UTF8: wsl.exe's own messages in UTF-8 instead of UTF-16.
@@ -440,11 +445,18 @@ export class Sandbox implements CoreModule {
 		await copyFile(this.cleanPath, this.diskPath);
 		const result = await this.wsl(["--import-in-place", this.distro, this.diskPath], { timeoutMs: 120_000 });
 		if (result.code !== 0) throw new Error(`重置失败：${(result.stderr || result.stdout).trim()}`);
-		this.changed();
+		this.state = "ready";
+		this.error = null;
+		this.setStep(null);
 	}
 
 	async remove(): Promise<void> {
-		await this.wsl(["--unregister", this.distro], { timeoutMs: 60_000 });
+		const result = await unregisterSandbox(this.wsl, this.distro);
+		if (result.code !== 0) {
+			this.core.log.warn(`sandbox: unregister failed for ${this.distro} (exit ${result.code ?? "no exit code"})`, (result.stderr || result.stdout).trim());
+			const { RpcError } = await import("../core.ts");
+			throw new RpcError("unavailable", "无法注销蝶君沙箱，原来的数据已保留。请检查 WSL 后重试。");
+		}
 		await rm(this.dir, { recursive: true, force: true });
 		this.state = null;
 		this.booted = false;

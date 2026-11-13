@@ -416,7 +416,7 @@ export class SessionIndex implements CoreModule {
 
 	setFlag(path: string, flag: "pinned" | "archived", value: boolean): void {
 		const row = this.get(path);
-		if (!row) throw new Error("没有找到这个会话");
+		if (!row) throw new RpcError("not_found", "没有找到这个会话");
 		this.db.run(`UPDATE session_meta SET ${flag} = ? WHERE path = ?`, value ? 1 : 0, row.path);
 	}
 

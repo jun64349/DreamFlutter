@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { TasksModule } from "../src/modules/tasks.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -31,7 +32,7 @@ async function exportBackup(t: TestCore, params: Record<string, unknown>): Promi
 /** A machine with something of everything (as far as unit tests reach: no WSL). */
 async function populate(t: TestCore): Promise<{ sessionFile: string; material: string; keyId: string }> {
 	const core = t.core;
-	await core.call("memory.add", { content: "喜欢简短的回答", kind: "preference", scope: "workspace", cwd: t.workspace });
+	await core.call("memory.save", { content: "喜欢简短的回答", kind: "preference", scope: "workspace", cwd: t.workspace });
 	await core.call("tasks.create", { cwd: t.workspace, goal: "整理周报" });
 	await core.call("schedules.save", { name: "检查", prompt: "检查一下", cwd: t.workspace, trigger: { type: "interval", everyMs: 3_600_000 } });
 	// A session in Pi's own layout: a folder named after the workspace.
@@ -48,7 +49,7 @@ async function populate(t: TestCore): Promise<{ sessionFile: string; material: s
 	// 蝶君's material, a file on this machine.
 	const material = join(t.workspace, "数据.csv");
 	writeFileSync(material, "a,b\n1,2\n");
-	await core.call("materials.add", { cwd: core.paths.butterflyDir, kind: "file", path: material });
+	core.module(TasksModule)!.addMaterial({ cwd: core.paths.butterflyDir, kind: "file", path: material });
 	// A card package and Pi's settings.
 	mkdirSync(join(core.paths.dataDir, "cards", "c1"), { recursive: true });
 	writeFileSync(join(core.paths.dataDir, "cards", "c1", "card.json"), '{"title":"卡"}');
@@ -128,7 +129,7 @@ describe("backup", () => {
 
 		// Machine B: other folders throughout (another user name, another drive layout).
 		let b = await start();
-		await b.core.call("memory.add", { content: "B 原来的记忆", kind: "preference", scope: "global" });
+		await b.core.call("memory.save", { content: "B 原来的记忆", kind: "preference", scope: "global" });
 		const preview = (await b.core.call("backup.inspect", { path: file })) as { needsPassword: boolean; paths: { from: string; to: string; kind: string; exists: boolean }[]; counts: Record<string, number> };
 		assert.equal(preview.needsPassword, true);
 		const ws = preview.paths.find((p) => p.kind === "workspace" && p.from === a.workspace);
@@ -198,7 +199,7 @@ describe("backup", () => {
 
 	it("refuses packages that are newer, broken or malicious, leaving the data alone", { timeout: 120_000 }, async () => {
 		const a = await start();
-		await a.core.call("memory.add", { content: "原样", kind: "preference", scope: "global" });
+		await a.core.call("memory.save", { content: "原样", kind: "preference", scope: "global" });
 		const bad = async (name: string, entries: { name: string; data: Buffer }[]) => {
 			const path = join(a.dir, name);
 			writeFileSync(path, writeZip(entries));
@@ -257,7 +258,7 @@ describe("backup", () => {
 
 	it("a switch killed halfway completes on the next start; one that fails keeps the old data", { timeout: 300_000 }, async () => {
 		const a = await start();
-		await a.core.call("memory.add", { content: "来自备份", kind: "preference", scope: "global" });
+		await a.core.call("memory.save", { content: "来自备份", kind: "preference", scope: "global" });
 		const file = join(a.dir, "a.dfbackup");
 		assert.equal((await exportBackup(a, { path: file })).status, "done");
 
@@ -270,7 +271,7 @@ describe("backup", () => {
 
 		// Killed after two moves: the next start rolls back and switches again.
 		let b = await start();
-		await b.core.call("memory.add", { content: "B 自己的", kind: "preference", scope: "global" });
+		await b.core.call("memory.save", { content: "B 自己的", kind: "preference", scope: "global" });
 		await stageAndApply(b);
 		assert.throws(() => applyPendingRestore(b.core.paths, { killAfter: 2 }), Killed);
 		assert.equal(applyPendingRestore(b.core.paths)?.ok, true);
@@ -280,7 +281,7 @@ describe("backup", () => {
 
 		// Fails after three moves: everything goes back, and the result says why.
 		let c = await start();
-		await c.core.call("memory.add", { content: "C 自己的", kind: "preference", scope: "global" });
+		await c.core.call("memory.save", { content: "C 自己的", kind: "preference", scope: "global" });
 		await stageAndApply(c);
 		const outcome = applyPendingRestore(c.core.paths, { failAfter: 3 });
 		assert.equal(outcome?.ok, false);

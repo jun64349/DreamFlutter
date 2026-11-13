@@ -69,6 +69,32 @@ describe("websocket server", () => {
 		socket.close();
 	});
 
+	it("returns not_found for missing sessions and carries only explicit schedule conflict data", async () => {
+		const socket = await connect(server.port, { Authorization: `Bearer ${token}` });
+		try {
+			const missing = join(t.sessionDir, "missing.jsonl");
+			for (const method of ["sessions.setPinned", "sessions.setArchived"]) {
+				const { error } = await call(socket, method, { path: missing });
+				assert.deepEqual(error, { code: "not_found", message: "没有找到这个会话" });
+			}
+			const { result } = await call(socket, "schedules.save", {
+				name: "本地测试提醒", kind: "reminder", trigger: { type: "once", at: Date.now() + 3_600_000 },
+			});
+			const schedule = result as { id: string; version: number };
+			const { result: saved } = await call(socket, "schedules.save", {
+				id: schedule.id, expectedVersion: schedule.version, name: "已更新",
+			});
+			const { error } = await call(socket, "schedules.save", {
+				id: schedule.id, expectedVersion: schedule.version, name: "过期更改",
+			});
+			assert.deepEqual(error, { code: "version_conflict", message: "这件事刚被别人改过", data: saved });
+			const { error: removed } = await call(socket, "schedules.remove", { id: "missing", expectedVersion: 1 });
+			assert.deepEqual(removed, { code: "version_conflict", message: "这件事刚被别人改过", data: null });
+		} finally {
+			socket.close();
+		}
+	});
+
 	it("rejects a wrong token", async () => {
 		await assert.rejects(connect(server.port, { Authorization: "Bearer wrong" }), /401/);
 	});

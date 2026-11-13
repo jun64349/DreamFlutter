@@ -135,7 +135,8 @@ describe("T85 backend contracts", () => {
 		assert.deepEqual(["waiting", "running", "needs_input", "interrupted", "done", "no_change", "failed"].map((s) => butterflyStatus(s as any)), ["in_progress", "in_progress", "waiting", "waiting", "completed", "completed", "failed"]);
 		const task = t.core.module(TasksModule)!.create({ cwd: t.core.paths.butterflyDir, goal: "交付", source: "chat" });
 		t.core.db.run("UPDATE tasks SET status='done',result='完成了',cost=0.12,duration_ms=1500 WHERE id=?", task.id);
-		const view = await t.core.call("butterfly.task", { id: task.id }) as any;
+		const [view] = await t.core.call("butterfly.tasks", {}) as any[];
+		assert.equal(view.id, task.id);
 		assert.equal(view.status, "completed"); assert.deepEqual(view.delivery, { summary: "完成了", files: [], cost: 0.12, durationMs: 1500 });
 		assert.equal((await t.core.call("butterfly.tasks", {}) as any[]).length, 1);
 	});

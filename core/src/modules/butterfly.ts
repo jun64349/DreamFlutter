@@ -430,7 +430,6 @@ export class ButterflyModule implements CoreModule {
 	private register(): void {
 		const core = this.core;
 		core.register("butterfly.tasks", () => this.tasks.list({ cwd: this.home, limit: 200 }).map((t) => this.view(t)));
-		core.register("butterfly.task", (p) => { const task = this.tasks.get(requireStr(p.id, "id")); if (!task || !this.isHome(task.cwd)) throw new RpcError("not_found", "没有这项蝶君任务"); return this.view(task); });
 		core.register("butterfly.prepare", (p) => this.prepare(requireStr(p.slotId, "slotId"), requireStr(p.goal, "goal")));
 		core.register("butterfly.start", async (p) => {
 			const id = requireStr(p.id, "id");

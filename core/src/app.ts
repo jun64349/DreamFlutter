@@ -27,6 +27,8 @@ import { UpdateModule } from "./update/module.ts";
 import { AttentionModule } from "./modules/attention.ts";
 import { SetupModule } from "./modules/setup.ts";
 import { GitWindow } from "./git/window.ts";
+import { VoiceModule } from "./modules/voice/index.ts";
+import { registerUninstall } from "./uninstall/index.ts";
 
 /** Builds the core with every feature module wired in. */
 export function buildCore(options: CoreOptions): Core {
@@ -62,5 +64,7 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new McpModule(core));
 	core.use(new AttentionModule(core, tasks));
 	core.use(new SetupModule(core, gateway));
+	core.use(new VoiceModule(core));
+	registerUninstall(core);
 	return core;
 }

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai";
-import type { Artifact, Material, Note, Notice, Task } from "../src/modules/tasks.ts";
+import { TasksModule, type Artifact, type Material, type Note, type Notice, type Task } from "../src/modules/tasks.ts";
 import { settledCount, startTestCore, type TestCore } from "./harness.ts";
 
 function capture(into: string[], reply: string): FauxResponseFactory {
@@ -78,8 +78,8 @@ describe("tasks and the desk", () => {
 		assert.equal(note.title, "季度复盘");
 		const file = join(t.workspace, "data.csv");
 		writeFileSync(file, "q,revenue\n");
-		const material = (await t.core.call("materials.add", { cwd: t.workspace, kind: "file", path: file })) as Material;
-		const pasted = (await t.core.call("materials.add", { cwd: t.workspace, kind: "text", content: "去年同期收入 100 万" })) as Material;
+		const material = t.core.module(TasksModule)!.addMaterial({ cwd: t.workspace, kind: "file", path: file });
+		const pasted = t.core.module(TasksModule)!.addMaterial({ cwd: t.workspace, kind: "text", content: "去年同期收入 100 万" });
 		assert.equal(material.title, "data.csv");
 
 		const { task, prompt: text } = (await t.core.call("tasks.create", {
@@ -116,12 +116,24 @@ describe("tasks and the desk", () => {
 		assert.equal(saved.id, note.id);
 		assert.equal(saved.title, "标题");
 		assert.equal(saved.content, "草稿二");
-		const a = (await t.core.call("materials.add", { cwd: t.workspace, kind: "folder", path: t.workspace })) as Material;
-		const b = (await t.core.call("materials.add", { cwd: t.workspace, kind: "folder", path: t.workspace })) as Material;
+		const a = t.core.module(TasksModule)!.addMaterial({ cwd: t.workspace, kind: "folder", path: t.workspace });
+		const b = t.core.module(TasksModule)!.addMaterial({ cwd: t.workspace, kind: "folder", path: t.workspace });
 		assert.equal(a.id, b.id);
-		await assert.rejects(t.core.call("materials.add", { cwd: t.workspace, kind: "file", path: join(t.workspace, "missing.txt") }));
-		await t.core.call("notes.remove", { id: note.id });
-		assert.equal(((await t.core.call("notes.list", { cwd: t.workspace })) as Note[]).length, 0);
+		assert.throws(() => t.core.module(TasksModule)!.addMaterial({ cwd: t.workspace, kind: "file", path: join(t.workspace, "missing.txt") }));
+		t.core.module(TasksModule)!.removeNote(note.id);
+		assert.equal(((await t.core.call("desk.get", { cwd: t.workspace }) as { notes: Note[] }).notes).length, 0);
+	});
+
+	it("keeps stored notes and materials readable through desk.get after retiring their old routes", async () => {
+		const module = t.core.module(TasksModule)!;
+		const note = module.saveNote({ cwd: t.workspace, content: "# 旧写笺" });
+		const material = module.addMaterial({ cwd: t.workspace, kind: "text", content: "旧资料" });
+		const { notes, materials } = await t.core.call("desk.get", { cwd: t.workspace }) as { notes: Note[]; materials: Material[] };
+		assert.deepEqual(notes, [note]);
+		assert.deepEqual(materials, [material]);
+		for (const method of ["notes.get", "notes.list", "notes.remove", "materials.list", "materials.add", "materials.remove"]) {
+			await assert.rejects(t.core.call(method, {}), { code: "unknown_method" });
+		}
 	});
 
 	it("a run over the turn limit is paused with a card; continue lets it finish", async () => {

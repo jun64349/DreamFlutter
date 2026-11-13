@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, it, mock, type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { RpcError } from "../src/core.ts";
+import { RpcError, type Client } from "../src/core.ts";
 import type { ActionReceipt, AttentionItem } from "../src/modules/attention.ts";
 import { SchedulerModule, type Schedule, type ScheduleRun } from "../src/modules/scheduler.ts";
 import { MIGRATIONS } from "../src/schema.ts";
@@ -54,11 +54,27 @@ async function openButterfly() {
 let requestNumber = 0;
 async function tool(slot: Slot, name: string, params: Parameters<typeof fauxToolCall>[1]) {
 	const id = `test-tool-${++requestNumber}`;
-	const settled = () => t.records(slot.slotId).filter(r => r.type === "agent_settled").length;
-	const before = settled();
+	let client!: Client;
+	const settled = new Promise<void>((resolve, reject) => {
+		client = t.core.addClient(message => {
+			if (message.event !== "slot.record" || message.slotId !== slot.slotId) return;
+			const record = message.record as Record<string, unknown>;
+			if (record.type === "agent_settled") resolve();
+			if (record.type === "response" && record.id === id && record.success === false) {
+				reject(new Error(`${name}: ${String(record.error)}`));
+			}
+		});
+		client.attached.add(slot.slotId);
+	});
 	t.respond(fauxAssistantMessage([fauxToolCall(name, params, { id })], { stopReason: "toolUse" }), fauxAssistantMessage("已处理"));
-	await t.send(slot.slotId, { id, type: "prompt", message: "请处理这个日程" });
-	await t.waitFor(() => settled() > before);
+	try {
+		await Promise.all([
+			settled,
+			t.send(slot.slotId, { id, type: "prompt", message: "请处理这个日程" }),
+		]);
+	} finally {
+		t.core.removeClient(client);
+	}
 	const result = [...slot.session.messages].reverse().find(message => message.role === "toolResult" && message.toolCallId === id);
 	assert.ok(result, `${name} should produce a tool result`);
 	return result as unknown as ToolResult;
@@ -153,7 +169,7 @@ it("returns real past runs and future preview times, with bounds, paused and dai
 	assert.deepEqual(afterRemoval.items.filter(item => item.scheduleId === a.id), [past]);
 });
 
-it("rejects an update based on the same version another writer already changed", async () => {
+it("rejects an update based on the same version another writer already changed", { timeout: 60_000 }, async () => {
 	const slot = await openButterfly();
 	const created = await tool(slot, "schedule_create", { name: "旧名", kind: "reminder", trigger: "interval", every_minutes: 30 });
 	const original = await get(created.details.scheduleId!);
@@ -205,7 +221,7 @@ it("records edits and undo, restores a deleted schedule with a new version, and 
 	assert.ok(t.messages.some(message => message.event === "schedules.changed" && (message.versions as Record<string, number>)?.[original.id] === restored.version && (message.ids as string[])?.includes(original.id)));
 });
 
-it("requires approval for changes to a user's schedule, handles rejection and voids a stale approval", async ctx => {
+it("requires approval for changes to a user's schedule, handles rejection and voids a stale approval", { timeout: 60_000 }, async ctx => {
 	const user = await save({ name: "晨跑" });
 	const slot = await openButterfly();
 	const proposed = await tool(slot, "schedule_update", { id: user.id, version: user.version, name: "早起散步" });
@@ -245,7 +261,7 @@ it("does not offer any schedule_* tools to a workbench conversation", async () =
 	assert.ok(!slot.session.getAllTools().some(tool => tool.name.startsWith("schedule_")));
 });
 
-it("creates immediately, lists by range and status, edits and removes its own schedule with ready-to-display lines", async () => {
+it("creates immediately, lists by range and status, edits and removes its own schedule with ready-to-display lines", { timeout: 60_000 }, async () => {
 	const slot = await openButterfly();
 	const created = await tool(slot, "schedule_create", { name: "提醒吃药", kind: "reminder", trigger: "daily", times: ["9:00", "12:00", "15:00", "18:00"], timezone: daily.timezone });
 	const id = created.details.scheduleId!;

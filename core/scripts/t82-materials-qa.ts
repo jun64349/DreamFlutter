@@ -26,7 +26,7 @@ const skillsCopy=join(qa,'skills-inputs');mkdirSync(skillsCopy,{recursive:true})
 for(const [key,name]of [['U07-05','u07-community-demo'],['U07-06','u07-script-demo'],['U07-06','u07-script-failure']])copyTree(join(folder(key!),name!),join(skillsCopy,name!));
 const before=hashes(skillsCopy);
 const coreRoot=join(qa,'api-profile');assert.ok(!existsSync(coreRoot));
-const t=await startTestCore(coreRoot,{gatewayTransport:async()=>{proof.gatewayAttempts++;throw Error('Paid transport prohibited in materials QA');}});
+const t=await startTestCore(coreRoot,{gatewayTransport:()=>{proof.gatewayAttempts++;throw Error('Paid transport prohibited in materials QA');}});
 const {core}=t;
 const distro='df-t82-materials-20261109';
 try{
@@ -82,7 +82,7 @@ try{
   // Revocation is an explicit operator action in this owned fixture profile, no model involved.
   core.library.write('skill',locator(imported[0].filePath),{trust:'untrusted',enabled:false,butterflyAllowed:false});
   core.library.write('mcp',core.library.mcpKey({name:a.name,source:a.source}),{trust:'untrusted',enabled:false,butterflyAllowed:false});
-  await core.call('memory.add',{content:'我的测试项目代号是纸鹤79。',kind:'background'});
+  await core.call('memory.save',{content:'我的测试项目代号是纸鹤79。',kind:'background'});
   for(const target of ['\\\\df-v07.invalid\\share\\database-test','\\\\?\\UNC\\df-v07.invalid\\share\\database-test']){
     const previous=await core.call('storage.locations',{});
     await assert.rejects(core.call('storage.move',{kind:'database',target}),/网络|network|UNC/i);
@@ -91,7 +91,7 @@ try{
   test('invalid-network-database-paths',{paths:2,locationsUnchanged:true,restartScheduled:false});
   await core.shutdown();
   // Reopen same owned profile to validate persisted revocation/memory.
-  const restarted=await startTestCore(coreRoot,{gatewayTransport:async()=>{throw Error('Paid transport prohibited');}});
+  const restarted=await startTestCore(coreRoot,{gatewayTransport:()=>{throw Error('Paid transport prohibited');}});
   try{
     assert.equal(restarted.core.library.fileAllowed('skill',imported[0].filePath),false);
     state=await restarted.core.call('mcp.list',{});const revoked=state.servers.find((s:any)=>s.name===a.name);assert.equal(revoked.trust,'untrusted');assert.equal(revoked.butterflyAllowed,false);

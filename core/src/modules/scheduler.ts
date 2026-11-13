@@ -572,7 +572,7 @@ export class SchedulerModule implements CoreModule {
 
 	private checkVersion(schedule: Schedule | undefined, expectedVersion?: number, message = "这件事刚被别人改过"): void {
 		if (expectedVersion !== undefined && expectedVersion !== schedule?.version) {
-			throw Object.assign(new RpcError("version_conflict", message), { data: schedule ? this.view(schedule) : null });
+			throw new RpcError("version_conflict", message, schedule ? this.view(schedule) : null);
 		}
 	}
 
@@ -755,7 +755,7 @@ export class SchedulerModule implements CoreModule {
 		const current = this.get(change.scheduleId);
 		const version = current?.version ?? this.deletion(change.scheduleId)?.versionAfter;
 		if (version !== change.versionAfter || change.undoneAt !== null) {
-			throw Object.assign(new RpcError("version_conflict", "这件事刚被别人改过"), { data: current ? this.view(current) : null });
+			throw new RpcError("version_conflict", "这件事刚被别人改过", current ? this.view(current) : null);
 		}
 		const restored = change.before && this.reschedule(change.before, current ?? null, version + 1);
 		this.applyChange(this.makeChange(current ?? null, restored, "user", "undo", version), { undoId: change.id });
