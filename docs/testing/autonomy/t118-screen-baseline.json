@@ -1,0 +1,224 @@
+{
+  "mode": "screen",
+  "screen": {
+    "total": 30,
+    "correct": 24,
+    "falseAccept": 3,
+    "missed": 2,
+    "wrongRoute": 1,
+    "requests": 0,
+    "costUsd": 0,
+    "results": [
+      {
+        "id": 1,
+        "group": "闲聊",
+        "phrase": "嗨，今天过得怎么样？",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 2,
+        "group": "闲聊",
+        "phrase": "辛苦了，休息会儿吧。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 3,
+        "group": "闲聊",
+        "phrase": "我今天先去开会，再回来和你聊。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 4,
+        "group": "闲聊",
+        "phrase": "昨天的报告写得挺清楚。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 5,
+        "group": "闲聊",
+        "phrase": "你觉得先读原文再做摘要怎么样？",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 6,
+        "group": "闲聊",
+        "phrase": "今天只是随便聊聊，不用做事。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 7,
+        "group": "提问",
+        "phrase": "请问怎么先核对资料，再交付报告？",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 8,
+        "group": "提问",
+        "phrase": "你知道如何分步整理日志吗？",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 9,
+        "group": "提问",
+        "phrase": "为什么同一份数据会输出两个结果？",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 10,
+        "group": "提问",
+        "phrase": "帮我解释一下，为什么要先查原始记录再生成报告？",
+        "expected": "chat",
+        "actual": "sandbox"
+      },
+      {
+        "id": 11,
+        "group": "提问",
+        "phrase": "给我说说先对账再生成报告的好处是什么？",
+        "expected": "chat",
+        "actual": "sandbox"
+      },
+      {
+        "id": 12,
+        "group": "提问",
+        "phrase": "「交付 notes.md」是什么意思？",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 13,
+        "group": "含糊请求",
+        "phrase": "有空帮我看看这份资料。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 14,
+        "group": "含糊请求",
+        "phrase": "请整理一下。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 15,
+        "group": "含糊请求",
+        "phrase": "帮我弄个文档，具体以后再说。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 16,
+        "group": "含糊请求",
+        "phrase": "麻烦你看看这个，然后告诉我想法。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 17,
+        "group": "含糊请求",
+        "phrase": "给我一点整理思路。",
+        "expected": "chat",
+        "actual": "chat"
+      },
+      {
+        "id": 18,
+        "group": "含糊请求",
+        "phrase": "请先别开始，等我补资料后再交付 report.md。",
+        "expected": "chat",
+        "actual": "sandbox"
+      },
+      {
+        "id": 19,
+        "group": "明确交办",
+        "phrase": "请先读两份材料，再核对数字，最后交付 report.md。",
+        "expected": "sandbox",
+        "actual": "sandbox"
+      },
+      {
+        "id": 20,
+        "group": "明确交办",
+        "phrase": "帮我先检查日志，然后归纳失败项，最后输出 result.md。",
+        "expected": "sandbox",
+        "actual": "sandbox"
+      },
+      {
+        "id": 21,
+        "group": "明确交办",
+        "phrase": "麻烦你分步复核两份清单，生成 audit.csv。",
+        "expected": "sandbox",
+        "actual": "sandbox"
+      },
+      {
+        "id": 22,
+        "group": "明确交办",
+        "phrase": "先盘点附件，再对照清单，最后写成 summary.md。",
+        "expected": "sandbox",
+        "actual": "sandbox"
+      },
+      {
+        "id": 23,
+        "group": "明确交办",
+        "phrase": "把两份资料先核对，再汇总，最后交付 diff.md。",
+        "expected": "sandbox",
+        "actual": "chat"
+      },
+      {
+        "id": 24,
+        "group": "明确交办",
+        "phrase": "在沙箱里先检查 samples，再统计差异，最后保存为 delta.md。",
+        "expected": "sandbox",
+        "actual": "chat"
+      },
+      {
+        "id": 25,
+        "group": "明确交办",
+        "phrase": "请反复核对表格直到数字一致，交付 check.md。",
+        "expected": "sandbox",
+        "actual": "sandbox"
+      },
+      {
+        "id": 26,
+        "group": "沙箱外",
+        "phrase": "请先汇总结果，然后写入本机文件 \"C:\\T118\\result.txt\"，最后交付说明。",
+        "expected": "external",
+        "actual": "external"
+      },
+      {
+        "id": 27,
+        "group": "沙箱外",
+        "phrase": "麻烦你先核对，再修改本机文件 \"C:\\T118\\report.txt\"，最后交付说明。",
+        "expected": "external",
+        "actual": "external"
+      },
+      {
+        "id": 28,
+        "group": "沙箱外",
+        "phrase": "请先检查材料，再把结果发邮件给团队，最后交付说明。",
+        "expected": "needs_scope",
+        "actual": "sandbox"
+      },
+      {
+        "id": 29,
+        "group": "沙箱外",
+        "phrase": "请先整理再上传结果，最后交付回执。",
+        "expected": "needs_scope",
+        "actual": "needs_scope"
+      },
+      {
+        "id": 30,
+        "group": "沙箱外",
+        "phrase": "帮我先汇总，再写到桌面，最后交付说明。",
+        "expected": "needs_scope",
+        "actual": "needs_scope"
+      }
+    ]
+  }
+}

@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { DEFAULT_MIN_FREE_BYTES, MemorySpaceGuard } from "../storage/memory-maintenance.ts";
 import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
+import { BUTTERFLY_MEMORY_SOURCES, isButterflyMemorySource, misattributesButterflyName, startsWithUserProfile, type ButterflyMemorySource } from "./persona/memory-source.ts";
 import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { Core, CoreModule, Params } from "../core.ts";
 import { normalizeCwd, num, RpcError, requireStr, str } from "../core.ts";
@@ -206,7 +207,11 @@ export class MemoryModule implements CoreModule {
 		const recovered = this.spacePaused === true && !status.paused;
 		this.spacePaused = status.paused;
 		this.core.broadcast({ event: "memory.storage", ...status });
-		if (status.paused || recovered) this.core.notifier.notify("记忆存储", status.reason ?? "磁盘空间已恢复，记忆写入已继续。");
+		const message = status.reason ?? "磁盘空间已恢复，记忆写入已继续。";
+		this.core.notifications.postTransition({ objectRef: "memory:storage", category: status.paused ? "blocked" : "done",
+			object: "记忆存储", situation: status.paused ? "磁盘空间不足" : "磁盘空间已恢复", impact: message,
+			action: "查看存储状态", target: { page: "memory" },
+		}, status.paused || recovered, { title: "记忆存储", body: message });
 		if (recovered) { this.flushDeferred(); this.work.checkSchedule(); void this.work.drain(); }
 	}
 
@@ -557,14 +562,42 @@ export class MemoryModule implements CoreModule {
 
 	// ---- extension ---------------------------------------------------------------------
 
+	/** For the conversation tool and later trusted work/learning producers. */
+	recordButterflyMemory(input: { source: ButterflyMemorySource; refId: string; content: string; persona?: boolean; sessionFile?: string | null }): CommitResult {
+		const ref = input.refId.trim();
+		if (!this.enabled || !isButterflyMemorySource(input.source) || !ref) {
+			throw new RpcError("bad_request", "蝶君记忆需要启用记忆并注明来源编号");
+		}
+		const set = this.scopesFor(this.core.paths.butterflyDir);
+		const kind: ItemKind = input.source === "work" ? "progress" : input.source === "learning" ? "experience" : input.persona ? "persona" : "observation";
+		const content = misattributesButterflyName(input.content) && input.persona ? "用户称 Agent 为蝶君" : input.content;
+		if (startsWithUserProfile(content)) return { batchId: null, applied: [], pending: [], rejected: [{ index: 0, reason: "关于用户本人的信息，请按普通记忆写入" }] };
+		const existing = this.db.all<{ item_id: string }>("SELECT DISTINCT item_id FROM memory_sources WHERE ref=? AND kind=?", ref, input.source)
+			.flatMap(({ item_id }) => {
+				const item = this.store.get(item_id);
+				return item?.scope === "butterfly" && item.kind === kind ? [item] : [];
+			});
+		const twin = nearDuplicate(content, existing);
+		if (twin) return { batchId: null, applied: [], pending: [], rejected: [{ index: 0, reason: "已有来自这次来源的相近记忆" }] };
+		return this.store.commit({
+			actor: "main_agent", allowed: set, butterflySelf: true, batchKind: "save", sessionRef: input.sessionFile,
+			ops: [{
+				kind: "add",
+				item: { scope: "butterfly", kind, level: 1, content, confidence: "agent_inferred" },
+				sources: [{ kind: input.source, ref }, ...(input.sessionFile ? [{ kind: "session" as const, ref: input.sessionFile }] : [])],
+			}],
+		});
+	}
+
 	/** Snapshot injection and memory tools for one session slot. */
-	extension(slot: { slotId: string }): ExtensionFactory {
+	extension(slot: { slotId: string; sandboxed?: boolean }): ExtensionFactory {
 		const module = this;
 		return (pi: ExtensionAPI) => {
 			const current = () => module.core.slots.get(slot.slotId);
 			const incognito = () => current()?.incognito === true;
 			const scopes = () => module.scopesFor(current()?.cwd ?? process.cwd());
 			const sessionRef = () => current()?.info().sessionFile ?? null;
+			const butterfly = () => current()?.sandboxed === true && scopes().butterfly;
 			/** A scheduled run: its memory changes wait for the user (nobody asked it to remember). */
 			const unattended = () => current()?.unattended === true;
 
@@ -684,6 +717,7 @@ export class MemoryModule implements CoreModule {
 				description:
 					"Save one thing to long-term memory; it takes effect at once and goes in the user's memory log (they can change or undo it). Set explicit=true only when the user asked you to remember it; otherwise (your own inference or lesson learned) explicit=false, shown as 「推测」. " +
 					"One fact per call. Write it about the user, in the third person (「用户……」). What the user set about you (your name, role, how to address them) is kind=persona, e.g. 「用户称 Agent 为……」, never a fact about the user. " +
+					(slot.sandboxed ? "For your own Butterfly memories, use butterfly_source=chat for a notable conversation or something the user set about you, work for completed work, and learning for lessons. Use the actual goal, delivery or learning reference for work and learning. User facts still use the usual fields. " : "") +
 					"Do not save: failures caused by a missing tool or setup (save how it was fixed instead), errors that went away on retry, attempts that never worked, one-off task details, or what skills and project rules already say. If a memory already says much the same, use memory_update.",
 				parameters: {
 					type: "object",
@@ -696,18 +730,35 @@ export class MemoryModule implements CoreModule {
 						pinned: { type: "boolean", description: "The user wants it in every conversation" },
 						valid_until: { type: "string", description: "YYYY-MM-DD when it stops being true (「这周在赶论文」), if known" },
 						reason: { type: "string", description: "Why this is worth remembering" },
+						...(slot.sandboxed ? {
+							butterfly_source: { type: "string", enum: BUTTERFLY_MEMORY_SOURCES },
+							butterfly_ref: { type: "string", description: "Source id for work or learning. The chat source is linked automatically." },
+						} : {}),
 					},
 					required: ["content", "explicit"],
 				} as never,
-				async execute(_id, params: { content: string; kind?: ItemKind; scope?: "global" | "workspace"; explicit: boolean; long_term?: boolean; pinned?: boolean; valid_until?: string; reason?: string }) {
+				async execute(_id, params: { content: string; kind?: ItemKind; scope?: "global" | "workspace"; explicit: boolean; long_term?: boolean; pinned?: boolean; valid_until?: string; reason?: string; butterfly_source?: ButterflyMemorySource; butterfly_ref?: string }) {
 					if (off()) return text("记忆功能已关闭，没有保存。");
 					if (readOnly()) return readOnlyText();
 					const set = scopes();
 					const kind = ITEM_KINDS.includes(params.kind as ItemKind) ? (params.kind as ItemKind) : "background";
+					if (params.butterfly_source !== undefined && (!butterfly() || !isButterflyMemorySource(params.butterfly_source))) return text("这不是有效的蝶君记忆来源。");
+					const selfSource = params.butterfly_source ?? (butterfly() && (kind === "persona" || misattributesButterflyName(params.content)) ? "chat" : undefined);
+					if (selfSource) {
+						const live = current()!;
+						const refId = selfSource === "chat" ? live.currentRun?.id ?? live.session.sessionId : str(params.butterfly_ref);
+						if (!refId?.trim()) return text("请注明工作的目标或交付编号，或学习记录的编号。");
+						const result = module.recordButterflyMemory({
+							source: selfSource, refId, content: params.content, persona: kind === "persona" || misattributesButterflyName(params.content), sessionFile: sessionRef(),
+						});
+						return text(receipt(result, item => `已保存到蝶君记忆（#${item.id}）。`));
+					}
 					const target = params.scope === "global" ? { scope: "global" as ItemScope, workspaceId: null } : homeScope(set);
 					const commit = (ops: MemoryOp[]) => module.store.commit({ actor: "main_agent", ops, explicit: params.explicit, allowed: set, sessionRef: sessionRef(), batchKind: "save", reason: params.reason, confirm: unattended() });
 					// Much the same as a memory already there: a fuller version updates it, a shorter one is not saved twice.
-					const twin = nearDuplicate(params.content, module.store.list({ set }));
+					const candidates = module.store.list({ set });
+					const twin = nearDuplicate(params.content, set.butterfly ? candidates.filter(item => item.kind !== "persona" &&
+						(item.scope !== "butterfly" || !module.store.sources(item.id).some(source => isButterflyMemorySource(source.kind)))) : candidates);
 					if (twin) {
 						if (target.scope === "global" && twin.scope !== "global") {
 							const result = commit([{kind:"edit",id:twin.id,baseVersion:twin.version,patch:{scope:"global",workspaceId:null,groupId:null,content:params.content},sources:[{kind:"session",ref:sessionRef()}],reason:params.reason}]);
@@ -822,7 +873,7 @@ export class MemoryModule implements CoreModule {
 		};
 	}
 
-	extensions(slot: { slotId: string; sideConversation?: boolean }): ExtensionFactory[] {
+	extensions(slot: { slotId: string; sideConversation?: boolean; sandboxed?: boolean }): ExtensionFactory[] {
 		return slot.sideConversation ? [] : [this.extension(slot)];
 	}
 

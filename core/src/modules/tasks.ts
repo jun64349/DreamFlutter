@@ -513,7 +513,12 @@ export class TasksModule implements CoreModule {
 		this.core.log.info(`run ${run.id} stopped: ${title}`);
 		void slot.session.abort();
 		this.core.broadcast({ event: "notices.changed", notice });
-		if (this.core.settings.get().notifications) this.core.notifier.notify(title, slot.info().sessionName ?? slot.cwd);
+		// In quiet hours the task toast drops; the goal's own deferred notification can still resume.
+		const budgetKey = kind === "goal_budget" && goalId && !this.core.notifications.quiet() ? this.core.notifications.activeBudgetKey(goalId) : undefined;
+		this.core.notifications.post({ key: budgetKey ?? `task-limit:${run.id}:${kind}`, category: "blocked", objectRef: goalId ?? run.id,
+			object: slot.info().sessionName ?? "任务", situation: title, impact: body, action: "查看处理选项",
+			target: { page: "attention", slotId: slot.slotId, sessionFile: notice.sessionFile, taskId: notice.taskId, itemId: notice.id, runId: run.id, goalId },
+		}, { legacy: { title, body: slot.info().sessionName ?? slot.cwd } });
 	}
 
 	listNotices(status: Notice["status"] | undefined = "pending"): Notice[] {

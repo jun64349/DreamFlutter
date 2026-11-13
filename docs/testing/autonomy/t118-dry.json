@@ -1,0 +1,141 @@
+{
+  "screen": {
+    "total": 30,
+    "correct": 30,
+    "falseAccept": 0,
+    "missed": 0,
+    "wrongRoute": 0
+  },
+  "mode": "dry",
+  "physicalRequests": 0,
+  "realCostUsd": 0,
+  "sandbox": "模拟 WSL 路径与合成文件",
+  "fixturePrices": {
+    "input": 0.3,
+    "output": 1.2,
+    "cacheRead": 0.006,
+    "cacheWrite": 0
+  },
+  "cases": [
+    {
+      "name": "B2 对话交办",
+      "passed": true,
+      "evidence": {
+        "goalId": "g_5c69647084eabd58",
+        "bytes": 52,
+        "explanation": "已核对两份记录，结果与原始数据一致。",
+        "artifact": "/workspace/outbox/g_5c69647084eabd58/report.md"
+      },
+      "elapsedMs": 1011,
+      "rounds": 1,
+      "requests": 2,
+      "transportRequests": 0,
+      "fakeModelRequests": 2,
+      "reservedOrEstimatedUsd": 0,
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0.0031791000000000002,
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "price_estimate"
+      ]
+    },
+    {
+      "name": "B3 规则观察与自动交付",
+      "passed": true,
+      "evidence": {
+        "observed": "本来会接这件事：模型判断与规则任务有关",
+        "goalId": "g_69f5caa9",
+        "bytes": 52,
+        "notifications": 1
+      },
+      "elapsedMs": 1037,
+      "rounds": 1,
+      "requests": 4,
+      "transportRequests": 0,
+      "fakeModelRequests": 4,
+      "reservedOrEstimatedUsd": 0,
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0.0032837939999999996,
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "price_estimate"
+      ]
+    },
+    {
+      "name": "B4 空闲学习、记忆和主动聊天",
+      "passed": true,
+      "evidence": {
+        "goalId": "g_ae6650abdafc1121",
+        "planId": "431b9e8f-f91c-41f8-9b5b-4ecabbe478e6",
+        "memory": true,
+        "proactive": true
+      },
+      "elapsedMs": 1172,
+      "rounds": 4,
+      "requests": 5,
+      "transportRequests": 0,
+      "fakeModelRequests": 5,
+      "reservedOrEstimatedUsd": 0,
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0.006181278,
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "price_estimate"
+      ]
+    },
+    {
+      "name": "B5 四种性格",
+      "passed": true,
+      "evidence": {
+        "samePrompt": "两份资料都整理好了，还有一项需要我明天确认。请用一句话告诉我现在的进度。",
+        "replies": {
+          "quiet": "资料已理好，放在原处。你得空再看。",
+          "warm": "我把资料理好了。你今天要是忙，等有空再一起看也行。",
+          "crisp": "资料整理完毕。下一步是核对缺失的两项。",
+          "lively": "资料都归队啦。还有两张纸在当逃兵，我给它们标出来了。"
+        },
+        "humanReview": "空跑样例"
+      },
+      "elapsedMs": 625,
+      "rounds": 4,
+      "requests": 4,
+      "transportRequests": 0,
+      "fakeModelRequests": 4,
+      "reservedOrEstimatedUsd": 0,
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0.0118737,
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "price_estimate"
+      ]
+    },
+    {
+      "name": "B6 报价与重启",
+      "passed": true,
+      "evidence": {
+        "goalId": "g_0703a417df2b0b3e",
+        "statusAfterRestart": "paused",
+        "reasonAfterRestart": "restart_check",
+        "preservedDelivery": 1,
+        "resumed": true
+      },
+      "elapsedMs": 1475,
+      "rounds": 1,
+      "requests": 2,
+      "transportRequests": 0,
+      "fakeModelRequests": 2,
+      "reservedOrEstimatedUsd": 0,
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0.003571752,
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "price_estimate"
+      ]
+    }
+  ]
+}

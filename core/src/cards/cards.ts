@@ -554,7 +554,15 @@ export class CardsModule implements CoreModule {
 		// 蝶君 lives in its sandbox: its cards get nothing on this machine (roadmap 3.5).
 		if (samePath(row.cwd, this.core.paths.butterflyDir)) return fail(CODES.TOOL_UNAVAILABLE, "蝶君的卡片不能使用这台电脑上的文件、网络或程序");
 		const args = input.input === undefined ? null : input.input;
-		const ctx = { cwd: row.cwd ?? process.cwd(), notify: (title: string, body: string) => this.core.notifier.notify(title, body), allowLocalNetwork: this.allowLocalNetwork };
+		const ctx = { cwd: row.cwd ?? process.cwd(), allowLocalNetwork: this.allowLocalNetwork,
+			sendNotice: async (title: string, body: string) => {
+				const fingerprint = createHash("sha256").update(JSON.stringify([bindingId, title, body])).digest("hex");
+				const { state, reason } = await this.core.notifications.send({ key: `card:${row.id}:${fingerprint}`, category: "reminder", objectRef: row.id,
+					object: row.title, situation: title, impact: body, action: "查看卡片", target: { page: "chat", sessionFile: row.session_file, itemId: row.id },
+				}, { legacy: { title, body } });
+				return state === "sent" && reason !== "duplicate";
+			},
+		};
 		let call;
 		try {
 			call = await prepareCall(binding, args, ctx);

@@ -6,6 +6,8 @@ import { GoalsModule } from "./goals.ts";
 import { MemoryModule } from "./memory.ts";
 import { SchedulerModule } from "./scheduler.ts";
 import { TasksModule } from "./tasks.ts";
+import type { NoticeCategory } from "./notices/journal.ts";
+import { attentionMetrics } from "./notices/metrics.ts";
 
 export interface AttentionItem {
 	id: string; kind: string; group: "now" | "later"; title: string; reason: string;
@@ -35,24 +37,24 @@ export class AttentionModule implements CoreModule {
 	constructor(core: Core, tasks: TasksModule) {
 		this.core = core; this.tasks = tasks;
 		core.register("attention.list", () => this.list());
+		core.register("attention.prioritized", () => this.prioritized());
+		core.register("attention.metrics", p => attentionMetrics(core,
+			typeof p.days === "number" && Number.isInteger(p.days) ? Math.max(1, Math.min(p.days, 30)) : 30));
 		core.register("attention.resolve", p => this.resolve(requireStr(p.id, "id"), requireStr(p.action, "action"), p.response as Record<string, unknown> | undefined));
 		core.register("attention.undo", p => this.undo(requireStr(p.id, "id")));
 		core.register("attention.receipt", p => this.receipt(requireStr(p.id, "id")));
 		core.beforeShutdown(() => this.flush());
 	}
 	start(): void {
+		this.core.notifications.recover();
 		this.unsubscribe = this.core.onBroadcast(message => {
+			if (message.event === "settings.changed" && !this.core.settings.get().notifications) this.core.notifications.muteQueue();
 			if (message.event === "goals.changed") {
 				const approvals = this.core.module(GoalsModule)?.scheduler.pendingApprovals() ?? [];
 				const key = approvals.map(approval => approval.id).join(",");
 				if (key === this.goalApprovalKey) return;
 				this.goalApprovalKey = key;
 			} else if (!SOURCE_EVENTS.has(String(message.event))) return;
-			if (message.event === "notices.changed" && message.notice) {
-				const n = message.notice as Record<string, unknown>, slot = this.core.slots.get(String(n.slotId));
-				// The original notice owner still delivers its legacy toast; do not deliver it twice.
-				if (slot?.sandboxed) this.core.notifications.publish("butterfly.waiting", { title: "蝶君有件事等你决定", body: String(n.title), target: { page: "attention", slotId: slot.slotId, sessionFile: slot.info().sessionFile, itemId: String(n.id), runId: slot.currentRun?.id } }, { legacyFallback: false });
-			}
 			if (!this.queued && !this.closing) {
 				this.queued = true;
 				queueMicrotask(() => { this.queued = false; if (!this.closing) this.changed(); });
@@ -115,8 +117,8 @@ export class AttentionModule implements CoreModule {
 		}
 		return [...keyed.values()].sort((a,b) => Number(b.createdAt) - Number(a.createdAt));
 	}
-	private items(): AttentionItem[] {
-		return this.sourceItems().map(row => {
+	private items(source = this.sourceItems()): AttentionItem[] {
+		return source.map(row => {
 			const kind = String(row.kind), id = String(row.id);
 			let data = (row.data ?? {}) as Record<string, unknown>;
 			let title = String(row.title ?? "");
@@ -164,11 +166,38 @@ export class AttentionModule implements CoreModule {
 			return { id: `${kind}:${id}`, kind, group, title: title.split("\n")[0]!.slice(0,180), reason, origin: { role, sessionName, sessionFile, slotId, cwd }, target: { page: kind === "memory" ? "memory" : kind === "proposal" ? "library" : kind === "schedule_change" ? "schedule" : "chat", sessionFile, slotId, itemId: id }, actions, data };
 		});
 	}
-	list() {
+	list(source?: ReturnType<AttentionModule["sourceItems"]>) {
 		const hidden = new Set([...this.actions.values()].filter(a => a.receipt.status === "pending").map(a => a.receipt.itemId));
-		const items = this.items().filter(i => !hidden.has(i.id));
+		const items = this.items(source).filter(i => !hidden.has(i.id));
 		const now = items.filter(i => i.group === "now"), later = items.filter(i => i.group === "later");
 		return { now, later, counts: { now: now.length, later: later.length, total: items.length }, pending: [...this.actions.values()].filter(a => a.receipt.status === "pending").map(a => this.view(a)) };
+	}
+	private prioritized() {
+		const source = this.sourceItems();
+		const occurred = new Map(source.map(row => [String(row.kind) + ":" + String(row.id), Number(row.createdAt) || 0]));
+		const list = this.list(source);
+		const goalIds = new Set<string>();
+		const rows = [...list.now, ...list.later].map(item => {
+			const category: NoticeCategory = item.kind === "goal_acceptance" ? "review"
+				: item.kind === "limit" || item.kind === "interrupted" ? "blocked" : "decision";
+			const goalId = str(item.data.goalId) ?? (item.kind === "limit" ? this.core.db.get<{ goal_id: string | null }>(
+				"SELECT goal_id FROM notices WHERE id=?", item.target.itemId)?.goal_id : null);
+			if (goalId) goalIds.add(goalId);
+			return { id: item.id, category, object: item.title, occurredAt: occurred.get(item.id) ?? 0,
+				situation: item.reason, actions: item.actions, target: item.target as AttentionItem["target"] & { goalId?: string },
+				notified: this.core.notifications.itemNotified(item.id, item.target.itemId) || !!goalId && this.core.notifications.topicNotified(goalId) };
+		});
+		const scheduler = this.core.module(GoalsModule)?.scheduler;
+		const stalled = [...(scheduler?.list("blocked", 500) ?? []), ...(scheduler?.list("paused", 500) ?? [])
+			.filter(goal => goal.kind === "goal" && (goal.reason?.startsWith("budget_") || ["stalled", "autonomy_budget", "channel_unavailable"].includes(goal.reason ?? "")))];
+		for (const goal of stalled) if (goal.kind === "goal" && !goalIds.has(goal.id) && !goal.stopIntent) {
+			rows.push({ id: `goal_blocked:${goal.id}`, category: "blocked", object: goal.title, occurredAt: goal.updatedAt,
+				situation: goal.resumeWhen ?? goal.stage, actions: ["open"],
+				target: { page: goal.sessionFile ? goal.scope.sandbox ? "butterfly" : "chat" : "goals", sessionFile: goal.sessionFile, itemId: goal.id, goalId: goal.id },
+				notified: this.core.notifications.topicNotified(goal.id) });
+		}
+		const priority: Record<NoticeCategory, number> = { decision: 0, blocked: 1, review: 2, done: 3, reminder: 4 };
+		return rows.sort((a, b) => priority[a.category] - priority[b.category] || b.occurredAt - a.occurredAt || a.id.localeCompare(b.id));
 	}
 	pendingForPatrol(): { id: string; title: string; createdAt: number }[] {
 		const pending = this.list();

@@ -3,7 +3,8 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { test } from "node:test";
-import { fauxAssistantMessage, type Model, type Usage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall, type Model, type Usage } from "@earendil-works/pi-ai";
+import { SandboxShell } from "../src/agent/sandbox-shell.ts";
 import { CATALOG_VERSION, PRICE_RULES, ruleMultiplier } from "../src/ledger/rules.ts";
 import { PURPOSES, withLedgerContext } from "../src/ledger/types.ts";
 import { Llm } from "../src/modules/llm.ts";
@@ -94,6 +95,36 @@ test("pending requests become missing on restart instead of estimating an interr
 		const id = t.core.ledger!.begin(model); t.core.ledger!.start(); const row = t.core.ledger!.entries().find((r) => r.id === id)!;
 		assert.equal(row.state, "missing"); assert.equal(row.amount, null); assert.equal(row.input, null); assert.equal(row.error_code, "process_interrupted");
 	} finally { await t.cleanup(); }
+});
+
+test("closing a sandbox conversation during a tool does not record its already-aborted continuation", async test => {
+	const t = await startTestCore();
+	test.after(() => t.cleanup());
+	t.core.sandboxProvider = () => ({ distro: "DF-T126-fake", ready: async () => {}, online: () => false });
+	const slot = await t.core.openSlot({ cwd: t.core.paths.butterflyDir, sandbox: true, client: t.client });
+	const session = slot.session;
+	const runtime = session.modelRuntime;
+	const auth = runtime.getAuth.bind(runtime);
+	let toolStarted = false, abortedBeforeDispatch = false;
+	test.mock.method(runtime, "getAuth", async (...args: Parameters<typeof auth>) => {
+		try { return await auth(...args); }
+		finally { if (args[1]?.signal?.aborted) abortedBeforeDispatch = true; }
+	});
+	test.mock.method(SandboxShell.prototype, "run", async (_command: string, signal: AbortSignal) => {
+		toolStarted = true;
+		await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+		return "";
+	});
+	t.respond(fauxAssistantMessage([fauxToolCall("bash", { command: "printf fixture" })]));
+	await t.send(slot.slotId, { type: "prompt", id: "closing-tool", message: "聊一聊核对样本的方法。" });
+	await t.waitFor(() => toolStarted);
+	assert.equal(t.core.ledger!.entries().length, 1);
+	await t.core.closeSlot(slot.slotId);
+	await t.waitFor(() => abortedBeforeDispatch);
+	await session.agent.waitForIdle();
+	assert.equal(t.faux.state.callCount, 1, "the continuation never reaches the provider");
+	const rows = t.core.ledger!.entries();
+	assert.deepEqual(rows.map(row => [row.slot_id, row.state]), [[slot.slotId, "complete"]]);
 });
 
 test("real local SSE supplies official raw cost/allowance once; a truncated stream remains missing", async () => {

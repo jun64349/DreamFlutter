@@ -13,9 +13,12 @@ import { notificationQueueState, type NotificationState } from "../notify.ts";
 import { widensScope, type ProgramReport, type ReviewVerdict, type ToolReceipt } from "./goals/acceptance.ts";
 import { goalChannelFailure, type ChannelFailure } from "./goals/channel.ts";
 import { GoalExecutor } from "./goals/executor.ts";
+import { deliveryDirectory } from "./goals/chat-task.ts";
+import { selfworkGrant, type SelfworkDelivery, type SelfworkDraft, type SelfworkGrant } from "./goals/selfwork.ts";
 import { GoalWaits, LOST_JOB, type WaitRequest } from "./goals/waits.ts";
 import { GOAL_NOTICE_TITLES, GOAL_VIEWS, GoalViews, goalNotice, type GoalView } from "./goals/presentation.ts";
 import { goalNoticeReceipt, recordGoalNotice, recoverGoalNotices } from "./goals/notices.ts";
+import { goalNotification } from "./notices/goal.ts";
 import { budgetPatch, chargeView, costDenial, effectiveBudget, exhausted, GoalLedger, validateReservation,
 	type NormalRequest, type Reservation, type SettlementEstimate } from "./goals/budget.ts";
 import {
@@ -133,11 +136,54 @@ export class GoalScheduler {
 	}
 	get(id: string): Goal | undefined { const row = this.row(id); return row && toGoal(row); }
 
+	/** Trusted internal entry for plans persisted by SelfworkModule. Never an RPC. */
+	launchSelfwork(draft: SelfworkDraft): string { return this.core.autonomy.acceptSelfwork(draft); }
+
+	getSelfwork(id: string): (Pick<Goal, "status" | "reason" | "stopIntent"> & { delivery?: SelfworkDelivery }) | undefined {
+		const grant = selfworkGrant(this.db, id);
+		if (!grant) return undefined;
+		const goal = this.get(id);
+		const delivery = parseJson<SelfworkDelivery | undefined>(grant.delivery, undefined);
+		if (goal) return { status: goal.status, reason: goal.reason, stopIntent: goal.stopIntent, delivery };
+		const acceptance = this.core.autonomy.effects.get(`accept:${grant.mandate_id}`);
+		return acceptance?.state === "planned" || acceptance?.state === "running"
+			? { status: "queued", reason: null, stopIntent: null } : { status: "failed", reason: "prep_failed", stopIntent: null };
+	}
+
+	pauseSelfwork(id: string, reason?: string): void {
+		if (!selfworkGrant(this.db, id) || !this.get(id)) return;
+		if (reason === "user_stopped") this.control(id, "stop_run");
+		else {
+			const details: Record<string, string> = {
+				proactivity: "主动性档位不再允许这项自主工作", daily_cap: "自主花费额度已设为 0",
+				mandate_changed: "长期目标已删除或修订", user_priority: "先处理用户交办",
+			};
+			this.pauseForAutonomy(id, "needs_permission", details[reason ?? ""] ?? "自主工作已停止或授权依据失效");
+		}
+	}
+
+	selfworkCanRun(id: string): boolean {
+		if (this.core.maintenance || !this.core.sandboxProvider?.()) return false;
+		if (this.core.sessionSlots().some(slot => slot.sandboxed && slot.started && !slot.unattended &&
+			(slot.running || slot.compacting || slot.session.isStreaming || slot.ui.pendingCount > 0))) return false;
+		return !this.db.get(`SELECT 1 FROM goals g LEFT JOIN goal_selfwork s ON s.goal_id=g.id
+			WHERE g.id<>? AND g.stop_intent IS NULL AND (
+				s.goal_id IS NOT NULL AND (g.status IN ('running','reviewing') OR EXISTS(
+					SELECT 1 FROM goal_intents i WHERE i.goal_id=g.id AND i.action IN ('run','review') AND i.status='started'))
+				OR s.goal_id IS NULL AND g.status IN ('queued','running','reviewing') AND
+					(json_extract(g.scope,'$.partition')='butterfly' OR EXISTS(SELECT 1 FROM butterfly_chat_tasks c WHERE c.goal_id=g.id)))
+			UNION ALL
+			SELECT 1 FROM butterfly_chat_tasks c JOIN autonomy_mandates m ON m.id=c.mandate_id
+			JOIN autonomy_effects e ON e.key='accept:' || c.mandate_id LEFT JOIN goals g ON g.id=c.goal_id
+			WHERE g.id IS NULL AND c.stopped_at IS NULL AND m.approval_id IS NULL AND e.state IN ('planned','running') LIMIT 1`, id);
+	}
+
 	list(status: GoalStatus | undefined, limit: number, view?: GoalView, partition?: Goal["scope"]["partition"]) {
 		return this.views.list(status, limit, view, partition);
 	}
 	detail(id: string) {
 		const goal = toGoal(this.required(id));
+		const work = selfworkGrant(this.db, id);
 		const run = this.latestRun(id, goal.revision);
 		const program = this.latestProgram(id, goal.revision);
 		const review = this.db.get<ReviewRow>("SELECT * FROM goal_reviews WHERE id=?", goal.latestReviewId);
@@ -147,6 +193,8 @@ export class GoalScheduler {
 		const approvals = this.approvals(id);
 		return {
 			...goal, ...this.views.labels(goal, artifacts[0]?.name), budgetStatus: this.ledger.view(goal), costUnknown: this.ledger.costUnknown(id), recentEvents: this.events(id, 20), emergency: this.emergency(),
+			...(work && { selfwork: { source: work.source, ref: work.source_ref, planId: work.run_id,
+				delivery: parseJson<SelfworkDelivery | null>(work.delivery, null) } }),
 			executionEnded: !!run?.ended_at, artifactsGenerated: artifacts.length > 0,
 			machineAccepted: review?.layer === "model" && review.verdict === "done" && review.revision === goal.revision
 				&& (review.evidence_version === evidenceVersion || goal.status === "completed"),
@@ -251,7 +299,13 @@ export class GoalScheduler {
 		}
 	}
 
-	create(p: Params, proposalId?: string) {
+	createAutonomous(p: Params) {
+		if (!this.core.autonomy.ownedParams(p)) throw new RpcError("bad_request", "缺少自主授权依据");
+		return this.create(p, undefined, true);
+	}
+
+	create(p: Params, proposalId?: string, autonomy = false) {
+		if (!autonomy && this.core.autonomy.ownedParams(p)) throw new RpcError("bad_request", "自主授权依据由后台分配");
 		const originText = requireStr(p.originText, "originText");
 		if (!originText.trim()) throw new RpcError("bad_request", "请保留目标原话");
 		const title = requireStr(p.title, "title").trim();
@@ -274,7 +328,7 @@ export class GoalScheduler {
 		if (sessionScope && (!samePath(scope.cwd, sessionScope.cwd) || scope.sandbox !== sessionScope.sandbox)) throw new RpcError("bad_request", "目标范围与已选会话不一致");
 		const spec = readSpec(p.spec ?? {});
 		const budget = p.budget === undefined ? null : budgetPatch(p.budget);
-		const id = `g_${randomUUID().slice(0, 8)}`;
+		const id = autonomy && typeof p.goalId === "string" ? p.goalId : `g_${randomUUID().slice(0, 8)}`;
 		const at = this.clock();
 		write(this.db, () => {
 			if (proposalId && !this.db.get("SELECT 1 FROM goal_proposals WHERE id=? AND status='pending'", proposalId)) throw new RpcError("gone", "这个目标提议已经处理");
@@ -297,8 +351,24 @@ export class GoalScheduler {
 			this.revision(this.required(id), str(p.why) ?? null);
 		});
 		this.changed(id);
-		this.process(id);
+		if (!autonomy) this.process(id);
 		return this.detail(id);
+	}
+
+	pauseForAutonomy(id: string, reason: "needs_permission" | "autonomy_budget", detail: string): void {
+		const changed = write(this.db, () => {
+			const row = this.row(id);
+			if (!row || row.stop_intent || isTerminal(row.status) ||
+				row.status === "paused" && (row.reason === reason || !selfworkGrant(this.db, id))) return false;
+			if (!compare(this.db, row, pause(row, reason, detail), this.clock())) return false;
+			if (reason === "autonomy_budget") this.db.run("UPDATE goal_selfwork SET paused_day=? WHERE goal_id=?", this.core.autonomy.budget.day(), id);
+			dropIntents(this.db, id, true);
+			return true;
+		});
+		if (changed) {
+			this.changed(id);
+			this.core.module(GoalsModule)?.executor.requestStop(id, "stop_run");
+		}
 	}
 
 	goalForSession(sessionFile: string): Goal | undefined {
@@ -546,6 +616,26 @@ export class GoalScheduler {
 	tickWaits(): void {
 		for (const row of this.db.all<{ id: string }>(`SELECT id FROM goals WHERE stop_intent IS NULL
 			AND (status='waiting_dependency' OR status='waiting_user' AND reason='needs_decision')`)) this.process(row.id);
+		this.resumeSelfworkBudget();
+	}
+
+	private resumeSelfworkBudget(): void {
+		const budget = this.core.autonomy.budget;
+		const day = budget.day();
+		if (this.emergency()) return;
+		for (const work of this.db.all<SelfworkGrant>(`SELECT s.* FROM goal_selfwork s JOIN goals g ON g.id=s.goal_id
+			WHERE g.status='paused' AND g.reason='autonomy_budget' AND g.stop_intent IS NULL AND s.paused_day<>?`, day)) {
+			const goal = this.get(work.goal_id)!;
+			if (!this.core.autonomy.checkGoal(goal).ok || !budget.check(0, work.source).ok || !this.selfworkCanRun(goal.id)) continue;
+			const resumed = write(this.db, () => {
+				const row = this.required(goal.id);
+				if (row.status !== "paused" || row.reason !== "autonomy_budget" || row.stop_intent) return false;
+				if (!compare(this.db, row, { ...fenced(row), status: "queued", reason: null, resume_when: null }, this.clock())) return false;
+				this.db.run("UPDATE goal_selfwork SET paused_day=NULL WHERE goal_id=?", row.id);
+				return true;
+			});
+			if (resumed) { this.changed(goal.id); this.process(goal.id); }
+		}
 	}
 	userWaits() {
 		return this.db.all<GoalRow>("SELECT * FROM goals WHERE status='waiting_user' AND reason='needs_decision' AND stop_intent IS NULL")
@@ -738,6 +828,8 @@ export class GoalScheduler {
 	private enqueueNotification(row: GoalRow): void {
 		const notice = goalNotice(row);
 		if (!notice) return;
+		// T116 owns the completion handoff, including whether to ask for a chat.
+		if (notice.kind === "completed" && selfworkGrant(this.db, row.id)) return;
 		const inserted = this.db.run(`INSERT INTO goal_intents(id,goal_id,revision,generation,idem_key,action,status,reason,created_at)
 			VALUES(?, ?, ?, ?, ?, 'notify','pending',?, ?) ON CONFLICT(idem_key) DO NOTHING`,
 			randomUUID(), row.id, row.revision, row.lease_generation, notice.key, notice.kind, this.clock());
@@ -761,10 +853,20 @@ export class GoalScheduler {
 		if (notice?.kind !== "decision" || !toGoal(row).scope.sandbox) return open();
 		const prior = goalNoticeReceipt(this.db, notice.key);
 		const muted = prior?.state === "muted" || notificationQueueState(this.core) === "muted";
+		const goal = toGoal(row);
+		const managed = this.core.autonomy.isManaged(goal);
+		const identity = goalNotification(goal, notice.key, notice.kind);
+		const quiet = this.core.notifications.quiet();
+		if (managed && quiet && !muted && prior?.state !== "sent") this.core.notifications.deferQuiet(identity, this.clock());
+		if (managed && (muted || prior?.state === "sent" || quiet ||
+			!this.core.autonomy.claimNotice(goal, notice.key))) {
+			return this.core.notifications.withSlotDelivery(slotId, true, () => {}, open);
+		}
 		const report = (state: NotificationState) => {
 			if (prior?.state !== "sent") recordGoalNotice(this.db, row.id, notice.key, "goal", state, this.clock());
+			if (managed && state !== "queued") this.core.autonomy.finishNotice(notice.key, state);
 		};
-		return this.core.notifications.withSlotDelivery(slotId, muted || prior?.state === "sent", report, open);
+		return this.core.notifications.withSlotDelivery(slotId, muted || prior?.state === "sent", report, open, identity);
 	}
 	takeNotification(intent: IntentRow) {
 		return write(this.db, () => {
@@ -772,9 +874,15 @@ export class GoalScheduler {
 			if (this.emergency()) return null;
 			const notice = goalNotice(row);
 			const valid = notice?.key === intent.idem_key;
-			const updated = this.db.run("UPDATE goal_intents SET status=?,started_at=? WHERE id=? AND status='pending'", valid ? "done" : "dropped", this.clock(), intent.id);
-			if (!updated.changes || !valid) return null;
 			const goal = toGoal(row);
+			if (valid && this.core.autonomy.isManaged(goal) && notificationQueueState(this.core) !== "muted" &&
+				this.core.notifications.quiet()) {
+				this.core.notifications.deferQuiet(goalNotification(goal, notice.key, notice.kind), this.clock());
+				return null;
+			}
+			const updated = this.db.run("UPDATE goal_intents SET status=?,started_at=? WHERE id=? AND status='pending'", valid ? "done" : "dropped", this.clock(), intent.id);
+			if (updated.changes && !valid) this.core.notifications.discardDeferred(intent.idem_key, notice?.key);
+			if (!updated.changes || !valid) return null;
 			const prior = goalNoticeReceipt(this.db, notice.key);
 			if (prior && (prior.state !== "queued" || prior.sender !== "goal")) return null;
 			if (notificationQueueState(this.core) === "muted") {
@@ -790,7 +898,11 @@ export class GoalScheduler {
 			recordGoalNotice(this.db, row.id, notice.key, "goal", "queued", this.clock());
 			if (notice.kind === "decision" && goal.scope.sandbox && this.waits.open(row).some(wait => wait.kind === "user")
 				&& (goal.sessionFile || this.db.get("SELECT 1 FROM tasks WHERE id=? AND session_file IS NOT NULL", row.current_task_id))) return null;
-			return { goal, key: notice.key, title: GOAL_NOTICE_TITLES[notice.kind] };
+			if (!this.core.autonomy.claimNotice(goal, notice.key)) {
+				recordGoalNotice(this.db, row.id, notice.key, "goal", "failed", this.clock(), "自主通知授权不足或已有发送记录");
+				return null;
+			}
+			return { goal, key: notice.key, title: GOAL_NOTICE_TITLES[notice.kind], notification: goalNotification(goal, notice.key, notice.kind) };
 		});
 	}
 	private insertIntent(row: GoalRow, reason: string): void {
@@ -815,6 +927,7 @@ export class GoalScheduler {
 		let changed = false;
 		const result = write(this.db, () => {
 			if (!this.stillIdle(row.id)) return null;
+			if (selfworkGrant(this.db, row.id) && !this.selfworkCanRun(row.id)) return null;
 			const fresh = this.required(row.id);
 			const limit = exhausted(this.ledger.view(toGoal(fresh)), false);
 			if (limit) { changed = this.pauseBudget(row, limit); return null; }
@@ -933,7 +1046,8 @@ export class GoalScheduler {
 		return parseJson(row?.detail, null);
 	}
 
-	finishProgram(intent: IntentRow, report: ProgramReport, run: { id: string; status: string; error: string | null }, receipts: ToolReceipt[], reportedComplete: boolean) {
+	finishProgram(intent: IntentRow, report: ProgramReport, run: { id: string; status: string; error: string | null }, receipts: ToolReceipt[],
+		reportedComplete: boolean, chat?: { mandateId: string; files: string[]; explanation: string; external: boolean; selfwork?: boolean }) {
 		const result = write(this.db, () => {
 			const row = this.required(intent.goal_id);
 			if (!this.validClaim(intent, row, "reviewing") || !this.isCurrent(intent, "reviewing")) return null;
@@ -953,17 +1067,30 @@ export class GoalScheduler {
 				? "反复读取材料，验收项和产物没有变化" : "反复规划，验收项和产物没有变化";
 			const lastFiles = new Map(this.latestProgram(row.id, row.revision)?.files.map(file => [file.path, file.sha256]));
 			const revised = report.files.some(file => file.artifact && file.sha256 && file.sha256 !== lastFiles.get(file.path));
-			const review = !blocked && run.status === "done" && missing.length === 0 && (reportedComplete || revised);
-			const nextStatus = blocked ? "blocked" : review ? "reviewing" : "queued";
+			const ready = !blocked && run.status === "done" && missing.length === 0 && (reportedComplete || !chat && revised);
+			const complete = !!chat && ready;
+			const review = !chat && ready;
+			const nextStatus = blocked ? "blocked" : complete ? "completed" : review ? "reviewing" : "queued";
 			const progress = { fingerprint, stall, rerouted, lastProgressAt: same ? previous.lastProgressAt : this.clock() };
 			if (!compare(this.db, row, {
 				status: nextStatus, progress: json(progress), reason: blocked ? "stalled" : null, resume_when: blocked ? diagnosis : null,
+				...(complete ? { ended_at: this.clock() } : {}),
 			}, this.clock())) return null;
 			const version = this.evidence(row, "program", null, report, run.id);
-			this.recordReview(row, version, "program", missing.length ? "continue" : "done", missing.map(check => check.id), { checks: report.checks }, null, 0);
+			const reviewId = this.recordReview(row, version, "program", missing.length ? "continue" : "done", missing.map(check => check.id),
+				{ checks: report.checks, ...(chat && { explanation: chat.explanation }) }, null, 0);
+			if (complete && chat) {
+				this.db.run("UPDATE goals SET latest_review_id=? WHERE id=?", reviewId, row.id);
+				if (chat.selfwork) {
+					const delivery: SelfworkDelivery = { goalId: row.id, files: chat.files, explanation: chat.explanation };
+					this.db.run("UPDATE goal_selfwork SET delivery=? WHERE goal_id=?", json(delivery), row.id);
+				} else this.core.autonomy.effects.plan(`chat-delivery:${row.id}`, chat.mandateId, "chat_delivery",
+					{ goalId: row.id, files: chat.external ? [`${deliveryDirectory(row.id)}/交付说明.md`] : chat.files,
+						explanation: chat.explanation, external: chat.external });
+			}
 			if (!review) {
 				this.db.run("UPDATE goal_intents SET status='done' WHERE id=? AND status='started'", intent.id);
-				if (!blocked) this.insertIntent(row, rerouted ? "reroute" : "program");
+				if (!blocked && !complete) this.insertIntent(row, rerouted ? "reroute" : "program");
 			}
 			return { review, version };
 		});
@@ -1162,6 +1289,8 @@ export class GoalsModule implements CoreModule {
 		this.core = core;
 		const scheduler = this.scheduler = new GoalScheduler(core);
 		this.executor = new GoalExecutor(core, scheduler);
+		core.declareBackup({ id: "goal-selfwork", title: "自主小目标授权和交付",
+			tables: ["goal_selfwork"], paths: { goal_selfwork: { deliverable: "path", delivery: "json" } } });
 		core.declareBackup({
 			id: "goals", title: "目标、修订、事件、续跑意图和目标账本",
 			tables: ["goals", "goal_revisions", "goal_events", "goal_intents", "goal_waits", "goal_evidence", "goal_reviews", "goal_ledger", "goal_approvals", "goal_proposals"],

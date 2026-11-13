@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { lstat } from "node:fs/promises";
+import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { deliverNotification } from "../../notify.ts";
+import { noticeCopy } from "../../notify.ts";
 import { recordGoalNotice } from "./notices.ts";
 import { retryDelayMs, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import type { AgentSessionEvent, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -13,13 +15,16 @@ import { textOf, type Run } from "../../runs.ts";
 import type { Slot } from "../../slots/slot.ts";
 import type { GoalScheduler } from "../goals.ts";
 import { TasksModule } from "../tasks.ts";
-import { allowedTool, checkProgram, readVerdict, scopeTools, toolPath, type ToolReceipt } from "./acceptance.ts";
+import { allowedTool, checkProgram, readVerdict, sandboxToolPath, scopeTools, toolPath, type ToolReceipt } from "./acceptance.ts";
 import { estimateGoalCost } from "./budget.ts";
 import { goalChannelFailure, type ChannelFailure } from "./channel.ts";
 import { isTerminal, type Goal, type IntentRow, type StopIntent } from "./types.ts";
 import { parseWait } from "./waits.ts";
 import { GoalProposals, qualifyingRequest } from "./proposals.ts";
 import { GOAL_TOOLS, registerGoalTools } from "./tools.ts";
+import { chatTask, deliveryDirectory, promisedFiles } from "./chat-task.ts";
+import { selfworkGrant } from "./selfwork.ts";
+import { hostKey, inside, sandboxGoalTools, sandboxPath } from "../autonomy/rules.ts";
 
 const COMPLETION_REPORT = "[目标已完成]";
 const NORMAL_OUTPUT_TOKENS = 8192;
@@ -88,11 +93,18 @@ export class GoalExecutor {
 			if (this.working.has(intent.goal_id) || [...this.active.values()].some(run => run.goal.id === intent.goal_id)) continue;
 			if (intent.action === "notify") {
 				const notice = this.scheduler.takeNotification(intent);
-				if (notice) void deliverNotification(this.core, notice.title, notice.goal.title).then(state => {
-					if (this.timer) recordGoalNotice(this.core.db, notice.goal.id, notice.key, "goal", state, Date.now());
+				if (notice) void this.core.notifications.send(notice.notification, {
+					humanReview: notice.notification.category === "review",
+					legacy: { title: notice.title, body: [notice.goal.title, noticeCopy(notice.notification).body].filter(Boolean).join("\n") },
+				}).then(({ state }) => {
+					if (this.timer) {
+						recordGoalNotice(this.core.db, notice.goal.id, notice.key, "goal", state, Date.now());
+						if (state !== "queued") this.core.autonomy.finishNotice(notice.key, state);
+					}
 				}).catch(error => this.core.log.warn("无法记录目标通知结果", error));
 				continue;
 			}
+			if (selfworkGrant(this.core.db, intent.goal_id) && !this.scheduler.selfworkCanRun(intent.goal_id)) continue;
 			this.working.add(intent.goal_id);
 			const work = intent.action === "run" ? this.execute(intent) : this.review(intent);
 			void work.catch(error => {
@@ -104,6 +116,16 @@ export class GoalExecutor {
 
 	private authorize(goal: Goal): boolean {
 		return !!goal.scope.cwd && !this.scheduler.pendingApprovals().some(item => item.goalId === goal.id && item.kind === "scope");
+	}
+
+	private mandateAllows(goal: Goal, action?: string, path?: string): boolean {
+		const auth = this.core.autonomy.checkGoal(goal, action, path);
+		if (!auth.ok) this.scheduler.pauseForAutonomy(goal.id, "needs_permission", auth.reason);
+		else if (selfworkGrant(this.core.db, goal.id) && !this.scheduler.selfworkCanRun(goal.id)) {
+			this.scheduler.pauseForAutonomy(goal.id, "needs_permission", "先处理用户交办或等待当前自主工作结束");
+			return false;
+		}
+		return auth.ok;
 	}
 
 	routeInput(slot: Slot, command: Input["command"], scope?: string): boolean {
@@ -188,6 +210,7 @@ export class GoalExecutor {
 		}
 		for (const wait of waiting) {
 			if (this.questions.has(wait.id)) continue;
+			if (!this.mandateAllows(wait.goal)) continue;
 			const task = wait.goal.currentTaskId ? this.core.module(TasksModule)?.get(wait.goal.currentTaskId) : undefined;
 			const file = wait.goal.sessionFile ?? task?.sessionFile;
 			if (!file || !wait.questions?.length) continue;
@@ -199,7 +222,7 @@ export class GoalExecutor {
 			const open = current ? Promise.resolve(current) : this.core.openSlot({ cwd: wait.goal.scope.cwd,
 				sandbox: wait.goal.scope.sandbox, sessionFile: file, taskId: task?.id, unattended: true });
 			void open.then(async slot => {
-				if (controller.signal.aborted || slot.running) return;
+				if (controller.signal.aborted || slot.running || !this.mandateAllows(wait.goal)) return;
 				const answer = await this.scheduler.questionNotification(wait.goal.id, slot.slotId,
 					() => slot.ui.context().input(`${wait.goal.title}\n\n${text}`, undefined, { signal: controller.signal }));
 				if (!controller.signal.aborted && this.timer) this.scheduler.answerWait(wait.goal.id, wait.id, answer ?? "");
@@ -213,6 +236,8 @@ export class GoalExecutor {
 	}
 
 	private async execute(intent: IntentRow): Promise<void> {
+		const before = this.scheduler.get(intent.goal_id);
+		if (before && !this.mandateAllows(before)) return;
 		const claim = this.scheduler.claimIntent(intent.id, goal => this.authorize(goal));
 		if (!claim) return;
 		const initial = this.scheduler.get(intent.goal_id)!;
@@ -224,9 +249,11 @@ export class GoalExecutor {
 			await provider.ready();
 		}
 		if (!this.timer) return;
+		if (!this.mandateAllows(initial)) return;
 		const task = this.goalTask(initial, cwd, initial.sessionFile);
 		const slot = await this.core.openSlot({ cwd, sandbox, taskId: task.id, sessionFile: task.sessionFile ?? initial.sessionFile ?? undefined, unattended: true, agentMode: "standard" });
 		if (!this.timer) return;
+		if (!this.mandateAllows(this.scheduler.get(intent.goal_id) ?? initial)) return;
 		if (sandbox !== slot.sandboxed || !samePath(cwd, slot.cwd) || slot.taskId && slot.taskId !== task.id && !samePath(slot.info().sessionFile, initial.sessionFile)) throw new Error("已有会话与目标授权范围不符");
 		const goal = this.scheduler.beginRun(intent, task.id, current => this.authorize(current));
 		if (!goal) { this.scheduler.retryClaim(intent); return; }
@@ -251,12 +278,17 @@ export class GoalExecutor {
 			.map(check => `${check.text}（${check.detail}）`) ?? [];
 		const advice = this.scheduler.lastReviewAdvice(goal.id, goal.revision);
 		const feedback = this.scheduler.feedback(goal.id, goal.revision);
+		const chat = chatTask(this.core.db, goal.id);
+		const work = selfworkGrant(this.core.db, goal.id);
+		const scope = this.core.autonomy.hasSandboxTools(goal) ? { ...goal.scope, allowedTools: sandboxGoalTools() } : goal.scope;
 		return [
 			"继续推进目标。按授权完成可验证的工作。一次 run 结束后，程序会检查实际产物和回执。",
 			`如果你判断本修订的目标已经达成，在本轮最后一条答复开头单独写一行 ${COMPLETION_REPORT}，然后说明产物和证据。`,
 			`目标原文：${goal.originText}`, `当前目标、约束和验收项：${JSON.stringify(goal.spec)}`,
-			`当前授权范围：${JSON.stringify(goal.scope)}`,
+			`当前授权范围：${JSON.stringify(scope)}`,
 			"通过 goal_status 查看进度和作业。用 goal_wait 登记实际等待，用 goal_report 报告执行结果。",
+			chat && `交付前请用 goal_report 的 done 状态提交你自己的验收说明（note）。程序会检查每个约定文件：${promisedFiles(chat).join("、")}。`,
+			work && `写好 ${work.deliverable} 后，用 goal_report 的 done 状态提交你自己的验收说明（note）。程序会核对文件。`,
 			missing.length && `未完成的验收项：${missing.join("；")}`,
 			advice && `上次审查指出：${advice}`, feedback && `用户退回原因：${feedback}`,
 			intent.reason === "reroute" && "同样的尝试没有推进验收。请在现有授权内换一条路线，避免重复上次的计划、命令和读取。",
@@ -307,7 +339,8 @@ export class GoalExecutor {
 		const run = this.active.get(slotId);
 		if (!run) return undefined;
 		// The goal extension checks the actual input and canonical paths before execution.
-		return this.canFinish(run) && (scopeTools(run.goal.scope).includes(tool) || GOAL_TOOLS.includes(tool) || tool === "job_output") ? "allow" : "deny";
+		const tools = this.core.autonomy.hasSandboxTools(run.goal) ? sandboxGoalTools() : scopeTools(run.goal.scope);
+		return this.canFinish(run) && (tools.includes(tool) || GOAL_TOOLS.includes(tool) || tool === "job_output") ? "allow" : "deny";
 	}
 
 	attachChild(parentId: string, session: { sessionId: string; modelRuntime: ModelRuntime }): void {
@@ -351,11 +384,26 @@ export class GoalExecutor {
 					setTools([]);
 				});
 			}
-			pi.on("tool_call", async event => {
+			pi.on("tool_call", async (event, ctx) => {
 				const run = this.active.get(slotId);
 				if (!run) return;
 				const tool = event.toolName;
 				const input = event.input as Record<string, unknown>;
+				const managed = this.core.autonomy.isManaged(run.goal);
+				const location = this.core.autonomy.hasSandboxTools(run.goal) ? sandboxToolPath(tool, input) : undefined;
+				let path = toolPath(tool, input);
+				if (location) {
+					const entry = ctx.sessionManager.getBranch().findLast(item => item.type === "custom" && item.customType === "df.cwd");
+					const cwd = entry?.type === "custom" ? (entry.data as { cwd?: string } | undefined)?.cwd : undefined;
+					const absolute = location.raw ? sandboxPath(location.raw, cwd) : "";
+					path = absolute || location.raw;
+					// Pin the checked location before awaiting other tool hooks. A parallel cd cannot change it.
+					if (absolute) input[location.key] = absolute;
+				}
+				const builtIn = GOAL_TOOLS.includes(tool) || tool === "job_output";
+				if (managed && !this.mandateAllows(run.goal, builtIn ? undefined : tool, path)) {
+					return { block: true, reason: "目标授权已失效或未允许这项操作" };
+				}
 				const job = tool === "job_output" && typeof input.job_id === "string" ? this.scheduler.waits.job(input.job_id) : undefined;
 				const permitted = !child && GOAL_TOOLS.includes(tool)
 					|| !!job && job.goal_id === run.goal.id && job.goal_revision === run.goal.revision
@@ -365,8 +413,21 @@ export class GoalExecutor {
 					|| !this.canFinish(run)) {
 					return { block: true, reason: "目标已停止、修订，或工具调用超出目标授权范围" };
 				}
+				if (managed && !builtIn) {
+					const verified = !path || await this.core.autonomy.checkGoalPath(run.goal, tool, path).catch(() => false);
+					if (!this.canFinish(run) || !this.mandateAllows(run.goal, tool, path)) return { block: true, reason: "目标授权已失效" };
+					if (!verified) {
+						this.scheduler.pauseForAutonomy(run.goal.id, "needs_permission", "受保护的路径无法核对或发生了重定向");
+						return { block: true, reason: "受保护的路径无法核对" };
+					}
+					if (path && ["write", "edit", "render_html"].includes(tool) &&
+						!this.core.autonomy.claimDelivery(run.goal, `${run.runId}:${event.toolCallId}`, tool, path,
+							typeof input.content === "string" ? input.content : undefined)) {
+						return { block: true, reason: "同一写入已有执行记录" };
+					}
+				}
 			});
-			pi.on("tool_result", event => {
+			pi.on("tool_result", async event => {
 				const run = this.active.get(slotId);
 				if (!run?.runId) return;
 				const details = event.details as { exitCode?: unknown } | undefined;
@@ -378,6 +439,9 @@ export class GoalExecutor {
 					id: event.toolCallId, tool: event.toolName, ok: !event.isError, command, path,
 					exitCode: typeof details?.exitCode === "number" && Number.isInteger(details.exitCode) ? details.exitCode : undefined,
 				};
+				if (this.core.autonomy.isManaged(run.goal) && ["write", "edit", "render_html"].includes(event.toolName)) {
+					await this.core.autonomy.finishDelivery(`${run.runId}:${event.toolCallId}`, receipt.ok);
+				}
 				const authorizedCommand = command && run.goal.scope.externalActions?.some(action => action.command === command && action.tool === event.toolName);
 				let effect: string | undefined;
 				if (authorizedCommand && (!event.isError || receipt.exitCode !== undefined)) effect = `外部命令已返回：${redact(command, true)}`;
@@ -471,18 +535,28 @@ export class GoalExecutor {
 			const intent = review?.intent ?? run?.intent;
 			if (!intent || model.api === "pi-virtual") return stream(model, transcript, options);
 			if (review ? !this.scheduler.isCurrent(intent, "reviewing") : !run || !this.canFinish(run)) throw new Error("目标已停止或修订");
+			const managed = this.scheduler.get(intent.goal_id);
+			if (managed && !this.mandateAllows(managed)) throw new Error("目标授权已失效");
 			const runId = review?.intent.run_id ?? run?.runId;
 			if (!runId) throw new Error("目标运行还没登记");
+			const pricing = selfworkGrant(this.core.db, intent.goal_id) ? this.core.resolveModel(model) : model;
 			const input = estimateTokens(JSON.stringify(transcript));
 			const output = Math.min(options?.maxTokens ?? NORMAL_OUTPUT_TOKENS, model.maxTokens);
-			const cost = estimateGoalCost(model, input, output);
+			const cost = estimateGoalCost(pricing, input, output);
 			const normal = output > NORMAL_OUTPUT_TOKENS && cost !== null
-				? { outputTokens: NORMAL_OUTPUT_TOKENS, costUsd: estimateGoalCost(model, input, NORMAL_OUTPUT_TOKENS)! } : undefined;
+				? { outputTokens: NORMAL_OUTPUT_TOKENS, costUsd: estimateGoalCost(pricing, input, NORMAL_OUTPUT_TOKENS)! } : undefined;
 			const id = randomUUID();
 			const kind = review ? "review" : child ? "subagent" : context.purpose === "compaction" ? "compaction" : "main";
 			const held = this.scheduler.reserve(intent.goal_id, { id, runId, taskId: run?.taskId ?? this.core.runs.get(runId)?.taskId ?? undefined,
 				kind, costUsd: cost ?? 0, costUnknown: cost === null, inputTokens: input, outputTokens: output }, run?.intent, normal);
 			if (!held.ok) throw new Error(`目标预算限制：${held.reason}`);
+			const autonomy = managed && this.core.autonomy.budgetSource(managed);
+			if (autonomy && !this.core.autonomy.budget.reserve(
+				cost === null ? this.core.settings.get().butterflyDailyBudget : held.entry.estCost, autonomy, id)) {
+				this.scheduler.release(id);
+				this.scheduler.pauseForAutonomy(intent.goal_id, "autonomy_budget", "蝶君的自主花费已到每日上限");
+				throw new Error("蝶君的自主花费已到每日上限");
+			}
 			const before = this.core.db.get<{ rowid: number }>("SELECT COALESCE(MAX(rowid),0) rowid FROM request_ledger")!.rowid;
 			let requestId: string | undefined;
 			const link = () => {
@@ -495,7 +569,11 @@ export class GoalExecutor {
 					: { runId, slotId: context.slotId ?? run?.slot.slotId }, () => stream(model, transcript, { ...options, maxTokens: held.entry.estOutputTokens }));
 				link();
 				const settle = (message?: AssistantMessage) => {
-					if (requestId) this.scheduler.settle(id, requestId, { model, outputTokens: estimatedOutput(message) });
+					try {
+						if (requestId) this.scheduler.settle(id, requestId, { model: pricing, outputTokens: estimatedOutput(message) });
+					} finally {
+						if (autonomy) this.core.autonomy.budget.settle(autonomy, id, this.core.autonomy.goalCost(id));
+					}
 				};
 				void response.result().then(settle, () => settle()).catch(error => {
 					if (this.timer) this.core.log.warn("目标逐请求账本结算失败", error);
@@ -503,13 +581,19 @@ export class GoalExecutor {
 				return response;
 			} catch (error) {
 				if (!requestId) link();
-				if (requestId) this.scheduler.settle(id, requestId, { model, outputTokens: 0 });
+				try {
+					if (requestId) this.scheduler.settle(id, requestId, { model: pricing, outputTokens: 0 });
+				} finally {
+					if (autonomy) this.core.autonomy.budget.settle(autonomy, id, this.core.autonomy.goalCost(id));
+				}
 				throw error;
 			}
 		};
 	}
 
 	private async review(intent: IntentRow): Promise<void> {
+		const before = this.scheduler.get(intent.goal_id);
+		if (before && !this.mandateAllows(before)) return;
 		const goal = this.scheduler.claimReview(intent);
 		if (!goal) return;
 		const run = intent.run_id ? this.core.runs.get(intent.run_id) : undefined;
@@ -520,10 +604,37 @@ export class GoalExecutor {
 			goal.id, goal.revision);
 		receipts.push(...jobs.map(job => ({ id: job.id, tool: job.kind, command: job.command, exitCode: job.exit_code, ok: job.status === "completed" })));
 		const executionReport = this.scheduler.latestReport(goal.id, run.id, goal.revision);
+		const chat = chatTask(this.core.db, goal.id);
+		const work = selfworkGrant(this.core.db, goal.id);
+		const mandate = chat ?? work;
+		if (mandate) {
+			const files = chat ? promisedFiles(chat) : [work!.deliverable];
+			const dir = deliveryDirectory(goal.id);
+			const report = await checkProgram(this.core, { ...goal, spec: { ...goal.spec, deliverables: files } }, receipts, [],
+				goal.scope.sandbox ? { verifyDeliveries: true, resolveDelivery: async raw => {
+					if (work ? sandboxPath(raw) !== work.deliverable : !inside(sandboxPath(raw), dir) || raw === dir) return null;
+					const path = await this.core.autonomy.sandboxFile(raw);
+					return (await lstat(path)).nlink === 1 ? path : null;
+				} } : { metadataOnly: true });
+			if (!goal.scope.sandbox) for (const [index, file] of files.entries()) {
+				const present = report.files.some(fact => fact.path === file && fact.size > 0);
+				const externalReceipt = receipts.some(receipt => receipt.ok && receipt.path &&
+					receipt.tool === chat?.required_action && hostKey(resolve(goal.scope.cwd!, receipt.path)) === hostKey(file));
+				report.checks.push({ id: `chat-file:${index}`, text: file, status: present && externalReceipt ? "passed" : "missing",
+					detail: present && externalReceipt ? "文件与操作回执已核对" : "文件缺失、为空、超出交付范围，或缺少操作回执" });
+			}
+			const explanation = executionReport?.status === "done" && typeof executionReport.note === "string" ? executionReport.note.trim() : "";
+			report.checks.push({ id: "chat-explanation", text: "蝶君验收说明", status: explanation ? "passed" : "missing",
+				detail: explanation ? "说明已保存" : "请使用 goal_report 提交验收说明" });
+			if (this.timer && this.mandateAllows(goal)) this.scheduler.finishProgram(intent, report, run, receipts, !!explanation, {
+				mandateId: mandate.mandate_id, files, explanation, external: !goal.scope.sandbox, selfwork: !!work,
+			});
+			return;
+		}
 		const result = run.taskId ? this.core.module(TasksModule)?.get(run.taskId)?.result : null;
 		const earlier = this.scheduler.latestProgram(goal.id, goal.revision)?.files.filter(file => file.artifact).map(file => file.path) ?? [];
 		const reported = receipts.filter(item => item.ok && item.path && ["write", "edit"].includes(item.tool)).map(item => item.path!);
-		const report = await checkProgram(this.core, goal, receipts, [...new Set([...run.files, ...reported, ...earlier])]);
+		const report = await checkProgram(this.core, goal, receipts, [...new Set([...run.files, ...reported, ...earlier])], { verifyDeliveries: true });
 		if (!this.timer) return;
 		const program = this.scheduler.finishProgram(intent, report, run, receipts,
 			!!executionReport || result?.trimStart().split(/\r?\n/, 1)[0]?.trim() === COMPLETION_REPORT);

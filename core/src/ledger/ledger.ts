@@ -118,7 +118,9 @@ export class Ledger implements CoreModule {
 		const original = previous?.original ?? runtime.streamSimple.bind(runtime), ledger = this;
 		installed.set(runtime, { owner: this, original });
 		runtime.streamSimple = function (model, transcript, options) {
-			if (model.api === "pi-virtual") return original(model, transcript, options);
+			// The runtime rejects a signal already aborted at entry before invoking a provider.
+			// Preserve that cancellation result without creating a billable request record.
+			if (model.api === "pi-virtual" || options?.signal?.aborted) return original(model, transcript, options);
 			const sessionContext = options?.sessionId ? ledger.sessionContexts.get(options.sessionId)?.() : undefined;
 			const id = ledger.begin(model, { ...context(), ...sessionContext, ...ledgerContext() }), raw: RawUsage = {};
 			const request: SimpleStreamOptions & { [REQUEST_LEDGER_ID]?: string } = { ...options, [REQUEST_LEDGER_ID]: id,

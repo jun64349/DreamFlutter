@@ -1,5 +1,6 @@
 import type { Db } from "./db.ts";
 import { json, parseJson } from "./db.ts";
+import { PERSONAS, type ButterflyPersona, type ButterflyProactivity } from "./modules/persona/presets.ts";
 
 export type ApprovalMode = "off" | "changes" | "all";
 
@@ -111,9 +112,14 @@ export interface CoreSettings {
 	patrolQuietEnd: string;
 	patrolModel: string | null;
 	patrolDailyBudget: number;
+	butterflyDailyBudget: number;
+	autonomySources: { conversation: boolean; schedule: boolean; folder: boolean };
+	autonomyFolders: string[];
 	patrolStaleHours: number;
 	patrolKeepDays: number;
 	patrolChecks: PatrolChecks;
+	butterflyPersona: ButterflyPersona;
+	butterflyProactivity: ButterflyProactivity;
 }
 
 export const DEFAULT_SETTINGS: CoreSettings = {
@@ -177,9 +183,14 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	patrolQuietEnd: "07:00",
 	patrolModel: null,
 	patrolDailyBudget: 0.5,
+	butterflyDailyBudget: 0.5,
+	autonomySources: { conversation: true, schedule: true, folder: true },
+	autonomyFolders: [],
 	patrolStaleHours: 4,
 	patrolKeepDays: 30,
 	patrolChecks: { failed: true, goal_stuck: true, stale_attention: true, upcoming: true, health: true, watch: true },
+	butterflyPersona: "quiet",
+	butterflyProactivity: "high",
 	sandboxOnline: true,
 };
 
@@ -296,10 +307,18 @@ function valid(key: keyof CoreSettings, value: unknown): boolean {
 		case "goalReviewModel": return value === null || typeof value === "string" && /^[^/]+\/.+$/.test(value);
 		case "goalProposalEnabled": return typeof value === "boolean";
 		case "patrolIntervalMin": return value === 10 || value === 15 || value === 30 || value === 60;
+		case "butterflyPersona": return typeof value === "string" && Object.hasOwn(PERSONAS, value);
+		case "butterflyProactivity": return value === "low" || value === "mid" || value === "high";
 		case "patrolQuietStart":
 		case "patrolQuietEnd": return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
 		case "patrolModel": return value === null || typeof value === "string" && /^[^/]+\/.+$/.test(value);
+		case "butterflyDailyBudget":
 		case "patrolDailyBudget": return typeof value === "number" && Number.isFinite(value) && value >= 0;
+		case "autonomySources": return !!value && typeof value === "object" &&
+			Object.keys(value).length === 3 && ["conversation", "schedule", "folder"].every(
+				source => typeof (value as Record<string, unknown>)[source] === "boolean");
+		case "autonomyFolders": return Array.isArray(value) && value.every(
+			path => typeof path === "string" && /^[A-Za-z]:[\\/]/.test(path) && !path.includes("\0"));
 		case "patrolStaleHours": return typeof value === "number" && Number.isFinite(value) && value > 0;
 		case "patrolKeepDays": return Number.isSafeInteger(value) && (value as number) > 0;
 		case "patrolChecks":

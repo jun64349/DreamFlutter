@@ -9,7 +9,7 @@ export type GoalControl = StopIntent | "resume" | "clear_emergency";
 export type BudgetReason = "budget_cost" | "budget_tokens" | "budget_time" | "budget_runs";
 export type GoalReason = BudgetReason | "user_paused" | "restart_check" | "imported" | "stalled"
 	| "missing_input" | "needs_decision" | "needs_permission" | "waiting_job" | "waiting_subagent" | "waiting_event"
-	| "review_unparsable" | "run_failed" | "prep_failed" | "acceptance" | "channel_unavailable";
+	| "review_unparsable" | "run_failed" | "prep_failed" | "acceptance" | "channel_unavailable" | "autonomy_budget";
 export type GoalEventKind = "run.finished" | "user.input" | "user.control" | "job.finished" | "schedule.fired"
 	| "external.event" | "goal.reported" | "review.done" | "budget.changed" | "memory.candidate_ready" | "context.ready" | "rule.matched"
 	| "notification.delivery";

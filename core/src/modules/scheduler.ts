@@ -14,6 +14,7 @@ import { backfillScheduleOwners, scheduleOwner } from "../t95-migration.ts";
 import { backfillScheduleCreators } from "../t96-migration.ts";
 import { GoalsModule } from "./goals.ts";
 import type { TasksModule } from "./tasks.ts";
+import type { Notice } from "../notify.ts";
 
 export type TriggerType = "once" | "interval" | "cron";
 /** task = do something; report = produce a result each time; monitor = check for changes, quiet when nothing changed. */
@@ -982,6 +983,9 @@ export class SchedulerModule implements CoreModule {
 		}
 		this.starting.add(schedule.id);
 		try {
+			if (schedule.owner === "butterfly") this.core.autonomy.scheduleFired({
+				scheduleId: schedule.id, triggerKey: run.triggerKey, at: run.scheduledAt ?? this.clock(), createdBy: schedule.createdBy,
+			});
 			const goalId = this.db.get<{ goal_id: string | null }>("SELECT goal_id FROM schedules WHERE id=?", schedule.id)?.goal_id;
 			if (goalId) {
 				const goals = this.core.module(GoalsModule)?.scheduler;
@@ -1186,30 +1190,27 @@ export class SchedulerModule implements CoreModule {
 		const title = reminder ? "提醒" : schedule?.owner === "butterfly" ? `蝶君 · ${label}` : label;
 		const body = reminder ? [schedule.name, schedule.prompt].filter(Boolean).join("\n")
 			: (run.status === "failed" ? run.error : run.result)?.replace(/\s+/g, " ").slice(0, 200) ?? "";
-		const record = (channel: Delivery["channel"], status: DeliveryStatus, detail: string | null) =>
-			this.db.run("INSERT INTO deliveries(id, run_id, channel, status, detail, created_at) VALUES(?, ?, ?, ?, ?, ?)", `d_${randomUUID().slice(0, 8)}`, run.id, channel, status, detail, now());
-		if (!reminder && this.core.clients.size > 0) {
-			this.core.broadcast({ event: "schedules.delivered", runId: run.id, title, body });
+		const record = (channel: Delivery["channel"], status: DeliveryStatus, detail: string | null, id = `d_${randomUUID().slice(0, 8)}`) =>
+			this.db.run("INSERT INTO deliveries(id, run_id, channel, status, detail, created_at) VALUES(?, ?, ?, ?, ?, ?)", id, run.id, channel, status, detail, now());
+		const notice: Notice = { key: `schedule:${run.id}:${run.status}`, objectRef: run.id,
+			category: reminder ? "reminder" : run.status === "needs_input" ? "decision" : run.status === "done" ? "done" : "blocked",
+			object: schedule?.name ?? "定时任务", situation: reminder ? "提醒" : label.split("：")[0]!,
+			impact: body || (run.status === "done" ? "本次定时执行已结束" : "本次定时执行暂时不能继续"),
+			action: reminder ? "查看日程" : "查看执行结果", target: { page: "schedule", itemId: run.id, runId: run.id } };
+		const window = !reminder && this.core.clients.size > 0 ? (copy: { title: string; body: string }) => {
 			record("window", "delivered", null);
-			return;
-		}
-		if (!this.core.settings.get().notifications) {
-			record("toast", "undelivered", "系统通知已关闭");
-			return;
-		}
-		const pending = this.core.notifier.deliver?.(title, body);
-		if (!pending) {
-			this.core.notifier.notify(title, body);
-			record("toast", "unknown", null);
-			return;
-		}
+			this.core.broadcast({ event: "schedules.delivered", runId: run.id, ...copy, target: notice.target });
+		} : undefined;
 		const deliveryId = `d_${randomUUID().slice(0, 8)}`;
-		this.db.run("INSERT INTO deliveries(id, run_id, channel, status, detail, created_at) VALUES(?, ?, 'toast', 'unknown', NULL, ?)", deliveryId, run.id, now());
-		void pending.catch(() => "undelivered" as const).then((status) => {
-			try {
-				this.db.run("UPDATE deliveries SET status = ? WHERE id = ?", status, deliveryId);
-			} catch {}
-		});
+		let started = false;
+		void this.core.notifications.send(notice, { at: this.clock(), window, quiet: reminder ? "ignore" : undefined,
+			started: window ? undefined : () => { record("toast", "unknown", null, deliveryId); started = true; },
+			legacy: reminder || window ? { title, body } : undefined }).then(({ state, native, reason }) => {
+			if (reason === "duplicate" || window && state === "sent") return;
+			if (started) { this.db.run("UPDATE deliveries SET status=? WHERE id=?", native ?? "undelivered", deliveryId); return; }
+			record(window ? "window" : "toast", native ?? "undelivered",
+				reason === "notifications_disabled" ? "系统通知已关闭" : reason === "quiet_hours" ? "处于静默时段" : null);
+		}).catch(error => this.core.log.warn("无法记录定时通知结果", error));
 	}
 
 	// ---- tool policy and tools ---------------------------------------------------------

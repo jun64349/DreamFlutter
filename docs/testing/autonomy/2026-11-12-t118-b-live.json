@@ -1,0 +1,511 @@
+{
+  "screen": {
+    "total": 40,
+    "correct": 40,
+    "falseAccept": 0,
+    "missed": 0,
+    "wrongRoute": 0
+  },
+  "mode": "live",
+  "model": "deepseek-v4.1-flash",
+  "channel": "df-c13903cbb",
+  "maxUsd": 0.5,
+  "stopBeforeUsd": 0.45,
+  "prices": {
+    "input": 0.15,
+    "output": 0.6,
+    "cacheRead": 0.003,
+    "cacheWrite": 0
+  },
+  "cases": [
+    {
+      "name": "B2 对话交办",
+      "passed": false,
+      "error": "目标停止在 paused：needs_permission",
+      "elapsedMs": 12908,
+      "rounds": 1,
+      "requests": 2,
+      "transportRequests": 2,
+      "reservedOrEstimatedUsd": 0.004301,
+      "pending": 0,
+      "missingFinalUsage": 0,
+      "transportReceipts": [
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        }
+      ],
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0,
+      "goAllowanceUsd": 0.00129007,
+      "knownGoAllowanceUsd": 0.00129007,
+      "missingGoAllowance": 0,
+      "goAllowanceSources": [
+        "provider"
+      ],
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "plan_occupancy"
+      ],
+      "applicationBudget": {
+        "goalUsd": 0,
+        "autonomous": []
+      },
+      "billing": [
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490332142,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00114174,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 11802,
+          "output": 221,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490337716,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00014833,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 622,
+          "output": 197,
+          "cache_read": 11904,
+          "cache_write": 0,
+          "error_code": null
+        }
+      ]
+    },
+    {
+      "name": "B3 规则观察与自动交付",
+      "passed": false,
+      "error": "观察未命中：评估结果不可用",
+      "elapsedMs": 2499,
+      "rounds": 0,
+      "requests": 1,
+      "transportRequests": 1,
+      "reservedOrEstimatedUsd": 0.000233,
+      "pending": 0,
+      "missingFinalUsage": 0,
+      "transportReceipts": [
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        }
+      ],
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0,
+      "goAllowanceUsd": 0.00006975,
+      "knownGoAllowanceUsd": 0.00006975,
+      "missingGoAllowance": 0,
+      "goAllowanceSources": [
+        "provider"
+      ],
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "plan_occupancy"
+      ],
+      "applicationBudget": {
+        "goalUsd": 0,
+        "autonomous": [
+          {
+            "source": "observe",
+            "usd": 0
+          }
+        ]
+      },
+      "billing": [
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490341877,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00006975,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 135,
+          "output": 160,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        }
+      ]
+    },
+    {
+      "name": "B4 空闲学习、记忆和主动聊天",
+      "passed": false,
+      "error": "学习未立项：no_plan",
+      "elapsedMs": 45873,
+      "rounds": 2,
+      "requests": 5,
+      "transportRequests": 5,
+      "reservedOrEstimatedUsd": 0.008719,
+      "pending": 0,
+      "missingFinalUsage": 0,
+      "transportReceipts": [
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        }
+      ],
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0,
+      "goAllowanceUsd": 0.0026148,
+      "knownGoAllowanceUsd": 0.0026148,
+      "missingGoAllowance": 0,
+      "goAllowanceSources": [
+        "provider"
+      ],
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "plan_occupancy"
+      ],
+      "applicationBudget": {
+        "goalUsd": 0,
+        "autonomous": [
+          {
+            "source": "learning",
+            "usd": 0
+          }
+        ]
+      },
+      "billing": [
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490344329,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00106533,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 11121,
+          "output": 179,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490348255,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.0002917,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 553,
+          "output": 617,
+          "cache_read": 11008,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490355310,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00014674,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 820,
+          "output": 145,
+          "cache_read": 11520,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490358379,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00066346,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 282,
+          "output": 1711,
+          "cache_read": 12288,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490375530,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00044757,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 173,
+          "output": 1200,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        }
+      ]
+    },
+    {
+      "name": "B5 四种性格",
+      "passed": true,
+      "evidence": {
+        "samePrompt": "两份资料都整理好了，还有一项需要我明天确认。请用一句话告诉我现在的进度。",
+        "replies": {
+          "quiet": "两份资料都整理妥当了，只余一项等你明天确认，进度便停在这里。",
+          "warm": "进度是：两份资料都已整理完毕（甲 4 项、乙 3 项），还剩 1 项需要你明天确认，确认完就能收尾。\n\n需要我明天提醒你时，可以告诉我时间，比如上午 9 点，我来设置提醒。",
+          "crisp": "两份资料都已整理完毕，明天只需确认剩下的那一项，这项确认完成，全部工作就收尾了。",
+          "lively": "两份资料已经整理好、可以交付，只剩一项等你明天确认。其他都整理好了，就差这最后一步，确认后就能收尾啦。"
+        },
+        "errors": {},
+        "humanReview": "待人工判断语气差异"
+      },
+      "elapsedMs": 47962,
+      "rounds": 4,
+      "requests": 6,
+      "transportRequests": 6,
+      "reservedOrEstimatedUsd": 0.015216,
+      "pending": 0,
+      "missingFinalUsage": 0,
+      "transportReceipts": [
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        }
+      ],
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0,
+      "goAllowanceUsd": 0.00456413,
+      "knownGoAllowanceUsd": 0.00456413,
+      "missingGoAllowance": 0,
+      "goAllowanceSources": [
+        "provider"
+      ],
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "plan_occupancy"
+      ],
+      "applicationBudget": {
+        "goalUsd": 0,
+        "autonomous": []
+      },
+      "billing": [
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490390221,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00107991,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 11127,
+          "output": 218,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490402505,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.0010503,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 11126,
+          "output": 136,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490408906,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00010918,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 557,
+          "output": 109,
+          "cache_read": 11008,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490414130,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00014377,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 227,
+          "output": 285,
+          "cache_read": 11520,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490420900,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00104013,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 11121,
+          "output": 109,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794490429030,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00114084,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 11124,
+          "output": 388,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        }
+      ]
+    },
+    {
+      "name": "B6 报价与重启",
+      "passed": false,
+      "skipped": true,
+      "error": "需要 B2 的交付回执",
+      "requests": 0,
+      "rounds": 0,
+      "transportRequests": 0
+    }
+  ],
+  "cleanup": {
+    "distro": "DF-T118-b5487e07204649ff8975ce083862c5be",
+    "root": "<隔离目录>",
+    "distroRemoved": true,
+    "dataRemoved": true
+  }
+}

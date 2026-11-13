@@ -302,7 +302,8 @@ export class Gateway implements CoreModule {
 			for (const window of reading.windows) {
 				const before = previous?.type === "plan" ? previous.windows.find((w) => w.label === window.label && w.resetAt === window.resetAt) : undefined;
 				if (window.usedPercent >= 80 && (before?.usedPercent ?? 0) < 80) {
-					this.alert(`${channel.name} 额度已用 ${Math.round(window.usedPercent)}%`, `${window.label}${window.resetAt ? `，${describe({ kind: "quota", message: "", until: window.resetAt }).replace(/^额度用完，/, "")}` : ""}`);
+					this.alert(channel.id, `quota:${JSON.stringify([window.label, window.resetAt ?? reading.checkedAt])}`,
+						`${channel.name} 额度已用 ${Math.round(window.usedPercent)}%`, `${window.label}${window.resetAt ? `，${describe({ kind: "quota", message: "", until: window.resetAt }).replace(/^额度用完，/, "")}` : ""}`);
 				}
 			}
 		} else if (reading.type === "balance") {
@@ -311,13 +312,15 @@ export class Gateway implements CoreModule {
 			else this.health.clearQuota(keys[0]!);
 			const low = channel.lowBalance;
 			const wasAbove = previous?.type !== "balance" || low === null || previous.amount >= low;
-			if (balances.length === 1 && low !== null && reading.amount < low && wasAbove) this.alert(`${channel.name} 余额不足`, `剩余 ${reading.amount.toFixed(2)} ${reading.currency}，低于你设的 ${low}`);
+			if (balances.length === 1 && low !== null && reading.amount < low && wasAbove) this.alert(channel.id, `balance:${reading.checkedAt}`,
+				`${channel.name} 余额不足`, `剩余 ${reading.amount.toFixed(2)} ${reading.currency}，低于你设的 ${low}`);
 		}
 	}
 
-	private alert(title: string, body: string): void {
-		this.core.notifier.notify(title, body);
-		this.core.broadcast({ event: "gateway.alert", title, body });
+	private alert(channelId: string, eventKey: string, title: string, body: string): void {
+		this.core.notifications.post({ key: `gateway:${channelId}:${eventKey}`, category: "decision", objectRef: channelId,
+			object: title, situation: "渠道额度提醒", impact: body, action: "查看渠道额度", target: { page: "settings", itemId: channelId },
+		}, { legacy: { title, body }, started: () => this.core.broadcast({ event: "gateway.alert", title, body }) });
 	}
 
 	private reading(channelId: string): QuotaReading | undefined {

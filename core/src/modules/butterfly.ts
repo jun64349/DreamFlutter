@@ -1,6 +1,6 @@
-import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync, mkdirSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join, posix } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
 import { normalizeCwd, RpcError, requireStr, samePath } from "../core.ts";
 import { now } from "../db.ts";
@@ -11,7 +11,10 @@ import type { Slot } from "../slots/slot.ts";
 import type { Material, TasksModule } from "./tasks.ts";
 import type { Task } from "./tasks.ts";
 import { parseJsonAnswer, type Llm } from "./llm.ts";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { ButterflyChatWorkflow, type ChatManifest } from "./goals/chat-workflow.ts";
+import { chatTask, type ChatInput } from "./goals/chat-task.ts";
+import { digest } from "./autonomy/folders.ts";
 
 export const INBOX = `${SANDBOX_WORKSPACE}/inbox`;
 export const OUTBOX = `${SANDBOX_WORKSPACE}/outbox`;
@@ -51,6 +54,7 @@ export class ButterflyModule implements CoreModule {
 	private readonly core: Core;
 	private readonly tasks: TasksModule;
 	readonly home: string;
+	readonly chat: ButterflyChatWorkflow;
 	/** Outbox contents after the last sandboxed run, to tell new deliveries apart. */
 	private known: Map<string, number> | undefined;
 	private llm?: Llm;
@@ -67,17 +71,22 @@ export class ButterflyModule implements CoreModule {
 		this.home = core.paths.butterflyDir;
 		mkdirSync(this.home, { recursive: true });
 		this.moveDesk();
+		this.chat = new ButterflyChatWorkflow(core, {
+			prepare: (...args) => this.prepareChatInputs(...args),
+			discard: (...args) => this.discardChatInputs(...args),
+		});
 		core.declareBackup({ id: "butterfly-intents", title: "蝶君开工计划", tables: ["butterfly_intents"] });
 		this.register();
 	}
 
 	start(): void {
 		this.core.db.run("UPDATE butterfly_intents SET state='needs_input',error='开工时后台中断，请确认后继续' WHERE state='starting'");
-		this.timer = setInterval(() => { void this.tick(); }, 1000); this.timer.unref();
+		this.timer = setInterval(() => { void this.tick().catch(error => this.core.log.warn("无法处理蝶君任务", error)); }, 1000); this.timer.unref();
 	}
-	stop(): void {
+	async stop(): Promise<void> {
 		this.stopping = true; clearInterval(this.timer);
 		for (const q of this.questions.values()) q.abort();
+		await this.chat.drain();
 	}
 	private ask(intent: Intent, slot: Slot): void {
 		if (this.questions.has(intent.id) || intent.start_at !== null && intent.state !== "needs_input") return;
@@ -95,7 +104,9 @@ export class ButterflyModule implements CoreModule {
 				this.core.db.run("UPDATE butterfly_intents SET state='waiting',start_at=NULL WHERE id=?", intent.id);
 				await this.begin(intent.id);
 			} else if (value === false) this.cancel(intent.id);
-		}).catch((e) => this.core.log.warn("butterfly: answer failed", e)).finally(() => { if (this.questions.get(intent.id) === controller) this.questions.delete(intent.id); });
+		}).catch(error => {
+			if (!this.stopping) this.core.log.warn("butterfly: answer failed", error);
+		}).finally(() => { if (this.questions.get(intent.id) === controller) this.questions.delete(intent.id); });
 	}
 	onSlotChanged(slot: Slot): void {
 		if (this.stopping || !slot.sandboxed || slot.running || this.preparing.has(slot.slotId)) return;
@@ -190,6 +201,7 @@ export class ButterflyModule implements CoreModule {
 		}
 	}
 	async tick(): Promise<void> {
+		if (!this.stopping) await this.chat.publishDeliveries();
 		if (this.stopping || this.core.maintenance) return;
 		for (const row of this.core.db.all<Intent>("SELECT * FROM butterfly_intents WHERE state='waiting' AND start_at IS NOT NULL AND start_at<=?", Date.now())) {
 			const work = this.begin(row.id); this.inFlight.add(work);
@@ -253,6 +265,70 @@ export class ButterflyModule implements CoreModule {
 		return out;
 	}
 
+	private chatInputDirectory(goalId: string) {
+		if (!/^g_[0-9a-f]{16}$/.test(goalId)) throw new RpcError("bad_request", "无效的交办编号");
+		return { staging: INBOX + "/tasks/.prepare-" + goalId, published: INBOX + "/tasks/" + goalId };
+	}
+
+	async prepareChatInputs(goalId: string, input: ChatInput, prior: ChatManifest | null,
+		save: (manifest: ChatManifest) => void, active: () => void): Promise<string[]> {
+		const { staging, published } = this.chatInputDirectory(goalId);
+		const paths = (manifest: ChatManifest) => manifest.map(({ name }, index) => published + "/" + (index + 1) + "/" + name);
+		active();
+		if (!input.attachments.length && !input.materials.length) return [];
+		const final = await this.core.autonomy.sandboxFile(published);
+		if (await inputStat(final)) {
+			if (!prior || !await sameChatInputs(final, prior, active)) throw new Error("已发布的附件无法核对");
+			return paths(prior);
+		}
+		await this.discardChatInputs(goalId, null, false);
+		const files = [];
+		for (const attachment of input.attachments) {
+			active();
+			const source = await this.core.autonomy.sandboxFile(attachment.path);
+			const info = await lstat(source);
+			if (attachment.kind === "folder" ? !info.isDirectory() : !info.isFile())
+				throw new RpcError("bad_request", "附件类型与登记不符");
+			files.push({ name: posix.basename(attachment.path), source: attachment.path,
+				hash: await chatInputHash(source, active), local: source });
+		}
+		const bodies = input.materials.map((body, index) => ({ name: "资料-" + (index + 1) + ".txt", hash: chatTextHash(body), body }));
+		const manifest: ChatManifest = [
+			...files.map(({ name, hash, source }) => ({ name, hash, source })),
+			...bodies.map(({ name, hash }) => ({ name, hash })),
+		];
+		save(manifest);
+		active();
+		const temporary = await this.core.autonomy.sandboxFile(staging);
+		await mkdir(dirname(temporary), { recursive: true });
+		await this.core.autonomy.sandboxFile(staging);
+		await mkdir(temporary);
+		for (const [index, item] of [...files, ...bodies].entries()) {
+			active();
+			const target = join(temporary, String(index + 1), item.name);
+			await mkdir(dirname(target));
+			if ("body" in item) await writeFile(target, item.body, { encoding: "utf8", flag: "wx" });
+			else await cp(item.local, target, { recursive: true, force: false, errorOnExist: true,
+				filter: async path => { active(); await regularChatInput(path); return true; } });
+		}
+		if (!await sameChatInputs(temporary, manifest, active)) throw new Error("附件在复制期间发生变化");
+		await this.core.autonomy.sandboxFile(staging);
+		await this.core.autonomy.sandboxFile(published);
+		active();
+		await rename(temporary, final);
+		return paths(manifest);
+	}
+
+	async discardChatInputs(goalId: string, manifest: ChatManifest | null, cancelled: boolean): Promise<void> {
+		const { staging, published } = this.chatInputDirectory(goalId);
+		const temporary = await this.core.autonomy.sandboxFile(staging);
+		if ((await inputStat(temporary))?.isDirectory()) await rm(temporary, { recursive: true, force: true });
+		if (cancelled && manifest?.length) {
+			const final = await this.core.autonomy.sandboxFile(published);
+			if (await sameChatInputs(final, manifest, () => {})) await rm(final, { recursive: true, force: true });
+		}
+	}
+
 	/** Files dropped on 蝶君's conversation: copied into the inbox. */
 	async importPaths(paths: string[]): Promise<string[]> {
 		const inbox = this.local(INBOX);
@@ -282,6 +358,7 @@ export class ButterflyModule implements CoreModule {
 	}
 
 	async outbox(): Promise<OutboxFile[]> {
+		if (this.stopping) return [];
 		let root: string;
 		try {
 			root = this.local(OUTBOX);
@@ -297,7 +374,7 @@ export class ButterflyModule implements CoreModule {
 				return;
 			}
 			for (const entry of entries) {
-				if (files.length >= OUTBOX_LIMIT) return;
+				if (this.stopping || files.length >= OUTBOX_LIMIT) return;
 				const path = join(dir, entry.name);
 				const name = prefix ? `${prefix}/${entry.name}` : entry.name;
 				if (entry.isDirectory()) await walk(path, name);
@@ -310,13 +387,21 @@ export class ButterflyModule implements CoreModule {
 			}
 		};
 		await walk(root, "");
-		return files.sort((a, b) => b.modifiedAt - a.modifiedAt);
+		if (this.stopping) return [];
+		return files.filter(file => {
+			const goalId = file.name.split("/", 1)[0]!;
+			const task = chatTask(this.core.db, goalId);
+			return !task || this.core.db.get<{ status: string }>("SELECT status FROM goals WHERE id=?", goalId)?.status === "completed";
+		}).sort((a, b) => b.modifiedAt - a.modifiedAt);
 	}
 
 	onRunStarted(slot: Slot): void {
-		if (!slot.sandboxed || this.known) return;
+		if (this.stopping || !slot.sandboxed || this.known) return;
 		void this.outbox().then((files) => {
+			if (this.stopping) return;
 			this.known ??= new Map(files.map((f) => [f.name, f.modifiedAt]));
+		}).catch(error => {
+			if (!this.stopping) this.core.log.warn("butterfly: outbox baseline failed", error);
 		});
 	}
 
@@ -329,11 +414,16 @@ export class ButterflyModule implements CoreModule {
 			const fresh = files.filter((f) => (before.get(f.name) ?? 0) < f.modifiedAt && f.modifiedAt >= run.startedAt - 1000);
 			this.known = new Map(files.map((f) => [f.name, f.modifiedAt]));
 			this.core.broadcast({ event: "butterfly.outbox", files, fresh: fresh.map((f) => f.name) });
+			if (this.stopping) return;
+			const goal = run.taskId && this.tasks.get(run.taskId)?.goalId;
+			if (goal && chatTask(this.core.db, goal)) return; // The goal publishes only after program acceptance.
 			const planned = run.taskId && this.core.db.get("SELECT 1 FROM butterfly_intents WHERE task_id=?", run.taskId);
 			// Concurrent tasks share the outbox; a planned task owns only its directory.
 			const delivered = planned ? files.filter((f) => f.name.startsWith(`${run.taskId}/`)) : fresh;
 			if (run.taskId) for (const file of delivered) this.tasks.recordArtifact(run.taskId, file.path);
 			this.core.broadcast({ event: "butterfly.delivery", taskId: run.taskId, files: delivered, runId: run.id });
+		}).catch(error => {
+			if (!this.stopping) this.core.log.warn("butterfly: outbox delivery failed", error);
 		});
 	}
 
@@ -368,6 +458,7 @@ export class ButterflyModule implements CoreModule {
 			if (!note) throw new RpcError("not_found", "这份写笺不存在");
 			this.local(INBOX); // no task without a sandbox to run it in
 			const inbox = await this.importMaterials(this.tasks.listMaterials(this.home));
+			if (this.stopping) throw new RpcError("busy", "后台正在退出");
 			const task = this.tasks.create({ cwd: this.home, goal: note.content.trim() || note.title, title: note.title, source: "note", noteId: note.id });
 			return { task, prompt: this.composeHandOff(note, inbox) };
 		});
@@ -376,6 +467,43 @@ export class ButterflyModule implements CoreModule {
 			return { paths: await this.importPaths(paths) };
 		});
 	}
+}
+
+async function inputStat(path: string) {
+	return lstat(path).catch((error: NodeJS.ErrnoException) => {
+		if (error.code !== "ENOENT") throw error;
+		return undefined;
+	});
+}
+
+async function regularChatInput(path: string) {
+	const info = await lstat(path);
+	if (!info.isDirectory() && (!info.isFile() || info.nlink !== 1))
+		throw new RpcError("bad_request", "附件只能包含普通文件和文件夹");
+	return info;
+}
+
+function chatTextHash(body: string): string {
+	return "file:" + createHash("sha256").update(body).digest("hex");
+}
+
+async function chatInputHash(path: string, active: () => void): Promise<string> {
+	active();
+	if ((await regularChatInput(path)).isFile()) return "file:" + await digest(path);
+	const children: [string, string][] = [];
+	for (const name of (await readdir(path)).sort()) children.push([name, await chatInputHash(join(path, name), active)]);
+	return "folder:" + createHash("sha256").update(JSON.stringify(children)).digest("hex");
+}
+
+async function sameChatInputs(root: string, manifest: ChatManifest, active: () => void): Promise<boolean> {
+	if (!(await inputStat(root))?.isDirectory() || (await readdir(root)).length !== manifest.length) return false;
+	for (const [index, { name, hash }] of manifest.entries()) {
+		const folder = join(root, String(index + 1));
+		if (!(await inputStat(folder))?.isDirectory()) return false;
+		const names = await readdir(folder);
+		if (names.length !== 1 || names[0] !== name || await chatInputHash(join(folder, name), active) !== hash) return false;
+	}
+	return true;
 }
 
 /** A file name from a title: no path separators or characters Windows refuses. */

@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import type { AgentSessionEvent, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { RpcError, num, requireStr, samePath, type Core, type CoreModule, type Params } from "../core.ts";
 import { json, parseJson } from "../db.ts";
-import { deliverNotification, notificationQueueState, type NotificationState } from "../notify.ts";
+import { notificationQueueState, type NotificationState } from "../notify.ts";
 import { recordedSandbox } from "../pi/host.ts";
 import { readSessionEntries } from "../pi/session-metadata.ts";
 import type { Run } from "../runs.ts";
@@ -532,8 +532,8 @@ export class PatrolModule implements CoreModule {
 	}
 
 	private queuedNotifications() {
-		return this.core.db.all<{ id: string; notification: string | null; notification_targets: string; new_facts: string }>(`
-			SELECT id,notification,notification_targets,new_facts FROM patrol_runs
+		return this.core.db.all<{ id: string; status: Status; notification: string | null; notification_targets: string; new_facts: string }>(`
+			SELECT id,status,notification,notification_targets,new_facts FROM patrol_runs
 			WHERE notification_state='queued' AND notification_started=0 ORDER BY started_at,rowid`);
 	}
 
@@ -547,10 +547,18 @@ export class PatrolModule implements CoreModule {
 	private async flushNotifications(): Promise<void> {
 		if (this.stopping) return;
 		if (notificationQueueState(this.core) === "muted") { this.muteNotifications(); return; }
-		if (quietAt(this.core.settings.get(), this.clock.now())) return;
-		const messages: string[] = [], ids: string[] = [], claimed: NoticeTarget[] = [];
+		const at = this.clock.now();
+		const queued = this.queuedNotifications();
+		const identity = (row: (typeof queued)[number]) => ({ key: `patrol:${row.id}`, itemId: row.id,
+			category: row.status === "waiting_user" ? "decision" as const : "blocked" as const,
+			...(row.notification ? { objectRef: `patrol:${row.id}` } : {}) });
+		if (this.core.notifications.quiet(at)) {
+			for (const row of queued) this.core.notifications.deferQuiet(identity(row), at);
+			return;
+		}
+		const messages: string[] = [], rows: typeof queued = [], claimed: NoticeTarget[] = [];
 		this.core.db.transaction(() => {
-			for (const row of this.queuedNotifications()) {
+			for (const row of queued) {
 				const targets = parseJson<NoticeTarget[]>(row.notification_targets, []);
 				const reasons: string[] = [];
 				const legacyGoal = !targets.length && parseJson<Fact[]>(row.new_facts, []).some(fact => fact.kind === "goal_stuck" && fact.key.startsWith("goal:") && !fact.goal);
@@ -558,24 +566,33 @@ export class PatrolModule implements CoreModule {
 				if (legacyGoal) reasons.push("旧提醒缺少可复核的目标信息");
 				for (const target of targets) {
 					if (!currentFinding(this.core, target)) { reasons.push("目标状态或修订已变化"); continue; }
-					if (goalNoticeBlocksPatrol(this.core.db, target.noticeKey)) { reasons.push("目标提醒已由原发送方处理"); continue; }
+					if (goalNoticeBlocksPatrol(this.core.db, target.noticeKey) || !this.core.notifications.maySupplement(target.noticeKey)) {
+						this.core.notifications.noteDuplicate(at);
+						reasons.push("目标提醒已由原发送方处理"); continue;
+					}
 					recordGoalNotice(this.core.db, target.id, target.noticeKey, "patrol", "queued", this.clock.now());
 					lines.push(target.text);
 					claimed.push(target);
 				}
 				this.core.db.run("UPDATE patrol_runs SET notification_state=?,notification_note=?,notification_started=? WHERE id=?",
 					lines.length ? "queued" : null, [...new Set(reasons)].join("；") || null, Number(lines.length > 0), row.id);
-				if (lines.length) { ids.push(row.id); messages.push(lines.length === 1 ? lines[0]! : this.summarize(lines)); }
+				if (lines.length) { rows.push(row); messages.push(lines.length === 1 ? lines[0]! : this.summarize(lines)); }
+				else this.core.notifications.discardDeferred(identity(row).key);
 			}
 		});
 		if (!messages.length) return;
 		const unique = [...new Set(messages)];
-		const state = await deliverNotification(this.core, "蝶君巡检", unique.length === 1 ? unique[0]! : this.summarize(unique));
+		const { state } = await this.core.notifications.send({
+			...identity(rows[0]!), object: "蝶君巡检", situation: "有需要关注的检查结果",
+			impact: `有 ${rows.length} 条巡检记录可查看`, action: "查看巡检记录", target: { page: "schedule", itemId: rows[0]!.id },
+		}, { at, legacy: { title: "蝶君巡检", body: unique.length === 1 ? unique[0]! : this.summarize(unique) },
+			related: [...rows.slice(1).map(identity), ...claimed.map(target => ({ key: target.noticeKey, objectRef: target.id,
+				category: target.status === "waiting_user" ? "decision" as const : "blocked" as const }))] });
 		this.core.db.transaction(() => {
 			for (const target of claimed) recordGoalNotice(this.core.db, target.id, target.noticeKey, "patrol", state, this.clock.now());
 			this.core.db.run(`UPDATE patrol_runs SET notified=?,notification_state=?,notification_note=COALESCE(?,notification_note)
 				WHERE id IN (SELECT value FROM json_each(?))`, Number(state === "sent"), state,
-				state === "muted" ? "通知关着" : state === "failed" ? "发送失败" : null, json(ids));
+				state === "muted" ? "通知关着" : state === "failed" ? "发送失败" : null, json(rows.map(row => row.id)));
 		});
 	}
 

@@ -479,6 +479,7 @@ describe("gateway: balances and allowances", () => {
 		await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
 		const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 		t = await startTestCore();
+		t.core.settings.update({ patrolQuietEnabled: false });
 		const save = (name: string, platform: string, baseUrl: string, key: string, extra: Record<string, unknown> = {}) =>
 			t!.core.call("gateway.saveChannel", { name, platform, api: "anthropic-messages", baseUrl, models: [{ id: "m" }], keys: [{ secret: key }], ...extra }) as Promise<{ id: string }>;
 		const plan = (await save("智谱", "glm-coding", `${base}/api/anthropic`, "glm-key")).id;

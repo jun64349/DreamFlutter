@@ -24,6 +24,10 @@ export function recordGoalNotice(db: Db, goalId: string, key: string, sender: Se
 }
 
 export function goalNoticeBlocksPatrol(db: Db, key: string): boolean {
+	// Managed goals send through the mandate-checked outbox even when patrol notices are enabled.
+	const goalId = /^notify:([^:]+):/.exec(key)?.[1];
+	if (goalId && db.get(`SELECT 1 FROM goals WHERE id=? AND
+		(mandate_ref GLOB 'rule:autonomy-*' OR mandate_ref GLOB 'user:autonomy-*')`, goalId)) return true;
 	const receipt = goalNoticeReceipt(db, key);
 	if (!receipt) return !!db.get("SELECT 1 FROM goal_intents WHERE idem_key=? AND action='notify' AND status='pending'", key);
 	if (receipt.state === "failed") return receipt.sender === "patrol";

@@ -41,7 +41,7 @@ export const RETENTIONS: readonly Retention[] = ["normal", "long", "locked"];
 export type Actor = "user" | "main_agent" | "memory_agent" | "system" | "migration";
 
 export type LinkKind = "derived_from" | "supersedes" | "conflicts" | "refutes";
-export type SourceKind = "session" | "task" | "run" | "user_edit" | "migration" | "tool";
+export type SourceKind = "session" | "task" | "run" | "user_edit" | "migration" | "tool" | "chat" | "work" | "learning";
 
 export interface MemoryItem {
 	id: string;

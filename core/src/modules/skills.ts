@@ -187,6 +187,11 @@ export class SkillsModule implements CoreModule {
 
 	// ---- skills ------------------------------------------------------------------------
 
+	async selfworkNameTaken(name: string, cwd: string): Promise<boolean> {
+		return existsSync(join(this.userSkillsDir, name)) || (await this.listSkills(cwd)).some(skill =>
+			skill.kind !== "template" && skill.name.toLowerCase() === name.toLowerCase());
+	}
+
 	async listSkills(cwd: string): Promise<SkillInfo[]> {
 		const disabled = this.disabledPaths();
 		// Untrusted projects stay unloaded here too (resolving project packages can run their code).
@@ -332,7 +337,10 @@ export class SkillsModule implements CoreModule {
 			proposal.createdAt,
 		);
 		this.core.broadcast({ event: "proposals.changed" });
-		if (!this.core.clients.size && this.core.settings.get().notifications) this.core.notifier.notify("Agent 建议保存一个技能", payload.name);
+		if (!this.core.clients.size) this.core.notifications.post({ key: `skill:proposal:${proposal.id}`, category: "decision", objectRef: proposal.id,
+			object: payload.name, situation: "Agent 建议保存一个技能", impact: "等待你决定是否保存", action: "查看技能提议",
+			target: { page: "library", sessionFile: proposal.sourceSession, itemId: proposal.id },
+		}, { legacy: { title: "Agent 建议保存一个技能", body: payload.name } });
 		return proposal;
 	}
 

@@ -34,7 +34,7 @@ export class BindingError extends Error {
 
 export interface BindingContext {
 	cwd: string;
-	notify(title: string, body: string): void;
+	sendNotice(title: string, body: string): Promise<boolean>;
 	/** Tests only: allow http and loopback targets. */
 	allowLocalNetwork?: boolean;
 }
@@ -279,8 +279,7 @@ const TOOLS: Record<string, ToolSpec> = {
 				unit: { kind: "tool", subject: "notify.send" },
 				summary: `发送系统通知「${title}」${body ? `：${body}` : ""}`,
 				async run() {
-					ctx.notify(title, body);
-					return { sent: true };
+					return { sent: await ctx.sendNotice(title, body) };
 				},
 			};
 		},

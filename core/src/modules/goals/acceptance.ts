@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { open, readFile, stat } from "node:fs/promises";
 import { extname, posix, resolve } from "node:path";
 import type { Core } from "../../core.ts";
 import { sandboxEnv } from "../../agent/state.ts";
 import { canonicalPath, pathKey } from "../../security/paths.ts";
 import { redact } from "../../security/redaction.ts";
 import { SANDBOX_WORKSPACE } from "../../sandbox/sandbox.ts";
+import { sandboxGoalTools } from "../autonomy/rules.ts";
 import { docxText, pdfText, pptxText, xlsxText } from "../documents.ts";
 import { parseJsonAnswer } from "../llm.ts";
 import type { Goal, GoalScope } from "./types.ts";
@@ -15,6 +17,28 @@ const FILE_PATH_TOOLS = ["read", "write", "edit", "read_image"];
 const FILE_TOOLS = [...FILE_PATH_TOOLS, "read_document", "grep", "glob"];
 const STATE_TOOLS = ["todo", "exit_plan_mode"];
 const MAX_CHECK_BYTES = 8 * 1024 * 1024;
+const TEXT_DELIVERIES = new Set([".md", ".markdown", ".txt", ".csv", ".tsv", ".json", ".jsonl", ".html", ".htm", ".xml",
+	".yaml", ".yml", ".log", ".css", ".js", ".ts", ".py", ".dart", ".sql", ".sh", ".ps1", ".ini", ".toml", ".svg"]);
+
+function signature(bytes: Buffer, prefix: string, offset = 0): boolean {
+	return bytes.subarray(offset, offset + prefix.length).equals(Buffer.from(prefix, "latin1"));
+}
+
+const zipHeader = (bytes: Buffer) => signature(bytes, "PK\x03\x04");
+const oleHeader = (bytes: Buffer) => signature(bytes, "\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1");
+const BINARY_DELIVERIES = new Map<string, (bytes: Buffer) => boolean>([
+	[".png", bytes => signature(bytes, "\x89PNG\r\n\x1a\n")],
+	[".jpg", bytes => signature(bytes, "\xff\xd8\xff")], [".jpeg", bytes => signature(bytes, "\xff\xd8\xff")],
+	[".gif", bytes => signature(bytes, "GIF87a") || signature(bytes, "GIF89a")],
+	[".webp", bytes => signature(bytes, "RIFF") && signature(bytes, "WEBP", 8)],
+	[".bmp", bytes => signature(bytes, "BM")], [".ico", bytes => signature(bytes, "\x00\x00\x01\x00")],
+	[".tif", bytes => signature(bytes, "II\x2a\x00") || signature(bytes, "MM\x00\x2a")],
+	[".tiff", bytes => signature(bytes, "II\x2a\x00") || signature(bytes, "MM\x00\x2a")],
+	[".pdf", bytes => signature(bytes, "%PDF-")],
+	[".zip", zipHeader], [".docx", zipHeader], [".xlsx", zipHeader], [".xlsm", zipHeader], [".pptx", zipHeader],
+	[".odt", zipHeader], [".ods", zipHeader], [".odp", zipHeader],
+	[".doc", oleHeader], [".xls", oleHeader], [".ppt", oleHeader],
+]);
 
 function within(path: string, root: string) { return path === root || path.startsWith(root + "/"); }
 export function scopeTools(scope: GoalScope): string[] {
@@ -60,6 +84,15 @@ export async function goalPath(core: Core, scope: GoalScope, raw: string): Promi
 }
 
 export async function allowedTool(core: Core, goal: Goal, tool: string, input: Record<string, unknown>): Promise<boolean> {
+	if (core.autonomy.hasSandboxTools(goal)) {
+		// job_output is authorized by the executor against the current goal and revision.
+		if (!sandboxGoalTools().includes(tool) || tool === "job_output") return false;
+		if (tool === "web_search" || tool === "web_fetch") return core.sandboxProvider?.()?.online() === true;
+		if (tool === "agent") return !input.cwd && !input.worktree;
+		const location = sandboxToolPath(tool, input);
+		if (location) return !!await goalPath(core, goal.scope, location.raw);
+		return !FILE_PATH_TOOLS.includes(tool) && tool !== "render_html";
+	}
 	if (!scopeTools(goal.scope).includes(tool)) return false;
 	if (STATE_TOOLS.includes(tool)) return true;
 	if (tool === "agent") return !input.cwd && !input.worktree;
@@ -75,6 +108,14 @@ export async function allowedTool(core: Core, goal: Goal, tool: string, input: R
 			&& !!goal.scope.externalActions?.some(action => action.tool === tool && action.command === input.command);
 	}
 	return false;
+}
+
+export function sandboxToolPath(tool: string, input: Record<string, unknown>): { key: string; raw: string } | undefined {
+	const key = FILE_PATH_TOOLS.includes(tool) || tool === "render_html" ? "file_path"
+		: tool === "glob" || tool === "grep" ? "path" : tool === "working_directory" ? "cd" : undefined;
+	if (!key) return undefined;
+	const raw = input[key] ?? (key === "path" ? "." : undefined);
+	return typeof raw === "string" ? { key, raw } : undefined;
 }
 
 export function toolPath(tool: string, input: Record<string, unknown>): string | undefined {
@@ -133,18 +174,58 @@ function csvParses(text: string): boolean {
 	return !quoted;
 }
 
-export async function checkProgram(core: Core, goal: Goal, receipts: ToolReceipt[], artifacts: string[]): Promise<ProgramReport> {
+function deliveryDecoder(first: Buffer): TextDecoder {
+	const encoding = signature(first, "\xff\xfe") ? "utf-16le" : signature(first, "\xfe\xff") ? "utf-16be" : "utf-8";
+	return new TextDecoder(encoding, { fatal: true });
+}
+
+async function nonblankDelivery(path: string, size: number, bytes?: Buffer): Promise<boolean> {
+	if (bytes) return !!deliveryDecoder(bytes).decode(bytes).trim();
+	let decoder: TextDecoder | undefined;
+	let nonblank = false;
+	for await (const chunk of createReadStream(path, { highWaterMark: 64 * 1024, end: size - 1 })) {
+		const block = chunk as Buffer;
+		decoder ??= deliveryDecoder(block);
+		if (decoder.decode(block, { stream: true }).trim()) nonblank = true;
+	}
+	return !!decoder && (!!decoder.decode().trim() || nonblank);
+}
+
+async function deliveryHeader(path: string): Promise<Buffer> {
+	const file = await open(path, "r");
+	try {
+		const head = Buffer.alloc(64);
+		const { bytesRead } = await file.read(head, 0, head.length, 0);
+		return head.subarray(0, bytesRead);
+	} finally { await file.close(); }
+}
+
+async function deliveryContent(path: string, raw: string, size: number, bytes?: Buffer): Promise<Pick<CheckResult, "status" | "detail">> {
+	if (!size) return { status: "missing", detail: "交付文件为空" };
+	const extension = extname(raw).toLowerCase();
+	const matchHeader = BINARY_DELIVERIES.get(extension);
+	try {
+		if (TEXT_DELIVERIES.has(extension)) return await nonblankDelivery(path, size, bytes)
+			? { status: "passed", detail: "文本含有非空白内容" } : { status: "missing", detail: "交付文本只有空白" };
+		if (matchHeader) return matchHeader(bytes ?? await deliveryHeader(path))
+			? { status: "passed", detail: "已核对交付文件头" } : { status: "missing", detail: `文件头与 ${extension} 不符` };
+	} catch { return { status: "unverified", detail: "交付内容无法读取或解码，待核验" }; }
+	return { status: "unverified", detail: `交付类型 ${extension || "（无扩展名）"} 暂不支持自动核验` };
+}
+
+export async function checkProgram(core: Core, goal: Goal, receipts: ToolReceipt[], artifacts: string[],
+	options?: { resolveDelivery?: (raw: string) => Promise<string | null>; metadataOnly?: boolean; verifyDeliveries?: boolean }): Promise<ProgramReport> {
 	const candidates = new Set([...artifacts, ...goal.spec.deliverables].slice(0, 30));
 	const files = new Map<string, { fact: FileFact; bytes?: Buffer; path: string } | "missing" | "unverified">();
 	const examine = async (raw: string) => {
 		const previous = files.get(raw);
 		if (previous) return previous;
 		try {
-			const path = await goalPath(core, goal.scope, raw);
+			const path = await (options?.resolveDelivery ? options.resolveDelivery(raw) : goalPath(core, goal.scope, raw));
 			if (!path) { files.set(raw, "unverified"); return "unverified" as const; }
 			const info = await stat(path);
 			if (!info.isFile()) { files.set(raw, "missing"); return "missing" as const; }
-			const bytes = info.size <= MAX_CHECK_BYTES ? await readFile(path) : undefined;
+			const bytes = !options?.metadataOnly && info.size <= MAX_CHECK_BYTES ? await readFile(path) : undefined;
 			const sha256 = bytes ? createHash("sha256").update(bytes).digest("hex") : null;
 			const excerpt = bytes && /\.(md|txt|json|csv|log|ts|dart|py|yaml|yml)$/i.test(raw)
 				? redact(bytes.subarray(0, 8000).toString("utf8"), true) : undefined;
@@ -159,6 +240,15 @@ export async function checkProgram(core: Core, goal: Goal, receipts: ToolReceipt
 	};
 	for (const path of candidates) await examine(path);
 	const checks: CheckResult[] = [];
+	if (options?.verifyDeliveries && !options.metadataOnly) {
+		const prefix = options.resolveDelivery ? "chat-file" : "delivery-file";
+		for (const [index, raw] of goal.spec.deliverables.entries()) {
+			const file = await examine(raw);
+			const result = typeof file === "string" ? { status: file, detail: "交付文件缺失、不可读或超出交付范围" }
+				: await deliveryContent(file.path, raw, file.fact.size, file.bytes);
+			checks.push({ id: `${prefix}:${index}`, text: raw, ...result });
+		}
+	}
 	const program = [
 		...goal.spec.acceptance.filter(item => item.layer === "program"),
 		...goal.spec.constraints.flatMap((rule, index) => rule.check ? [{ id: `constraint:${index + 1}`, text: rule.text, check: rule.check }] : []),

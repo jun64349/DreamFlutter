@@ -57,6 +57,7 @@ export interface PiHostConfig {
 	newSessionMode: (slot: SlotIdentity) => AgentMode;
 	/** Whether the core's automatic compaction setting is on. */
 	autoCompaction: () => boolean;
+	butterflyStyle?: () => string;
 	/** How long the agent's questions wait for an answer, in ms; 0 = no limit. */
 	askTimeoutMs?: () => number;
 	/** 蝶君's sandbox for sandboxed sessions; undefined while it is not set up. */
@@ -79,6 +80,7 @@ export interface PiHostConfig {
 }
 
 export interface SlotIdentity {
+	sandboxed?: boolean;
 	slotId: string;
 	sideConversation?: boolean;
 }
@@ -239,6 +241,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			resources: () => services?.resourceLoader,
 			complete: (model, context, options) => withLedgerContext({ ...config.ledgerContext?.(slot), sessionId: sessionManager.getSessionId(), purpose: "compaction" }, () => services!.modelRuntime.completeSimple(model as Model<never>, context, options as never)),
 			autoCompaction: config.autoCompaction,
+			butterflyStyle: sandboxed && !target.unattended ? config.butterflyStyle : undefined,
 			compaction: () => config.compaction?.(slot),
 			askTimeoutMs: config.askTimeoutMs,
 			unattended: target.unattended === true,
@@ -274,7 +277,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 					}
 				: undefined,
 			resourceLoaderOptions: {
-				extensionFactories: [...(config.library ? [config.library.extension(sandboxed, () => ({ skills: services?.resourceLoader.getSkills().skills ?? [], prompts: services?.resourceLoader.getPrompts().prompts ?? [] }), () => `${slot.slotId}:${securityContext().runId ?? requestId}`)] : []), ...(security ? [security.extension()] : []), ...builtIns, sourceHarness, ...config.extensions({ ...slot, sideConversation: side }, mode)],
+				extensionFactories: [...(config.library ? [config.library.extension(sandboxed, () => ({ skills: services?.resourceLoader.getSkills().skills ?? [], prompts: services?.resourceLoader.getPrompts().prompts ?? [] }), () => `${slot.slotId}:${securityContext().runId ?? requestId}`)] : []), ...(security ? [security.extension()] : []), ...builtIns, sourceHarness, ...config.extensions({ ...slot, sideConversation: side, sandboxed }, mode)],
 				skillsOverride: (base) => { const filtered = mergeBuiltinSkills(dropSharedAgentSkills(base), config.library); return { ...filtered, skills: filtered.skills.filter((skill) => config.library?.fileAllowed("skill", skill.filePath) !== false) }; },
 				promptsOverride: (base) => ({ ...base, prompts: base.prompts.filter((prompt) => config.library?.fileAllowed("template", prompt.filePath) !== false) }),
 			},

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { RpcError } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, parseJson } from "../db.ts";
+import { isButterflyMemorySource, misattributesButterflyName } from "../modules/persona/memory-source.ts";
 import { defaultValidity, promotionBlock } from "./lifecycle.ts";
 import { hazardReason, scanMemoryText, suppressionHash } from "./safety.ts";
 import { type ScopeSet, visibleIn, writableIn } from "./scopes.ts";
@@ -45,6 +46,8 @@ export interface CommitInput {
 	sessionRef?: string | null;
 	/** Wait for the user whatever the settings say (an unattended run: nobody asked it to remember anything). */
 	confirm?: boolean;
+	/** Only new, sourced memories in the assistant's own partition may bypass write confirmation. */
+	butterflySelf?: boolean;
 	costUsd?: number;
 }
 
@@ -321,6 +324,7 @@ export class MemoryStore {
 			const item = op.item;
 			const bad = validateNew(item, actor) ?? this.unsafe(item.content, actor);
 			if (bad) return { reject: bad };
+			if (!byUser && input.allowed?.butterfly && misattributesButterflyName(item.content)) return { reject: "蝶君是助手的名字，不能记成用户的名字" };
 			if (item.id && this.get(item.id)) return { reject: "这条记忆已经存在" };
 			if (input.allowed && !writableIn(item, input.allowed)) return { reject: "不在这次允许的范围里" };
 			// Migration brings over what the user locked in v0.2.
@@ -336,6 +340,7 @@ export class MemoryStore {
 		if (op.kind === "edit") {
 			const bad = validatePatch(op.patch, current) ?? (op.patch.content !== undefined ? this.unsafe(op.patch.content, actor) : undefined);
 			if (bad) return { reject: bad };
+			if (!byUser && input.allowed?.butterfly && op.patch.content && misattributesButterflyName(op.patch.content)) return { reject: "蝶君是助手的名字，不能记成用户的名字" };
 			const target = { scope: op.patch.scope ?? current.scope, workspaceId: op.patch.workspaceId !== undefined ? op.patch.workspaceId : current.workspaceId, groupId: op.patch.groupId !== undefined ? op.patch.groupId : current.groupId };
 			if (target.scope === "workspace" && !target.workspaceId) return { reject: "工作区记忆要指明工作区" };
 			if (target.scope === "group" && !target.groupId) return { reject: "共享组记忆要指明共享组" };
@@ -384,6 +389,9 @@ export class MemoryStore {
 
 	/** 「写入前要我确认」 is on: back to §4's table of what may take effect without the user. */
 	private mustConfirm(op: MemoryOp, input: CommitInput): boolean {
+		if (input.butterflySelf && input.actor === "main_agent" && input.allowed?.butterfly &&
+			op.kind === "add" && op.item.scope === "butterfly" &&
+			op.sources?.some(source => isButterflyMemorySource(source.kind) && source.ref?.trim())) return false;
 		if (input.confirm && input.actor !== "user") return true;
 		if (!this.confirmWrites()) return false;
 		switch (input.actor) {
@@ -418,7 +426,7 @@ export class MemoryStore {
 				status: item.status ?? "active",
 				pinned: item.pinned ?? false,
 				retention: item.retention ?? (item.level === 3 ? "long" : "normal"),
-				autoOk: true,
+				autoOk: !input.butterflySelf,
 				occurredAt: item.occurredAt ?? null,
 				validFrom: item.validFrom ?? null,
 				// 17.3: a judgment about tools or the environment the background wrote gets 30 days when it gave none.

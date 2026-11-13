@@ -27,6 +27,11 @@ import type { WebTools } from "./web/types.ts";
 import { currentToolEnvironment, withToolEnvironment, type ToolEnvironmentProvider } from "./agent/tool-environment.ts";
 import type { Ledger } from "./ledger/ledger.ts";
 import { GoalsModule } from "./modules/goals.ts";
+import { ButterflyModule } from "./modules/butterfly.ts";
+import { chatPrompt, structuredChatInput } from "./modules/goals/chat-task.ts";
+import { AUTONOMY_DRAFT_TOOL, AutonomyModule } from "./modules/autonomy/index.ts";
+import { PersonaModule } from "./modules/persona/index.ts";
+import { SelfworkModule, type SelfworkOptions } from "./modules/selfwork/index.ts";
 import { JobsModule } from "./modules/jobs.ts";
 import { PatrolModule, type PatrolClock } from "./modules/patrol.ts";
 import { PythonFilesModule } from "./agent/python-files.ts";
@@ -61,6 +66,10 @@ export interface CoreOptions {
 	sandbox?: import("./sandbox/sandbox.ts").SandboxOptions;
 	/** Test hook for the independent patrol timer. */
 	patrolClock?: PatrolClock;
+	/** Test hook for proactive chat's local-day and quiet-hour checks. */
+	personaClock?: () => number;
+	/** Test hooks for autonomous work and its sandbox trial. */
+	selfwork?: SelfworkOptions;
 	/** v0.3.1's data folders, to move into this one on its first start (main.ts gives them only for the default data folder). */
 	legacyData?: import("./backup/backup.ts").LegacyData;
 }
@@ -147,6 +156,8 @@ export class Core {
 	readonly startup: StartupProgress;
 	private readonly externalStartup: boolean;
 	readonly settings: SettingsStore;
+	readonly autonomy: AutonomyModule;
+	readonly persona: PersonaModule;
 	readonly security: SecurityService;
 	readonly library: LibraryRegistry;
 	readonly confirmations: ConfirmationStore;
@@ -253,6 +264,7 @@ export class Core {
 			],
 			newSessionMode: (slot) => this.slotOrOpening(slot.slotId)?.newSessionMode ?? this.settings.get().agentMode,
 			autoCompaction: () => this.settings.get().autoCompaction,
+			butterflyStyle: () => this.persona.prompt(),
 			askTimeoutMs: () => this.settings.get().askTimeoutSeconds * 1000,
 			sandbox: () => this.sandboxProvider?.(),
 			agentStateChanged: (slot, state) => this.slotOrOpening(slot.slotId)?.setAgentState(state),
@@ -273,7 +285,13 @@ export class Core {
 			},
 		});
 		this.registerBaseMethods();
+		if (!STANDARD_EXTRA_TOOLS.includes(AUTONOMY_DRAFT_TOOL)) STANDARD_EXTRA_TOOLS.push(AUTONOMY_DRAFT_TOOL);
+		this.autonomy = new AutonomyModule(this, options.modelRuntime);
+		this.persona = new PersonaModule(this, options.personaClock);
+		this.use(this.persona);
 		this.use(new GoalsModule(this));
+		this.use(this.autonomy);
+		this.use(new SelfworkModule(this, options.modelRuntime, options.selfwork));
 		this.patrol = new PatrolModule(this, options.patrolClock);
 		this.use(this.patrol);
 		this.use(new JobsModule(this));
@@ -612,6 +630,8 @@ export class Core {
 				// Dialog owners (including T-85 pre-start intents) share this single notification path.
 				if (slot.sandboxed || kind === "approval" || kind === "trust") this.notifications.publish(slot.sandboxed ? "butterfly.waiting" : "workbench.approval", {
 					title: slot.sandboxed ? "蝶君有件事等你决定" : "工作台需要你批准", body: slot.info().sessionName ?? slot.cwd,
+					key: `confirmation:${request.id}`, object: slot.info().sessionName ?? (slot.sandboxed ? "蝶君对话" : "工作台"),
+					situation: "等你决定", impact: "这项操作需要你的决定才能继续", action: "查看并处理",
 					target: { page: "attention", slotId: slot.slotId, sessionFile: slot.info().sessionFile, itemId: request.id, runId: slot.currentRun?.id },
 				});
 			},
@@ -654,6 +674,8 @@ export class Core {
 				if (run.status === "done" && !this.module(GoalsModule)?.executor.ownsSlot(slot.slotId)
 					&& !this.db.get("SELECT id FROM notices WHERE slot_id=? AND status='pending'", slot.slotId)) this.notifications.publish(slot.sandboxed ? "butterfly.done" : "workbench.done", {
 					title: slot.sandboxed ? "蝶君做完了" : "工作台回复完了", body: slot.info().sessionName ?? run.prompt ?? "任务",
+					key: `run:${run.id}:done`, objectRef: run.id, object: slot.info().sessionName ?? (slot.sandboxed ? "蝶君对话" : "工作台"),
+					situation: "已完成", impact: "本轮回复可查看", action: "打开对话",
 					target: { page: slot.sandboxed ? "butterfly" : "chat", slotId: slot.slotId, sessionFile: run.sessionFile, taskId: run.taskId, runId: run.id },
 				});
 			},
@@ -709,7 +731,10 @@ export class Core {
 		});
 
 		this.register("core.notify", (params) => {
-			this.notifier.notify(requireStr(params.title, "title"), str(params.body) ?? "");
+			const title = requireStr(params.title, "title"), body = str(params.body) ?? "";
+			void this.notifications.send({ key: `manual:${randomUUID()}`, category: "reminder", object: title, situation: "提醒",
+				impact: body, action: "打开 DreamFlutter", target: { page: "attention" } }, { legacy: { title, body } })
+				.catch(error => this.log.warn("无法发送手动通知", error));
 			return { ok: true };
 		});
 
@@ -750,13 +775,22 @@ export class Core {
 			if (typeof params.slotId === "string") client?.attached.delete(params.slotId);
 			return { ok: true };
 		});
-		this.register("slot.send", (params, client) => {
+		this.register("slot.send", async (params, client) => {
 			const slot = this.slot(params.slotId, { includeOpening: true });
-			const record = params.record as { type?: unknown } | undefined;
-			if (!record || typeof record.type !== "string") throw new RpcError("bad_request", "record.type is required");
+			const input = params.record as Params | undefined;
+			if (!input || typeof input.type !== "string") throw new RpcError("bad_request", "record.type is required");
+			const { chatInput, ...fields } = input;
+			const structured = input.type === "prompt" && chatInput !== undefined ? structuredChatInput(chatInput) : undefined;
+			if (structured === null) throw new RpcError("bad_request", "record.chatInput 无效");
+			const record = { ...fields, type: input.type, ...(structured && { message: chatPrompt(structured) }) };
 			if (this.stopped && record.type === "prompt") throw new RpcError("unavailable", "后台正在退出");
 			if (this.maintenance && record.type === "prompt") throw new RpcError("busy", `${this.maintenance}，请稍后再发`);
-			if (!this.module(GoalsModule)?.executor.routeInput(slot, record as { type: string }, client?.id)) {
+			const chat = this.module(ButterflyModule)?.chat;
+			if (chat && await chat.route(slot, record, client?.id, structured)) {
+				const reply = { id: (record as Params).id, type: "response", command: "prompt", success: true, data: { disposition: "handled" } };
+				client?.send({ event: "slot.record", slotId: slot.slotId, record: reply });
+				void chat.refresh().catch(error => this.log.warn("无法刷新交办会话索引", error));
+			} else if (!this.module(GoalsModule)?.executor.routeInput(slot, record as { type: string }, client?.id)) {
 				void slot.handle(record as { type: string }, client?.id);
 			}
 			return { ok: true };
@@ -769,6 +803,7 @@ export class Core {
 		this.register("confirm.list", (params) => this.confirmations.list({ status: params.status as never, limit: num(params.limit) }));
 		this.register("confirm.answer", (params) => {
 			const id = requireStr(params.id, "id");
+			if (this.autonomy.answerConfirmation(id, params.response)) return { ok: true };
 			for (const slot of this.allSlots()) {
 				if (slot.ui.has(id)) {
 					slot.ui.answer({ ...(params.response as object), id });

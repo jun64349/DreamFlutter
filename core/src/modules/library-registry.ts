@@ -8,7 +8,7 @@ import { builtinSkillKey, isBuiltinSkillPath } from "./builtin-skills.ts";
 import { mcpIdentity, mcpSourceKey, parseMcpIdentity } from "../security/mcp-identity.ts";
 
 export type EntryKind = "skill" | "template" | "mcp";
-export type SourceKind = "builtin" | "user" | "agent" | "community";
+export type SourceKind = "builtin" | "user" | "agent" | "community" | "butterfly_self";
 export interface EntryMetadata {
 	sourceKind: SourceKind;
 	sourceUrl: string | null;
@@ -97,6 +97,11 @@ export class LibraryRegistry {
 	}
 	fileAllowed(kind: "skill" | "template", path: string): boolean {
 		return this.get(kind, locator(path)).enabled && this.fileTrusted(kind, path);
+	}
+	registerSelfworkSkill(path: string, ref: string): EntryMetadata {
+		return this.write("skill", locator(path), {
+			sourceKind: "butterfly_self", sourceUrl: ref, trust: "trusted", enabled: true, butterflyAllowed: true,
+		}, fileFingerprint("skill", path));
 	}
 	fileTrusted(kind: "skill" | "template", path: string): boolean {
 		const key = locator(path), row = this.row(kind, key);

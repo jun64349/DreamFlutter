@@ -1,0 +1,324 @@
+{
+  "screen": {
+    "total": 40,
+    "correct": 40,
+    "falseAccept": 0,
+    "missed": 0,
+    "wrongRoute": 0
+  },
+  "mode": "live",
+  "model": "deepseek-v4.1-flash",
+  "maxUsd": 0.05,
+  "stopBeforeUsd": 0.045000000000000005,
+  "trialIdleWaitMs": 1000,
+  "simulatedIdleMs": 900000,
+  "cleanup": {
+    "distro": "DF-T118-634e6ac40bd84b41bba13c6a448aa134",
+    "root": "<隔离目录>",
+    "pending": false,
+    "coreStopped": true,
+    "distroRemoved": true,
+    "dataRemoved": true,
+    "errors": {}
+  },
+  "channel": "df-c13903cbb",
+  "prices": {
+    "input": 0.15,
+    "output": 0.6,
+    "cacheRead": 0.003,
+    "cacheWrite": 0
+  },
+  "cases": [
+    {
+      "name": "B4 空闲学习、记忆和主动聊天",
+      "passed": false,
+      "error": "下一请求的预留会超过整轮 $0.045000000000000005 上限",
+      "elapsedMs": 77057,
+      "rounds": 2,
+      "requests": 9,
+      "transportRequests": 8,
+      "reservedOrEstimatedUsd": 0.012537,
+      "pending": 0,
+      "missingFinalUsage": 0,
+      "transportReceipts": [
+        {
+          "ledgerId": "f82e9f90-201d-4396-bc4a-6f9d26781d91",
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "ledgerId": "f72b166d-4998-4918-a6bd-3bacf0158459",
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "ledgerId": "4affdc40-c781-433e-8779-8332b5bbed96",
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "ledgerId": "48ca19a1-7498-4c2e-9ae6-a2dfd4f00e3e",
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "ledgerId": "a03806f1-bdf1-425d-8e08-06a3b0513b00",
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "ledgerId": "a3222a82-b2cd-44ed-918f-5f1182885622",
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "ledgerId": "112ab4d2-1321-4179-9b97-b605fe66a712",
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "ledgerId": "81ffe662-d930-46e9-a05c-e83b23cd6059",
+          "status": "正常结束",
+          "finalUsage": true,
+          "transport": true
+        },
+        {
+          "ledgerId": "7a15aa9c-6d34-4815-a4ef-86e4e97e38a5",
+          "status": "被拒",
+          "finalUsage": false,
+          "transport": false,
+          "failure": {
+            "category": "无法归类",
+            "notSent": "试跑限制"
+          }
+        }
+      ],
+      "reportedCostUsd": 0,
+      "knownLedgerUsd": 0,
+      "goAllowanceUsd": 0.007519690000000001,
+      "knownGoAllowanceUsd": 0.007519690000000001,
+      "missingGoAllowance": 0,
+      "goAllowanceSources": [
+        "provider"
+      ],
+      "unknownPrice": 0,
+      "missingAmount": 0,
+      "amountSources": [
+        "plan_occupancy"
+      ],
+      "requestReconciliation": {
+        "ledgerOnly": [
+          "7a15aa9c-6d34-4815-a4ef-86e4e97e38a5"
+        ],
+        "unmatchedTransmissions": 0
+      },
+      "applicationBudget": {
+        "goalUsd": 0.0030318,
+        "autonomous": [
+          {
+            "source": "learning",
+            "usd": 0.0030318
+          }
+        ]
+      },
+      "billing": [
+        {
+          "id": "f82e9f90-201d-4396-bc4a-6f9d26781d91",
+          "purpose": "auxiliary",
+          "slot_id": null,
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794537870089,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00052948,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 59,
+          "output": 720,
+          "cache_read": 128,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "id": "f72b166d-4998-4918-a6bd-3bacf0158459",
+          "purpose": "conversation",
+          "slot_id": "4f62cc53-e7d9-4502-90fa-1cbed47bec96",
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794537876748,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00224478,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 11959,
+          "output": 128,
+          "cache_read": 0,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "id": "4affdc40-c781-433e-8779-8332b5bbed96",
+          "purpose": "conversation",
+          "slot_id": "4f62cc53-e7d9-4502-90fa-1cbed47bec96",
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794537881246,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00021007,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 353,
+          "output": 144,
+          "cache_read": 11904,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "id": "48ca19a1-7498-4c2e-9ae6-a2dfd4f00e3e",
+          "purpose": "conversation",
+          "slot_id": "4f62cc53-e7d9-4502-90fa-1cbed47bec96",
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794537884480,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00050998,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 358,
+          "output": 558,
+          "cache_read": 12160,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "id": "a03806f1-bdf1-425d-8e08-06a3b0513b00",
+          "purpose": "conversation",
+          "slot_id": "4f62cc53-e7d9-4502-90fa-1cbed47bec96",
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794537892270,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00078396,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 1091,
+          "output": 754,
+          "cache_read": 12416,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "id": "a3222a82-b2cd-44ed-918f-5f1182885622",
+          "purpose": "conversation",
+          "slot_id": "4f62cc53-e7d9-4502-90fa-1cbed47bec96",
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794537901277,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00038678,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 944,
+          "output": 234,
+          "cache_read": 13440,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "id": "112ab4d2-1321-4179-9b97-b605fe66a712",
+          "purpose": "conversation",
+          "slot_id": "4f62cc53-e7d9-4502-90fa-1cbed47bec96",
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794537906177,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00038911,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 435,
+          "output": 360,
+          "cache_read": 14336,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "id": "81ffe662-d930-46e9-a05c-e83b23cd6059",
+          "purpose": "conversation",
+          "slot_id": "4f62cc53-e7d9-4502-90fa-1cbed47bec96",
+          "state": "complete",
+          "success": 1,
+          "requested_at": 1794537911675,
+          "amount": 0,
+          "currency": "USD",
+          "amount_source": "plan_occupancy",
+          "price_snapshot": "{\"api\":\"openai-completions\",\"cost\":{\"input\":0.15,\"output\":0.6,\"cacheRead\":0.003,\"cacheWrite\":0},\"rule\":null}",
+          "allowance": 0.00246553,
+          "allowance_unit": "USD",
+          "allowance_source": "provider",
+          "billing_source": "go",
+          "input": 471,
+          "output": 3233,
+          "cache_read": 14720,
+          "cache_write": 0,
+          "error_code": null
+        },
+        {
+          "id": "7a15aa9c-6d34-4815-a4ef-86e4e97e38a5",
+          "purpose": "conversation",
+          "slot_id": "4f62cc53-e7d9-4502-90fa-1cbed47bec96",
+          "state": "missing",
+          "success": 0,
+          "requested_at": 1794537942553,
+          "amount": null,
+          "currency": null,
+          "amount_source": "missing",
+          "price_snapshot": null,
+          "allowance": null,
+          "allowance_unit": null,
+          "allowance_source": null,
+          "billing_source": null,
+          "input": null,
+          "output": null,
+          "cache_read": null,
+          "cache_write": null,
+          "error_code": "error"
+        }
+      ]
+    }
+  ]
+}

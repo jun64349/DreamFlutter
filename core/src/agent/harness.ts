@@ -144,6 +144,7 @@ export interface HarnessOptions {
 	complete: (model: Model<never>, context: Context, options: { maxTokens: number; signal?: AbortSignal }) => Promise<AssistantMessage>;
 	/** Whether the core's automatic compaction setting is on. */
 	autoCompaction: () => boolean;
+	butterflyStyle?: () => string;
 	/** How long ask_user_question waits before taking the recommended answer, in ms; 0 or absent = no limit. */
 	askTimeoutMs?: () => number;
 	/** Extra tools the mode keeps (DreamFlutter's own, standard only). */
@@ -396,6 +397,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				active.has("show_card") ? RICH_OUTPUT_GUIDANCE : "",
 				// The workbench: shipped tools, and .dreamflutter with the workspace notes (read fresh every run).
 				sandbox ? SANDBOX_ENVIRONMENT : workspaceGuidance(prepareWorkspace(cwd).notes),
+				options.butterflyStyle?.() ?? "",
 			];
 			return sections.filter((s) => s.length > 0).join("\n\n");
 		};

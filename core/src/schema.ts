@@ -12,6 +12,14 @@ import { T101_MIGRATION } from "./t101-migration.ts";
 import { T99_MIGRATION } from "./t99-migration.ts";
 import { T102_MIGRATION } from "./t102-migration.ts";
 import { T112_MIGRATION } from "./t112-migration.ts";
+import { T113_MIGRATION } from "./t113-migration.ts";
+import { T114_MIGRATION } from "./t114-migration.ts";
+import { T115_MIGRATION } from "./t115-migration.ts";
+import { T116_MIGRATION } from "./t116-migration.ts";
+import { T119_MIGRATION } from "./t119-migration.ts";
+import { T117_MIGRATION } from "./t117-migration.ts";
+import { T122_MIGRATION } from "./t122-migration.ts";
+import { T123_MIGRATION } from "./t123-migration.ts";
 
 export const MIGRATIONS: string[] = [
 	// 1: settings, persisted dialogs, run log.
@@ -769,4 +777,12 @@ export const MIGRATIONS: string[] = [
 	T99_MIGRATION,
 	T102_MIGRATION,
 	T112_MIGRATION,
+	T113_MIGRATION,
+	T114_MIGRATION,
+	T115_MIGRATION,
+	T116_MIGRATION,
+	T119_MIGRATION,
+	T117_MIGRATION,
+	T122_MIGRATION,
+	T123_MIGRATION,
 ];
