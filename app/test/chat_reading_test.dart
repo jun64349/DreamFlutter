@@ -8,6 +8,7 @@ import 'package:dreamflutter/ui/motion.dart';
 import 'package:dreamflutter/ui/web_surface.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
@@ -26,9 +27,9 @@ void main() {
   late FakePi pi;
   var ts = 10;
 
-  Future<void> startApp(WidgetTester tester) async {
+  Future<void> startApp(WidgetTester tester,{bool newDefaults=false}) async {
     await tester.binding.setSurfaceSize(const Size(1400, 900));
-    SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path, 'onboarded': true});
+    SharedPreferences.setMockInitialValues({'workspace': Directory.systemTemp.path, 'onboarded': true,if(!newDefaults)...{'zoom':1.0,'textScale':1.0}});
     sessions = Directory.systemTemp.createTempSync('df_reading_');
     backend = FakeBackend();
     agent = AgentController(
@@ -98,6 +99,31 @@ void main() {
   Finder messageList() => find.byKey(const ValueKey('conversation-list'));
 
   ScrollPosition listPosition(WidgetTester tester) => tester.state<ScrollableState>(find.descendant(of: messageList(), matching: find.byType(Scrollable)).first).position;
+
+  for(final zoom in [1.0,1.25,1.5,1.65]){
+    testWidgets('selection menu follows the mouse after scrolling at physical zoom $zoom',(tester)async{
+      await startApp(tester,newDefaults:true);await agent.setZoom(zoom);await settle(tester);
+      await earlierAnswers(tester,3);
+      pi.startRun('last');reply('Alphaword first paragraph here.\n\nBravoword second paragraph.\n\nCharlieword third paragraph.');pi.finishRun();await settle(tester);
+      expect(listPosition(tester).pixels,greaterThan(1000));
+      final paragraph=tester.renderObject<RenderParagraph>(find.textContaining('Alphaword',findRichText:true).last);
+      final word=paragraph.getBoxesForSelection(const TextSelection(baseOffset:0,extentOffset:9)).first.toRect();
+      final drag=await tester.startGesture(paragraph.localToGlobal(word.centerLeft),kind:PointerDeviceKind.mouse);
+      await tester.pump();await drag.moveTo(paragraph.localToGlobal(word.centerRight));await tester.pump();await drag.up();await tester.pumpAndSettle();
+      final point=paragraph.localToGlobal(word.center);
+      final mouse=await tester.startGesture(point,kind:PointerDeviceKind.mouse,buttons:kSecondaryMouseButton);await mouse.up();await tester.pumpAndSettle();
+      final toolbar=find.byType(DesktopTextSelectionToolbar);
+      expect(toolbar,findsOneWidget);
+      final menu=tester.getRect(find.descendant(of:toolbar,matching:find.byType(Material)).first);
+      expect(menu.left,closeTo(point.dx.clamp(8*zoom,1400-8*zoom-menu.width),1));
+      expect(menu.top,closeTo(point.dy.clamp(8*zoom,900-8*zoom-menu.height),1));
+      expect(find.text('引用'),findsOneWidget);expect(find.text('问一下'),findsOneWidget);
+      await tester.tap(find.text('引用'));await tester.pumpAndSettle();
+      expect(find.byType(DesktopTextSelectionToolbar),findsNothing);
+      expect(tester.takeException(),isNull);
+      await tester.pump(const Duration(seconds:2));
+    },variant:TargetPlatformVariant.only(TargetPlatform.windows));
+  }
 
   testWidgets('one wheel notch up while a reply streams lets go of the end, and the button takes it back', (tester) async {
     await startApp(tester);

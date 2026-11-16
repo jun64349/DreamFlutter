@@ -674,7 +674,16 @@ export class Core {
 				}
 				this.broadcast({ event: "run.finished", run });
 				for (const module of this.modules) module.onRunFinished?.(slot, run);
-				if (run.status === "done" && !this.module(GoalsModule)?.executor.ownsSlot(slot.slotId)
+				const butterflyTask = slot.sandboxed && run.taskId && this.db.get(
+					`SELECT 1 FROM butterfly_intents i WHERE i.task_id=? AND i.state='started' AND i.created_at<=?
+					AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.task_id=i.task_id AND r.id<>? AND r.status='done' AND r.started_at>=i.created_at)
+					LIMIT 1`, run.taskId, run.startedAt, run.id);
+				const taskSource = slot.sandboxed && run.taskId
+					? this.db.get<{ source: string }>("SELECT source FROM tasks WHERE id=?", run.taskId)?.source : undefined;
+				const acted = slot.sandboxed && this.db.get(`SELECT 1 FROM run_steps WHERE run_id=? AND kind='tool' AND status='done'
+					AND name IN ('write','edit','bash','pwsh','powershell','python','render_html','agent') LIMIT 1`, run.id);
+				const butterflyResult = butterflyTask || acted || !!taskSource && taskSource !== "chat";
+				if (run.status === "done" && (!slot.sandboxed || butterflyResult) && !this.module(GoalsModule)?.executor.ownsSlot(slot.slotId)
 					&& !this.db.get("SELECT id FROM notices WHERE slot_id=? AND status='pending'", slot.slotId)) this.notifications.publish(slot.sandboxed ? "butterfly.done" : "workbench.done", {
 					title: slot.sandboxed ? "蝶君做完了" : "工作台回复完了", body: slot.info().sessionName ?? run.prompt ?? "任务",
 					key: `run:${run.id}:done`, objectRef: run.id, object: slot.info().sessionName ?? (slot.sandboxed ? "蝶君对话" : "工作台"),

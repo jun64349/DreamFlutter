@@ -1028,6 +1028,10 @@ interface CoreSettings {
 	/** Turn cap for one unattended run. */
 	maxTurnsUnattended: number;
 	notifications: boolean;
+	/** System toasts for workbench replies and approval requests. */
+	workbenchNotifications: boolean;
+	/** System toasts for Butterfly task results and questions. */
+	butterflyNotifications: boolean;
 	scheduleMissedDefault: "skip" | "latest";
 	goalDefaultBudget: GoalDefaultBudget;
 	goalButterflyBudgetFactor: number;

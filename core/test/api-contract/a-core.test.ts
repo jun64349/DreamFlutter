@@ -53,7 +53,7 @@ test("core.notify and notifications.presence expose validation and delivery", as
 	await expectRpcError(api.call("notifications.presence"), "bad_request");
 	assert.deepEqual(await api.call("notifications.presence", { foreground: true }), { ok: true });
 	await expectRpcError(api.call("core.notify"), "bad_request");
-	await api.call("settings.update", { notifications: true, patrolQuietEnabled: false });
+	await api.call("settings.update", { notifications: true, workbenchNotifications: true, patrolQuietEnabled: false });
 	const start = api.events.length;
 	assert.deepEqual(await api.call("core.notify", { title: "Contract notice", body: "Isolated delivery" }), { ok: true });
 	await api.waitFor(() => api.notifier.sent.length === 1);

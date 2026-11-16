@@ -17,6 +17,7 @@ import 'package:dreamflutter/ui/web_surface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
@@ -236,7 +237,7 @@ void main() {
     final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: root.path), backend: demo.backend);
     final key = GlobalKey();
     final mode = dark ? 'dark' : 'light';
-    final shots = Directory(p.join(Directory.current.path, 'build', numbersPass ? 't143-numbers' : collectionPass ? 't143-collection' : only.contains('polish-') ? 't143-polish' : only.contains('review-') ? 't143-review' : 'v1_compare', mode))..createSync(recursive: true);
+    final shots = Directory(p.join(Directory.current.path, 'build', only.contains('trial-') ? 'trial-feedback' : numbersPass ? 't143-numbers' : collectionPass ? 't143-collection' : only.contains('polish-') ? 't143-polish' : only.contains('review-') ? 't143-review' : 'v1_compare', mode))..createSync(recursive: true);
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox());
       agent.dispose();
@@ -290,6 +291,65 @@ void main() {
     RichRenderer.configure(renderer.port);
     await tester.runAsync(agent.refreshSessions);
     await settle(8);
+    if(wanted.any((name)=>name.startsWith('trial-'))){
+      if(wanted.contains('trial-home'))await shot('trial-home');
+      for(final (name,category) in [
+        ('trial-general','通用'),('trial-memory','记忆'),
+        ('trial-memory-custom','记忆'),('trial-notifications','窗口与通知'),
+        ('trial-data','数据与安全'),('trial-data-fold','数据与安全'),('trial-appearance','外观'),
+        ('trial-model-group-create','模型'),('trial-channel-create','模型'),
+      ]){
+        if(!wanted.contains(name))continue;
+        agent.openSettings(category);await settle();
+        if(name=='trial-memory'||name=='trial-memory-custom'){
+          final number=find.byKey(const ValueKey('memoryBudgetTokens'));
+          await tester.ensureVisible(number);await settle();
+          await tester.tap(find.descendant(of:number,matching:find.byType(MenuAnchor)));await settle();
+          if(name=='trial-memory-custom'){
+            await tester.tap(find.widgetWithText(MenuItemButton,'自定义…'));await settle();
+            final input=find.descendant(of:number,matching:find.byType(TextField));
+            await tester.enterText(input,'3500');await tester.testTextInput.receiveAction(TextInputAction.done);await settle();
+          }
+        }
+        if(name=='trial-data-fold'){
+          await tester.scrollUntilVisible(find.text('数据位置'),250,scrollable:find.descendant(of:find.byKey(const ValueKey('settings-数据与安全')),matching:find.byType(Scrollable)).first);await settle();
+        }
+        if(name=='trial-appearance'){
+          await agent.setDecorativeMotion(true);
+          await tester.scrollUntilVisible(find.text('纹理强度'),250,scrollable:find.descendant(of:find.byKey(const ValueKey('settings-外观')),matching:find.byType(Scrollable)).first);await settle();
+        }
+        if(name=='trial-model-group-create'||name=='trial-channel-create'){
+          final isGroup=name=='trial-model-group-create';
+          final link=find.text(isGroup?'新建模型组':'添加渠道');
+          await tester.scrollUntilVisible(link,250,scrollable:find.descendant(of:find.byKey(const ValueKey('settings-模型')),matching:find.byType(Scrollable)).first);
+          await tester.tap(link);await settle();
+          final field=isGroup?find.byKey(const ValueKey('group-name')):find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.labelText=='渠道名称');
+          await tester.ensureVisible(field);await settle();
+          final viewport=find.descendant(of:find.byKey(const ValueKey('settings-模型')),matching:find.byType(Scrollable)).first;
+          final position=tester.state<ScrollableState>(viewport).position;
+          position.jumpTo((position.pixels+(tester.getTopLeft(field).dy-tester.getTopLeft(viewport).dy-150)/agent.zoom).clamp(position.minScrollExtent,position.maxScrollExtent));await settle();
+        }
+        await shot(name);
+        if(name=='trial-appearance')await agent.setDecorativeMotion(false);
+        if(name=='trial-memory'){
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);await settle();
+        }
+        agent.showSection(AppSection.chat);await settle();
+      }
+      if(wanted.contains('trial-selection-150')){
+        await agent.setZoom(1.65);
+        await tester.runAsync(()=>agent.openSession(demo.wbPath));await agent.setRunPanelOpen(false);await settle(8);
+        final text=find.textContaining('数据一共走四步',findRichText:true).last;
+        await tester.ensureVisible(text);await settle();
+        final paragraph=tester.renderObject<RenderParagraph>(text);
+        final word=paragraph.getBoxesForSelection(const TextSelection(baseOffset:0,extentOffset:8)).first.toRect();
+        final drag=await tester.startGesture(paragraph.localToGlobal(word.centerLeft),kind:ui.PointerDeviceKind.mouse);
+        await tester.pump();await drag.moveTo(paragraph.localToGlobal(word.centerRight));await tester.pump();await drag.up();await settle();
+        final mouse=await tester.startGesture(paragraph.localToGlobal(word.center),kind:ui.PointerDeviceKind.mouse,buttons:kSecondaryMouseButton);await mouse.up();await settle();
+        expect(find.text('引用'),findsOneWidget);
+        await shot('trial-selection-150');
+      }
+    }
     if (wanted.any((name) => name.startsWith('polish-'))) {
       Future<void> theme(String id) async {
         final painting = PaintingTheme.all.firstWhere((p) => p.id == id);

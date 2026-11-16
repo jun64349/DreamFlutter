@@ -41,7 +41,7 @@ void main(){
     await t.tap(find.text('中'));await settle(t);
     expect(f.backend.callsTo('settings.update').last,{'butterflyProactivity':'mid'});
     expect(find.text('再按你给的长期目标自己往前推。'),findsOneWidget);
-    await t.tap(find.text(r'$0.50'));await t.pumpAndSettle();await t.tap(find.text(r'$1.00').last);await settle(t);
+    await t.tap(find.text('0.5 美元（默认）'));await t.pumpAndSettle();await t.tap(find.widgetWithText(MenuItemButton,'1 美元'));await settle(t);
     expect(f.backend.callsTo('settings.update').last,{'butterflyDailyBudget':1});
   });
   testWidgets('long goal expansion, revisioned edit and deletion use recorded results',(t)async{

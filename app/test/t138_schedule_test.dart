@@ -7,6 +7,7 @@ import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/schedule_page.dart';
 import 'package:dreamflutter/ui/schedule_settings.dart';
 import 'package:dreamflutter/ui/settings_controls.dart';
+import 'package:dreamflutter/ui/number_setting.dart';
 import 'package:dreamflutter/ui/attention_page.dart';
 import 'package:dreamflutter/ui/sidebar.dart';
 import 't87_fixture.dart';
@@ -79,7 +80,7 @@ void main() {
     final toggle=t.widget<SettingsSwitch>(find.byType(SettingsSwitch)); await toggle.save(true); expect(f.backend.callsTo('settings.update').last,{'patrolEnabled':true});
     final interval=t.widget<SettingChoice<int>>(find.byType(SettingChoice<int>)); await interval.save(15); expect(f.backend.callsTo('settings.update').last,{'patrolIntervalMin':15});
     await t.tap(find.text('高级')); await settle(t);
-    for(final field in t.widgetList<AutoSaveField>(find.byType(AutoSaveField))) { await field.save(field.value); }
+    for(final field in t.widgetList<PresetNumberSetting>(find.byType(PresetNumberSetting))) { await field.save(field.value); }
     expect(f.backend.callsTo('settings.update').any((p)=>p.containsKey('patrolDailyBudget')),isTrue);
     expect(f.backend.callsTo('settings.update').any((p)=>p.containsKey('patrolStaleHours')),isTrue);
     expect(f.backend.callsTo('settings.update').any((p)=>p.containsKey('patrolKeepDays')),isTrue);

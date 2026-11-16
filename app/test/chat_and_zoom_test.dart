@@ -96,15 +96,15 @@ void main() {
     }
 
     await ctrl(LogicalKeyboardKey.equal);
-    expect(agent.zoom, 1.1);
+    expect(agent.zoom, 1.21);
     expect(layoutSize().width, closeTo(base.width / 1.1, 0.01), reason: 'laid out smaller, painted larger');
     expect(find.text('缩放 110%'), findsOneWidget);
 
     await ctrl(LogicalKeyboardKey.minus);
     await ctrl(LogicalKeyboardKey.minus);
-    expect(agent.zoom, 0.9);
+    expect(agent.zoom, 0.99);
     await ctrl(LogicalKeyboardKey.digit0);
-    expect(agent.zoom, 1.0);
+    expect(agent.zoom, 1.1);
     expect(layoutSize(), base);
     await tester.pump(const Duration(seconds: 2));
   });
@@ -118,14 +118,14 @@ void main() {
     }
 
     await wheel(-100);
-    expect(agent.zoom, 1.0);
+    expect(agent.zoom, 1.1);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await wheel(-100);
-    expect(agent.zoom, 1.1);
+    expect(agent.zoom, 1.21);
     // Steps are spaced out so a touchpad swipe does not jump to the end.
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 120)));
     await wheel(100);
-    expect(agent.zoom, 1.0);
+    expect(agent.zoom, 1.1);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(seconds: 2));
   });
@@ -140,11 +140,11 @@ void main() {
     expect(find.text('界面缩放'), findsOneWidget);
     await tester.tap(find.text('110%'));
     await settle(tester);
-    expect(agent.zoom, 1.1);
+    expect(agent.zoom, 1.21);
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'文字大小');await tester.pumpAndSettle();
     await tester.tap(find.text('−2'));
     await settle(tester);
-    expect(agent.textScale, 0.9);
+    expect(agent.textScale, 1.125);
     await tester.pump(const Duration(seconds: 2));
   });
 }

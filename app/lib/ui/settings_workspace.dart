@@ -4,6 +4,8 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'settings_controls.dart';
+import 'number_setting.dart';
+import 'notification_settings.dart';
 import 'zoom.dart';
 import 'gateway_pages.dart';
 import 'model_group_pages.dart';
@@ -34,25 +36,71 @@ class _Setting { const _Setting(this.words,this.child,{this.card,this.trailing,t
 }
 class _SettingsGroup { const _SettingsGroup(this.name,this.icon,this.entries,this.advanced); final String name,icon;final List<_Setting> entries,advanced; }
 
-class SettingsOverlay extends StatelessWidget {
+class SettingsOverlay extends StatefulWidget {
   const SettingsOverlay({super.key, required this.onClose, this.category});
   final VoidCallback onClose;
   final String? category;
-  @override Widget build(BuildContext context) => ShellOverlay(
-    label: '一方天地', padding: 24, color: context.colors.background, onClose: onClose,
-    child: SettingsPage(category: category, onClose: onClose),
-  );
+  @override State<SettingsOverlay> createState()=>_SettingsOverlayState();
+}
+class _SettingsOverlayState extends State<SettingsOverlay>{
+  final _page=GlobalKey<SettingsPageState>();
+  bool _editing=false,_closing=false;
+  Future<void> _close()async{
+    if(_closing)return;
+    _closing=true;
+    try{if(await (_page.currentState?.confirmLeave()??Future.value(true))&&mounted)widget.onClose();}
+    finally{_closing=false;}
+  }
+  @override Widget build(BuildContext context){
+    final panel=ShellOverlay(label:'一方天地',padding:24,color:context.colors.background,onClose:_close,
+      child:SettingsPage(key:_page,category:widget.category,onClose:_close,onEditingChanged:(value){if(mounted)setState(()=>_editing=value);}));
+    // Clicking the exposed sidebar while editing must first resolve the draft.
+    return ShellOverlaySidebar(width:_editing?0:ShellOverlaySidebar.widthOf(context),child:panel);
+  }
 }
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key,this.category,this.onClose,this.embedded=false}); final String? category; final VoidCallback? onClose; final bool embedded;
-  @override State<SettingsPage> createState()=>_SettingsPageState();
+  const SettingsPage({super.key,this.category,this.onClose,this.embedded=false,this.onEditingChanged}); final String? category; final VoidCallback? onClose; final bool embedded;
+  final ValueChanged<bool>? onEditingChanged;
+  @override State<SettingsPage> createState()=>SettingsPageState();
 }
-class _SettingsPageState extends State<SettingsPage>{
+class SettingsPageState extends State<SettingsPage>{
   late String _selected=const {'模型与网关':'模型','对话':'工作台','安全与审批':'工作台','运行上限':'工作台','蝶君沙箱':'蝶君','工具':'工作台','数据与迁移':'数据与安全','关于':'关于与更新','已归档':'归档与回收','回收站':'归档与回收'}[widget.category] ?? widget.category ?? '通用';
   final _search=TextEditingController();String _query='';
+  final _groupEditor=GlobalKey<GroupEditorPageState>();
+  final _channelEditor=GlobalKey<ChannelEditorPageState>();
+  bool _groupOpen=false,_channelOpen=false,_navigating=false;
+  void _edited()=>widget.onEditingChanged?.call(_groupOpen||_channelOpen);
+  void _saved(bool group){setState((){if(group){_groupOpen=false;}else{_channelOpen=false;}});_edited();}
+  Future<bool> confirmLeave()async{
+    if(_navigating)return false;
+    _navigating=true;
+    try{
+      if(!await (_groupEditor.currentState?.confirmLeave()??Future.value(true)))return false;
+      return await (_channelEditor.currentState?.confirmLeave()??Future.value(true));
+    }finally{_navigating=false;}
+  }
+  Future<void> _toggleEditor(bool group)async{
+    final open=group?_groupOpen:_channelOpen;
+    if(open){final allowed=group?await (_groupEditor.currentState?.confirmLeave()??Future.value(true)):await (_channelEditor.currentState?.confirmLeave()??Future.value(true));if(!allowed||!mounted)return;}
+    if(!mounted)return;
+    setState((){if(group){_groupOpen=!open;}else{_channelOpen=!open;}});_edited();
+  }
+  Future<void> _choose(String name)async{
+    if(name==_selected&&_query.isEmpty)return;
+    if(!await confirmLeave()||!mounted)return;
+    setState((){_selected=name;_query='';_search.clear();_groupOpen=false;_channelOpen=false;});_edited();
+  }
+  Future<void> _searchFor(String value)async{
+    if(_groupOpen||_channelOpen){
+      if(!await confirmLeave()||!mounted){if(mounted){_search.text=_query;_search.selection=TextSelection.collapsed(offset:_query.length);}return;}
+    }
+    if(!mounted)return;
+    if(_search.text!=value){_search.text=value;_search.selection=TextSelection.collapsed(offset:value.length);}
+    setState((){_query=value;_groupOpen=false;_channelOpen=false;});_edited();
+  }
   AgentController? _agent;
-  void _jump(){if(widget.embedded)return;final target=_agent?.settingsTarget.value;if(target==null||!mounted)return;setState((){_selected=const {'已归档':'归档与回收','回收站':'归档与回收'}[target]??target;_query='';_search.clear();});_agent!.settingsTarget.value=null;}
+  void _jump(){if(widget.embedded)return;final target=_agent?.settingsTarget.value;if(target==null||!mounted)return;_agent!.settingsTarget.value=null;_choose(const {'已归档':'归档与回收','回收站':'归档与回收'}[target]??target);}
   @override void didChangeDependencies(){super.didChangeDependencies();final a=AgentScope.read(context);if(identical(a,_agent))return;_agent?.settingsTarget.removeListener(_jump);_agent=a..settingsTarget.addListener(_jump);_jump();}
   @override void dispose(){_agent?.settingsTarget.removeListener(_jump);_search.dispose();super.dispose();}
   List<_SettingsGroup> _groups(AgentController a) {
@@ -64,7 +112,7 @@ class _SettingsPageState extends State<SettingsPage>{
     final s=a.coreSettings;
     Future<void> save(String key,Object? v)async{await a.updateCoreSettings({key:v});if(a.coreSettings[key]!=v)throw StateError('未能保存，请重试');}
     Widget toggle(String title,String key,bool fallback,{String? desc,bool indented=false})=>SettingsSwitch(title,desc:desc,indented:indented,value:s[key] as bool? ?? fallback,save:(v)=>save(key,v));
-    Widget number(String title,String key,num fallback,{num min=0,num? max,bool integer=false,String? unit,String? desc,bool indented=false})=>AutoSaveField(key:ValueKey(key),label:title,compact:true,unit:unit,desc:desc,indented:indented,value:'${s[key] ?? fallback}',number:true,validator:(v){final n=num.tryParse(v);return n==null||!n.isFinite||n<min||max!=null&&n>max||integer&&n!=n.round()?'请输入有效${integer?'整数':'数值'}':null;},save:(v)=>save(key,integer?int.parse(v):num.parse(v)));
+    Widget number(String title,String key,num fallback,{num min=0,num? max,bool integer=false,String? unit,String? desc,bool indented=false})=>PresetNumberSetting(key:ValueKey(key),label:title,unit:unit,desc:desc,indented:indented,value:'${s[key] ?? fallback}',defaultValue:fallback,presets:settingNumberPresets[key]!,zeroLabel:key=='dailyBudgetUsd'||key=='monthlyBudgetUsd'?'不限':null,validator:(v){final n=num.tryParse(v);return n==null||!n.isFinite||n<min||max!=null&&n>max||integer&&n!=n.round()?'请输入有效${integer?'整数':'数值'}':null;},save:(v)=>save(key,integer?int.parse(v):num.parse(v)));
     Widget model(String label,String setting,{String? desc})=>SettingRow(label,desc:desc,child:ModelSettingMenu(label:label,selected:s[setting] as String?,inheritLabel:setting=='defaultModel'?'自动':'跟对话模型一样',onChanged:(v)=>save(setting,v)));
     Widget override(String label,String purpose){final overrides=asJsonMap(s['modelOverrides']);return SettingRow(label,child:ModelSettingMenu(label:label,selected:overrides[purpose] as String?,extra:purpose=='compaction'?const {'session':'当前对话','small':'小任务模型'}:const {},onChanged:(v)=>a.updateCoreSettings({'modelOverrides':{...overrides,purpose:v}})));}
     final workspace=s['defaultWorkspace'] as String? ?? a.workspace;
@@ -88,8 +136,8 @@ class _SettingsPageState extends State<SettingsPage>{
         _Setting('大任务模型 整理上下文 深度分析',card:'用哪个模型',model('大任务','largeTaskModel',desc:'整理上下文、深度分析')),
         _Setting('看图模型 图片',card:'用哪个模型',model('看图','visionModel',desc:'对话模型看不了图时用它')),
         _Setting('默认思考深度',card:'用哪个模型',SettingsSeg<String>('思考深度',value:a.defaultThinkingLevel??'',options:const [('','自动'),('low','低'),('medium','中'),('high','高'),('xhigh','很高'),('max','最高')],save:(v)=>save('defaultThinking',v.isEmpty?null:v))),
-        const _Setting('模型组 自动切换 按顺序 订阅',card:'模型组',GroupList(),trailing:NewModelGroupLink(),cardDesc:'排在前面的用不了，自动换下一个'),
-        const _Setting('渠道 服务商 密钥 连接 添加',card:'渠道',ChannelList(),trailing:AddChannelLink()),
+        _Setting('模型组 自动切换 按顺序 订阅',card:'模型组',Column(children:[const GroupList(),if(_groupOpen)GroupEditorPage(key:_groupEditor,inline:true,onSaved:()=>_saved(true))]),trailing:SettingsHeadLink(_groupOpen?'收起':'新建模型组',onPressed:()=>_toggleEditor(true)),cardDesc:'排在前面的用不了，自动换下一个'),
+        _Setting('渠道 服务商 密钥 连接 添加',card:'渠道',Column(children:[const ChannelList(),if(_channelOpen)ChannelEditorPage(key:_channelEditor,inline:true,onSaved:()=>_saved(false))]),trailing:SettingsHeadLink(_channelOpen?'收起':'添加渠道',onPressed:()=>_toggleEditor(false))),
       ],[
         _Setting('标题 小任务',override('起标题时使用','title')),
         _Setting('记忆整理 模型',override('记忆整理时使用','memory')),
@@ -117,7 +165,7 @@ class _SettingsPageState extends State<SettingsPage>{
         _Setting('自动整理上下文 压缩',card:'对话',toggle('自动整理上下文','autoCompaction',true,desc:'对话太长时把前面的压成摘要')),
         _Setting('上下文 用到多少 整理',card:'对话',number('用到多少时整理','compactionThresholdPercent',80,min:20,max:95,integer:true,unit:'%',indented:true)),
         _Setting('后台整理 空闲',card:'对话',SettingsSeg<String>('后台整理',indented:true,value:s['backgroundCompaction'] as String? ?? 'auto',options:const [('auto','自动'),('on','开启'),('off','关闭')],save:(v)=>save('backgroundCompaction',v))),
-        _Setting('提问 等多久',card:'对话',SettingsSeg<int>('它提问时等多久',value:(s['askTimeoutSeconds'] as num?)?.toInt()??60,options:const [(30,'30 秒'),(60,'1 分钟'),(300,'5 分钟'),(0,'一直等')],desc:'到时间按默认选项继续',save:(v)=>save('askTimeoutSeconds',v))),
+        _Setting('提问 等多久',card:'对话',PresetNumberSetting(key:const ValueKey('askTimeoutSeconds'),label:'它提问时等多久',value:'${s['askTimeoutSeconds']??60}',defaultValue:60,presets:settingNumberPresets['askTimeoutSeconds']!,unit:'秒',zeroLabel:'一直等',desc:'到时间按默认选项继续',validator:(v){final n=int.tryParse(v);return n==null||n<0?'请输入有效整数':null;},save:(v)=>save('askTimeoutSeconds',int.parse(v)))),
         _Setting('单次最多轮数 轮数上限',card:'对话',number('单次最多轮数','maxTurnsPerRun',60,integer:true,min:1)),
         _Setting('空闲对话保留',card:'对话',number('空闲对话保留','idleSessionMinutes',10,min:1,integer:true,unit:'分钟',desc:'过了这个时间先放下，回来时再接上')),
         _Setting('每天花费上限 花费',card:'花费上限',number('每天花费上限','dailyBudgetUsd',0,unit:'美元')),
@@ -164,17 +212,17 @@ class _SettingsPageState extends State<SettingsPage>{
         _Setting('关窗口 托盘 退出',card:'窗口',SettingsSeg<String>('关窗口时',value:s['closeBehavior'] as String? ?? 'tray',options:const [('tray','缩到托盘'),('quit','退出')],desc:'缩到托盘时，蝶君的事继续做',save:(v)async{await save('closeBehavior',v);await a.preferences.setCloseBehaviorChoice(v);})),
         const _Setting('开机启动',card:'窗口',AboutPanel(startupOnly:true)),
         _Setting('只开一个窗口',card:'窗口',const SettingRow('只开一个窗口',desc:'再次双击图标时，把已有窗口调到前面',child:V1Toggle(value:true,onChanged:null))),
-        _Setting('系统通知',card:'通知',toggle('系统通知','notifications',true)),
+        const _Setting('系统通知 工作台 蝶君 结果 问题',card:'通知',NotificationSettings()),
       ],const []),
       _SettingsGroup('数据与安全','shield',[
-        const _Setting('数据 目录 位置 空间',card:'数据位置',DataStoragePanel(locationsOnly:true)),
         const _Setting('备份 恢复 导出 导入',card:'备份',BackupPanel()),
+        const _Setting('卸载 删除',card:'卸载',UninstallSetting()),
         const _Setting('敏感路径 不让它碰',card:'敏感路径',Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
           SettingRow('不让它碰的地方',desc:'这些位置读写前一律先问你，就算你选了「不询问」',child:SizedBox.shrink()),
           Padding(padding:EdgeInsets.only(bottom:10),child:V1Inset(child:Text(r'C:\Windows · 用户目录下的 .ssh、.aws · 浏览器的密码文件'))),
         ])),
         const _Setting('路径例外 允许 操作记录 审计',card:'敏感路径',SecurityPanel()),
-        const _Setting('卸载 删除',card:'卸载',UninstallSetting()),
+        const _Setting('数据 目录 位置 空间',card:'数据位置',DataStoragePanel(locationsOnly:true)),
       ],const []),
       _SettingsGroup('归档与回收','arch',[
         _Setting('归档 对话 放回',card:'已归档',const ArchivedConversations(),trailing:a.archivedSessions.isEmpty?null:Text('${a.archivedSessions.length} 个',style:TextStyle(fontSize:12.5,color:context.colors.muted))),
@@ -205,6 +253,7 @@ class _SettingsPageState extends State<SettingsPage>{
         key:cardKey,
         title:search?'${g.name}${title==null?'':' › $title'}':title,
         desc:head?.cardDesc,bare:bare,padded:!bare,
+        collapsed:g.name=='数据与安全'&&title=='数据位置'&&!search?true:null,
         trailing:head?.trailing??(g.name=='外观'&&title=='白天的主题'&&!search?Text('点一下马上换',style:TextStyle(fontSize:12.5,color:context.colors.muted)):null),
         children:rows,
       ));
@@ -247,12 +296,12 @@ class _SettingsPageState extends State<SettingsPage>{
           prefixIconConstraints:const BoxConstraints(minWidth:32),
           prefixIcon:Padding(padding:const EdgeInsets.only(left:10,right:8),child:ProtoIcon('search',size:14,color:colors.muted)),
           suffixIconConstraints:const BoxConstraints(minWidth:30,minHeight:30),
-          suffixIcon:q.isEmpty?null:IconButton(tooltip:'清除',padding:EdgeInsets.zero,icon:const ProtoIcon('x',size:14),onPressed:(){_search.clear();setState(()=>_query='');}),
+          suffixIcon:q.isEmpty?null:IconButton(tooltip:'清除',padding:EdgeInsets.zero,icon:const ProtoIcon('x',size:14),onPressed:()=>_searchFor('')),
         ),
-        onChanged:(v)=>setState(()=>_query=v),
+        onChanged:_searchFor,
       );
     }
-    void choose(String name)async{FocusManager.instance.primaryFocus?.unfocus();await Future<void>.delayed(Duration.zero);if(mounted)setState((){_selected=name;_query='';_search.clear();});}
+    void choose(String name)async{FocusManager.instance.primaryFocus?.unfocus();await Future<void>.delayed(Duration.zero);if(mounted)await _choose(name);}
     const headings={'通用':'我与蝶君','蝶君':'我与蝶君','记忆':'我与蝶君','模型':'工作','工作台':'工作','外观':'应用','窗口与通知':'应用','数据与安全':'应用','归档与回收':'更多','关于与更新':'更多','开发者选项':'更多'};
     Widget nav()=>ListView(padding:EdgeInsets.zero,children:[
       search(),

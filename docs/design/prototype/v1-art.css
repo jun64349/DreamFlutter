@@ -286,3 +286,7 @@ input[type="range"]:active::-webkit-slider-thumb{transform:scale(1.16)}
 
 /* D-35: aligned working figures; keep the existing typefaces. */
 *{font-variant-numeric:lining-nums tabular-nums;font-feature-settings:"lnum" 1,"tnum" 1}
+/* 试用数值设置：延用主题表面，档位选择后才显示自定义输入。 */
+.number-preset{display:flex;flex-direction:column;gap:8px;min-width:200px;max-width:100%}
+.number-preset :is(select,input){font:inherit;color:var(--ink);background:var(--sunk);border:1px solid var(--line2);border-radius:9px;padding:7px 12px;max-width:100%;font-variant-numeric:lining-nums tabular-nums}
+.number-preset input[hidden]{display:none}

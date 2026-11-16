@@ -5,6 +5,7 @@ import '../state/memory_ui.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'settings_controls.dart';
+import 'number_setting.dart';
 import 'settings_workspace.dart' show ModelSettingMenu;
 
 class ScheduleSettings extends StatefulWidget {
@@ -16,7 +17,7 @@ class _ScheduleSettingsState extends State<ScheduleSettings> {
   @override Widget build(BuildContext context) {
     final a = AgentScope.of(context), s = a.coreSettings;
     Future<void> save(String key, Object? value) => a.updateCoreSettings({key: value});
-    Widget number(String label, String key, num fallback, String unit) => AutoSaveField(label: label, value: '${s[key] ?? fallback}', compact: true, number: true, unit: unit, validator: (v) => num.tryParse(v) == null || num.parse(v) < 0 ? '请输入有效数值' : null, save: (v) => save(key, num.parse(v)));
+    Widget number(String label, String key, num fallback, String unit) => PresetNumberSetting(label:label,value:'${s[key]??fallback}',defaultValue:fallback,presets:settingNumberPresets[key]!,unit:unit,validator:(v){final n=num.tryParse(v);return n==null||!n.isFinite||n<0||key=='patrolStaleHours'&&n<=0||key=='patrolKeepDays'&&(n<1||n!=n.round())?'请输入有效数值':null;},save:(v)=>save(key,num.parse(v)));
     return Column(children: [
       SettingsSwitch('巡检', desc: '定时看一眼有没有要做的事，没事只记一句「无需行动」', value: s['patrolEnabled'] == true, save: (v) => save('patrolEnabled',v)),
       SettingChoice<int>('多久一次', indented:true, segmented:true, value: (s['patrolIntervalMin'] as num?)?.toInt() ?? 30, choices: const {10:'10 分钟',15:'15 分钟',30:'30 分钟',60:'60 分钟'}, save: (v) => save('patrolIntervalMin',v)),
@@ -26,7 +27,7 @@ class _ScheduleSettingsState extends State<ScheduleSettings> {
       Align(alignment: Alignment.centerLeft, child: TextButton.icon(style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 40)), onPressed: () => setState(() => advanced = !advanced), icon: Icon(advanced ? Icons.expand_more : Icons.chevron_right, size: 16), label: const Text('高级'))),
       if (advanced) ...[
         SettingRow('巡检用的模型', child: ModelSettingMenu(label: '巡检用的模型', selected: s['patrolModel'] as String?, inheritLabel: '小任务模型', onChanged: (v) => save('patrolModel',v))),
-        number('巡检每天最多花','patrolDailyBudget',.2,'美元'), number('等你处理放多久算久','patrolStaleHours',24,'小时'),
+        number('巡检每天最多花','patrolDailyBudget',.5,'美元'), number('等你处理放多久算久','patrolStaleHours',4,'小时'),
         number('记录保留','patrolKeepDays',30,'天'),
       ],
     ]);

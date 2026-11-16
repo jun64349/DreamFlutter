@@ -28,10 +28,24 @@ export class NoticeJournal {
 	recover(): void {
 		this.db.run("UPDATE notification_receipts SET state='failed',reason='interrupted' WHERE state='queued' AND attempts>0");
 		if (!this.core.settings.get().notifications) this.muteQueue();
+		this.muteSourceQueues();
 	}
 
 	muteQueue(): void {
 		this.db.run("UPDATE notification_receipts SET state='muted',reason='notifications_disabled' WHERE state='queued' AND attempts=0");
+	}
+
+	muteSourceQueues(): void {
+		const settings = this.core.settings.get();
+		if (!settings.butterflyNotifications) this.db.run(
+			"UPDATE notification_receipts SET state='muted',reason='category_disabled' WHERE key LIKE 'patrol:%' AND state='queued' AND attempts=0");
+		for (const [partition, enabled] of [["butterfly", settings.butterflyNotifications], ["workbench", settings.workbenchNotifications]] as const) {
+			if (enabled) continue;
+			this.db.run(`UPDATE notification_receipts SET state='muted',reason='category_disabled'
+				WHERE key LIKE 'notify:%' AND state='queued' AND attempts=0 AND EXISTS
+				(SELECT 1 FROM goals WHERE goals.id=notification_receipts.object_ref
+				AND COALESCE(json_extract(goals.scope,'$.partition'),'workbench')=?)`, partition);
+		}
 	}
 
 	private insert(input: NoticeIdentity, at: number): void {

@@ -23,8 +23,8 @@ import 'ui/setup_wizard.dart';
 import 'update_bootstrap.dart';
 
 /// Shown in the settings page.
-const appVersion = String.fromEnvironment('DREAMFLUTTER_VERSION', defaultValue: '0.12.0');
-const appBuild = String.fromEnvironment('DREAMFLUTTER_BUILD', defaultValue: '15');
+const appVersion = String.fromEnvironment('DREAMFLUTTER_VERSION', defaultValue: '0.12.1');
+const appBuild = String.fromEnvironment('DREAMFLUTTER_BUILD', defaultValue: '16');
 
 Future<void> main([List<String> args = const []]) async {
   WidgetsFlutterBinding.ensureInitialized();

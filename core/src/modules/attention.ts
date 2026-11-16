@@ -48,7 +48,10 @@ export class AttentionModule implements CoreModule {
 	start(): void {
 		this.core.notifications.recover();
 		this.unsubscribe = this.core.onBroadcast(message => {
-			if (message.event === "settings.changed" && !this.core.settings.get().notifications) this.core.notifications.muteQueue();
+			if (message.event === "settings.changed") {
+				if (!this.core.settings.get().notifications) this.core.notifications.muteQueue();
+				this.core.notifications.muteSourceQueues();
+			}
 			if (message.event === "goals.changed") {
 				const approvals = this.core.module(GoalsModule)?.scheduler.pendingApprovals() ?? [];
 				const key = approvals.map(approval => approval.id).join(",");

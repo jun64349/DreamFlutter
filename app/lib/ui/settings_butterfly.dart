@@ -5,6 +5,7 @@ import '../state/memory_ui.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'settings_controls.dart';
+import 'number_setting.dart';
 import 'settings_layout.dart';
 import 'common.dart';
 import 'shell_widgets.dart' show ShellColors;
@@ -74,7 +75,7 @@ class _ButterflyProactivityState extends State<ButterflyProactivity>{
   Future<void> change(String value)async{setState(()=>busy=true);try{await AgentScope.read(context).updateCoreSettings({'butterflyProactivity':value});if(mounted)setState(()=>error=null);}catch(e){if(mounted)setState(()=>error=SessionRuntime.describeError(e));}finally{if(mounted)setState(()=>busy=false);}}
   @override Widget build(BuildContext context){final a=AgentScope.of(context),s=a.coreSettings;final mode=s['butterflyProactivity'] as String? ?? 'low';return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
     SettingRow('主动性',desc:switch(mode){'mid'=>'再按你给的长期目标自己往前推。','high'=>'再加空闲时自己学、写技能，有发现会来找你聊，每天最多 5 次。',_=>'只做你交代的事和规则命中的事。'},child:V1Seg<String>(value:mode,options:const [('low','低'),('mid','中'),('high','高')],onChanged:busy?null:change)),
-    SettingChoice<num>('自己做事每天最多花',desc:'到了就停，第二天再接着做',short:true,value:(s['butterflyDailyBudget'] as num?)??.5,choices:{0:r'$0.00',.2:r'$0.20',.5:r'$0.50',1:r'$1.00',2:r'$2.00',5:r'$5.00'},save:(v)=>a.updateCoreSettings({'butterflyDailyBudget':v})),
+    PresetNumberSetting(label:'自己做事每天最多花',desc:'到了就停，第二天再接着做',value:'${s['butterflyDailyBudget']??.5}',defaultValue:.5,presets:const [0,.2,.5,1,2,5],unit:'美元',validator:(v){final n=num.tryParse(v);return n==null||!n.isFinite||n<0?'请输入有效数值':null;},save:(v)=>a.updateCoreSettings({'butterflyDailyBudget':num.parse(v)})),
     if(error!=null)Text(error!,style:TextStyle(color:context.colors.danger)),
   ]);}
 }

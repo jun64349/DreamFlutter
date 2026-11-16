@@ -211,12 +211,15 @@ class _OAuthRow extends StatelessWidget {
 /// 修改不了已选项"). Every change is a draft until 「保存」; 「测试连接」 saves and then tests.
 /// The parts sit in cards like the settings page; a model opens in its own dialog.
 class ChannelEditorPage extends StatefulWidget {
-  const ChannelEditorPage({super.key, this.existing});
+  const ChannelEditorPage({super.key, this.existing, this.inline = false, this.onSaved});
 
   final GatewayChannel? existing;
 
+  final bool inline;
+  final VoidCallback? onSaved;
+
   @override
-  State<ChannelEditorPage> createState() => _ChannelEditorPageState();
+  State<ChannelEditorPage> createState() => ChannelEditorPageState();
 }
 
 class _KeyDraft {
@@ -230,7 +233,7 @@ class _KeyDraft {
   final TextEditingController labelText;
 }
 
-class _ChannelEditorPageState extends State<ChannelEditorPage> {
+class ChannelEditorPageState extends State<ChannelEditorPage> {
   late final _name = TextEditingController(text: widget.existing?.name ?? '');
   late final _baseUrl = TextEditingController(text: widget.existing?.baseUrl ?? '');
   late final _lowBalance = TextEditingController(text: widget.existing?.lowBalance?.toString() ?? '');
@@ -266,7 +269,7 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
       k.secret.addListener(_changed);
       k.labelText.addListener(_changed);
     }
-    if (widget.existing != null) _saved = _fingerprint();
+    if (widget.existing != null || widget.inline) _saved = _fingerprint();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final list = jsonRows(await _agent.backend.call('gateway.platforms')).map(GatewayPlatform.fromJson).toList();
@@ -465,7 +468,8 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
     });
   }
 
-  Future<bool> _leave() async {
+  Future<bool> confirmLeave() async {
+    if (_busy) return false;
     if (!_dirty) return true;
     final choice = await showDialog<String>(context: context, builder: (dialog) => AlertDialog(
       title: const Text('改动还没保存'),
@@ -493,14 +497,8 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
     final preset = _preset;
     final apis = <String>{_api, if (preset != null) ...preset.endpoints.map((e) => e.api), 'openai-completions', 'anthropic-messages', 'openai-responses', 'google-generative-ai'}.toList();
     final test = _test;
-    return PopScope(
-      canPop: !_dirty,
-      onPopInvokedWithResult: (popped, _) async {
-        if (popped) return;
-        if (await _leave() && context.mounted) Navigator.of(context).pop();
-      },
-      child: Scaffold(
-        appBar: AppBar(
+    final page = Scaffold(
+        appBar: widget.inline ? null : AppBar(
           title: Text(_editing ? '编辑渠道' : '添加渠道'),
           scrolledUnderElevation: 0,
           actions: [
@@ -512,6 +510,8 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: settingsContentWidth),
             child: ListView(
+              shrinkWrap: widget.inline,
+              physics: widget.inline ? const NeverScrollableScrollPhysics() : null,
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               children: [
                 SettingsCard(title: '服务商', children: [
@@ -619,7 +619,7 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
                     OutlinedButton.icon(onPressed: _busy || _testing ? null : _saveAndTest, icon: const Icon(Icons.network_check, size: 18), label: const Text('测试连接')),
                     const SizedBox(width: 10),
                     FilledButton(
-                      onPressed: _busy || _testing || (_editing && !_dirty) ? null : () async { final wasNew = !_editing; if (await _save() && mounted && wasNew) Navigator.of(this.context).pop(); },
+                      onPressed: _busy || _testing || (_editing && !_dirty && !widget.inline) ? null : () async { final wasNew = !_editing; if (await _save() && mounted) { if (widget.inline) { widget.onSaved?.call(); } else if (wasNew) { Navigator.of(this.context).pop(); } } },
                       child: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('保存'),
                     ),
                   ]),
@@ -628,7 +628,20 @@ class _ChannelEditorPageState extends State<ChannelEditorPage> {
             ),
           ),
         ),
-      ),
+    );
+    if (widget.inline) {
+      return Column(mainAxisSize: MainAxisSize.min, children: [
+        if (page.body != null) page.body!,
+        if (page.bottomNavigationBar != null) page.bottomNavigationBar!,
+      ]);
+    }
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (popped, _) async {
+        if (popped) return;
+        if (await confirmLeave() && context.mounted) Navigator.of(context).pop();
+      },
+      child: page,
     );
   }
 }

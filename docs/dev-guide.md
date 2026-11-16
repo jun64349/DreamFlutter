@@ -23,6 +23,8 @@
 - 对话列表的做法：`SelectionContainer.disabled` 包住 `ListView`，每一行用 `SelectionRegistrarScope` 直接登记到外面的 `SelectionArea`（`chat_view.dart`）。**以后在滚动列表里放可选文字都照这样做**。
 - 任何拿 `globalPosition` 和滚动偏移做加减的代码，都要在缩放 ≠ 100% 时测。
 - 测试默认缩放 100%、对话很短，这类问题全都测不出来：选字、点击位置、弹出菜单位置的测试要加「缩放 125% + 长对话」的组合（`chat_reading_test.dart`）。
+- 0.12.1 补充：选区菜单由 Flutter 的 selection toolbar follower 挂在根 Overlay，再继承区域缩放；只对根 Overlay 调一次 `globalToLocal` 不够。`chat_view.dart` 同时换算菜单锚点和可用视口，保持 1.0/1.25/1.5/1.65 物理缩放的定位用例。新标准 100% 的原始 zoom 是 1.1，新 150% 是 1.65；既有偏好不再乘一次。
+- 测试拖选需取 `RenderParagraph.getBoxesForSelection` 的实际字形矩形，段落外框中心可能落在换行空隙，产生“菜单定位正常但没有引用”的假失败。页内表单点击保存先确保按钮在视口内；保存中按钮文字可能变成进度图，不能继续按“保存”文字找按钮。应同时断言请求已开始、按钮已禁用。
 
 ### 3. 修饰键会卡住
 

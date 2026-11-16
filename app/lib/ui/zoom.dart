@@ -172,7 +172,7 @@ class _ZoomBadge extends StatelessWidget {
   }
 }
 
-String zoomPercent(double zoom) => '${(zoom * 100).round()}%';
+String zoomPercent(double zoom) => '${(zoom / Preferences.defaultZoom * 100).round()}%';
 
 /// Zoom choices as the prototype's four-step .seg (90 / 100 / 110 / 125 %);
 /// a zoom outside the four (set with Ctrl + wheel) shows up as its own step.
@@ -183,7 +183,7 @@ class ZoomControl extends StatelessWidget {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final zoom = agent.zoom;
-    final levels = {0.9, 1.0, 1.1, 1.25, zoom}.toList()..sort();
+    final levels = {0.99, 1.1, 1.21, 1.375, zoom}.toList()..sort();
     return V1Seg<double>(
       value: zoom,
       options: [for (final level in levels) (level, zoomPercent(level))],
@@ -199,10 +199,11 @@ class TextSizeControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
-    final current = Preferences.textScales.contains(agent.textScale) ? agent.textScale : 1.0;
+    final current = agent.textScale;
     return V1Seg<double>(
       value: current,
-      options: const [(0.9, '−2'), (0.95, '−1'), (1.0, '标准'), (1.1, '+1'), (1.25, '+2')],
+      options: [(1.125, '−2'), (1.1875, '−1'), (1.25, '标准'), (1.375, '+1'), (1.5625, '+2'),
+        if(!Preferences.textScales.contains(current))(current,'自定 ${(current/Preferences.defaultTextScale*100).round()}%')],
       onChanged: agent.setTextScale,
     );
   }

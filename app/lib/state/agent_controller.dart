@@ -1894,7 +1894,7 @@ class AgentController extends ChangeNotifier {
   /// One zoom step up ([step] 1), down (-1), or back to 100% (0).
   Future<void> stepZoom(int step) {
     const levels = Preferences.zoomLevels;
-    if (step == 0) return setZoom(1.0);
+    if (step == 0) return setZoom(Preferences.defaultZoom);
     final next = step > 0 ? levels.where((l) => l > zoom + 0.001).firstOrNull : levels.where((l) => l < zoom - 0.001).lastOrNull;
     return setZoom(next ?? zoom);
   }

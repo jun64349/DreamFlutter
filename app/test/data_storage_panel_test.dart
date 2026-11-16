@@ -40,6 +40,8 @@ void main() {
       )));
       await tester.pumpAndSettle();
       expect(find.textContaining('15 个历史版本'), findsOneWidget);
+      await tester.tap(find.byType(MenuAnchor)); await tester.pumpAndSettle();
+      await tester.tap(find.text('自定义…')); await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '-1');
       await tester.testTextInput.receiveAction(TextInputAction.done); await tester.pumpAndSettle();
       expect(find.textContaining('请输入有效'), findsOneWidget);

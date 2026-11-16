@@ -478,8 +478,23 @@ class _MessageListState extends State<_MessageList> {
       // Right-click: copy and select all as before, and the two new ones.
       contextMenuBuilder: (context, region) {
         final text = _selected;
-        return AdaptiveTextSelectionToolbar.buttonItems(
-          anchors: region.contextMenuAnchors,
+        // Flutter's SelectionOverlay follows the region's scaled layer but
+        // offsets it by a global origin. Restore a viewport at the region's
+        // scale before laying out and clamping the menu inside it.
+        final anchors=region.contextMenuAnchors;
+        final overlay=Overlay.of(context,rootOverlay:true).context.findRenderObject()! as RenderBox;
+        final box=region.context.findRenderObject()! as RenderBox;
+        final origin=box.localToGlobal(Offset.zero);
+        final zero=box.globalToLocal(overlay.localToGlobal(Offset.zero));
+        final end=box.globalToLocal(overlay.localToGlobal(overlay.size.bottomRight(Offset.zero)));
+        final viewport=Size(end.dx-zero.dx,end.dy-zero.dy);
+        return Transform.translate(offset:zero+origin,child:OverflowBox(
+          alignment:Alignment.topLeft,minWidth:viewport.width,maxWidth:viewport.width,minHeight:viewport.height,maxHeight:viewport.height,
+          child:MediaQuery(data:MediaQuery.of(region.context).copyWith(size:viewport),child:AdaptiveTextSelectionToolbar.buttonItems(
+          anchors: TextSelectionToolbarAnchors(
+            primaryAnchor:box.globalToLocal(anchors.primaryAnchor)-zero,
+            secondaryAnchor:anchors.secondaryAnchor==null?null:box.globalToLocal(anchors.secondaryAnchor!)-zero,
+          ),
           buttonItems: [
             ...region.contextMenuButtonItems,
             if (text.isNotEmpty) ...[
@@ -494,7 +509,7 @@ class _MessageListState extends State<_MessageList> {
                 }),
             ],
           ],
-        );
+        ))));
       },
       child: Builder(
         builder: (context) {

@@ -97,6 +97,10 @@ export interface CoreSettings {
 	/** Turn cap for one unattended run. */
 	maxTurnsUnattended: number;
 	notifications: boolean;
+	/** System toasts for workbench replies and approval requests. */
+	workbenchNotifications: boolean;
+	/** System toasts for Butterfly task results and questions. */
+	butterflyNotifications: boolean;
 	scheduleMissedDefault: "skip" | "latest";
 	goalDefaultBudget: GoalDefaultBudget;
 	goalButterflyBudgetFactor: number;
@@ -175,6 +179,8 @@ export const DEFAULT_SETTINGS: CoreSettings = {
 	maxTurnsPerRun: 60,
 	maxTurnsUnattended: 40,
 	notifications: true,
+	workbenchNotifications: false,
+	butterflyNotifications: true,
 	scheduleMissedDefault: "skip",
 	goalDefaultBudget: { costUsd: 2, activeMinutes: 120, runs: 30, concurrency: 2 },
 	goalButterflyBudgetFactor: 0.5,

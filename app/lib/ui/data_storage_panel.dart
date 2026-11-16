@@ -9,6 +9,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'backup_panel.dart' show formatBytes;
 import 'settings_controls.dart';
+import 'number_setting.dart';
 import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
 
 /// G-07 controls in the existing 数据与迁移 category.
@@ -105,12 +106,13 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
     } finally { _polling = false; }
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<void> _run(Future<void> Function() action,{bool propagate=false}) async {
     setState(() { _busy = true; _error = null; _receipt = null; });
     try {
       await action();
     } catch (e) {
       if (mounted) setState(() => _error = e is CoreException ? e.message : '$e');
+      if(propagate)rethrow;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -126,7 +128,7 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
       await _agent!.backend.call('settings.update', {'memoryMinFreeBytes': (gib * 1073741824).round()});
       await _load();
       if (mounted) setState(() => _receipt = '空间阈值已保存');
-    });
+    },propagate:true);
   }
 
   Future<void> _compact() async {
@@ -206,7 +208,7 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
           if (space['freeBytes'] is num) SettingRow('磁盘剩余', child: Text(formatBytes(space['freeBytes'] as num))),
           if (space['paused'] == true) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(space['reason'] as String? ?? '磁盘空间不足，记忆写入已暂停', style: TextStyle(color: scheme.error))),
         ],
-        AutoSaveField(label: '至少留出的磁盘空间', unit: 'GB', compact: true, value: ((space['minimumBytes'] as num? ?? 1073741824) / 1073741824).toStringAsFixed(2), number: true, validator: (v) { final n = double.tryParse(v); return n == null || !n.isFinite || n < 0 || n * 1073741824 > 9007199254740991 ? '请输入有效的非负数' : null; }, save: _saveMinimum),
+        PresetNumberSetting(label:'至少留出的磁盘空间',unit:'GB',value:((space['minimumBytes'] as num? ?? 1073741824)/1073741824).toStringAsFixed(2),defaultValue:1,presets:const [1,2,5,10],validator:(v){final n=double.tryParse(v);return n==null||!n.isFinite||n<0||n*1073741824>9007199254740991?'请输入有效的非负数':null;},save:_saveMinimum),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
           ShellButton('压缩历史…', small: true, onPressed: _busy || data == null ? null : _compact),

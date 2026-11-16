@@ -165,6 +165,7 @@ describe("T-83 integration", () => {
 	});
 
 	it("window presence gates the four notification classes and disappears on disconnect", async () => {
+		t.core.settings.update({ workbenchNotifications: true });
 		const center = t.core.notifications, input = {title:"完成",body:"结果",target:{page:"chat",slotId:"s"}};
 		await t.core.call("notifications.presence",{foreground:true,slotId:"s"},t.client);
 		assert.equal(center.publish("workbench.done",input),false);

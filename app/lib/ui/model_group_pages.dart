@@ -176,15 +176,18 @@ class _Member {
 /// Adds or edits a model group: its name, the queue, and (folded) 「高级」. Like the channel editor,
 /// every change is a draft until 「保存」; leaving with unsaved changes asks first.
 class GroupEditorPage extends StatefulWidget {
-  const GroupEditorPage({super.key, this.existing});
+  const GroupEditorPage({super.key, this.existing, this.inline = false, this.onSaved});
 
   final ModelGroup? existing;
 
+  final bool inline;
+  final VoidCallback? onSaved;
+
   @override
-  State<GroupEditorPage> createState() => _GroupEditorPageState();
+  State<GroupEditorPage> createState() => GroupEditorPageState();
 }
 
-class _GroupEditorPageState extends State<GroupEditorPage> {
+class GroupEditorPageState extends State<GroupEditorPage> {
   late final _name = TextEditingController(text: widget.existing?.name ?? '');
   late bool _allowPaid = widget.existing?.allowPaidOverflow ?? true;
   late final List<_Member> _members = () {
@@ -208,7 +211,7 @@ class _GroupEditorPageState extends State<GroupEditorPage> {
   void initState() {
     super.initState();
     _name.addListener(() { if (mounted) setState(() {}); });
-    if (widget.existing != null) _saved = _fingerprint();
+    if (widget.existing != null || widget.inline) _saved = _fingerprint();
   }
 
   @override
@@ -299,7 +302,8 @@ class _GroupEditorPageState extends State<GroupEditorPage> {
     }
   }
 
-  Future<bool> _leave() async {
+  Future<bool> confirmLeave() async {
+    if (_busy) return false;
     if (!_dirty) return true;
     final choice = await showDialog<String>(context: context, builder: (dialog) => AlertDialog(
       title: const Text('改动还没保存'),
@@ -372,14 +376,8 @@ class _GroupEditorPageState extends State<GroupEditorPage> {
     final muted = context.text.bodySmall?.copyWith(color: colors.muted);
     final failed = _tests.values.whereType<ChannelTestResult>().where((t) => !t.ok).length;
     final done = !_testing && _tests.isNotEmpty;
-    return PopScope(
-      canPop: !_dirty,
-      onPopInvokedWithResult: (popped, _) async {
-        if (popped) return;
-        if (await _leave() && context.mounted) Navigator.of(context).pop();
-      },
-      child: Scaffold(
-        appBar: AppBar(
+    final page = Scaffold(
+        appBar: widget.inline ? null : AppBar(
           title: Text(_editing ? '编辑模型组' : '新建模型组'),
           scrolledUnderElevation: 0,
           actions: [
@@ -391,6 +389,8 @@ class _GroupEditorPageState extends State<GroupEditorPage> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: settingsContentWidth),
             child: ListView(
+              shrinkWrap: widget.inline,
+              physics: widget.inline ? const NeverScrollableScrollPhysics() : null,
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               children: [
                 SettingsCard(title: '名字', children: [
@@ -466,7 +466,7 @@ class _GroupEditorPageState extends State<GroupEditorPage> {
                     const SizedBox(width: 10),
                     FilledButton(
                       key: const ValueKey('group-save'),
-                      onPressed: _busy || _testing || (_editing && !_dirty) ? null : () async { final wasNew = !_editing; if (await _save() && mounted && wasNew) Navigator.of(this.context).pop(); },
+                      onPressed: _busy || _testing || (_editing && !_dirty && !widget.inline) ? null : () async { final wasNew = !_editing; if (await _save() && mounted) { if (widget.inline) { widget.onSaved?.call(); } else if (wasNew) { Navigator.of(this.context).pop(); } } },
                       child: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('保存'),
                     ),
                   ]),
@@ -475,7 +475,20 @@ class _GroupEditorPageState extends State<GroupEditorPage> {
             ),
           ),
         ),
-      ),
+    );
+    if (widget.inline) {
+      return Column(mainAxisSize: MainAxisSize.min, children: [
+        if (page.body != null) page.body!,
+        if (page.bottomNavigationBar != null) page.bottomNavigationBar!,
+      ]);
+    }
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (popped, _) async {
+        if (popped) return;
+        if (await confirmLeave() && context.mounted) Navigator.of(context).pop();
+      },
+      child: page,
     );
   }
 }

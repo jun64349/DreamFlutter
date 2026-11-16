@@ -73,6 +73,15 @@ export class NotificationCenter {
 		this.recovered = true;
 	}
 	muteQueue(): void { this.journal.muteQueue(); }
+	muteSourceQueues(): void { this.journal.muteSourceQueues(); }
+	private sourceEnabled(input: Notice): boolean {
+		const settings = this.core.settings.get();
+		if (input.key.startsWith("patrol:")) return settings.butterflyNotifications;
+		if (!input.key.startsWith("notify:")) return true;
+		const partition = this.core.db.get<{ partition: string }>(
+			"SELECT COALESCE(json_extract(scope,'$.partition'),'workbench') partition FROM goals WHERE id=?", input.objectRef ?? null)?.partition;
+		return partition === "butterfly" ? settings.butterflyNotifications : settings.workbenchNotifications;
+	}
 	quiet(at = Date.now()): boolean { return quietAt(this.core.settings.get(), at); }
 	deferQuiet(input: NoticeIdentity, at: number): void { this.journal.quiet(input, at, true); }
 	discardDeferred(key: string, activeKey?: string): void {
@@ -140,6 +149,8 @@ export class NotificationCenter {
 	}
 	publish(kind: NotificationKind, input: Copy & { target: NotificationTarget } & Partial<Notice>): boolean {
 		this.recover();
+		const settings = this.core.settings.get();
+		const categoryEnabled = kind.startsWith("workbench.") ? settings.workbenchNotifications : settings.butterflyNotifications;
 		const delivery = input.target.slotId ? this.slotDelivery.get(input.target.slotId) : undefined;
 		if (delivery?.muted) {
 			delivery.accepted = true;
@@ -159,7 +170,7 @@ export class NotificationCenter {
 			action: input.action ?? "打开", target: input.target, objectRef: delivery?.identity?.objectRef ?? input.objectRef, itemId: input.target.itemId,
 		};
 		const at = Date.now();
-		const legacy = this.core.settings.get().notifications ? this.legacyGoalState(notice.key) : undefined;
+		const legacy = settings.notifications ? this.legacyGoalState(notice.key) : undefined;
 		if (legacy) {
 			this.journal.duplicate(at);
 			if (delivery) { delivery.accepted = true; delivery.report(legacy); }
@@ -167,7 +178,7 @@ export class NotificationCenter {
 		}
 		const claim = this.journal.claim(notice, at, {
 			quiet: this.quiet(at),
-			mute: !this.core.settings.get().notifications ? "notifications_disabled" : visible ? "already_visible"
+			mute: !settings.notifications ? "notifications_disabled" : !categoryEnabled ? "category_disabled" : visible ? "already_visible"
 				: notice.category === "review" ? "review_only" : undefined,
 		});
 		if (!claim.claimed) {
@@ -212,7 +223,7 @@ export class NotificationCenter {
 		}
 		const claim = this.journal.claim({ ...input, itemId: input.itemId ?? input.target.itemId }, at, {
 			quiet: options.quiet !== "ignore" && this.quiet(at),
-			mute: !this.core.settings.get().notifications ? "notifications_disabled"
+			mute: !this.core.settings.get().notifications ? "notifications_disabled" : !this.sourceEnabled(input) ? "category_disabled"
 				: input.category === "review" && !options.humanReview ? "review_only" : undefined,
 		});
 		if (!claim.claimed) return { state: claim.state, reason: claim.reason };

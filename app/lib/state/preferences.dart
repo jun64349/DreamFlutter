@@ -39,7 +39,11 @@ class Preferences {
   /// Model used for new sessions until the user picks another one.
   static const defaultModelKey = 'cc-switch-deep-seek/deepseek-flash';
   static const maxRecentWorkspaces = 10;
-  static const textScales = [0.9, 0.95, 1.0, 1.1, 1.25];
+  // Stored values remain physical scales; relabelling does not enlarge an
+  // existing user's choice a second time.
+  static const defaultTextScale = 1.25;
+  static const defaultZoom = 1.1;
+  static const textScales = [1.125, 1.1875, 1.25, 1.375, 1.5625];
 
   static String defaultWorkspace() {
     final home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
@@ -128,20 +132,20 @@ class Preferences {
   String? get darkTheme => _prefs.getString('darkTheme');
   Future<void> setDarkTheme(String id) => _prefs.setString('darkTheme', id);
 
-  String get paperTexture => _prefs.getString('paperTexture') ?? 'xuan';
+  String get paperTexture => _prefs.getString('paperTexture') ?? 'cotton';
   Future<void> setPaperTexture(String value) => _prefs.setString('paperTexture', value);
-  double get paperStrength => _prefs.getDouble('paperStrength') ?? .05;
+  double get paperStrength => _prefs.getDouble('paperStrength') ?? .10;
   Future<void> setPaperStrength(double value) => _prefs.setDouble('paperStrength', value);
   bool get decorativeMotion => _prefs.getBool('decorativeMotion') ?? true;
   Future<void> setDecorativeMotion(bool value) => _prefs.setBool('decorativeMotion', value);
 
-  double get textScale => _prefs.getDouble('textScale') ?? 1.0;
+  double get textScale => _prefs.getDouble('textScale') ?? defaultTextScale;
   Future<void> setTextScale(double value) => _prefs.setDouble('textScale', value);
 
   /// Whole-interface zoom steps (Ctrl + plus / minus), like a browser's.
-  static const zoomLevels = [0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+  static const zoomLevels = [0.737, 0.825, 0.88, 0.99, 1.1, 1.21, 1.375, 1.65, 1.925, 2.2];
 
-  double get zoom => _prefs.getDouble('zoom') ?? 1.0;
+  double get zoom => _prefs.getDouble('zoom') ?? defaultZoom;
   Future<void> setZoom(double value) => _prefs.setDouble('zoom', value);
 
   /// The first-run guide was dismissed.
