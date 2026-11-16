@@ -102,21 +102,23 @@ class RichRenderer {
 /// A ```mermaid / ```chart / ```svg block: the picture, with zoom, copy and save.
 /// While the reply is still streaming (the source keeps changing) the code shows.
 class RichBlock extends StatefulWidget {
-  const RichBlock({super.key, required this.kind, required this.source});
+  const RichBlock({super.key, required this.kind, required this.source, this.initial});
 
   final String kind;
   final String source;
+  final RichResult? initial;
 
   @override
   State<RichBlock> createState() => _RichBlockState();
 }
 
 class _RichBlockState extends State<RichBlock> {
-  RichResult? _result;
+  late RichResult? _result = widget.initial;
   String? _error;
   String? _drawn;
   Timer? _settle;
   var _width = 680.0;
+  var _source = false;
 
   String get _label => switch (widget.kind) {
     'mermaid' => 'Mermaid 图',
@@ -127,13 +129,14 @@ class _RichBlockState extends State<RichBlock> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _schedule();
+    if (_result == null) _schedule();
   }
 
   @override
   void didUpdateWidget(RichBlock old) {
     super.didUpdateWidget(old);
-    if (old.source != widget.source) _schedule();
+    if (old.initial != widget.initial) { _result = widget.initial; _drawn = null; _settle?.cancel(); }
+    if (old.source != widget.source || _result == null && old.initial != widget.initial) _schedule();
   }
 
   /// Draws once the source has stopped changing for a moment.
@@ -214,44 +217,50 @@ class _RichBlockState extends State<RichBlock> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 2, 2, 0),
-                child: Row(
-                  children: [
-                    Text(_label, style: context.label),
-                    const Spacer(),
-                    _ToolButton(icon: Icons.zoom_out_map, tooltip: '放大', onPressed: () => _zoom(context, result)),
-                    _ToolButton(
-                      icon: Icons.image_outlined,
-                      tooltip: '复制图片',
-                      onPressed: () async {
-                        await Pasteboard.writeImage(result.png);
-                        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制图片'), duration: Duration(seconds: 1)));
-                      },
-                    ),
-                    _ToolButton(
-                      icon: Icons.code,
-                      tooltip: '复制源代码',
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: widget.source));
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制源代码'), duration: Duration(seconds: 1)));
-                      },
-                    ),
-                    _ToolButton(icon: Icons.save_alt, tooltip: '另存为…', onPressed: _save),
-                  ],
-                ),
+                padding: const EdgeInsets.fromLTRB(12, 6, 6, 0),
+                child: Wrap(spacing: 4, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  SegmentedButton<bool>(
+                    showSelectedIcon: false,
+                    style: SegmentedButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 10), backgroundColor: colors.sunk, side: BorderSide.none),
+                    segments: const [ButtonSegment(value: false, label: Text('图')), ButtonSegment(value: true, label: Text('源码'))],
+                    selected: {_source},
+                    onSelectionChanged: (value) => setState(() => _source = value.first),
+                  ),
+                  _ToolButton(icon: Icons.zoom_out_map, tooltip: '放大', onPressed: () => _zoom(context, result)),
+                  _ToolButton(
+                    icon: Icons.image_outlined,
+                    tooltip: '复制图片',
+                    onPressed: () async {
+                      await Pasteboard.writeImage(result.png);
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制图片'), duration: Duration(seconds: 1)));
+                    },
+                  ),
+                  _ToolButton(
+                    icon: Icons.code,
+                    tooltip: '复制源代码',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: widget.source));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制源代码'), duration: Duration(seconds: 1)));
+                    },
+                  ),
+                  _ToolButton(icon: Icons.save_alt, tooltip: '另存为…', onPressed: _save),
+                ]),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
-                child: Center(
-                  child: GestureDetector(
-                    onTap: () => _zoom(context, result),
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.zoomIn,
-                      child: Image.memory(result.png, width: shown, fit: BoxFit.contain, filterQuality: FilterQuality.medium, gaplessPlayback: true),
+              if (_source)
+                Padding(padding: const EdgeInsets.fromLTRB(14, 6, 14, 12), child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: SelectableText(widget.source, style: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, height: 1.65, color: colors.ink))))
+              else
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: () => _zoom(context, result),
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.zoomIn,
+                        child: Image.memory(result.png, key: const ValueKey('rich-image'), width: shown, fit: BoxFit.contain, filterQuality: FilterQuality.medium, gaplessPlayback: true),
+                      ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         );

@@ -3,6 +3,8 @@ import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/agent_controller.dart';
 import '../theme.dart';
+import '../craft_style.dart';
+import 'craft_surface.dart';
 import 'agent_scope.dart';
 import 'butterfly_motion.dart';
 import 'message_widgets.dart' show DiffView, editDiff;
@@ -51,25 +53,82 @@ class ConversationApprovalLane extends StatefulWidget {
 class _ConversationApprovalLaneState extends State<ConversationApprovalLane> {
   final _seen = <String, ExtensionUiRequest>{};
   final _answers = <String, String>{};
+  bool _historyOpen = false;
+  String? _historyIdentity;
+  String? _historySessionPath;
+  int _historyRequest = 0;
   @override
   void didUpdateWidget(ConversationApprovalLane old) {
     super.didUpdateWidget(old);
-    if (!identical(old.runtime, widget.runtime)) { _seen.clear(); _answers.clear(); }
+    if (!identical(old.runtime, widget.runtime)) { _seen.clear(); _answers.clear(); _historyOpen = false; _historyIdentity = null; _historySessionPath = null; _historyRequest++; }
+  }
+
+  void _loadHistory(SessionRuntime runtime) {
+    final path = runtime.sessionPath;
+    final slot = runtime.slotId;
+    if (runtime.incognito || (path == null && slot == null)) return;
+    if (_historySessionPath != null && path != _historySessionPath) {
+      _seen.clear(); _answers.clear(); _historyOpen = false;
+    }
+    if (path != null) _historySessionPath = path;
+    final identity = '$path\u0000$slot';
+    if (_historyIdentity == identity) return;
+    _historyIdentity = identity;
+    final ticket = ++_historyRequest;
+    final backend = AgentScope.read(context).backend;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final result = await backend.call('confirm.list', {'limit': 100});
+        if (!mounted || ticket != _historyRequest || !identical(widget.runtime, runtime)) return;
+        final rows = result is List ? result : const [];
+        setState(() {
+          for (final row in rows.reversed.whereType<Map>()) {
+            final sameSession = path != null && row['sessionFile'] == path;
+            final sameSlot = slot != null && row['slotId'] == slot && (path == null || row['sessionFile'] == null);
+            if ((!sameSession && !sameSlot) || !const {'answered', 'cancelled', 'expired'}.contains(row['status'])) continue;
+            final raw = row['request'];
+            if (raw is! Map) continue;
+            final request = ExtensionUiRequest.fromJson(raw.cast<String, dynamic>());
+            if (!isConversationApproval(request) || request.id.isEmpty) continue;
+            final answer = row['answer'];
+            final value = answer is Map ? answer['value'] : null;
+            _seen.putIfAbsent(request.id, () => request);
+            _answers.putIfAbsent(request.id, () => row['status'] == 'answered' && value is String
+                ? (value == '拒绝' ? '已拒绝' : '已允许') : '已结束');
+          }
+        });
+      } catch (_) {
+        // A missing history endpoint must not hide or block a live approval.
+      }
+    });
   }
   @override
   Widget build(BuildContext context) {
     final runtime = widget.runtime;
     if (runtime == null) return const SizedBox.shrink();
     return ListenableBuilder(listenable: runtime, builder: (context, _) {
+      _loadHistory(runtime);
       for (final request in runtime.pendingDialogs.where(isConversationApproval)) { _seen[request.id] = request; }
+      final pending = _seen.values.where((r) => runtime.pendingDialogs.contains(r) && !_answers.containsKey(r.id)).toList();
+      final finished = _seen.values.where((r) => !pending.contains(r)).toList();
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (final request in _seen.values)
-          if (runtime.pendingDialogs.contains(request) || _answers.containsKey(request.id))
+        if (finished.isNotEmpty) ...[
+          Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+            onPressed: () => setState(() => _historyOpen = !_historyOpen),
+            icon: Icon(_historyOpen ? Icons.expand_less : Icons.expand_more, size: 16),
+            label: Text('已处理 ${finished.length} 项审批'),
+          )),
+          if (_historyOpen) for (final request in finished)
+            Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: ConversationApprovalCard(
+              request: request, runtime: runtime, answer: _answers[request.id] ?? '已结束', onAnswer: (_) {},
+            )),
+        ],
+        for (final request in pending)
             Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: ConversationApprovalCard(
-              request: request, runtime: runtime, answer: _answers[request.id],
+              request: request, runtime: runtime,
               onAnswer: (value) {
                 runtime.answerDialog(request, value: value);
-                setState(() => _answers[request.id] = value == '拒绝' ? '已拒绝' : '已允许');
+                setState(() { _answers[request.id] = value == '拒绝' ? '已拒绝' : '已允许'; _historyOpen = false; });
               },
             )),
       ]);
@@ -97,7 +156,7 @@ class ConversationApprovalCard extends StatelessWidget {
     final always = request.options.where((o) => o.startsWith('本会话内总是允许')).firstOrNull;
     return Container(
       key: ValueKey('approval-${request.id}'), padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: context.colors.card, border: Border.all(color: context.colors.border), borderRadius: BorderRadius.circular(context.radiusLg)),
+      decoration: craftSurfaceDecoration(context, radius: context.radiusLg),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(Icons.verified_user_outlined, size: 19, color: context.colors.accent), const SizedBox(width: 8), Expanded(child: Tooltip(message: fileTitle == null ? '' : fullWorkspacePath(cwd, fileTitle.group(2)!), child: Text(title, style: context.text.titleSmall)))]),
         if (reason is String && reason.isNotEmpty && !lines.first.contains(reason)) Padding(padding: const EdgeInsets.only(top: 8), child: Text(reason, style: context.text.bodySmall?.copyWith(color: context.colors.muted))),
@@ -170,10 +229,10 @@ class _ConversationErrorCardState extends State<ConversationErrorCard> {
     final long = widget.reason.length > 160 || '\n'.allMatches(widget.reason).length > 2;
     final enabled = !_busy && !agent.isRunning;
     // Three buttons of one height and shape; the first is the main one.
-    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radius));
+    final shape = craftButtonShape(context.painting.craftGeometry, radius: context.radius);
     const size = Size(0, 36);
     const pad = EdgeInsets.symmetric(horizontal: 16);
-    return Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: colors.card, border: Border.all(color: colors.danger.withValues(alpha: .45)), borderRadius: BorderRadius.circular(context.radiusLg)), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return Container(padding: const EdgeInsets.all(16), decoration: craftSurfaceDecoration(context, borderColor: colors.danger.withValues(alpha: .45), radius: context.radiusLg), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('这次没能完成', style: context.text.titleSmall), const SizedBox(height: 6),
       Text(headline, style: context.text.bodyMedium),
       if (meta.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(meta, style: context.text.bodySmall?.copyWith(color: colors.muted))),

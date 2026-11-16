@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:dreamflutter/ui/rich_blocks.dart';
 
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/markdown_view.dart';
@@ -187,5 +190,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(copied, 'Before workspace.md after the link.');
     dir.deleteSync(recursive: true);
+  });
+
+  testWidgets('a rendered diagram switches between themed image and source', (tester) async {
+    final result = RichResult(png: base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), width: 400, height: 200);
+    await tester.pumpWidget(MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: RichBlock(kind: 'mermaid', source: 'graph TD; A-->B', initial: result))));
+    expect(find.byKey(const ValueKey('rich-image')), findsOneWidget);
+    await tester.tap(find.text('源码'));
+    await tester.pump();
+    expect(find.text('graph TD; A-->B'), findsOneWidget);
+    expect(find.byKey(const ValueKey('rich-image')), findsNothing);
+    await tester.tap(find.text('图'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('rich-image')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

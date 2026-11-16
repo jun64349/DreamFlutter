@@ -1,0 +1,94 @@
+[
+  {
+    "id": "ccf03eabb",
+    "source": "df",
+    "provider": "df-ccf03eabb",
+    "name": "样本渠道",
+    "platform": "custom",
+    "kind": "relay",
+    "api": "openai-completions",
+    "baseUrl": "https://fixture.invalid/v1",
+    "models": [
+      {
+        "id": "fixture-model",
+        "name": "样本模型"
+      }
+    ],
+    "authHeader": false,
+    "enabled": true,
+    "topUp": null,
+    "lowBalance": null,
+    "keys": [
+      {
+        "id": "k97f07056",
+        "label": "",
+        "enabled": true,
+        "hint": "-key",
+        "unavailable": null
+      }
+    ],
+    "unavailable": null,
+    "common": null
+  },
+  {
+    "id": "pi:faux",
+    "oauth": false,
+    "source": "pi",
+    "provider": "faux",
+    "name": "Faux",
+    "platform": null,
+    "kind": "payg",
+    "api": "faux:1794564731173:1pruoa7hdwf",
+    "baseUrl": "http://faux.invalid",
+    "models": [
+      {
+        "id": "faux-1",
+        "name": "Faux 1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "contextWindow": 200000,
+        "maxTokens": 8192,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        }
+      },
+      {
+        "id": "faux-text",
+        "name": "Faux Text",
+        "reasoning": false,
+        "input": [
+          "text"
+        ],
+        "contextWindow": 200000,
+        "maxTokens": 8192,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        }
+      }
+    ],
+    "authHeader": false,
+    "enabled": true,
+    "topUp": null,
+    "lowBalance": null,
+    "keys": [
+      {
+        "id": "pi",
+        "label": "fallback",
+        "enabled": true,
+        "hint": "",
+        "unavailable": null
+      }
+    ],
+    "unavailable": null,
+    "common": null
+  }
+]

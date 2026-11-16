@@ -110,6 +110,17 @@
 - **开放范围** 仅内部。
 - **源码** [modules/goals.ts:1326](../../core/src/modules/goals.ts#L1326)
 
+## goals.bySession
+<!-- api:method -->
+
+- **用途** 一次查找多个会话最近的目标，含已完成、取消和失败的目标。
+- **调用方** 窗口。
+- **参数** `sessionFiles: string[]`（1–200 个）、`partition?: "workbench" | "butterfly"`。
+- **返回** `{ goals: { [sessionFile]: Goal | null } }`，键保留传入的原字符串；比较路径时大小写不敏感，同时匹配目标及其任务的会话文件。
+- **错误** `bad_request`（会话列表或分区无效）。
+- **事件** 无。
+- **开放范围** 仅内部。
+
 ## goals.list
 <!-- api:method -->
 
@@ -326,6 +337,19 @@
 - **开放范围** 将来可开放给模块。
 - **源码** [modules/scheduler.ts:1417](../../core/src/modules/scheduler.ts#L1417)
 
+## schedules.parseTime
+<!-- api:method -->
+
+- **用途** 将日程表单的一行中文时间解析为触发器，不调用模型。
+- **调用方** 窗口。
+- **参数** `text: string`、`timezone?: string`（IANA 时区，默认本机）。
+- **返回** `{ trigger: Trigger, text: string }`；规范时间使用两位 `HH:mm` 和全角「、」。支持日期、今天/明天/后天、下一个星期、每天、工作日、周末、每周、每月和分钟/小时间隔。
+- **写法** 日期词或周期词与时刻之间可有空格，也可连写：`明天下午3点`、`每天8点`、`11月14日14:00`、`每周一9点`、`每月1号10点`。只写时刻（`晚上10点`、`14:00`、`9点半`）表示下一次到这个时刻的单次，今天未过则今天，否则明天。其余支持 `2026年11月14日 14:00`、`2026-11-14 14:00`、`工作日9点`、`周末10点`、`每 2 小时`、`每 30 分钟` 等。
+- **单次规范写法** 与当前时区的今天同一年时省略年份，如 `11月14日 14:00`；跨年才写年份，如 `2027年1月3日 09:00`。`timeText` 也按同一规则写回。
+- **错误** `bad_request`（无法解析、时区错误或时间已过），`data.examples` 给三个示例；时间已过时提示「这个时间已经过了」，并带 `data.past: true`。
+- **事件** 无。
+- **开放范围** 仅内部。
+
 ## schedules.preview
 <!-- api:method -->
 
@@ -367,8 +391,8 @@
 
 - **用途** 创建或修改日程。
 - **调用方** 窗口，工作台和蝶君共用。
-- **参数** `id?: string`；`name?: string`；`prompt?: string`；`cwd?: string`；`kind?: 'task'|'report'|'monitor'|'reminder'`；`trigger?: Trigger`；`missedPolicy?: 'skip'|'latest'`；`sessionMode?: 'fresh'|'bound'`；`sessionFile?: string`；`allowedTools?: string[]|null`；`expectedVersion?: number`；`reason?: string`。创建时需要有效名称和触发器，非提醒任务还需要提示和工作目录。
-- **返回** `ScheduleView`。
+- **参数** `id?: string`；`name?: string`；`prompt?: string`；`cwd?: string`；`kind?: 'task'|'report'|'monitor'|'reminder'`；`trigger?: Trigger`；`missedPolicy?: 'skip'|'latest'`；`sessionMode?: 'fresh'|'bound'`；`sessionFile?: string`；`allowedTools?: string[]|null`；`expectedVersion?: number`；`reason?: string`。创建时需要有效名称和触发器，非提醒任务还需要 prompt。窗口新建 `kind: "task"` 省略 cwd 时使用蝶君目录。
+- **返回** `ScheduleView`，含 `timeText: string | null`；能写回本页中文格式的触发器返回规范时间，任意 cron 等写不回的返回 null，调用方此时用 `describe` 并保留原 trigger。`schedules.list/get` 也返回此字段。
 - **错误** `bad_request`（日程字段、触发器或版本无效）；`not_found`（编辑目标已不存在）；`version_conflict`（期望版本已过期）。 版本冲突的 error.data 为当前 ScheduleView，已无该日程时为 null。
 - **事件** [`schedules.changed`](events.md#scheduleschanged)；按实际状态变化推送，次数与顺序见事件和本节说明。 写入日程后发 schedules.changed。提醒触发只走通知，任务触发才启动运行；创建者与执行归属是不同字段。
 - **开放范围** 仅内部。

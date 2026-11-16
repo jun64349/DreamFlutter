@@ -32,10 +32,13 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1400,900));
     await tester.pumpWidget(DreamFlutterApp(controller:agent));await tester.runAsync(agent.init);
     await tester.runAsync(()=>agent.openSession(p.join(cwd,'conversation.jsonl')));agent.setRunPanelOpen(true);await settle(tester);
+    await tester.ensureVisible(find.text('提交这些改动'));
   }
   testWidgets('default window bridge prepares real diff, edits draft and commits selected files without a second approval', (tester) async {
     await start(tester);
-    expect(find.text('report.md'),findsOneWidget);expect(find.text('summary.md'),findsOneWidget);
+    final git = find.byKey(const ValueKey('panel-section-git'));
+    expect(find.descendant(of: git, matching: find.text('report.md')),findsOneWidget);
+    expect(find.descendant(of: git, matching: find.text('summary.md')),findsOneWidget);
     expect(backend.callsTo('git.prepareCommit'),isEmpty);
     await tester.tap(find.text('提交这些改动'));await settle(tester);
     expect(backend.callsTo('git.commit'),isEmpty);expect(find.textContaining('diff --git'),findsNothing);

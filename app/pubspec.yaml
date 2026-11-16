@@ -27,6 +27,8 @@ dependencies:
   flutter_math_fork: ^0.7.4
   webview_windows: ^0.4.0
   crypto: ^3.0.8
+  record: 7.2.0
+  flutter_svg: ^2.3.2
 
 dev_dependencies:
   flutter_test:
@@ -39,6 +41,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/tray_icon.ico
+    - assets/paper_noise.png
     - assets/fonts/OFL-MaShanZheng.txt
   fonts:
     - family: Ma Shan Zheng

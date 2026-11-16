@@ -1,0 +1,24 @@
+[
+  {
+    "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+    "cwd": "<fixture>\\workspace",
+    "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+    "sessionId": "01a1d464-b275-753c-950d-6c71b7029d53",
+    "sessionName": null,
+    "running": false,
+    "compacting": false,
+    "pendingDialogs": 0,
+    "lastActivity": 1794564731507,
+    "createdAt": 1794564731507,
+    "taskId": null,
+    "unattended": false,
+    "incognito": false,
+    "forkOf": null,
+    "sessionType": "ordinary",
+    "willPersist": true,
+    "sandbox": false,
+    "model": "faux/faux-1",
+    "agentMode": "standard",
+    "planMode": false
+  }
+]

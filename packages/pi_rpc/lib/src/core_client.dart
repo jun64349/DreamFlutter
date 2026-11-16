@@ -12,10 +12,11 @@ import 'json.dart';
 import 'launcher.dart';
 
 class CoreException implements Exception {
-  CoreException(this.code, this.message);
+  CoreException(this.code, this.message, {this.data});
 
   final String code;
   final String message;
+  final Object? data;
 
   @override
   String toString() => message;
@@ -98,7 +99,7 @@ class CoreClient {
       final error = message['error'];
       if (error is Map) {
         final e = asJson(error);
-        completer.completeError(CoreException(asString(e['code']) ?? 'error', asString(e['message']) ?? '后台出错'));
+        completer.completeError(CoreException(asString(e['code']) ?? 'error', asString(e['message']) ?? '后台出错', data: e['data']));
       } else {
         completer.complete(message['result']);
       }

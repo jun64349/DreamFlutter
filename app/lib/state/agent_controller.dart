@@ -42,6 +42,7 @@ class SidebarEntry {
     this.parentSession,
     this.isSideConversation = false,
     this.sideQuote,
+    this.modelName,
   });
 
   final String path;
@@ -66,6 +67,7 @@ class SidebarEntry {
   final String? parentSession;
   final bool isSideConversation;
   final String? sideQuote;
+  final String? modelName;
 }
 
 /// A full-text search hit from the core's session index.
@@ -92,14 +94,14 @@ class SearchHit {
 }
 
 /// Top-level pages of the window (the navigation rail): the workbench (chat), 蝶君, ...
-enum AppSection { chat, butterfly, tasks, memory, library, spending, settings }
+enum AppSection { chat, butterfly, tasks, memory, library, spending, settings, schedules }
 
 /// The two halves of 蝶君: talking with it, and its work (notes, materials, outbox).
 enum ButterflyTab { talk, work }
 
 /// How the window looks: light / dark / system, the painting theme for each,
 /// text size, and whole-interface zoom.
-typedef Appearance = ({ThemeMode themeMode, String? lightTheme, String? darkTheme, double textScale, double zoom});
+typedef Appearance = ({ThemeMode themeMode, String? lightTheme, String? darkTheme, double textScale, double zoom, String paperTexture, double paperStrength, bool decorativeMotion});
 
 /// A run the previous core process left unfinished (shown as a resume card).
 class InterruptedRun {
@@ -244,6 +246,8 @@ class AgentController extends ChangeNotifier {
 
   /// What the last restore did (backup.restoreResult), once the core that applied it is connected.
   final restoreResult = ValueNotifier<Json?>(null);
+  /// Set by the desktop shell: closes the window without stopping the core (uninstall.start stops it itself).
+  Future<void> Function()? closeWindowForUninstall;
 
   /// Short user-facing messages (errors, extension notifications).
   Stream<String> get toasts => _toasts.stream;
@@ -297,7 +301,7 @@ class AgentController extends ChangeNotifier {
     if (parent != null) return parent.showSection(value);
     if (section == value) return;
     if (value == AppSection.chat) butterflySpace = false;
-    if (value == AppSection.butterfly) butterflySpace = true;
+    if (value == AppSection.butterfly || value == AppSection.schedules) butterflySpace = true;
     section = value;
     _notify();
   }
@@ -506,6 +510,9 @@ class AgentController extends ChangeNotifier {
     darkTheme: preferences.darkTheme,
     textScale: preferences.textScale,
     zoom: preferences.zoom,
+    paperTexture: preferences.paperTexture,
+    paperStrength: preferences.paperStrength,
+    decorativeMotion: preferences.decorativeMotion,
   );
 
   ThemeMode get themeMode => preferences.themeMode;
@@ -515,6 +522,14 @@ class AgentController extends ChangeNotifier {
   bool get defaultAutoCompaction => coreSettings['autoCompaction'] != false;
   String? get defaultModelKey => coreSettings['defaultModel'] as String?;
   String? get defaultThinkingLevel => coreSettings['defaultThinking'] as String?;
+
+  /// The display name of the current default model, for sidebar entries that
+  /// don't have their own model recorded.
+  String? get _defaultModelName {
+    final key = defaultModelKey;
+    if (key == null) return null;
+    return models.where((m) => m.key == key).firstOrNull?.name;
+  }
 
   /// Recently used workspaces plus folders that have sessions, most recent first.
   List<String> recentWorkspaces = const [];
@@ -543,6 +558,7 @@ class AgentController extends ChangeNotifier {
         hasUnseenResult: _unseen.contains(_key(s.path)),
         hasError: false,
         pinned: _pinned.contains(_key(s.path)),
+        modelName: _defaultModelName,
       );
     }
     for (final runtime in _runtimes) {
@@ -569,6 +585,7 @@ class AgentController extends ChangeNotifier {
         hasError: runtime.status == ConnectionStatus.crashed,
         pinned: _pinned.contains(_key(path)),
         incognito: runtime.incognito,
+        modelName: runtime.model?.name ?? _defaultModelName,
       );
     }
     return byPath.values.toList()..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
@@ -848,7 +865,7 @@ class AgentController extends ChangeNotifier {
     await attention.refresh();
     if (attention.available) { pendingInbox = attention.total; pendingMemories = 0; pendingProposals = 0; _notify(); return; }
     try {
-      final memories = await backend.call('memory.list', {'status': 'candidate'});
+      final memories = await backend.call('memory.pending');
       final proposals = await backend.call('proposals.list', {'status': 'pending'});
       pendingMemories = memories is List ? memories.length : 0;
       pendingProposals = proposals is List ? proposals.length : 0;
@@ -1793,6 +1810,10 @@ class AgentController extends ChangeNotifier {
     _notify();
   }
 
+  Future<void> setPaperTexture(String value) async { await preferences.setPaperTexture(value); appearance.value = _currentAppearance; }
+  Future<void> setPaperStrength(double value) async { await preferences.setPaperStrength(value); appearance.value = _currentAppearance; }
+  Future<void> setDecorativeMotion(bool value) async { await preferences.setDecorativeMotion(value); appearance.value = _currentAppearance; _notify(); }
+
   Future<void> setThemeMode(ThemeMode mode) async {
     await preferences.setThemeMode(mode);
     appearance.value = _currentAppearance;
@@ -1831,7 +1852,11 @@ class AgentController extends ChangeNotifier {
   /// Opens the right panel at its context block (replaces the old centred context dialog).
   Future<void> showContextPanel() async {
     closeSideChat();
-    if (!runPanelOpen) await setRunPanelOpen(true);
+    final opening = !runPanelOpen;
+    if (opening) {
+      await setRunPanelOpen(true);
+      await WidgetsBinding.instance.endOfFrame;
+    }
     contextFocus.value++;
   }
 

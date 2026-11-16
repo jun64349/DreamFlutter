@@ -405,6 +405,8 @@ type GoalSource = "user" | "card" | "schedule" | "rule";
 
 ### Schedule
 
+`schedules.list/get/save` 的返回视图额外包含 `timeText: string | null`；不能写成规范中文时间的触发器为 null。
+
 [modules/scheduler.ts:44](../../core/src/modules/scheduler.ts#L44)
 
 ```ts

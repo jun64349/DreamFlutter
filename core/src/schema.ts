@@ -785,4 +785,5 @@ export const MIGRATIONS: string[] = [
 	T117_MIGRATION,
 	T122_MIGRATION,
 	T123_MIGRATION,
+	"ALTER TABLE selfwork_goals ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1));",
 ];

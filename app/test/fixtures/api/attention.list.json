@@ -1,0 +1,189 @@
+{
+  "now": [
+    {
+      "id": "goal_proposal:ui-proposal-accept",
+      "kind": "goal_proposal",
+      "group": "now",
+      "title": "整理实验记录",
+      "reason": "要不要设为目标",
+      "origin": {
+        "role": "butterfly",
+        "sessionName": null,
+        "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+        "slotId": null,
+        "cwd": "<fixture>\\data\\butterfly"
+      },
+      "target": {
+        "page": "chat",
+        "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+        "slotId": null,
+        "itemId": "ui-proposal-accept"
+      },
+      "actions": [
+        "accept",
+        "edit",
+        "reject"
+      ],
+      "data": {
+        "originText": "整理实验记录",
+        "draft": {
+          "title": "整理实验记录",
+          "spec": {
+            "objective": "整理实验记录"
+          },
+          "scope": {
+            "cwd": "<fixture>\\workspace",
+            "partition": "workbench",
+            "sandbox": false
+          }
+        }
+      }
+    },
+    {
+      "id": "goal_proposal:ui-proposal",
+      "kind": "goal_proposal",
+      "group": "now",
+      "title": "整理实验记录",
+      "reason": "要不要设为目标",
+      "origin": {
+        "role": "butterfly",
+        "sessionName": null,
+        "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+        "slotId": null,
+        "cwd": "<fixture>\\data\\butterfly"
+      },
+      "target": {
+        "page": "chat",
+        "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+        "slotId": null,
+        "itemId": "ui-proposal"
+      },
+      "actions": [
+        "accept",
+        "edit",
+        "reject"
+      ],
+      "data": {
+        "originText": "整理实验记录",
+        "draft": {
+          "title": "整理实验记录",
+          "spec": {
+            "objective": "整理实验记录"
+          },
+          "scope": {
+            "cwd": "<fixture>\\workspace",
+            "partition": "workbench",
+            "sandbox": false
+          }
+        }
+      }
+    },
+    {
+      "id": "question:ui-rule-reject",
+      "kind": "question",
+      "group": "now",
+      "title": "确认蝶君起草的主动规则",
+      "reason": "整理新纪要\n只读原件，整理要点\n保存为观察模式",
+      "origin": {
+        "role": "butterfly",
+        "sessionName": null,
+        "sessionFile": null,
+        "slotId": "autonomy",
+        "cwd": "<fixture>\\data\\butterfly"
+      },
+      "target": {
+        "page": "chat",
+        "sessionFile": null,
+        "slotId": "autonomy",
+        "itemId": "ui-rule-reject"
+      },
+      "actions": [
+        "allow",
+        "reject"
+      ],
+      "data": {
+        "type": "extension_ui_request",
+        "id": "ui-rule-reject",
+        "method": "confirm",
+        "title": "确认蝶君起草的主动规则",
+        "message": "整理新纪要\n只读原件，整理要点\n保存为观察模式"
+      }
+    },
+    {
+      "id": "question:ui-rule",
+      "kind": "question",
+      "group": "now",
+      "title": "确认蝶君起草的主动规则",
+      "reason": "整理新纪要\n只读原件，整理要点\n保存为观察模式",
+      "origin": {
+        "role": "butterfly",
+        "sessionName": null,
+        "sessionFile": null,
+        "slotId": "autonomy",
+        "cwd": "<fixture>\\data\\butterfly"
+      },
+      "target": {
+        "page": "chat",
+        "sessionFile": null,
+        "slotId": "autonomy",
+        "itemId": "ui-rule"
+      },
+      "actions": [
+        "allow",
+        "reject"
+      ],
+      "data": {
+        "type": "extension_ui_request",
+        "id": "ui-rule",
+        "method": "confirm",
+        "title": "确认蝶君起草的主动规则",
+        "message": "整理新纪要\n只读原件，整理要点\n保存为观察模式"
+      }
+    },
+    {
+      "id": "question:f56a54ef-4e34-4205-a3a8-5cb5ebc800e1",
+      "kind": "question",
+      "group": "now",
+      "title": "Agent 需要你补充信息：",
+      "reason": "需要你的回答才能继续",
+      "origin": {
+        "role": "workbench",
+        "sessionName": null,
+        "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+        "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+        "cwd": "<fixture>\\workspace"
+      },
+      "target": {
+        "page": "chat",
+        "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+        "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+        "itemId": "f56a54ef-4e34-4205-a3a8-5cb5ebc800e1"
+      },
+      "actions": [
+        "answer",
+        "reject"
+      ],
+      "data": {
+        "type": "extension_ui_request",
+        "id": "f56a54ef-4e34-4205-a3a8-5cb5ebc800e1",
+        "method": "select",
+        "title": "Agent 需要你补充信息：\n\n海外那款要算进对比吗？",
+        "options": [
+          "算进去 — 运费按 60 元估",
+          "先不算（推荐）",
+          "换一款国内的 — 我来挑",
+          "自己回答…",
+          "跳过这个问题"
+        ],
+        "timeout": 120000
+      }
+    }
+  ],
+  "later": [],
+  "counts": {
+    "now": 5,
+    "later": 0,
+    "total": 5
+  },
+  "pending": []
+}

@@ -1,0 +1,29 @@
+{
+  "id": "s_e3535e83",
+  "name": "整理组会记录",
+  "prompt": "",
+  "cwd": "<fixture>\\data\\butterfly",
+  "owner": "butterfly",
+  "kind": "reminder",
+  "trigger": {
+    "type": "once",
+    "at": 1794651131480
+  },
+  "missedPolicy": "skip",
+  "sessionMode": "fresh",
+  "sessionFile": null,
+  "allowedTools": null,
+  "state": {},
+  "status": "active",
+  "version": 1,
+  "nextRunAt": 1794651131480,
+  "lastRunAt": null,
+  "createdBy": "user",
+  "createdRole": "user",
+  "createdAt": 1794564732359,
+  "updatedAt": 1794564732359,
+  "describe": "一次性：2026/11/14 18:12:11",
+  "everyDay": null,
+  "lastRun": null,
+  "runs": []
+}

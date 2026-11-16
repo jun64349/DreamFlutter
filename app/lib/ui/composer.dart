@@ -4,24 +4,30 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'proto_icon.dart';
 import 'package:flutter/services.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
+import '../craft_style.dart';
+import 'craft_surface.dart';
 import '../state/mentions.dart';
 import '../state/agent_controller.dart' show AgentController, asJsonMap, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
 import '../state/side_chat.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'commands_dialog.dart' show commandSourceLabels;
-import 'common.dart' show memoryImageOf;
+import 'common.dart' show memoryImageOf, showsOnScreen;
 import 'conversation_controls.dart';
 import 'keys.dart';
 import 'model_group_pages.dart' show showModelSearch;
 import 'motion.dart';
+import 'shell_widgets.dart' show homeContentMaxWidth;
 import 'run_summary.dart' show mentionOf;
 import 'dashboard_page.dart' show formatCost;
+import '../state/voice_input.dart';
+import 'voice_controls.dart';
 
 /// Message input. Enter sends, Shift+Enter inserts a newline; while an IME
 /// composition is active Enter is left to the IME. During a run, sending
@@ -30,16 +36,20 @@ import 'dashboard_page.dart' show formatCost;
 /// `@` suggests the desk's notes and materials. Files can be dropped or
 /// pasted in: images are attached, other files and folders go along by path.
 class Composer extends StatefulWidget {
-  const Composer({super.key, this.dragging = false});
+  const Composer({super.key, this.dragging = false, this.home = false, this.contained = false});
 
   /// Files are being dragged over the conversation (the chat view takes the drop).
   final bool dragging;
+  final bool home;
+  final bool contained;
 
   @override
   State<Composer> createState() => _ComposerState();
 }
 
 class _ComposerState extends State<Composer> {
+  VoiceInput? _voice;
+  void _voiceChanged(){if(!mounted)return;if(_voice?.recording==true&&!showsOnScreen(context)){unawaited(_voice!.cancel());return;}setState((){});}
   final _controller = TextEditingController();
   late final _focus = FocusNode(onKeyEvent: _onKey);
   final List<_Attachment> _images = [];
@@ -47,6 +57,9 @@ class _ComposerState extends State<Composer> {
   Object? _editorRuntime;
   int _editorRevision = 0;
   int _highlighted = 0;
+  static const _hints = ['说点什么…', '试试把一个表格文件拖进来', '输入 / 用技能', '想让蝶君替你盯着一件事？切到蝶君说', 'Shift + Enter 换行'];
+  var _hintIndex = 0;
+  Timer? _hintTimer;
   bool get _dragging => widget.dragging;
 
   /// Documents being turned into text (sending waits for them).
@@ -66,11 +79,17 @@ class _ComposerState extends State<Composer> {
   void initState() {
     super.initState();
     _controller.addListener(() => setState(() => _highlighted = 0));
+    _hintTimer = Timer.periodic(const Duration(milliseconds: 4500), (_) {
+      if (!mounted || _controller.text.isNotEmpty || _focus.hasFocus || !showsOnScreen(context)) return;
+      if (AgentScope.read(context).sandbox) return;
+      setState(() => _hintIndex++);
+    });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _voice ??= VoiceInput(AgentScope.read(context).backend,onText:(text){if(mounted)_controller.value=TextEditingValue(text:text,selection:TextSelection.collapsed(offset:text.length));})..addListener(_voiceChanged);
     _mentionRequests ??= AgentScope.read(context).mentionRequests.listen((mention) {
       if (!mounted) return;
       _addMention(mention);
@@ -85,6 +104,8 @@ class _ComposerState extends State<Composer> {
 
   @override
   void dispose() {
+    _hintTimer?.cancel();
+    _voice?.removeListener(_voiceChanged);_voice?.dispose();
     _mentionRequests?.cancel();
     _fileDrops?.cancel();
     _controller.dispose();
@@ -247,6 +268,7 @@ class _ComposerState extends State<Composer> {
   bool get _hasContent => _controller.text.trim().isNotEmpty || _images.isNotEmpty || _mentions.isNotEmpty || AgentScope.read(context).active?.composerQuote != null;
 
   void _send() {
+    if(_voice?.active==true)return;
     if (!_hasContent || _converting > 0) return;
     final agent = AgentScope.read(context);
     if (!agent.isReady) return;
@@ -389,6 +411,7 @@ class _ComposerState extends State<Composer> {
     // Text pushed by an extension (set_editor_text) or a fork.
     final runtime = agent.active;
     if (runtime != null && !identical(runtime, _editorRuntime)) {
+      if(_voice?.active==true)unawaited(_voice!.cancel());
       // Switched sessions: adopt its revision without replacing the input.
       _editorRuntime = runtime;
       _editorRevision = runtime.editorTextRevision;
@@ -429,12 +452,17 @@ class _ComposerState extends State<Composer> {
     final widgets = agent.extensionWidgets.values.expand((lines) => lines).toList();
     final statuses = agent.extensionStatuses.values.toList();
     final muted = context.text.bodySmall?.copyWith(color: colors.muted);
+    final focusRingOpacity = switch (context.painting.id) {
+      'jiadie' || 'caodie' => .11,
+      'liuguang' => .15,
+      _ => context.painting.isDark ? .14 : .10,
+    };
 
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth + 56),
+        constraints: BoxConstraints(maxWidth: widget.home ? homeContentMaxWidth : AppTokens.contentMaxWidth + 48),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(28, 4, 28, 18),
+          padding: widget.home || widget.contained ? EdgeInsets.zero : const EdgeInsets.fromLTRB(24, 4, 24, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -460,19 +488,33 @@ class _ComposerState extends State<Composer> {
                   ),
                 ),
               if (suggestions.isNotEmpty) _SuggestionList(options: suggestions, highlighted: _highlighted),
+              // The quote is a bar above the box (prototype 5.4), not part of it.
+              if (runtime?.composerQuote case final quote?) ComposerQuote(text: quote, onRemove: agent.clearComposerQuote),
               AnimatedContainer(
+                key: const ValueKey('composer-body'),
                 duration: AppTokens.motion(context, AppTokens.fast),
                 curve: AppTokens.curve,
-                decoration: BoxDecoration(
+                decoration: craftSurfaceDecoration(context,
                   color: _dragging ? colors.accentSoft : colors.card,
-                  border: Border.all(
-                    color: _dragging ? colors.accent : (_focus.hasFocus ? colors.accent.withValues(alpha: 0.6) : colors.border),
-                    width: _dragging ? 1.5 : 1,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 2))],
+                  borderColor: _voice?.active == true
+                        ? colors.seal
+                        : _dragging
+                            ? colors.accent
+                            : _focus.hasFocus
+                                ? Color.lerp(colors.border, colors.accent, .5)!
+                                : colors.border,
+                  borderWidth: _dragging ? 1.5 : 1,
+                  radius: 18,
+                  // Recording: a soft seal ring around the box (prototype .composer.rec).
+                  shadows: _voice?.active == true
+                      ? [BoxShadow(color: colors.seal.withValues(alpha: 0.18), spreadRadius: 3)]
+                      : _focus.hasFocus
+                          ? [BoxShadow(color: colors.accent.withValues(alpha: focusRingOpacity), spreadRadius: 3)]
+                          : const [BoxShadow(color: Color(0x0D392F2A), blurRadius: 10, offset: Offset(0, 2))],
                 ),
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                // The edit rectangle follows the narrow bottom edge (18px
+                // shoulders), leaving the wider top as deliberate whitespace.
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -492,7 +534,6 @@ class _ComposerState extends State<Composer> {
                           ],
                         ),
                       ),
-                    if (runtime?.composerQuote case final quote?) ComposerQuote(text: quote, onRemove: agent.clearComposerQuote),
                     if (_images.isNotEmpty || _mentions.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 6, top: 2),
@@ -508,15 +549,16 @@ class _ComposerState extends State<Composer> {
                     Focus(
                       onFocusChange: (_) => setState(() {}),
                       child: TextField(
+                        key: const ValueKey('composer-input'),
                         controller: _controller,
                         focusNode: _focus,
                         autofocus: true,
-                        minLines: 1,
+                        minLines: widget.home ? 3 : 1,
                         maxLines: 8,
                         enabled: agent.isReady,
                         style: context.text.bodyMedium?.copyWith(height: 1.6),
                         decoration: InputDecoration(
-                          hintText: '说点什么…',
+                          hintText: agent.sandbox ? '交代一件事，或者只是聊聊' : _hints[_hintIndex % _hints.length],
                           border: InputBorder.none,
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
@@ -528,9 +570,11 @@ class _ComposerState extends State<Composer> {
                     ),
                     const SizedBox(height: 4),
                     LayoutBuilder(builder: (context, constraints) {
+                      if(_voice?.active==true)return VoiceRecordingBar(voice:_voice!);
+                      final mic=_ToolbarButton(icon:'mic',tooltip:'语音输入（Ctrl + Shift + M）',onTap:agent.isReady?()=>_voice!.start(_controller.text):null);
                       final controls = <Widget>[
                         _ToolbarButton(
-                          icon: Icons.attach_file,
+                          icon: 'attach',
                           tooltip: supportsImages ? '添加图片' : '当前模型不支持图片',
                           onTap: agent.isReady && supportsImages ? _pickImages : null,
                         ),
@@ -539,39 +583,77 @@ class _ComposerState extends State<Composer> {
                         if (!agent.sandbox) const IncognitoToggle(),
                         if (!agent.sandbox) const AskBeforeActingToggle(),
                       ];
-                      final send = SizedBox.square(
-                          dimension: 34,
-                          child: IconButton.filled(
-                            tooltip: showStop ? '停止' : (running ? '插话' : '发送'),
-                            onPressed: showStop ? agent.abort : (hasContent && agent.isReady ? _send : null),
-                            padding: EdgeInsets.zero,
-                            style: IconButton.styleFrom(
-                              backgroundColor: showStop ? colors.ink : colors.accent,
-                              foregroundColor: colors.onAccent,
-                              disabledBackgroundColor: colors.accentSoft,
-                              disabledForegroundColor: colors.muted,
-                              shape: const CircleBorder(),
-                            ),
-                            icon: Icon(showStop ? Icons.stop_rounded : Icons.arrow_upward_rounded, size: 18),
+                      final geometry = context.painting.craftGeometry;
+                      final canSend = hasContent && agent.isReady;
+                      final sendButton = IconButton(
+                        tooltip: showStop ? '停止' : (running ? '插话' : '发送'),
+                        onPressed: showStop ? agent.abort : (canSend ? _send : null),
+                        padding: EdgeInsets.zero,
+                        style: craftControlStyle(
+                          context,
+                          IconButton.styleFrom(
+                            backgroundColor: showStop ? Colors.transparent : colors.accent,
+                            foregroundColor: showStop ? colors.seal : colors.onAccent,
+                            disabledBackgroundColor: colors.sunk,
+                            disabledForegroundColor: colors.muted,
+                            shape: craftButtonShape(geometry),
                           ),
-                        );
+                          focusColor: showStop ? colors.seal : colors.onAccent,
+                        ),
+                        icon: ProtoIcon(showStop ? 'stop' : 'send', size: showStop ? 14 : 16, color: showStop ? colors.seal : (canSend ? colors.onAccent : colors.muted)),
+                      );
+                      final send = PressFeedback(
+                        enabled: showStop || canSend,
+                        child: SizedBox.square(
+                          dimension: 34,
+                          child: CraftControlMark(
+                            geometry: geometry,
+                            color: canSend && !showStop ? colors.onAccent.withValues(alpha: .22) : Colors.transparent,
+                            child: sendButton,
+                          ),
+                        ),
+                      );
+                      // Keep unusually long model/provider names readable on
+                      // the home page after the user narrowed it to 900px.
+                      final labelMeasure = TextPainter(
+                        text: TextSpan(text: composerModelLabel(agent), style: _chipTextStyle(context)),
+                        textDirection: Directionality.of(context), textScaler: MediaQuery.textScalerOf(context),
+                      )..layout();
+                      final separateHomeTools = widget.home && constraints.maxWidth >= 640 &&
+                          labelMeasure.width + (agent.sandbox ? 220 : 360) > constraints.maxWidth;
+                      labelMeasure.dispose();
+                      if (separateHomeTools) {
+                        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          Row(children: [...controls, const Spacer()]),
+                          const SizedBox(height: 4),
+                          Row(children: [
+                            const Expanded(child: Align(alignment: Alignment.centerRight, child: _ModelThinkingChips())),
+                            const _ContextRing(), mic, const SizedBox(width: 4), send,
+                          ]),
+                        ]);
+                      }
                       if (constraints.maxWidth < 440) {
                         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                          const Row(children: [Expanded(child: _ModelThinkingChips()), SizedBox(width: 8), _ContextRing()]),
+                          Row(children: [const Expanded(child: Align(alignment: Alignment.centerRight, child: _ModelThinkingChips())), const SizedBox(width: 8), const _ContextRing(), mic]),
                           const SizedBox(height: 4),
                           Row(children: [...controls, const Spacer(), send]),
                         ]);
                       }
+                      // 2026-11-16: models, thinking and voice stay together beside send.
+                      // 上下文圆环（0.8.1 定的「留」，原型没画）：淡色细环，放在麦克风旁边，不夹在开关中间。
                       return Row(children: [
                         ...controls,
-                        const Expanded(child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [SizedBox(width: 8), _ContextRing(), SizedBox(width: 6), Flexible(child: _ModelThinkingChips())])),
-                        const SizedBox(width: 8),
+                        const Expanded(child: Align(alignment: Alignment.centerRight, child: _ModelThinkingChips())),
+                        const _ContextRing(),
+                        mic,
+                        const SizedBox(width: 4),
                         send,
                       ]);
                     }),
                   ],
                 ),
               ),
+              if(_voice?.error!=null)Padding(padding:const EdgeInsets.only(top:4),child:Text(_voice!.error!,style:context.text.bodySmall?.copyWith(color:colors.seal))),
             ],
           ),
         ),
@@ -580,15 +662,24 @@ class _ComposerState extends State<Composer> {
   }
 }
 
+/// 原型 .ib：30 方、圆角 8 的细线图标钮（回形针、麦克风）。
 class _ToolbarButton extends StatelessWidget {
   const _ToolbarButton({required this.icon, required this.tooltip, required this.onTap});
 
-  final IconData icon;
+  final String icon;
   final String tooltip;
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => IconButton(tooltip: tooltip, onPressed: onTap, iconSize: 18, visualDensity: VisualDensity.compact, icon: Icon(icon));
+  Widget build(BuildContext context) => PressFeedback(enabled: onTap != null, child: IconButton(
+    tooltip: tooltip, onPressed: onTap,
+    style: craftControlStyle(context, IconButton.styleFrom(
+      fixedSize: const Size(30, 30), minimumSize: const Size(30, 30), padding: EdgeInsets.zero,
+      shape: craftButtonShape(context.painting.craftGeometry),
+      foregroundColor: context.colors.ink2, disabledForegroundColor: context.colors.muted,
+    )),
+    icon: ProtoIcon(icon, color: onTap == null ? context.colors.muted : context.colors.ink2),
+  ));
 }
 
 const _levelNames = {'off': '关闭', 'minimal': '极低', 'low': '低', 'medium': '中', 'high': '高', 'xhigh': '很高', 'max': '最高'};
@@ -597,7 +688,7 @@ const _levelNames = {'off': '关闭', 'minimal': '极低', 'low': '低', 'medium
 /// font cut short labels that had room, e.g. 「Fau…」).
 TextStyle _chipTextStyle(BuildContext context) => (context.text.bodySmall ?? const TextStyle()).copyWith(fontSize: 12.5);
 const _chipLabelWidth = 180.0;
-const _modelLabelWidth = 300.0;
+const _modelLabelWidth = double.infinity;
 
 /// The model chip's label (0.8.3, user: "名称显示要完整，信息都要完整不然选错了"): the model and
 /// where it comes from — 「GPT-6.1 Sol · 中转 A」, a group as 「主力 · 模型组」.
@@ -609,7 +700,7 @@ String composerModelLabel(AgentController agent) {
 
 /// A quiet chip in the input box's toolbar that opens a menu.
 class _Chip<T> extends StatelessWidget {
-  const _Chip({super.key, required this.label, required this.tooltip, required this.enabled, required this.items, required this.onSelected, this.filled = false, this.icon, this.tightLabel = false, this.maxLabelWidth = _chipLabelWidth});
+  const _Chip({super.key, required this.label, required this.tooltip, required this.enabled, required this.items, required this.onSelected, this.filled = false, this.icon, this.tightLabel = false, this.maxLabelWidth = _chipLabelWidth, this.leading, this.chevron = true});
 
   final String label;
   final String tooltip;
@@ -620,6 +711,10 @@ class _Chip<T> extends StatelessWidget {
   final IconData? icon;
   final bool tightLabel;
   final double maxLabelWidth;
+  /// Before the label (the thinking pill's bulb, prototype .pill).
+  final Widget? leading;
+  /// The small menu arrow (prototype: only the model pill has one).
+  final bool chevron;
 
   @override
   Widget build(BuildContext context) {
@@ -633,10 +728,12 @@ class _Chip<T> extends StatelessWidget {
       child: Container(
         height: 26,
         padding: EdgeInsets.symmetric(horizontal: tightLabel ? 4 : 9),
-        decoration: BoxDecoration(color: colors.background, borderRadius: BorderRadius.circular(999)),
+        // Only the model pill carries a sunk fill.
+        decoration: ShapeDecoration(color: filled ? colors.sunk : null, shape: craftButtonShape(context.painting.craftGeometry)),
         child: icon != null ? Icon(icon, size: 18, color: enabled ? colors.ink : colors.muted) : Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (leading != null) ...[IconTheme(data: IconThemeData(color: enabled ? colors.ink2 : colors.muted), child: leading!), if (label.isNotEmpty) const SizedBox(width: 5)],
             Flexible(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: maxLabelWidth),
@@ -648,9 +745,9 @@ class _Chip<T> extends StatelessWidget {
                 ),
               ),
             ),
-            if (!tightLabel) ...[
-              const SizedBox(width: 2),
-              Icon(Icons.expand_more, size: 15, color: colors.muted),
+            if (!tightLabel && chevron) ...[
+              const SizedBox(width: 3),
+              ProtoIcon('chev', size: 12, color: colors.muted),
             ],
           ],
         ),
@@ -729,14 +826,15 @@ class _ModelThinkingChips extends StatelessWidget {
       return width;
     }
     // _Chip: 20px horizontal padding + 2px gap + 15px menu chevron.
-    final thinkingWidth = textWidth('思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}').clamp(0.0, _chipLabelWidth) + 37;
+    // _Chip: 18px padding + 14px bulb + 5px gap + the level.
+    final thinkingWidth = textWidth(_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel).clamp(0.0, _chipLabelWidth) + 37;
     final minimumModelWidth = textWidth('…') + 37;
     return LayoutBuilder(builder: (context, constraints) {
       final iconOnly = constraints.maxWidth < minimumModelWidth + 4 + thinkingWidth;
       // 0.8.3: the model chip takes the room that is really left (it read 「Fau…」 with room to spare);
       // it only shortens when the toolbar is narrower than the whole label.
       return Row(mainAxisSize: MainAxisSize.min, children: [
-        Flexible(child: _ModelChip(tightLabel: constraints.maxWidth - 4 - (iconOnly ? 38 : thinkingWidth) < minimumModelWidth)),
+        Flexible(child: _ModelChip(tightLabel: constraints.maxWidth - 4 - (iconOnly ? 32 : thinkingWidth) < minimumModelWidth)),
         const SizedBox(width: 4),
         _ThinkingChip(iconOnly: iconOnly),
       ]);
@@ -798,8 +896,10 @@ class _ThinkingChip extends StatelessWidget {
     final model = agent.model;
     return _Chip<String>(
       key: const ValueKey('composer-thinking'),
-      icon: iconOnly ? Icons.psychology_outlined : null,
-      label: '思考 · ${_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel}',
+      // 原型 .pill：「💡 中」——灯泡图标加档位，没有下拉箭头；很窄时只剩灯泡。
+      leading: const ProtoIcon('think', size: 14),
+      chevron: false,
+      label: iconOnly ? '' : (_levelNames[agent.thinkingLevel] ?? agent.thinkingLevel),
       tooltip: model != null && !model.reasoning ? '当前模型不支持思考' : '思考深度',
       enabled: agent.isReady && (model?.reasoning ?? false),
       items: [
@@ -840,14 +940,14 @@ class _ContextRing extends StatelessWidget {
           customBorder: const CircleBorder(),
           onTap: agent.isReady ? agent.showContextPanel : null,
           child: Padding(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(7),
             child: SizedBox.square(
-              dimension: 20,
+              dimension: 16,
               child: CircularProgressIndicator(
                 value: known ? (percent / 100).clamp(0.02, 1.0) : 0,
-                strokeWidth: 3,
-                color: color,
-                backgroundColor: colors.border,
+                strokeWidth: 1.6,
+                color: known ? color : colors.muted,
+                backgroundColor: colors.muted,
               ),
             ),
           ),
@@ -922,10 +1022,9 @@ class _SuggestionList extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
+      decoration: craftSurfaceDecoration(context,
         color: colors.card,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(context.radius),
+        radius: context.radius,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

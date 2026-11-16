@@ -30,6 +30,7 @@ class AttentionState extends ChangeNotifier {
   String? error;
   int total = 0;
   List<Json> now = [], later = [];
+  List<Json> prioritized = [];
   final receipts = <String, Json>{};
   final busy = <String>{};
   Future<void>? _refresh;
@@ -49,6 +50,8 @@ class AttentionState extends ChangeNotifier {
       if (_disposed || counts['total'] is! num) return;
       available = true; total = (counts['total'] as num).toInt();
       now = _rows(result['now']); later = _rows(result['later']);
+      prioritized = _rows(await backend.call('attention.prioritized'));
+      if (_disposed) return;
       if(error=='没能读取等你处理，请重试。')error=null;
       final pending=_rows(result['pending']);
       final pendingIds=pending.map((r)=>r['id']).toSet();
@@ -68,12 +71,12 @@ class AttentionState extends ChangeNotifier {
       if (undoable.isEmpty) { _timer?.cancel(); _timer = null; unawaited(refresh()); }
     });
   }
-  Future<Json?> resolve(Json item, String action, [String? answer]) async {
+  Future<Json?> resolve(Json item, String action, [String? answer, Json? response]) async {
     final id = '${item['id']}';
     if (!busy.add(id)) return null;
     error = null; notifyListeners();
     try {
-      final r = asJsonMap(await backend.call('attention.resolve', {'id': id, 'action': action, if (answer != null) 'response': {'value': answer}}, const Duration(minutes: 10)));
+      final r = asJsonMap(await backend.call('attention.resolve', {'id': id, 'action': action, if (response != null) 'response': response else if (answer != null) 'response': {'value': answer}}, const Duration(minutes: 10)));
       if (_disposed) return r;
       receipts['${r['id']}'] = r;
       if (r['status'] == 'failed') error = '${r['error'] ?? '没能处理，请重试。'}';

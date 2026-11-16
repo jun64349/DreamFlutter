@@ -184,13 +184,16 @@ void main() {
   testWidgets('T94 Files groups changes and creations and opens a docked preview', (tester) async {
     final changed = await files(tester);
     final panel = find.byType(RunPanel);
-    final fileBlock = find.ancestor(of: find.text('文件'), matching: find.byType(Column)).first;
-    for (final text in ['changed.txt', 'created.txt', '改动', '新建']) {
-      expect(find.descendant(of: fileBlock, matching: find.text(text)), findsOneWidget);
+    final fileList = find.byKey(const ValueKey('panel-section-files'));
+    for (final finder in [
+      find.text('changed.txt'), find.text('created.txt'),
+      find.textContaining(RegExp(r'(?:^| · )改了$')), find.textContaining(RegExp(r'(?:^| · )新建$')),
+    ]) {
+      expect(find.descendant(of: fileList, matching: finder), findsOneWidget);
     }
     final oldWidth = tester.getSize(panel).width;
     final oldComposer = tester.getSize(find.byType(Composer)).width;
-    await tester.tap(find.text('changed.txt'));
+    await tester.tap(find.descendant(of: fileList, matching: find.text('changed.txt')));
     await tester.pumpAndSettle();
     expect(agent.panelPreviewing.value, isTrue);
     expect(tester.getSize(panel).width, greaterThan(oldWidth));
@@ -218,7 +221,8 @@ void main() {
   testWidgets('T94 Files right click offers the six actions and dispatches the shell actions', (tester) async {
     final path = await files(tester);
     Future<void> menu() async {
-      await tester.tap(find.text('changed.txt'), buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
+      final files = find.byKey(const ValueKey('panel-section-files'));
+      await tester.tap(find.descendant(of: files, matching: find.text('changed.txt')), buttons: kSecondaryMouseButton, kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
     }
     await menu();
@@ -270,9 +274,9 @@ void main() {
     final rings = find.byType(DonutChart);
     expect(tester.widget<DayBarChart>(bars).values, [...List.filled(29, 0.0), 1.25]);
     expect(tester.widgetList<DonutChart>(rings).map((ring) => ring.values), [[1.25], [1.25]]);
-    expect(find.text('本月按用途'), findsOneWidget);
-    expect(find.text('本月按模型'), findsOneWidget);
-    await tester.tap(find.text('按次数'));
+    expect(find.text('按用途'), findsOneWidget);
+    expect(find.text('按模型'), findsOneWidget);
+    await tester.tap(find.text('次数'));
     await tester.pumpAndSettle();
     expect(tester.widget<DayBarChart>(bars).values.last, 4);
     expect(tester.widgetList<DonutChart>(rings).map((ring) => ring.values), [[4.0], [4.0]]);
@@ -285,7 +289,7 @@ void main() {
     await tester.pumpAndSettle();
     final label = '${now.month}月${now.day}日';
     expect(find.text('$label · 4 次'), findsOneWidget);
-    await tester.tap(find.text('按金额'));
+    await tester.tap(find.text('金额'));
     await tester.pumpAndSettle();
     expect(find.text('$label · \$1.25'), findsOneWidget);
   });
@@ -305,19 +309,19 @@ void main() {
         expect(find.byKey(ValueKey('memory-content-$id')), expected.contains(id) ? findsOneWidget : findsNothing);
       }
     }
-    final groups = {'你 1': ['you'], '这个项目 2': ['project', 'old'], '蝶君 1': ['own'], '全部 4': entries};
+    final groups = {'关于你 1': ['you'], '项目 2': ['project', 'old'], '蝶君自己的 1': ['own'], '全部 4': entries};
     visible(entries);
     // One after another on the same page: switching must not reuse another group's card (duplicate GlobalKey).
     for (final group in groups.entries) {
-      await tester.tap(find.widgetWithText(ChoiceChip, group.key));
+      await tester.tap(find.byTooltip(group.key));
       await tester.pumpAndSettle();
       visible(group.value);
     }
-    await tester.enterText(field('找一条记忆'), '简练');
+    await tester.enterText(field('搜索记忆'), '简练');
     await tester.pumpAndSettle();
     visible(['you']);
-    for (final label in ['全部 1', '你 1', '这个项目 0', '蝶君 0']) {
-      expect(find.widgetWithText(ChoiceChip, label), findsOneWidget);
+    for (final label in ['全部 1', '关于你 1', '项目 0', '蝶君自己的 0']) {
+      expect(find.byTooltip(label), findsOneWidget);
     }
     await tester.tap(find.byTooltip('清除'));
     await tester.pumpAndSettle();

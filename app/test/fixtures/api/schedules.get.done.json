@@ -1,0 +1,91 @@
+{
+  "id": "s_e3535e83",
+  "name": "整理组会记录",
+  "prompt": "",
+  "cwd": "<fixture>\\data\\butterfly",
+  "owner": "butterfly",
+  "kind": "reminder",
+  "trigger": {
+    "type": "once",
+    "at": 1794651131480
+  },
+  "missedPolicy": "skip",
+  "sessionMode": "fresh",
+  "sessionFile": null,
+  "allowedTools": null,
+  "state": {},
+  "status": "active",
+  "version": 3,
+  "nextRunAt": 1794651131480,
+  "lastRunAt": 1794564732412,
+  "createdBy": "user",
+  "createdRole": "user",
+  "createdAt": 1794564732359,
+  "updatedAt": 1794564732398,
+  "describe": "一次性：2026/11/14 18:12:11",
+  "everyDay": null,
+  "lastRun": {
+    "id": "sr_f22b94e7",
+    "scheduleId": "s_e3535e83",
+    "triggerKey": "manual:sr_f22b94e7",
+    "version": 3,
+    "scheduledAt": 1794564732407,
+    "startedAt": 1794564732412,
+    "endedAt": 1794564732415,
+    "manual": true,
+    "catchUp": false,
+    "status": "done",
+    "attempt": 1,
+    "retryAt": null,
+    "taskId": null,
+    "sessionFile": null,
+    "result": "已提醒",
+    "error": null,
+    "note": "手动运行",
+    "externalEffects": false,
+    "cost": 0,
+    "deliveries": [
+      {
+        "id": "d_86180d20",
+        "runId": "sr_f22b94e7",
+        "channel": "toast",
+        "status": "delivered",
+        "detail": null,
+        "createdAt": 1794564732423
+      }
+    ]
+  },
+  "runs": [
+    {
+      "id": "sr_f22b94e7",
+      "scheduleId": "s_e3535e83",
+      "triggerKey": "manual:sr_f22b94e7",
+      "version": 3,
+      "scheduledAt": 1794564732407,
+      "startedAt": 1794564732412,
+      "endedAt": 1794564732415,
+      "manual": true,
+      "catchUp": false,
+      "status": "done",
+      "attempt": 1,
+      "retryAt": null,
+      "taskId": null,
+      "sessionFile": null,
+      "result": "已提醒",
+      "error": null,
+      "note": "手动运行",
+      "externalEffects": false,
+      "cost": 0,
+      "deliveries": [
+        {
+          "id": "d_86180d20",
+          "runId": "sr_f22b94e7",
+          "channel": "toast",
+          "status": "delivered",
+          "detail": null,
+          "createdAt": 1794564732423
+        }
+      ]
+    }
+  ]
+}

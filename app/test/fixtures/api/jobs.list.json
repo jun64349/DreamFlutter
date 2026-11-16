@@ -1,0 +1,24 @@
+[
+  {
+    "id": "16d0cade-2db6-4920-90b3-ccb1bea528be",
+    "session_file": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+    "slot_id": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+    "cwd": "<fixture>\\workspace",
+    "sandboxed": false,
+    "kind": "subagent",
+    "label": "核对文献",
+    "command": null,
+    "service": false,
+    "status": "running",
+    "exit_code": null,
+    "detail": null,
+    "started_at": 1794564731664,
+    "ended_at": null,
+    "stopped_by": null,
+    "output_path": "<fixture>\\data\\cache\\jobs\\16d0cade-2db6-4920-90b3-ccb1bea528be.log",
+    "goal_id": null,
+    "owner_run_id": null,
+    "goal_revision": null,
+    "outputBytes": 23
+  }
+]

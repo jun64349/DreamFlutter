@@ -14,6 +14,30 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('home butterfly breathes without a surround and respects reduced motion', (tester) async {
+    var reduced = false;
+    final theme = buildTheme(Brightness.light);
+    late StateSetter update;
+    await tester.pumpWidget(StatefulBuilder(builder: (context, set) {
+      update = set;
+      return MaterialApp(theme: theme, home: MediaQuery(data: MediaQueryData(disableAnimations: reduced), child: const Scaffold(body: HomeButterflyMark())));
+    }));
+    final mark = find.byType(HomeButterflyMark);
+    expect(tester.widget<ButterflyMark>(find.descendant(of: mark, matching: find.byType(ButterflyMark))).size, 104);
+    expect(find.descendant(of: mark, matching: find.byType(DecoratedBox)), findsNothing);
+    double y() => tester.widgetList<Transform>(find.descendant(of: mark, matching: find.byType(Transform))).first.transform.storage[13];
+    await tester.pump(const Duration(milliseconds: 100));
+    final before = y();
+    await tester.pump(const Duration(seconds: 2));
+    expect(y(), lessThan(before));
+    update(() => reduced = true);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(AppTokens.slow);
+    expect(y(), 0);
+    expect(tester.binding.transientCallbackCount, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('reduced motion changes the product theme without an active transition', (tester) async {
     final root=Directory.systemTemp.createTempSync('df_t92_theme_');
     SharedPreferences.setMockInitialValues({});
@@ -60,7 +84,7 @@ void main() {
     var value=false,reduced=false;late StateSetter update;
     await tester.pumpWidget(StatefulBuilder(builder:(context,set){update=set;return host(MotionSwitch(label:'自动记忆',value:value,onChanged:(next)=>update(()=>value=next)),reduced:reduced);}));await tester.pumpAndSettle();
     await tester.tap(find.byType(MotionSwitch));await tester.pump();expect(value,isTrue);
-    expect(tester.widget<TweenAnimationBuilder<double>>(find.byType(TweenAnimationBuilder<double>)).duration,AppTokens.fast);
+    expect(tester.widget<TweenAnimationBuilder<double>>(find.byType(TweenAnimationBuilder<double>)).duration,AppTokens.control);
     await tester.pumpAndSettle();await tester.sendKeyEvent(LogicalKeyboardKey.tab);await tester.sendKeyEvent(LogicalKeyboardKey.space);await tester.pumpAndSettle();expect(value,isFalse);
     update((){value=true;reduced=true;});await tester.pump();expect(find.byType(TweenAnimationBuilder<double>),findsNothing);
   });

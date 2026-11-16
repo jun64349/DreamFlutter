@@ -377,6 +377,24 @@ export class GoalScheduler {
 			ORDER BY g.created_at DESC,g.rowid DESC LIMIT 1`, normalizeCwd(sessionFile), normalizeCwd(sessionFile));
 		return row && toGoal(row);
 	}
+
+	bySession(sessionFiles: string[], partition?: "workbench" | "butterfly"): Record<string, Goal | null> {
+		const keys = [...new Set(sessionFiles.map(normalizeCwd))];
+		const slots = keys.map(() => "?").join(",");
+		const rows = this.db.all<GoalRow & { matched_file: string }>(`SELECT g.*, COALESCE(t.session_file,g.session_file) AS matched_file
+			FROM goals g LEFT JOIN tasks t ON t.goal_id=g.id AND lower(t.session_file) IN (${slots})
+			WHERE (lower(g.session_file) IN (${slots}) OR t.session_file IS NOT NULL)
+			${partition ? "AND json_extract(g.scope,'$.partition')=?" : ""}
+			ORDER BY g.created_at DESC,g.rowid DESC`, ...keys, ...keys, ...(partition ? [partition] : []));
+		const latest = new Map<string, Goal>();
+		for (const row of rows) {
+			const goal = toGoal(row);
+			for (const file of [row.session_file, row.matched_file]) {
+				if (file) { const key = normalizeCwd(file); if (!latest.has(key)) latest.set(key, goal); }
+			}
+		}
+		return Object.fromEntries(sessionFiles.map(file => [file, latest.get(normalizeCwd(file)) ?? null]));
+	}
 	goalForSlot(slot: Slot): Goal | undefined {
 		if (slot.incognito || slot.isSideConversation) return undefined;
 		const taskGoal = slot.taskId ? this.db.get<{ goal_id: string | null }>("SELECT goal_id FROM tasks WHERE id=?", slot.taskId)?.goal_id : null;
@@ -1310,6 +1328,13 @@ export class GoalsModule implements CoreModule {
 			const partition = p.partition === "workbench" || p.partition === "butterfly" ? p.partition : undefined;
 			if (p.partition !== undefined && !partition) throw new RpcError("bad_request", "目标归属无效");
 			return scheduler.list(status, limit(p.limit), view, partition);
+		});
+		core.register("goals.bySession", p => {
+			if (!Array.isArray(p.sessionFiles) || p.sessionFiles.length < 1 || p.sessionFiles.length > 200 ||
+				p.sessionFiles.some(file => typeof file !== "string" || !file.trim())) throw new RpcError("bad_request", "请提供 1 到 200 个会话文件");
+			const partition = p.partition === "workbench" || p.partition === "butterfly" ? p.partition : undefined;
+			if (p.partition !== undefined && !partition) throw new RpcError("bad_request", "目标归属无效");
+			return { goals: scheduler.bySession(p.sessionFiles as string[], partition) };
 		});
 		core.register("goals.counts", () => scheduler.views.counts());
 		core.register("goals.get", p => scheduler.detail(requireStr(p.id, "id")));

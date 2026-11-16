@@ -1,10 +1,15 @@
 import 'dart:async';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'proto_icon.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 
+import '../craft_style.dart';
+import 'craft_surface.dart';
 import '../state/agent_controller.dart';
 import '../state/preferences.dart';
 import '../theme.dart';
@@ -12,21 +17,46 @@ import 'agent_scope.dart';
 import 'motion.dart';
 import 'conversation_actions.dart';
 import 'artifact_widgets.dart';
+import 'package:window_manager/window_manager.dart' show DragToMoveArea;
 import 'window_frame.dart';
 import 'shell_widgets.dart';
 
 /// The one sidebar of the window (0.4, design option 3): 工作台 / 蝶君 at the
 /// top with new conversation, search and tasks; the conversations of the
-/// current workspace (or 蝶君's on its page); memory, skills, dashboard,
-/// appearance and settings at the bottom. Its width is dragged on its right edge.
+/// current workspace (or 蝶君's on its page); user avatar, spending and
+/// settings at the bottom. Its width is dragged on its right edge.
 class Sidebar extends StatefulWidget {
-  const Sidebar({super.key});
+  const Sidebar({super.key, this.onCollapse});
+  final VoidCallback? onCollapse;
 
   @override
   State<Sidebar> createState() => _SidebarState();
 }
 
 class _SidebarState extends State<Sidebar> {
+  AgentController? _owner;
+  StreamSubscription<Json>? _goalEvents;
+  Map<String, String> _goals = {};
+  int _goalRequest = 0;
+  @override void didChangeDependencies() { super.didChangeDependencies(); final owner = AgentScope.read(context); if (_owner == owner) return; _owner = owner; _goalEvents?.cancel(); _goalEvents = owner.backend.events.listen((e) { if (e['event'] == 'goals.changed') unawaited(_loadGoals()); }); unawaited(_loadGoals()); }
+  // The dots ask goals.bySession for exactly the listed conversations (at most 200, newest first).
+  List<String> _goalPaths = const [];
+  Future<void> _loadGoals() async {
+    final request = ++_goalRequest, paths = _goalPaths;
+    if (paths.isEmpty) { if (_goals.isNotEmpty) setState(() => _goals = {}); return; }
+    try { final result = await _owner!.backend.call('goals.bySession', {'sessionFiles': paths}); if (!mounted || request != _goalRequest || result is! Map) return;
+      final goals = asJsonMap(result['goals']);
+      setState(() => _goals = {for (final e in goals.entries) if (e.value is Map && (e.value as Map)['kind'] != 'proposal') e.key: '${(e.value as Map)['status']}'});
+      sidebarGoalStatuses.value = _goals;
+    } catch (_) { /* The existing conversation list remains usable offline. */ }
+  }
+  void _watchGoalPaths(AgentController? lists) {
+    final paths = [for (final e in lists?.sidebar ?? const <SidebarEntry>[]) if (e.path.isNotEmpty && !e.incognito) e.path].take(200).toList();
+    if (listEquals(paths, _goalPaths)) return;
+    _goalPaths = paths;
+    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) unawaited(_loadGoals()); });
+  }
+  @override void dispose() { _goalRequest++; _goalEvents?.cancel(); super.dispose(); }
   /// The width while it is being dragged (saved when the drag ends).
   double? _width;
   final _searching = true;
@@ -39,24 +69,41 @@ class _SidebarState extends State<Sidebar> {
     final onButterfly = agent.butterflySpace;
     // Whose conversations are listed: 蝶君's on its page, the workbench's everywhere else.
     final AgentController? lists = onButterfly ? agent.butterfly : agent;
+    _watchGoalPaths(lists);
     final usable = agent.status != ConnectionStatus.missingRuntime;
-    final width = (_width ?? agent.sidebarWidth).clamp(
-      180.0,
-      MediaQuery.sizeOf(context).width * 0.36,
-    );
+    final width = (_width ?? agent.sidebarWidth).clamp(180.0, MediaQuery.sizeOf(context).width * 0.36);
+    final name = (agent.coreSettings['userName'] as String? ?? '').trim();
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return _GoalDots(values: _goals, child: Stack(
       children: [
-        Container(
+        SizedBox(
           width: width,
-          color: colors.sidebar,
-          child: LayoutBuilder(
-            builder: (context, constraints) => Column(
+          child: PaintingBackdrop(
+            surface: PaintingSurface.sidebar,
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // 原型 #side 的 .brand：24 蝴蝶、衬线 18 强调色字标、11.5 「梦蝶」，右边 26 方的收起钮。
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 10, 10),
+                  child: Row(children: [
+                    const ButterflyMark(size: 24),
+                    const SizedBox(width: 8),
+                    // 侧栏通到窗口顶部：字标这一块也能拖动窗口（真窗口）。
+                    Expanded(child: _dragWindow(Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                      Flexible(child: Text('DreamFlutter', maxLines: 1, overflow: TextOverflow.fade, softWrap: false, style: context.serif(context.text.titleSmall).copyWith(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: .2, color: colors.accent))),
+                      const SizedBox(width: 8),
+                      Text('梦蝶', style: context.text.bodySmall?.copyWith(fontSize: 11.5, color: colors.muted)),
+                    ]))),
+                    _SideIconButton(
+                      tooltip: '收起侧栏（Ctrl + B）',
+                      icon: 'side',
+                      onPressed: widget.onCollapse ?? () => closeShellDrawer(context),
+                    ),
+                  ]),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
                   child: _PlaceSwitch(
                     butterfly: onButterfly,
                     workbench: !onButterfly,
@@ -66,18 +113,13 @@ class _SidebarState extends State<Sidebar> {
                     workbenchBusy: agent.backgroundRunning > 0 && section != AppSection.chat,
                   ),
                 ),
-                if (!onButterfly)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(8, 0, 8, 6),
-                    child: SidebarWorkspaceButton(),
-                  ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _NavRow(
-                        icon: Icons.add,
+                        icon: 'plus',
                         label: '新对话',
                         onTap: usable && lists != null
                             ? () {
@@ -88,71 +130,58 @@ class _SidebarState extends State<Sidebar> {
                             : null,
                       ),
                       _NavRow(
-                        icon: Icons.inbox_outlined,
+                        icon: 'inbox',
                         label: '等你处理',
                         selected: section == AppSection.tasks,
                         badge: shellPendingCount(agent) == 0 ? null : '${shellPendingCount(agent)}',
                         onTap: () => agent.showSection(AppSection.tasks),
                       ),
+                      if (onButterfly) _NavRow(icon: 'cal', label: '日程', selected: section == AppSection.schedules, onTap: () => agent.showSection(AppSection.schedules)),
+                      // 原型：记忆、技能右边是淡色「新 N」，不是红色角标（红色只给「等你处理」）。
+                      _NavRow(icon: 'memory', label: '记忆', selected: section == AppSection.memory, count: agent.pendingMemories == 0 ? null : '新 ${agent.pendingMemories}', onTap: () => agent.showSection(AppSection.memory)),
+                      _NavRow(icon: 'skills', label: '技能', selected: section == AppSection.library, dot: agent.pendingProposals > 0, onTap: () => agent.showSection(AppSection.library)),
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
                     // 0.8.3 (user test): 蝶君's side lists its conversations like the workbench — a click opens
                     // one from any page; what needs you is in 「等你处理」, not on the list.
                     child: lists == null
-                        ? Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: const SizedBox.shrink(),
-                          )
+                        ? const Padding(padding: EdgeInsets.all(10), child: SizedBox.shrink())
                         : AgentScope(
                             controller: lists,
-                            child: _SessionPane(
-                              key: ValueKey(lists.sandbox),
-                              searching: _searching,
-                              onCloseSearch: () {},
-                            ),
-                            ),
-                  )),
-                Divider(height: 1, thickness: 0.5, color: colors.border),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
-                  child: Row(
-                    children: [
-                      _FootButton(
-                        icon: Icons.lightbulb_outline,
-                        label: '记忆',
-                        selected: section == AppSection.memory,
-                        badge: agent.pendingMemories,
-                        onTap: () => agent.showSection(AppSection.memory),
-                      ),
-                      _FootButton(
-                        icon: Icons.edit_outlined,
-                        label: '技能',
-                        selected: section == AppSection.library,
-                        badge: agent.pendingProposals,
-                        onTap: () => agent.showSection(AppSection.library),
-                      ),
-                      _FootButton(icon: Icons.monetization_on_outlined, label: '花费',
-                        selected: section == AppSection.spending, onTap: () => agent.showSection(AppSection.spending),
-                      ),
-                      _FootButton(icon: Icons.settings_outlined, label: '设置',
-                        selected: section == AppSection.settings,
-                        onTap: () => agent.showSection(AppSection.settings)),
-                    ],
+                            child: _SessionPane(key: ValueKey(lists.sandbox), searching: _searching, onCloseSearch: () {}),
+                          ),
                   ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 10, 10),
+                  child: Row(children: [
+                    Container(
+                      width: 26, height: 26, alignment: Alignment.center,
+                      decoration: BoxDecoration(color: colors.accentSoft, shape: BoxShape.circle),
+                      child: Text(name.isEmpty ? '你' : name.characters.last, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.accent)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(name.isEmpty ? '你' : name, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13, color: colors.ink))),
+                    _SideIconButton(icon: 'coin', tooltip: '花费', selected: section == AppSection.spending, onPressed: () { agent.showSection(AppSection.spending); closeShellDrawer(context); }),
+                    const SizedBox(width: 4),
+                    _SideIconButton(icon: 'gear', tooltip: '设置', selected: section == AppSection.settings, onPressed: () { agent.showSection(AppSection.settings); closeShellDrawer(context); }),
+                  ]),
                 ),
               ],
             ),
           ),
         ),
-        Container(width: 0.5, color: colors.border),
+        Positioned(right: 0, top: 0, bottom: 0, child: Container(width: 0.5, color: colors.border)),
         // Dragged here: the sidebar's width (Preferences.sidebarWidths).
-        Transform.translate(
-          offset: const Offset(-3, 0),
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
           child: ResizeHandle(
             width: width,
             min: Preferences.sidebarWidths.min,
@@ -165,7 +194,28 @@ class _SidebarState extends State<Sidebar> {
           ),
         ),
       ],
-    );
+    ));
+  }
+}
+
+Widget _dragWindow(Widget child) => AppTitleBar.realWindow ? DragToMoveArea(child: child) : child;
+
+/// 侧栏读到的「对话 → 目标状态」，顶栏蝶君对话的「· 在推进」也用它。
+final sidebarGoalStatuses = ValueNotifier<Map<String, String>>(const {});
+
+class _GoalDots extends InheritedWidget {
+  const _GoalDots({required this.values, required super.child});
+  final Map<String, String> values;
+  @override bool updateShouldNotify(_GoalDots oldWidget) => oldWidget.values != values;
+}
+
+class ScheduleGoalDot extends StatelessWidget {
+  const ScheduleGoalDot({super.key, required this.status});
+  final String? status;
+  @override Widget build(BuildContext context) {
+    if (!['queued', 'running', 'reviewing', 'paused', 'blocked', 'uncertain'].contains(status)) return const SizedBox.shrink();
+    final color = status == 'paused' ? context.colors.ochre : ['blocked', 'uncertain'].contains(status) ? context.colors.seal : context.colors.success;
+    return Padding(padding: const EdgeInsets.only(right: 6), child: ['queued', 'running', 'reviewing'].contains(status) ? BreathingDot(color: color, size: 6) : Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)));
   }
 }
 
@@ -190,64 +240,145 @@ class _PlaceSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    Widget half(String label, bool selected, bool busy, VoidCallback onTap) => Expanded(
+    final geometry = context.painting.craftGeometry;
+    final shape = craftButtonShape(geometry);
+    Widget half(
+      String label,
+      Widget icon,
+      bool selected,
+      bool busy,
+      VoidCallback onTap,
+    ) => Expanded(
       child: Semantics(
-        button: true, selected: selected,
+        button: true,
+        selected: selected,
         child: AnimatedContainer(
-          duration: AppTokens.motion(context, AppTokens.medium), curve: AppTokens.curve,
-          decoration: BoxDecoration(color: selected ? colors.card : Colors.transparent, borderRadius: BorderRadius.circular(6)),
-          child: Material(color: Colors.transparent, child: InkWell(
-            borderRadius: BorderRadius.circular(6),
-            onTap: () { onTap(); closeShellDrawer(context); },
-            child: SizedBox(height: 30, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13, fontWeight: selected ? FontWeight.w600 : null, color: selected ? colors.ink : colors.muted)),
-              if (busy) ...[const SizedBox(width: 6), const Tooltip(message: '有工作在后台进行', child: BreathingDot())],
-            ])),
-          )),
+          duration: AppTokens.motion(context, AppTokens.medium),
+          curve: AppTokens.curve,
+          decoration: ShapeDecoration(
+            color: selected
+                ? colors.accent.withValues(alpha: .11)
+                : Colors.transparent,
+            shape: shape,
+          ),
+          child: CraftControlMark(
+            geometry: geometry,
+            color: selected
+                ? colors.accent.withValues(alpha: .7)
+                : Colors.transparent,
+            selected: selected,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                customBorder: shape,
+                hoverColor: colors.accent.withValues(alpha: .06),
+                onTap: () {
+                  onTap();
+                  closeShellDrawer(context);
+                },
+                child: SizedBox(
+                  height: 28,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconTheme(
+                        data: IconThemeData(
+                          color: selected ? colors.ink : colors.muted,
+                        ),
+                        child: icon,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        label,
+                        style: context.text.bodyMedium?.copyWith(
+                          fontSize: 13,
+                          color: selected ? colors.ink : colors.muted,
+                          fontWeight: selected ? FontWeight.w600 : null,
+                        ),
+                      ),
+                      if (busy) ...[
+                        const SizedBox(width: 6),
+                        const Tooltip(
+                          message: '有工作在后台进行',
+                          child: BreathingDot(),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
-    return Container(
+    return Padding(
       padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(color: colors.rail, borderRadius: BorderRadius.circular(8)),
-      child: Row(children: [half('工作台', workbench, workbenchBusy, onWorkbench), const SizedBox(width: 4), half('蝶君', butterfly, butterflyBusy, onButterfly)]),
+      child: Row(
+        children: [
+          half(
+            '工作台',
+            const ProtoIcon('chat', size: 14),
+            workbench,
+            workbenchBusy,
+            onWorkbench,
+          ),
+          const SizedBox(width: 2),
+          half(
+            '蝶君',
+            const ButterflyMark(size: 15),
+            butterfly,
+            butterflyBusy,
+            onButterfly,
+          ),
+        ],
+      ),
     );
   }
 }
 
 /// A row near the top of the sidebar (new conversation, search, tasks).
+/// 原型 .nav：16 细线图标（muted，选中时强调色）、13.5 字、行高约 32、圆角 8；
+/// 选中时 accentSoft 底、字 500、左边 2px 强调色条（v1-art.css `.nav.on`）。
+/// 右边：红色角标 [badge]（只给「等你处理」）、淡色计数 [count]（「新 3」）或赭色小圆点 [dot]。
 class _NavRow extends StatelessWidget {
-  const _NavRow({required this.icon, required this.label, required this.onTap, this.selected = false, this.badge});
+  const _NavRow({required this.icon, required this.label, required this.onTap, this.selected = false, this.badge, this.count, this.dot = false});
 
-  final IconData icon;
+  final String icon;
   final String label;
   final VoidCallback? onTap;
   final bool selected;
   final String? badge;
+  final String? count;
+  final bool dot;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    return Material(
-      color: selected ? colors.card : Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(context.radius),
-        onTap: onTap == null ? null : () { onTap!(); closeShellDrawer(context); },
-        child: SizedBox(
-          height: 36,
-          child: Row(
-            children: [
-              const SizedBox(width: 10),
-              Icon(icon, size: 18, color: colors.ink2),
-              const SizedBox(width: 10),
-              Expanded(child: Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 14, color: onTap == null ? colors.muted : (selected ? colors.ink : colors.ink2)))),
-                Padding(
-                  padding: EdgeInsets.only(right: badge == null ? 0 : 8),
-                  child: ShellCount(count: badge ?? ''),
-                ),
-              const SizedBox(width: 4),
-            ],
+    return Tooltip(
+      message: label,
+      child: PressFeedback(
+        enabled: onTap != null,
+        child: Material(
+          color: selected ? colors.accentSoft : Colors.transparent,
+          shape: craftButtonShape(context.painting.craftGeometry),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap == null ? null : () { onTap!(); closeShellDrawer(context); },
+            child: Container(
+              height: 32,
+              decoration: BoxDecoration(border: Border(left: BorderSide(color: selected ? colors.accent : Colors.transparent, width: 2))),
+              child: Row(children: [
+                const SizedBox(width: 8),
+                ProtoIcon(icon, color: selected ? colors.accent : colors.muted),
+                const SizedBox(width: 11),
+                Expanded(child: Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13.5, fontWeight: selected ? FontWeight.w500 : null, color: onTap == null ? colors.muted : (selected ? colors.ink : colors.ink2)))),
+                if (badge != null) ShellCount(count: badge!),
+                if (count != null) Text(count!, style: context.text.bodySmall?.copyWith(fontSize: 11.5, color: colors.muted)),
+                if (dot) Container(width: 7, height: 7, decoration: BoxDecoration(color: colors.ochre, shape: BoxShape.circle)),
+                const SizedBox(width: 10),
+              ]),
+            ),
           ),
         ),
       ),
@@ -255,33 +386,41 @@ class _NavRow extends StatelessWidget {
   }
 }
 
-/// An icon at the foot of the sidebar, with its name on hover and a count when something waits.
-class _FootButton extends StatelessWidget {
-  const _FootButton({required this.icon, required this.label, required this.onTap, this.selected = false, this.badge = 0});
+/// 原型 .ib：26 方、圆角 8 的纯图标钮（侧栏收起、花费、设置），名字只在悬停时出现。
+class _SideIconButton extends StatelessWidget {
+  const _SideIconButton({required this.icon, required this.tooltip, required this.onPressed, this.selected = false});
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+  final String icon;
+  final String tooltip;
+  final VoidCallback onPressed;
   final bool selected;
-  final int badge;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    return Expanded(
-      child: Tooltip(message: label, child: TextButton(
-        onPressed: () { onTap(); closeShellDrawer(context); },
-      style: TextButton.styleFrom(foregroundColor: selected ? colors.accent : colors.muted,
-          padding: const EdgeInsets.symmetric(vertical: 9),
-          minimumSize: Size.zero,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18),
-            const SizedBox(height: 2),
-            Text(label, style: const TextStyle(fontSize: 11))]),
+    final geometry = context.painting.craftGeometry;
+    final button = IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: craftControlStyle(context, IconButton.styleFrom(
+        fixedSize: const Size.square(26), minimumSize: const Size.square(26),
+        maximumSize: const Size.square(26), padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.standard, tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        backgroundColor: selected ? colors.accentSoft : Colors.transparent,
+        shape: craftButtonShape(geometry),
       )),
+      icon: ProtoIcon(icon, color: selected ? colors.accent : colors.ink2),
+    );
+    return PressFeedback(
+      child: SizedBox.square(
+        dimension: 26,
+        child: CraftControlMark(
+          geometry: geometry,
+          color: selected ? colors.accent.withValues(alpha: .62) : Colors.transparent,
+          selected: selected,
+          child: button,
+        ),
+      ),
     );
   }
 }
@@ -292,8 +431,16 @@ class _FootButton extends StatelessWidget {
 
 /// The workspace, at the top of the workbench's sidebar (0.8.2, user test: it was in the title
 /// bar, away from the conversations it lists). Ctrl O opens the same menu.
-class SidebarWorkspaceButton extends StatelessWidget {
+class SidebarWorkspaceButton extends StatefulWidget {
   const SidebarWorkspaceButton({super.key});
+  @override State<SidebarWorkspaceButton> createState()=>_SidebarWorkspaceButtonState();
+}
+class _SidebarWorkspaceButtonState extends State<SidebarWorkspaceButton>{
+  Map<String,(int,int)> counts={};
+  Future<void> loadCounts()async{
+    final agent=AgentScope.read(context);final paths={agent.workspace,...agent.recentWorkspaces}.where((p)=>p.isNotEmpty);final result=<String,(int,int)>{};
+    try{final slots=jsonRows(await agent.backend.call('slot.list'));for(final path in paths){final rows=jsonRows(await agent.backend.call('sessions.list',{'cwd':path}));final live=slots.where((r)=>SessionStore.samePath('${r['cwd']}',path)&&r['incognito']!=true);final ids={for(final r in rows)'${r['path']}',for(final r in live)'${r['sessionFile']??r['slotId']}'};result[path]=(ids.length,live.where((r)=>r['running']==true).length);}if(mounted)setState(()=>counts=result);}catch(_){if(mounted)setState(()=>counts={});}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -313,6 +460,7 @@ class SidebarWorkspaceButton extends StatelessWidget {
             children: [
               Text(p.basename(path), overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontWeight: selected ? FontWeight.w600 : null)),
               Text(path, overflow: TextOverflow.ellipsis, style: muted?.copyWith(fontSize: 11)),
+              if(counts[path] case final count?)Text('${count.$1} 个对话${count.$2>0?' · ${count.$2} 个在运行':''}',style:muted),
             ],
           ),
         ),
@@ -322,11 +470,12 @@ class SidebarWorkspaceButton extends StatelessWidget {
     final itemStyle = MenuItemButton.styleFrom(minimumSize: const Size(320, 48), padding: const EdgeInsets.symmetric(horizontal: 10));
     return MenuAnchor(
       controller: workspaceMenu,
+      onOpen:loadCounts,
       alignmentOffset: const Offset(0, 6),
       style: MenuStyle(
         backgroundColor: WidgetStatePropertyAll(colors.card),
         side: WidgetStatePropertyAll(BorderSide(color: colors.border)),
-        shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+        shape: WidgetStatePropertyAll(craftButtonShape(context.painting.craftGeometry, radius: 10)),
         padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
       ),
       menuChildren: [
@@ -345,31 +494,31 @@ class SidebarWorkspaceButton extends StatelessWidget {
           MenuItemButton(leadingIcon: const Icon(Icons.open_in_new, size: 18), onPressed: () => agent.revealInExplorer(current), child: const Text('在资源管理器中显示')),
       ],
       builder: (context, controller, _) => Tooltip(
-        message: current.isEmpty ? '选择工作区（Ctrl O）' : '$current（Ctrl O 切换）',
+        message: current.isEmpty ? '选择工作区（Ctrl + O）' : '$current（Ctrl + O 切换）',
         waitDuration: const Duration(milliseconds: 600),
+        // 原型 .ws：card 底、圆角 10、1px 细描边；赭色文件夹图标、13 号常规字、右边向下小箭头。
         child: Material(
-          color: colors.card.withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(8),
+          color: colors.card,
+          shape: craftSurfaceShape(context, radius: 10, borderColor: colors.border.withValues(alpha: .6)),
           child: InkWell(
-            borderRadius: BorderRadius.circular(8),
+            customBorder: craftButtonShape(context.painting.craftGeometry, radius: 10),
             onTap: () => controller.isOpen ? controller.close() : controller.open(),
             child: Container(
-              height: 36,
-              padding: const EdgeInsets.only(left: 10, right: 6),
-              decoration: BoxDecoration(border: Border.all(color: colors.border, width: 0.8), borderRadius: BorderRadius.circular(8)),
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(
                 children: [
-                  Icon(Icons.folder_outlined, size: 18, color: colors.ochre),
-                  const SizedBox(width: 10),
+                  ProtoIcon('folder', color: colors.ochre),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       current.isEmpty ? '选择工作区' : p.basename(current),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: context.text.bodyMedium?.copyWith(fontSize: 14, fontWeight: FontWeight.w600, color: colors.ink),
+                      style: context.text.bodyMedium?.copyWith(fontSize: 13, color: colors.ink),
                     ),
                   ),
-                  Icon(Icons.unfold_more, size: 16, color: colors.muted),
+                  ProtoIcon('chev', size: 14, color: colors.muted),
                 ],
               ),
             ),
@@ -539,11 +688,30 @@ class _SessionPaneState extends State<_SessionPane> {
   String? _error;
   int _generation = 0;
   var _searching = false;
+  final _focus = FocusNode(debugLabel: 'sidebar-search');
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  /// Ctrl+K：跳到侧栏搜索框（原型搜索框右边写着 Ctrl K）。
+  bool _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyK) return false;
+    final keys = HardwareKeyboard.instance;
+    if (!keys.isControlPressed || keys.isAltPressed || keys.isShiftPressed || keys.isMetaPressed || !mounted) return false;
+    _focus.requestFocus();
+    _query.selection = TextSelection(baseOffset: 0, extentOffset: _query.text.length);
+    return true;
+  }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
     _debounce?.cancel();
     _query.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -588,33 +756,49 @@ class _SessionPaneState extends State<_SessionPane> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (widget.searching) ...[
+        // 原型 .search：主题浅染、圆角 8，聚焦时才显示边框。
         SizedBox(
-          height: 34,
+          height: 32,
           child: TextField(
             key: const ValueKey('sidebar-search'),
             controller: _query,
-              onChanged: _onChanged,
-            style: context.text.bodySmall,
+            focusNode: _focus,
+            onChanged: _onChanged,
+            style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.ink),
             decoration: InputDecoration(
-              hintText: '搜索',
+              hintText: '搜索对话',
+              hintStyle: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.muted),
               isDense: true,
-              prefixIcon: const Icon(Icons.search, size: 16),
-              prefixIconConstraints: const BoxConstraints(minWidth: 32),
-              suffixIcon: _query.text.isEmpty ? null : IconButton(
-                tooltip: '清除搜索',
-                iconSize: 14,
-                onPressed: () {
-                    _query.clear();
-                    _onChanged('');
-                  },
-                icon: const Icon(Icons.close),
-              ),
+              filled: true,
+              fillColor: colors.accent.withValues(alpha: .055),
+              prefixIcon: Padding(padding: const EdgeInsets.only(left: 10, right: 8), child: ProtoIcon('search', size: 14, color: colors.muted)),
+              prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 14),
+              suffixIcon: _query.text.isEmpty
+                  ? Padding(padding: const EdgeInsets.only(right: 10), child: Text('Ctrl K', style: TextStyle(fontSize: 11, color: colors.muted)))
+                  : IconButton(
+                      tooltip: '清除搜索',
+                      iconSize: 14,
+                      onPressed: () {
+                        _query.clear();
+                        _onChanged('');
+                      },
+                      icon: ProtoIcon('x', size: 14, color: colors.muted),
+                    ),
+              suffixIconConstraints: const BoxConstraints(minHeight: 14),
               contentPadding: const EdgeInsets.symmetric(vertical: 8),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(context.radiusSm)),
+              border: craftInputBorder(context.painting.craftGeometry, radius: 8),
+              enabledBorder: craftInputBorder(context.painting.craftGeometry, radius: 8),
+              focusedBorder: craftInputBorder(context.painting.craftGeometry, radius: 8, side: BorderSide(color: colors.accent.withValues(alpha: .65))),
             ),
           ),
         ),
-        const SizedBox(height: AppTokens.gap),
+        const SizedBox(height: 8),
+        ],
+        // Workspace button: only for the workbench (not 蝶君), below the search
+        // box and above the conversation list (2026-11-15 user decision).
+        if (!agent.sandbox) ...[
+          const SidebarWorkspaceButton(),
+          const SizedBox(height: 4),
         ],
         Expanded(
           child: _error != null ? Text(_error!, style: TextStyle(color: colors.danger)) : _hits != null || _searching
@@ -702,10 +886,19 @@ class _Snippet extends StatelessWidget {
   }
 }
 
-class _SessionList extends StatelessWidget {
+class _SessionList extends StatefulWidget {
   const _SessionList({required this.entries});
 
   final List<SidebarEntry> entries;
+
+  @override
+  State<_SessionList> createState() => _SessionListState();
+}
+
+class _SessionListState extends State<_SessionList> {
+  /// Paths of parent conversations whose branches are expanded. Default: all
+  /// collapsed (2026-11-15 user decision).
+  final Set<String> _expandedParents = {};
 
   static String _group(DateTime time) {
     final now = DateTime.now();
@@ -718,9 +911,19 @@ class _SessionList extends StatelessWidget {
     return '更早';
   }
 
+  void _toggleParent(String path) {
+    setState(() {
+      if (_expandedParents.contains(path)) {
+        _expandedParents.remove(path);
+      } else {
+        _expandedParents.add(path);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (entries.isEmpty) {
+    if (widget.entries.isEmpty) {
       return Padding(
         padding: const EdgeInsets.only(top: AppTokens.pad),
         child: Text(
@@ -729,41 +932,91 @@ class _SessionList extends StatelessWidget {
     }
     final rows = <Widget>[];
     String? lastGroup;
-    final ordered = orderSidebarEntries(entries);
+    final ordered = orderSidebarEntries(widget.entries);
+
+    // Group children by their parent session.
+    final childrenByParent = <String, List<SidebarEntry>>{};
+    final parents = <SidebarEntry>[];
+
     for (final entry in ordered) {
-      final parent = entries
-          .where(
-            (e) =>
-                entry.parentSession != null &&
-                SessionStore.samePath(e.path, entry.parentSession!),
-          )
-          .firstOrNull;
-      final group = (parent ?? entry).pinned ? '置顶' : _group((parent ?? entry).modifiedAt);
+      if (entry.parentSession != null) {
+        final parent = widget.entries
+            .where((e) => SessionStore.samePath(e.path, entry.parentSession!))
+            .firstOrNull;
+        if (parent != null) {
+          childrenByParent.putIfAbsent(parent.path, () => []).add(entry);
+          continue;
+        }
+      }
+      parents.add(entry);
+    }
+
+    for (final parent in parents) {
+      final children = childrenByParent[parent.path] ?? [];
+      final hasChildren = children.isNotEmpty;
+      final isExpanded = _expandedParents.contains(parent.path);
+
+      final group = parent.pinned ? '置顶' : _group(parent.modifiedAt);
       if (group != lastGroup) {
         rows.add(
           Padding(
             key: ValueKey('group-$group'),
-            padding: EdgeInsets.fromLTRB(6, lastGroup == null ? 4 : 14, 6, 4),
-            child: Text(group, style: context.label),
+            // 原型 .grp：11.5 淡色，上 10 下 4。
+            padding: EdgeInsets.fromLTRB(10, lastGroup == null ? 2 : 10, 10, 4),
+            child: Text(group, style: context.text.bodySmall?.copyWith(fontSize: 11.5, color: context.colors.muted)),
           ),
         );
         lastGroup = group;
       }
+
       rows.add(
         Padding(
-          key: ValueKey(entry.path),
-          padding: EdgeInsets.only(left: parent == null ? 0 : 18),
-          child: _SessionTile(key: ValueKey(entry.path), entry: entry),
-        ));
+          key: ValueKey(parent.path),
+          padding: EdgeInsets.zero,
+          child: _SessionTile(
+            key: ValueKey(parent.path),
+            entry: parent,
+            hasChildren: hasChildren,
+            isExpanded: isExpanded,
+            onToggleChildren: hasChildren ? () => _toggleParent(parent.path) : null,
+            childCount: children.length,
+          ),
+        ),
+      );
+
+      // Add children if expanded
+      if (hasChildren && isExpanded) {
+        for (final child in children) {
+          rows.add(
+            Padding(
+              key: ValueKey(child.path),
+              padding: const EdgeInsets.only(left: 18),
+              child: _SessionTile(key: ValueKey(child.path), entry: child),
+            ),
+          );
+        }
+      }
     }
+
     return ShellAnimatedList(children: rows);
   }
 }
 
 class _SessionTile extends StatefulWidget {
-  const _SessionTile({super.key, required this.entry});
+  const _SessionTile({
+    super.key,
+    required this.entry,
+    this.hasChildren = false,
+    this.isExpanded = false,
+    this.onToggleChildren,
+    this.childCount = 0,
+  });
 
   final SidebarEntry entry;
+  final bool hasChildren;
+  final bool isExpanded;
+  final VoidCallback? onToggleChildren;
+  final int childCount;
 
   @override
   State<_SessionTile> createState() => _SessionTileState();
@@ -843,10 +1096,11 @@ class _SessionTileState extends State<_SessionTile> {
         child: Padding(
           padding: const EdgeInsets.only(bottom: 2),
           child: Material(
-            color: selected ? colors.accentSoft : (_hovered ? colors.accentSoft.withValues(alpha: 0.4) : Colors.transparent),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radius)),
+            // 原型 .conv：圆角 8；选中 accentSoft 底 + 左 2px 强调色条（v1-art.css），悬停淡底。
+            color: selected ? colors.accentSoft : (_hovered ? colors.ink.withValues(alpha: .04) : Colors.transparent),
+            shape: craftButtonShape(context.painting.craftGeometry),
+            clipBehavior: Clip.antiAlias,
             child: InkWell(
-              borderRadius: BorderRadius.circular(context.radius),
               onTap: () {
                 final agent = AgentScope.read(context);
                 if (entry.isSideConversation) {
@@ -862,42 +1116,80 @@ class _SessionTileState extends State<_SessionTile> {
                 agent.showSection(agent.sandbox ? AppSection.butterfly : AppSection.chat);
                 if (agent.sandbox) agent.main.butterflyTab.value = ButterflyTab.talk;
               },
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 7, 4, 7),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+                decoration: BoxDecoration(border: Border(left: BorderSide(color: selected ? colors.accent : Colors.transparent, width: 2))),
                 child: Row(
                   children: [
+                    // Branch expand/collapse button (2026-11-15 user decision):
+                    // on the left of parent conversations with branches.
+                    if (widget.hasChildren) ...[
+                      // 原型 .brt：收拢时「› N」带条数，展开后只剩向下箭头。
+                      Tooltip(
+                        message: widget.isExpanded ? '收起分支' : '展开 ${widget.childCount} 个分支',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: widget.onToggleChildren,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              ProtoIcon(widget.isExpanded ? 'chev' : 'right', size: 12, color: colors.muted),
+                              if (!widget.isExpanded && widget.childCount > 0) Text('${widget.childCount}', style: TextStyle(fontSize: 10.5, color: colors.muted)),
+                            ]),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
                     if (entry.incognito) ...[
                       Tooltip(message: '无痕对话，不会保存', child: Icon(Icons.visibility_off_outlined, size: 14, color: colors.muted)),
                       const SizedBox(width: 4),
                     ],
-                    if (entry.isFork) ...[
-                      Tooltip(message: '从其他对话重来', child: Icon(Icons.call_split, size: 14, color: colors.muted)),
+                    ScheduleGoalDot(status: context.dependOnInheritedWidgetOfExactType<_GoalDots>()?.values[entry.path]),
+                    if (entry.parentSession != null) ...[
+                      Tooltip(message: '从其他对话重来', child: ProtoIcon('branch', size: 13, color: colors.muted)),
                       const SizedBox(width: 4),
                     ],
                     Expanded(
-                      child: Text(
-                        entry.title.isEmpty ? '新对话' : entry.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.text.bodyMedium?.copyWith(
-                          fontSize: 13,
-                          color: selected || entry.hasUnseenResult ? colors.ink : colors.ink2,
-                          fontWeight: selected || entry.hasUnseenResult ? FontWeight.w600 : null,
-                        ),
-                      ),
+                      child: Builder(builder: (context) {
+                        final agent = AgentScope.of(context);
+                        final goal = context.dependOnInheritedWidgetOfExactType<_GoalDots>()?.values[entry.path];
+                        final now = DateTime.now(), at = entry.modifiedAt;
+                        final today = now.year == at.year && now.month == at.month && now.day == at.day;
+                        final time = today ? '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}' : '${at.month}月${at.day}日';
+                        final status = switch (goal) {
+                          'running' => '在推进', 'paused' => '暂停了', 'blocked' || 'uncertain' => '卡住了', 'reviewing' => '等你验收', 'queued' => '排队中', _ => null,
+                        };
+                        final subtitle = agent.sandbox
+                            ? (status == null ? time : '$status · $time')
+                            : (entry.modelName == null ? time : '$time · ${entry.modelName}');
+                        return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                          Text(
+                            entry.title.isEmpty ? '新对话' : entry.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.text.bodyMedium?.copyWith(fontSize: 13, color: colors.ink, fontWeight: selected || entry.hasUnseenResult ? FontWeight.w500 : null),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 11.5, color: colors.muted)),
+                        ]);
+                      }),
                     ),
                     if (badge != null) ...[const SizedBox(width: 6), badge],
-                    if (_hovered || selected)
+                    if (_hovered)
                       Builder(
-                        builder: (buttonContext) => InkWell(
-                          borderRadius: BorderRadius.circular(4),
-                          onTap: () {
-                            final box = buttonContext.findRenderObject()! as RenderBox;
-                            _showMenu(box.localToGlobal(box.size.bottomLeft(Offset.zero)));
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
-                            child: Icon(Icons.more_horiz, size: 16, color: colors.muted),
+                        builder: (buttonContext) => Tooltip(
+                          message: '更多',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(4),
+                            onTap: () {
+                              final box = buttonContext.findRenderObject()! as RenderBox;
+                              _showMenu(box.localToGlobal(box.size.bottomLeft(Offset.zero)));
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 2),
+                              child: Icon(Icons.more_horiz, size: 16, color: colors.muted),
+                            ),
                           ),
                         ),
                       )

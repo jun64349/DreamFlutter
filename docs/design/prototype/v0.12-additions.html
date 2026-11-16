@@ -1,0 +1,1106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>0.12 新增界面</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@500;700&display=swap">
+<style>
+:root{
+  --rail:#E8E0D3; --side:#F0EAE0; --bg:#F7F3EB; --card:#FDFBF7; --bubble:#EFE5D6;
+  --ink:#392F2A; --ink2:#52463E; --muted:#70665E; --line:#DED6C9; --line2:rgba(57,47,42,.07);
+  --accent:#A54C28; --on-accent:#FDFBF7; --accent-soft:#F0DFCF; --ok:#546C5D; --ok-soft:rgba(84,108,93,.12);
+  --ochre:#B5793F; --seal:#A8332A; --code:#F1EADF; --shadow:0 10px 30px rgba(57,47,42,.13);
+  --bf-line:#392F2A; --bf-core:#FDFBF7; --bf-wing:#C96A3F; --bf-glow:#F0DFCF;
+  --art:"Ma Shan Zheng","KaiTi","STKaiti",serif; --serif:"Noto Serif SC","Songti SC","SimSun",serif; --sans:"Noto Sans SC","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  --mono:"Cascadia Mono",Consolas,monospace; --mark:#2F6FB0;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --rail:#1D1A17; --side:#221F1C; --bg:#27231F; --card:#302A25; --bubble:#3A322B;
+  --ink:#F0E5D6; --ink2:#DCCFBE; --muted:#B9AB9B; --line:#4C4238; --line2:rgba(240,229,214,.07);
+  --accent:#E6A17A; --on-accent:#27231F; --accent-soft:#49352B; --ok:#9EAF92; --ok-soft:rgba(158,175,146,.14);
+  --ochre:#D9A066; --seal:#E07A6C; --code:#1F1B18; --shadow:0 10px 30px rgba(0,0,0,.45);
+  --bf-line:#FFFFFF; --bf-core:#302A25; --bf-wing:#E6A17A; --bf-glow:#49352B; --mark:#7FB2E5; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --rail:#1D1A17; --side:#221F1C; --bg:#27231F; --card:#302A25; --bubble:#3A322B;
+  --ink:#F0E5D6; --ink2:#DCCFBE; --muted:#B9AB9B; --line:#4C4238; --line2:rgba(240,229,214,.07);
+  --accent:#E6A17A; --on-accent:#27231F; --accent-soft:#49352B; --ok:#9EAF92; --ok-soft:rgba(158,175,146,.14);
+  --ochre:#D9A066; --seal:#E07A6C; --code:#1F1B18; --shadow:0 10px 30px rgba(0,0,0,.45);
+  --bf-line:#FFFFFF; --bf-core:#302A25; --bf-wing:#E6A17A; --bf-glow:#49352B; --mark:#7FB2E5; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.6;display:flex;flex-direction:column}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,textarea,select{font:inherit;color:inherit}
+.ic{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.logo{width:26px;height:26px;display:inline-block}.logo svg{width:100%;height:100%}
+
+/* demo bar (not part of the app) */
+#demo{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:#2B2621;color:#EDE3D3;font-size:12.5px}
+#demo b{font-weight:600;margin-right:6px}
+#demo .sc{padding:3px 10px;border-radius:999px;border:1px solid #5A4F44;color:#EDE3D3}
+#demo .sc.on{background:#EDE3D3;color:#2B2621}
+#demo .sp{flex:1}
+#demo .tg{padding:3px 10px;border-radius:6px;border:1px solid #5A4F44}
+#demo .tg.on{background:#4A3F35}
+
+#app{flex:1;display:flex;min-height:0}
+.new{outline:1.5px dashed var(--mark);outline-offset:3px;border-radius:8px;position:relative}
+.new>.tag{position:absolute;top:-10px;right:-6px;background:var(--mark);color:#fff;font:600 10.5px/1 var(--sans);padding:3px 5px;border-radius:5px;z-index:5;pointer-events:none}
+body.nomark .new{outline:none}body.nomark .new>.tag{display:none}
+
+/* sidebar (0.8.3) */
+#side{width:248px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:10px;padding:12px 16px 8px;font-family:var(--serif);font-size:17px;font-weight:700}
+.brand small{font-weight:500;font-size:12px;color:var(--ink2)}
+.seg{margin:6px 12px;background:var(--rail);border-radius:10px;padding:3px;display:flex}
+.seg button{flex:1;padding:5px 0;border-radius:8px;color:var(--muted);font-size:13px}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.wsbtn{margin:6px 8px;display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:var(--card);font-size:13.5px;width:calc(100% - 16px)}
+.wsbtn .n{flex:1;text-align:left;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.nav{display:flex;align-items:center;gap:12px;padding:7px 16px;font-size:13.5px;margin:0 4px;border-radius:8px;width:calc(100% - 8px)}
+.nav.on{background:var(--accent-soft)}
+.badge{margin-left:auto;background:var(--seal);color:#fff;border-radius:999px;font-size:11px;min-width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+.search{margin:8px 8px;display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:3px 10px;background:var(--card);color:var(--muted);font-size:12.5px}
+.grp{padding:12px 16px 4px;font-size:12px;color:var(--muted)}
+.conv{display:flex;align-items:center;gap:6px;padding:6px 10px 6px 12px;margin:0 8px;border-radius:8px;font-size:13.5px}
+.conv.on{background:var(--accent-soft);font-weight:500}
+.conv .t{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.conv.child{margin-left:24px;font-size:13px;color:var(--ink2);padding-left:8px}
+.conv .st{width:7px;height:7px;border-radius:50%;flex:none}
+.st.run{background:var(--ok);animation:pulse 1.6s infinite}.st.pause{background:var(--ochre)}.st.block{background:var(--seal)}
+@keyframes pulse{50%{opacity:.35}}
+.bottom{margin-top:auto;border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:8px 0}
+.bottom button{display:flex;flex-direction:column;align-items:center;font-size:11.5px;color:var(--ink2);gap:2px}
+.bottom button.on{color:var(--accent)}
+
+/* main */
+#main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.top{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line2);font-size:13px;color:var(--ink2)}
+.top .crumb b{color:var(--ink);font-weight:500}
+.top .sp{flex:1}
+.ibtn{width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink2)}
+.ibtn:hover{background:var(--line2)}
+.ibtn.on{background:var(--accent-soft);color:var(--accent)}
+.scroll{flex:1;overflow:auto;min-height:0}
+.chat{max-width:760px;margin:0 auto;padding:22px 24px 12px}
+.u{display:flex;justify-content:flex-end;margin:14px 0}.u div{background:var(--bubble);border-radius:14px 14px 4px 14px;padding:9px 14px;max-width:80%}
+.a{margin:14px 0;font-family:var(--serif);font-size:15px;line-height:1.85}
+.a .meta{font-family:var(--sans);font-size:12px;color:var(--muted);margin-top:4px}
+.proc{font-family:var(--sans);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:6px}
+/* K: work block (thinking + tool calls) inside a reply */
+.wb{font-family:var(--sans);border-radius:10px;background:color-mix(in srgb,var(--ink) 5%,transparent);margin:6px 0 10px;overflow:hidden;width:fit-content;min-width:min(420px,100%);max-width:100%}
+.wb.open{width:100%}
+.wb.err{background:color-mix(in srgb,var(--seal) 8%,transparent)}
+.wb-h{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;color:var(--ink2);font-size:13px;text-align:left}
+.wb-h .t{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.wb-h .n{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;flex:none}
+.wb-h .e{color:var(--seal);font-size:12px;flex:none}
+.wb-h .chev{color:var(--muted);transition:transform .18s ease;flex:none}
+.wb.open>.wb-h .chev{transform:rotate(180deg)}
+.wb-b{padding:0 0 6px;animation:fadein .12s ease-out}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+/* settings write-up rules (from HanaAgent study) */
+.srow.sub{padding-left:18px}
+.srow .l small.warn{color:var(--seal)}
+.inset{background:color-mix(in srgb,var(--ink) 4%,transparent);border-radius:8px;padding:10px 12px;margin:2px 0 10px;font-size:12.5px;color:var(--muted)}
+.bubbles{background:color-mix(in srgb,var(--ink) 4%,transparent);border-radius:10px;padding:10px 12px;margin:0 0 10px;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.bubbles .me{align-self:flex-end;background:var(--accent);color:var(--on-accent);border-radius:12px 12px 3px 12px;padding:5px 11px}
+.bubbles .bf{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px 12px 12px 3px;padding:5px 11px;font-family:var(--serif)}
+.tags{color:var(--muted);font-size:11.5px}
+.sr{display:flex;align-items:center;gap:8px;padding:3px 12px;font-size:13px;color:var(--ink2);min-height:28px}
+.sr.click{cursor:pointer}.sr.click:hover{background:var(--line2)}
+.sr .v{flex:none}
+.sr .p{display:flex;min-width:0;font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.sr .p .dir{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}
+.sr .p .fn{flex:none;white-space:nowrap}
+.sr .r{margin-left:auto;padding-left:8px;flex:none;color:var(--muted);font-size:12px;display:flex;gap:8px;align-items:center;font-variant-numeric:tabular-nums}
+.sr .ic.lead{width:14px;height:14px;color:var(--muted)}
+.sr.bad .v,.sr.bad .ic.lead{color:var(--seal)}
+.sr.wait .v,.sr.wait .ic.lead{color:var(--ochre)}
+.sr .add{color:var(--accent)}.sr .del{color:var(--seal)}
+.sr .think-l{color:var(--muted)}
+.wb .out{margin:2px 12px 6px 34px;font-family:var(--mono);font-size:12px;background:var(--code);border-radius:8px;padding:6px 10px;white-space:pre-wrap;color:var(--ink2)}
+.wb .out.bad{color:var(--seal)}
+.wb .think{margin:0 12px 6px 34px;font-size:12.5px;color:var(--muted);line-height:1.75}
+.spin{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--line);border-top-color:var(--ink2);animation:spin .9s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bdot{width:8px;height:8px;margin:0 3px;border-radius:50%;background:var(--ochre);animation:pulse 1.2s infinite;flex:none}
+.apv{font-family:var(--sans);border:1px solid var(--line);border-radius:12px;background:var(--card);padding:10px 14px;margin:0 0 10px}
+.apv h4{margin:0 0 2px;font-size:14px;font-weight:500;display:flex;gap:8px;align-items:center}
+.apv .why{color:var(--muted);font-size:12.5px}
+.rb{font-family:var(--sans);border:1px solid var(--line);border-radius:12px;background:var(--card);margin:8px 0;overflow:hidden}
+.rb-h{display:flex;align-items:center;gap:4px;padding:5px 6px 5px 12px;font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line2)}
+.rb-h .sp{flex:1}
+.rb-body{padding:14px;display:flex;justify-content:center}
+.rb pre{margin:0;width:100%;font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--ink2);white-space:pre}
+/* in-scene demo switch (not part of the app) */
+.dsw{display:inline-flex;gap:4px;align-items:center;font-size:12px;color:var(--mark);border:1px dashed var(--mark);border-radius:8px;padding:2px 6px}
+.dsw button{padding:1px 8px;border-radius:6px;color:var(--mark)}.dsw button.on{background:var(--mark);color:#fff}
+/* L: first run */
+.wz2{margin:auto;width:540px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 26px 18px;box-shadow:var(--shadow)}
+.wz2 h2{font-family:var(--serif);text-align:center;margin:4px 0 4px;font-size:20px}
+.wz2 .sub{text-align:center;color:var(--muted);font-size:13px;margin-bottom:16px}
+.dots{display:flex;gap:6px;justify-content:center;margin-bottom:10px}.dots i{width:7px;height:7px;border-radius:50%;background:var(--line)}.dots i.on{background:var(--accent)}.dots i.done{background:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.wnav{display:flex;align-items:center;gap:8px;margin-top:18px}.wnav .sp{flex:1}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink2)}
+.btn[disabled]{opacity:.45;cursor:default}
+.provs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.prov{border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--bg);font-size:13px;text-align:center}
+.prov.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.fld{display:flex;flex-direction:column;gap:4px;margin:8px 0}.fld label{font-size:12.5px;color:var(--muted);display:flex}.fld label a{margin-left:auto;color:var(--accent);cursor:pointer}
+.fld input{border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--bg);font-family:var(--mono);font-size:13px}
+.state{display:flex;gap:6px;align-items:flex-start;font-size:13px;margin-top:6px}.state.ok{color:var(--ok)}.state.bad{color:var(--seal)}.state.busy{color:var(--muted)}
+.home2{display:flex;flex-direction:column;align-items:center;gap:14px;padding:30px 16px 10px;text-align:center}
+.greet2{font-family:var(--art);font-size:34px;letter-spacing:.1em;color:var(--ink)}
+.quote2{font-family:var(--serif);font-size:13.5px;color:var(--ink2)}.quote2 cite{display:block;font-style:normal;font-size:12px;color:var(--muted)}
+.guide{width:520px;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px 6px}
+.guide h4{margin:0 0 4px;font-family:var(--serif);font-size:15px;font-weight:600}
+.gs{display:flex;gap:10px;align-items:center;padding:6px 0}.gs .n{width:20px;height:20px;border-radius:50%;border:1px solid var(--muted);font-size:11px;display:flex;align-items:center;justify-content:center;color:var(--muted);flex:none}
+.gs .n.done{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.gs .w{flex:1;font-size:13px}.gs .w b{font-weight:600;display:block}.gs .w span{color:var(--muted);font-size:12px}
+.gs a{color:var(--accent);font-size:13px;cursor:pointer}
+.exs{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:620px}
+.ex2{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:7px 14px;color:var(--ink2);font-size:13.5px}
+.ex2:hover{border-color:var(--accent)}
+.cnote{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);padding:0 4px 6px}.cnote a{color:var(--accent);cursor:pointer}.cnote.bad{color:var(--seal)}
+/* M: managed edition */
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:1080px;margin:0 auto;padding:18px 28px}
+.cmp h3{font-size:13px;font-weight:500;color:var(--muted);margin:0 0 8px;display:flex;gap:8px;align-items:center}
+.menu2{background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px 0;font-size:13px;width:290px}
+.menu2 .g{font-size:11.5px;color:var(--muted);padding:6px 12px 2px}.menu2 .m{padding:5px 12px;display:flex;gap:8px}.menu2 .m.on{background:var(--accent-soft)}.menu2 .m small{margin-left:auto;color:var(--muted)}
+.spend{display:flex;gap:6px;align-items:flex-end;height:70px;padding:6px 0}.spend i{flex:1;background:var(--accent);opacity:.75;border-radius:3px 3px 0 0}
+/* G3/G4: skills & services */
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:900px;margin:0 auto 10px}
+.g3 .opt{border:1px solid var(--line);border-radius:12px;background:var(--side);overflow:hidden;cursor:pointer}
+.g3 .opt.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.g3 .cap{font-size:12.5px;padding:8px 12px;background:var(--card);border-top:1px solid var(--line);color:var(--ink2)}
+.minibar{padding:8px 4px}
+.fb{display:flex;justify-content:space-around;border-top:1px solid var(--line);padding:8px 0}
+.fb span{display:flex;flex-direction:column;align-items:center;font-size:11px;color:var(--ink2);gap:2px;position:relative}
+.fb .dot{position:absolute;top:-2px;right:2px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.fb .num{position:absolute;top:-6px;right:-6px;font-size:10px;background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:0 4px}
+.two{display:grid;grid-template-columns:300px 1fr;gap:18px;max-width:1080px;margin:0 auto;padding:4px 28px 22px;min-height:0}
+.lst .gh{font-size:12px;color:var(--muted);margin:12px 4px 6px}
+.li{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;cursor:pointer;font-size:13.5px}
+.li.on{background:var(--accent-soft)}.li .n{flex:1;min-width:0}.li .n small{display:block;color:var(--muted);font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pill.wait{background:color-mix(in srgb,var(--ochre) 18%,transparent);color:var(--ochre)}.pill.off{background:var(--line2);color:var(--muted)}.pill.bad{background:color-mix(in srgb,var(--seal) 14%,transparent);color:var(--seal)}
+.dt{background:var(--card);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;min-height:560px}
+.dt .hd{display:flex;align-items:center;gap:10px;padding:14px 18px 4px}.dt .hd b{font-family:var(--serif);font-size:18px}
+.dt .bd{padding:4px 18px 14px;flex:1}
+.dt .one{color:var(--ink2);font-size:13.5px;margin:2px 0 10px}
+.dt .kv2{display:grid;grid-template-columns:70px 1fr;gap:4px 12px;font-size:13px;margin:6px 0 12px}.dt .kv2 span:nth-child(odd){color:var(--muted)}
+.dt .ft{border-top:1px solid var(--line);padding:10px 18px;display:flex;gap:8px;align-items:center}
+.files{display:grid;grid-template-columns:170px 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:12.5px}
+.files .tree{background:var(--bg);padding:8px 0;border-right:1px solid var(--line)}
+.files .tree div{padding:3px 10px;display:flex;gap:6px;align-items:center;font-family:var(--mono)}.files .tree div.on{background:var(--accent-soft)}
+.files .pv{padding:10px 14px;font-family:var(--serif);font-size:13px;line-height:1.75;color:var(--ink2)}.files .pv h5{margin:0 0 4px;font-size:14px;color:var(--ink)}
+.tool{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line2);font-size:13px}.tool:first-child{border-top:0}.tool code{font-family:var(--mono);font-size:12.5px}.tool .n{flex:1}.tool .n small{display:block;color:var(--muted);font-size:12px}
+/* H1: painting themes */
+.tgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:10px 0}
+.tc{min-width:0;border:1px solid var(--line);border-radius:10px;padding:6px;background:var(--bg);cursor:pointer;text-align:left;position:relative}
+.tc.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tc .win{height:58px;border-radius:6px;overflow:hidden;display:flex;border:1px solid rgba(0,0,0,.06)}
+.tc .nm{font-family:var(--serif);font-size:14px;font-weight:600;margin:6px 2px 0;display:flex;gap:6px;align-items:center}
+.tc .wk{font-size:11.5px;color:var(--muted);margin:0 2px 2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.tc .new2{font:500 10.5px var(--sans);color:var(--mark);border:1px solid var(--mark);border-radius:4px;padding:0 4px}
+.tprev{border-radius:14px;overflow:hidden;border:1px solid var(--line);display:flex;height:420px;font-family:var(--sans)}
+.tprev .ps{width:150px;display:flex;flex-direction:column;padding:12px 10px;gap:6px;position:relative}
+.tprev .ps .bn{font-family:var(--serif);font-weight:700;font-size:14px;display:flex;gap:6px;align-items:center}
+.tprev .ps .ins{position:absolute;bottom:14px;left:12px;writing-mode:vertical-rl;font-family:var(--serif);font-size:12px;letter-spacing:.2em;opacity:.55}
+.tprev .ps .ins.lat{writing-mode:vertical-rl;transform:rotate(180deg);font-style:italic;letter-spacing:.05em;font-size:11px}
+.tprev .ps .r{font-size:12px;padding:5px 8px;border-radius:6px}
+.tprev .pm{flex:1;padding:18px 22px;display:flex;flex-direction:column;gap:12px;position:relative}
+.tprev .gr{font-family:var(--art);font-size:26px;letter-spacing:.1em}
+.tprev .qt{font-family:var(--serif);font-size:12.5px;opacity:.8}
+.tprev .pc2{border-radius:var(--tr);padding:8px 14px;position:relative;overflow:hidden}
+.tprev .pc2 .h{display:flex;gap:6px;align-items:center;font-size:13px;font-weight:600;padding:4px 0 6px}
+.tprev .pc2 .row{display:flex;justify-content:space-between;font-size:12.5px;padding:7px 0}
+.tprev .mot{position:absolute;right:6px;top:4px;opacity:.5;pointer-events:none}
+.tprev .seal{position:absolute;right:18px;bottom:16px}
+.tprev .plate{position:absolute;right:20px;bottom:18px;font-family:var(--serif);font-style:italic;font-size:12px;opacity:.7}
+.slots{font-size:12.5px;color:var(--ink2);margin-top:10px;display:grid;grid-template-columns:76px 1fr;gap:4px 10px}.slots span:nth-child(odd){color:var(--muted)}
+.hint{font-family:var(--sans);display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin:10px 0;padding:2px 0}
+.hint a{color:var(--accent);text-decoration:none;cursor:pointer}
+.hint .ln{flex:1;height:1px;background:var(--line)}
+.shot{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:8px 0;max-width:420px;background:var(--card)}
+.shot .cap{font-family:var(--sans);font-size:12px;color:var(--muted);padding:5px 10px;border-top:1px solid var(--line2)}
+.chart{height:120px;display:flex;align-items:flex-end;gap:6px;padding:12px}
+.chart i{flex:1;background:color-mix(in srgb,var(--accent) 55%,transparent);border-radius:3px 3px 0 0}
+.proactive{font-family:var(--sans);font-size:12px;color:var(--muted);text-align:center;margin:18px 0 4px}
+
+/* question card */
+.ask{font-family:var(--sans);border:1px solid var(--line);background:var(--card);border-radius:12px;padding:12px 14px;margin:10px 0;max-width:560px}
+.ask .q{font-weight:500;margin-bottom:8px;display:flex;gap:8px;align-items:center}
+.ask .q .timer{margin-left:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.opts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.opt{border:1px solid var(--line);border-radius:10px;padding:8px 10px;text-align:left;background:var(--bg)}
+.opt:hover,.opt.on{border-color:var(--accent);background:var(--accent-soft)}
+.opt small{display:block;color:var(--muted);font-size:12px}
+.ask .row{display:flex;gap:8px;margin-top:8px;align-items:center}
+.ask .row input{flex:1;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--bg)}
+.lnk{color:var(--accent);font-size:13px}
+.done-ask{font-family:var(--sans);font-size:13px;color:var(--muted);margin:10px 0}
+
+/* composer */
+.cwrap{padding:0 24px 16px;max-width:808px;margin:0 auto;width:100%}
+.plan{border:1px solid var(--line);border-bottom:0;border-radius:12px 12px 0 0;background:var(--card);margin:0 12px;font-size:13px;overflow:hidden}
+.plan .h{display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;color:var(--ink2)}
+.plan .h .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.plan .h .bar i{display:block;height:100%;background:var(--ok)}
+.plan ul{list-style:none;margin:0;padding:2px 12px 8px}
+.plan li{display:flex;gap:8px;align-items:center;padding:2px 0;color:var(--ink2)}
+.plan li.d{color:var(--muted);text-decoration:line-through}
+.plan li.c{color:var(--ink);font-weight:500}
+.ck{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--line);display:inline-flex;align-items:center;justify-content:center;flex:none}
+li.d .ck{background:var(--ok);border-color:var(--ok);color:#fff}
+li.c .ck{border-color:var(--accent)}
+.composer{border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));border-radius:16px;background:var(--card);padding:10px 12px 8px;transition:box-shadow .2s}
+.composer.rec{box-shadow:0 0 0 3px color-mix(in srgb,var(--seal) 18%,transparent);border-color:var(--seal)}
+.composer textarea{width:100%;border:0;outline:0;background:transparent;resize:none;min-height:24px;font-size:14px}
+.crow{display:flex;align-items:center;gap:6px;margin-top:4px}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;padding:3px 9px;border-radius:999px;background:var(--line2);color:var(--ink2)}
+.chip.on{background:var(--accent-soft);color:var(--accent)}
+.send{width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:inline-flex;align-items:center;justify-content:center}
+.mic{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:var(--ink2)}
+.mic.rec{background:var(--seal);color:#fff}
+.wave{display:flex;align-items:center;gap:2px;height:26px;flex:1}
+.wave i{flex:1;max-width:4px;background:var(--seal);border-radius:2px;opacity:.8}
+.rectime{font-size:12.5px;color:var(--seal);font-variant-numeric:tabular-nums}
+.partial{color:var(--muted)}
+
+/* right panel */
+#right{width:330px;flex:none;background:var(--bg);border-left:1px solid var(--line);display:flex;flex-direction:column;overflow:auto}
+#right .rh{display:flex;align-items:center;height:48px;padding:0 14px 0 18px;font-weight:500}
+#right .rh .sp{flex:1}
+.blk{margin:4px 14px 14px}
+.blk h5{margin:0 0 6px;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:6px;font-weight:600}
+.blk h5 .sp{flex:1}.blk h5 small{font-weight:400;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.card.ok{border-left:3px solid var(--ok)}
+.kv{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink2);margin:2px 0}
+.goal .stage{font-family:var(--serif);font-size:15px;font-weight:700;margin-bottom:4px}
+.goal .next{font-size:13px;color:var(--ink2);margin:4px 0 8px}
+.meter{height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin:4px 0}.meter i{display:block;height:100%;background:var(--accent)}
+.acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:12.5px;background:var(--card)}
+.btn.pri{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.btn.warn{color:var(--seal)}
+.job{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:6px 0;border-top:1px solid var(--line2)}
+.job:first-child{border-top:0}
+.job .n{flex:1;min-width:0}.job .n code{font-family:var(--mono);font-size:12px}
+.job .n div{color:var(--muted);font-size:11.5px}
+.out{font-family:var(--mono);font-size:11.5px;background:var(--code);border-radius:6px;padding:6px 8px;margin-top:6px;max-height:90px;overflow:auto;white-space:pre}
+.file{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0}
+.dim{opacity:.55}
+
+/* pages */
+.page{max-width:1080px;margin:0 auto;padding:22px 32px}
+.ph{display:flex;align-items:flex-end;gap:12px;margin-bottom:14px}
+.ph h1{font-family:var(--art);font-weight:400;font-size:34px;margin:0;line-height:1.2}
+.ph .plain{font-size:12px;color:var(--muted);display:block}
+.ph .sp{flex:1}
+.patrol{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink2);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:12px}
+.patrol .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.daily{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12.5px}
+.daily .lbl{color:var(--muted)}
+.ev{display:inline-flex;gap:6px;align-items:center;padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--ink);font-size:12.5px;cursor:pointer}
+.ev.remind{background:var(--ok-soft)}
+.cal{display:grid;grid-template-columns:1fr 330px;gap:14px}
+.month{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.mh{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line2)}
+.mh b{font-family:var(--serif);font-size:16px}
+.grid7{display:grid;grid-template-columns:repeat(7,1fr)}
+.wd{font-size:12px;color:var(--muted);text-align:center;padding:4px 0}
+.day{min-height:74px;border-top:1px solid var(--line2);border-left:1px solid var(--line2);padding:4px 6px;font-size:12px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.day:nth-child(7n+1){border-left:0}
+.day .d{font-size:12.5px;color:var(--ink2)}
+.day.out .d{color:var(--muted);opacity:.5}
+.day.today .d{background:var(--accent);color:var(--on-accent);border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center}
+.day.sel{background:color-mix(in srgb,var(--accent-soft) 60%,transparent)}
+.day .e{font-size:11px;padding:0 5px;border-radius:4px;background:var(--accent-soft);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.day .e.past{opacity:.6}
+.day .e.fail{background:color-mix(in srgb,var(--seal) 18%,transparent)}
+.daylist{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.daylist h3{margin:0 0 8px;font-family:var(--serif);font-size:16px;display:flex;align-items:center}
+.daylist h3 .sp{flex:1}
+.it{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line2);font-size:13px;cursor:pointer}
+.it .tm{width:44px;color:var(--muted);font-variant-numeric:tabular-nums}
+.it .w{flex:1}.it .w div{font-size:12px;color:var(--muted)}
+.it .r{font-size:12px}
+.r.ok{color:var(--ok)}.r.bad{color:var(--seal)}
+.det{margin-top:8px;border-top:1px solid var(--line);padding-top:10px;font-size:13px}
+.det .f{display:flex;gap:8px;align-items:center;margin:5px 0}
+.det .f label{width:56px;color:var(--muted);font-size:12.5px}
+.det .f input,.det .f select,.det .f textarea{flex:1;border:1px solid var(--line);border-radius:7px;padding:3px 8px;background:var(--bg);font:inherit;color:inherit}
+.det .f.ftop{align-items:flex-start}.det .f.ftop label{padding-top:4px}.det .f textarea{resize:vertical}
+.redit .f{display:flex;gap:8px;align-items:flex-start;margin:6px 0}.redit .f label{width:56px;color:var(--muted);font-size:12.5px;padding-top:5px}
+.redit input,.redit textarea{flex:1;border:1px solid var(--line);border-radius:7px;padding:4px 8px;background:var(--bg);font:inherit;color:inherit;resize:vertical}
+.hist{font-size:12px;color:var(--muted);margin-top:8px}
+.log{margin-top:6px;font-size:12.5px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 12px}
+.log div{display:flex;gap:10px;padding:3px 0}.log span{color:var(--muted);width:44px}
+
+/* inbox */
+.ib{max-width:760px;margin:0 auto;padding:22px 24px}
+.ib h2{font-size:13px;color:var(--muted);font-weight:500;margin:16px 0 6px;display:flex;gap:8px;align-items:center}
+.icard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.icard .from{font-size:12px;color:var(--muted)}
+.icard .what{font-weight:500;margin:2px 0}
+.icard .why{font-size:13px;color:var(--ink2)}
+.icard.decide{border-left:3px solid var(--accent)}.icard.block{border-left:3px solid var(--seal)}.icard.accept{border-left:3px solid var(--ok)}
+.rule{font-family:var(--serif);background:var(--bg);border-radius:8px;padding:8px 10px;margin:6px 0;font-size:14px}
+
+/* settings */
+.set{display:grid;grid-template-columns:170px 1fr;gap:24px;max-width:920px;margin:0 auto;padding:22px 32px}
+.snav button{display:flex;width:100%;gap:10px;align-items:center;padding:7px 12px;border-radius:8px;font-size:13.5px;color:var(--ink2)}
+.snav button.on{background:var(--card);color:var(--ink);border-left:2px solid var(--accent)}
+.sh{display:flex;align-items:center;gap:6px;font-size:13.5px;margin:14px 0 6px;font-weight:500}
+.sh:first-child{margin-top:0}
+.sh .bfmini{color:var(--accent)}
+.scard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px 16px}
+.srow{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line2);font-size:14px}
+.srow:first-child{border-top:0}
+.srow .l{flex:1}.srow .l small{display:block;color:var(--muted);font-size:12px}
+.sg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.sg button{padding:4px 12px;font-size:13px;color:var(--accent);border-left:1px solid var(--line)}
+.sg button:first-child{border-left:0}
+.sg button.on{background:var(--accent-soft);color:var(--ink)}
+.val{color:var(--accent);font-size:13.5px}
+.pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 0}
+.pc{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);text-align:left;cursor:pointer}
+.pc.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.pc b{font-family:var(--serif);font-size:18px}
+.pc p{margin:4px 0 0;font-family:var(--serif);font-size:12.5px;color:var(--ink2);line-height:1.6}
+.sample{font-family:var(--serif);font-size:13.5px;color:var(--ink2);padding:0 0 10px}
+.fold{color:var(--accent);font-size:13px;padding:8px 0;display:flex;gap:4px;align-items:center}
+.toggle{width:34px;height:20px;border-radius:999px;background:var(--line);position:relative;flex:none}
+.toggle.on{background:var(--accent)}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+.toggle.on::after{left:16px}
+
+/* dialog */
+.scrim{position:fixed;inset:0;background:rgba(30,25,20,.35);display:flex;align-items:center;justify-content:center;z-index:50}
+.dlg{background:var(--card);border-radius:14px;box-shadow:var(--shadow);width:440px;padding:18px 20px}
+.dlg h3{margin:0 0 8px;font-family:var(--serif)}
+.dlg p{margin:6px 0;font-size:13.5px;color:var(--ink2)}
+.radio{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;cursor:pointer}
+.radio.on{border-color:var(--accent);background:var(--accent-soft)}
+.radio small{display:block;color:var(--muted);font-size:12px}
+.dlg .acts{justify-content:flex-end;margin-top:14px}
+
+/* skills */
+.slist{max-width:860px;margin:0 auto;padding:22px 32px}
+.sk{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:8px}
+.sk .n{flex:1}.sk .n small{display:block;color:var(--muted);font-size:12px}
+.pill{font-size:11.5px;padding:1px 8px;border-radius:999px;background:var(--ok-soft);color:var(--ok)}
+.pill.bf{background:var(--accent-soft);color:var(--accent)}
+
+/* wizard */
+.wz{margin:auto;width:520px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px 26px;box-shadow:var(--shadow)}
+.wz h2{font-family:var(--serif);text-align:center;margin:6px 0 4px}
+.wz .sub{text-align:center;color:var(--muted);font-size:13px;margin-bottom:14px}
+
+/* workspace menu */
+.menu{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:4px;z-index:20;min-width:230px}
+.menu .mi{display:flex;gap:8px;align-items:center;padding:6px 10px;border-radius:7px;font-size:13px}
+.menu .mi:hover{background:var(--line2)}
+.menu .mi .c{margin-left:auto;color:var(--muted);font-size:12px;display:flex;gap:6px;align-items:center}
+
+/* notes drawer */
+#notes{position:fixed;right:12px;bottom:12px;width:380px;max-height:60vh;overflow:auto;background:#2B2621;color:#EDE3D3;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.7;box-shadow:0 10px 30px rgba(0,0,0,.3);z-index:60;display:none}
+#notes.on{display:block}
+#notes h4{margin:0 0 6px;font-size:13px}
+#notes b{color:#F5C9A8}
+#notes ul{padding-left:18px;margin:4px 0}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="bf" viewBox="0 0 1024 1024">
+
+
+<defs>
+<linearGradient id="grad-band-right-forewing-outer" gradientUnits="userSpaceOnUse" x1="710.2" y1="333.1" x2="802.9" y2="328.0"><stop offset="0" stop-color="#D79C7A" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 46%)"/><stop offset="0.167" stop-color="#D79975" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 42%)"/><stop offset="0.333" stop-color="#D5926F" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 36%)"/><stop offset="0.5" stop-color="#D28A67" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 27%)"/><stop offset="0.667" stop-color="#CE8260" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 19%)"/><stop offset="0.833" stop-color="#CB7C58" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 12%)"/><stop offset="1" stop-color="#C97652" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 5%)"/></linearGradient>
+<linearGradient id="grad-band-right-hindwing" gradientUnits="userSpaceOnUse" x1="538.9" y1="641.5" x2="723.2" y2="680.5"><stop offset="0" stop-color="#D3A37B" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 50%)"/><stop offset="0.167" stop-color="#D3A079" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 47%)"/><stop offset="0.333" stop-color="#D19A73" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 41%)"/><stop offset="0.5" stop-color="#CE926D" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 33%)"/><stop offset="0.667" stop-color="#CB8B67" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 27%)"/><stop offset="0.833" stop-color="#C88460" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 19%)"/><stop offset="1" stop-color="#C6815D" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 16%)"/></linearGradient>
+<linearGradient id="grad-core-right-forewing-outer" gradientUnits="userSpaceOnUse" x1="705.4" y1="322.3" x2="546.9" y2="477.9"><stop offset="0" stop-color="#E8CCB0" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 100%)"/><stop offset="0.25" stop-color="#E5C4A9" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 92%)"/><stop offset="0.5" stop-color="#E0BB9C" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 80%)"/><stop offset="0.75" stop-color="#DEB192" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 70%)"/><stop offset="1" stop-color="#DBAC8B" style="stop-color:color-mix(in srgb,var(--bf-wing,#CA704D),var(--bf-glow,#E8CCB0) 63%)"/></linearGradient></defs>
+<g id="background"></g>
+<g id="wing-band-left"><path id="band-left-forewing-outer" style="fill:var(--bf-wing,#CA704D)" fill="#CA704D" d="M490.58 526.59C486.27 523.64 485.40 522.53 481.89 515.35C478.42 508.24 475.18 502.59 470.72 495.85C460.22 479.99 448.78 466.59 435.57 454.67C428.72 448.50 426.44 446.61 418.62 440.67C410.12 434.20 405.11 430.84 393.88 424.07C383.25 417.67 372.32 412.18 358.38 406.24C342.07 399.30 324.28 393.56 304.50 388.86C297.80 387.27 288.90 385.34 286.50 384.97C285.61 384.83 282.57 384.32 279.75 383.84C267.00 381.68 255.20 380.00 252.71 380.00C251.99 380.00 249.98 379.84 248.26 379.64C244.15 379.17 232.86 378.63 231.32 378.84C230.66 378.93 229.15 379.30 227.95 379.66C225.24 380.49 224.85 380.36 222.66 377.96C220.66 375.77 219.60 373.75 216.61 366.38C210.39 351.03 208.38 343.46 207.77 333.12C207.11 321.90 209.79 311.30 215.34 303.12C217.47 299.99 222.22 295.29 225.38 293.19C228.21 291.31 233.58 288.65 236.80 287.53C239.41 286.62 245.93 285.18 249.38 284.75C258.05 283.67 269.85 284.55 281.75 287.15C294.73 289.99 313.44 296.48 330.88 304.18C334.70 305.87 350.54 313.67 355.25 316.18C365.33 321.56 372.74 326.05 384.21 333.73C400.71 344.79 416.40 357.63 429.88 371.12C440.83 382.06 447.85 390.12 455.61 400.59C458.40 404.37 465.18 414.54 467.37 418.25C468.31 419.83 469.50 421.80 470.01 422.62C476.35 432.75 485.08 452.88 489.37 467.27C492.74 478.56 495.88 493.99 497.25 506.00C498.58 517.63 498.48 519.75 496.37 524.12C494.46 528.10 493.43 528.53 490.58 526.59Z"/><path id="band-left-forewing-inner" style="fill:var(--bf-wing,#CA704D)" fill="#C46647" d="M490.59 562.36C487.52 561.84 485.68 561.04 480.42 557.91C470.18 551.82 462.52 548.03 451.38 543.56C434.77 536.91 415.30 532.14 399.50 530.87C383.28 529.56 378.76 529.40 368.50 529.72C353.67 530.19 346.15 530.85 337.90 532.40C332.88 533.34 332.81 533.33 329.56 531.15C326.26 528.95 324.95 528.48 319.62 527.63C304.94 525.28 295.55 522.57 286.68 518.10C282.94 516.22 276.80 512.40 273.69 510.01C263.11 501.89 255.38 491.68 249.82 478.50C244.12 464.96 241.14 453.21 238.25 432.88C236.18 418.28 232.44 404.27 227.03 390.85C225.41 386.83 224.79 382.81 225.57 381.25C225.98 380.43 227.63 379.62 229.97 379.09C231.71 378.71 232.48 378.70 238.62 378.98C242.34 379.15 246.72 379.45 248.37 379.65C250.01 379.84 251.96 380.00 252.70 380.00C255.20 380.00 266.96 381.67 279.75 383.84C282.57 384.32 285.61 384.83 286.50 384.97C288.90 385.34 297.80 387.27 304.50 388.86C324.28 393.56 342.07 399.30 358.38 406.24C372.32 412.18 383.25 417.67 393.88 424.07C405.11 430.84 410.12 434.20 418.62 440.67C426.44 446.61 428.72 448.50 435.57 454.67C448.78 466.59 460.22 479.99 470.72 495.85C475.18 502.59 478.42 508.24 481.89 515.35C485.42 522.55 486.28 523.66 490.62 526.61C493.75 528.73 493.75 528.73 494.53 532.50C497.09 544.94 497.83 553.96 496.63 558.38C495.98 560.79 495.29 562.01 494.35 562.40C493.38 562.81 493.27 562.81 490.59 562.36Z"/><path id="band-left-hindwing" style="fill:var(--bf-wing,#CA704D)" fill="#CA704D" d="M379.12 739.35C373.39 738.66 372.40 738.50 368.44 737.61C364.29 736.69 356.52 734.24 352.73 732.67C339.41 727.16 326.03 717.84 314.36 705.96C306.65 698.11 302.95 693.58 297.24 685.01C292.29 677.57 287.54 668.62 284.81 661.62C280.77 651.23 278.05 642.13 276.67 634.38C275.38 627.08 275.14 624.34 275.16 616.75C275.18 607.45 275.66 603.50 277.76 595.21C279.60 587.95 283.21 580.25 288.28 572.75C291.13 568.53 293.16 566.09 297.49 561.66C305.65 553.32 312.07 548.43 321.52 543.36C323.50 542.30 325.64 541.06 326.26 540.61C327.77 539.51 329.66 537.48 330.96 535.56C331.54 534.70 332.27 533.84 332.57 533.64C333.32 533.16 340.24 531.90 346.38 531.13C352.39 530.37 356.78 530.09 368.50 529.72C378.76 529.40 383.28 529.56 399.50 530.87C415.30 532.14 434.77 536.91 451.38 543.56C462.52 548.03 470.18 551.82 480.42 557.91C486.03 561.25 487.46 561.83 491.57 562.49C494.33 562.93 494.69 563.05 495.28 563.71C496.19 564.72 496.95 566.88 497.44 569.83C497.82 572.14 497.81 572.70 497.41 577.97C496.89 584.59 495.89 593.92 495.35 597.12C491.89 617.59 488.25 630.51 480.62 649.38C475.82 661.25 471.73 669.59 464.56 682.12C459.11 691.65 451.01 703.04 444.94 709.72C431.78 724.17 419.84 732.42 405.83 736.71C397.49 739.27 387.03 740.30 379.12 739.35Z"/></g>
+<g id="wing-band-right"><path id="band-right-forewing-outer" fill="url(#grad-band-right-forewing-outer)" d="M529.36 527.44C528.48 526.40 527.13 523.55 526.61 521.62C526.06 519.63 525.86 513.77 526.23 510.88C526.39 509.64 526.68 507.11 526.87 505.25C527.81 496.08 530.19 483.67 533.15 472.50C536.27 460.72 542.12 445.23 547.52 434.47C550.89 427.73 556.97 417.43 562.38 409.25C573.44 392.55 585.47 378.77 604.14 361.38C614.45 351.78 629.91 339.99 644.88 330.33C657.69 322.05 665.07 317.85 678.50 311.21C697.46 301.82 715.77 294.48 731.25 290.03C742.38 286.84 749.60 285.42 758.75 284.63C776.96 283.05 791.86 286.95 802.50 296.08C810.19 302.68 815.03 312.84 816.13 324.75C816.57 329.43 816.59 331.18 816.24 335.25C815.37 345.40 812.28 355.92 805.86 370.47C803.52 375.80 801.18 379.25 799.34 380.13C798.50 380.52 798.39 380.51 795.80 379.71C793.15 378.88 793.08 378.88 788.88 378.95C786.54 378.99 783.27 379.12 781.62 379.24C779.98 379.36 776.88 379.58 774.75 379.74C768.39 380.20 754.42 382.01 746.75 383.38C744.89 383.71 742.36 384.15 741.12 384.36C739.89 384.57 737.58 385.03 736.00 385.37C734.42 385.72 730.42 386.57 727.12 387.26C710.88 390.69 692.52 396.09 676.00 402.30C661.50 407.75 641.92 417.11 630.38 424.11C629.41 424.69 627.78 425.66 626.75 426.27C623.04 428.44 614.32 434.19 609.75 437.47C594.32 448.56 578.59 463.27 567.24 477.23C556.86 489.99 548.84 502.31 542.00 516.00C540.87 518.27 539.45 520.87 538.84 521.79C537.57 523.72 535.47 525.74 533.21 527.22C531.21 528.52 530.32 528.57 529.36 527.44Z"/><path id="band-right-forewing-inner" style="fill:var(--bf-wing,#CA704D)" fill="#CA704D" d="M530.08 562.14C529.11 561.71 528.62 560.99 527.81 558.80C526.37 554.92 526.95 546.26 529.51 533.43C529.92 531.40 530.38 529.53 530.54 529.28C530.70 529.02 531.74 528.21 532.84 527.47C537.16 524.58 538.64 522.73 542.00 516.00C548.84 502.31 556.86 489.99 567.24 477.23C578.59 463.27 594.32 448.56 609.75 437.47C614.32 434.19 623.04 428.44 626.75 426.27C627.78 425.66 629.41 424.69 630.38 424.11C641.92 417.11 661.50 407.75 676.00 402.30C692.52 396.09 710.88 390.69 727.12 387.26C730.42 386.57 734.42 385.72 736.00 385.37C737.58 385.03 739.89 384.57 741.12 384.36C742.36 384.15 744.89 383.71 746.75 383.38C754.42 382.01 768.39 380.20 774.75 379.74C776.88 379.58 779.98 379.36 781.62 379.24C783.27 379.12 786.59 378.99 789.00 378.96C793.24 378.90 793.44 378.92 795.45 379.61C798.14 380.54 798.75 381.21 798.75 383.25C798.75 385.57 798.14 388.15 796.74 391.77C791.78 404.61 788.74 415.76 786.53 429.25C786.25 430.97 785.84 433.44 785.62 434.75C785.40 436.06 785.12 437.91 785.00 438.88C783.82 448.58 779.63 465.87 776.56 473.75C771.88 485.75 765.43 496.07 757.88 503.64C753.78 507.76 751.53 509.59 746.25 513.12C741.32 516.42 738.24 518.04 732.48 520.34C723.39 523.97 714.83 526.26 706.23 527.35C700.47 528.08 697.76 529.03 694.43 531.47C693.50 532.15 692.40 532.79 691.98 532.88C691.55 532.97 689.14 532.72 686.30 532.29C683.59 531.87 679.97 531.40 678.25 531.24C676.53 531.08 673.77 530.80 672.12 530.62C670.48 530.44 664.17 530.09 658.12 529.85C646.91 529.40 640.64 529.50 631.62 530.26C630.11 530.39 627.36 530.62 625.50 530.76C612.43 531.80 596.27 535.31 581.93 540.22C567.88 545.04 556.44 550.41 542.25 558.84C538.64 560.98 536.52 561.80 533.41 562.23C531.03 562.56 531.06 562.56 530.08 562.14Z"/><path id="band-right-hindwing" fill="url(#grad-band-right-hindwing)" d="M633.48 739.65C633.42 739.59 632.02 739.41 630.38 739.25C619.77 738.20 607.39 733.40 597.69 726.58C588.82 720.35 579.47 710.91 571.59 700.25C563.27 688.98 558.66 681.38 551.60 667.25C544.55 653.13 541.31 645.16 536.57 630.25C532.51 617.49 530.46 608.71 528.53 595.75C527.13 586.38 526.79 582.81 526.59 575.47C526.46 570.80 526.50 570.11 526.97 568.27C527.53 566.03 528.61 563.42 529.17 562.96C529.37 562.80 530.80 562.52 532.35 562.34C536.30 561.89 538.32 561.17 542.25 558.84C556.44 550.41 567.88 545.04 581.93 540.22C596.27 535.31 612.43 531.80 625.50 530.76C627.36 530.62 630.11 530.39 631.62 530.26C640.64 529.50 646.91 529.40 658.12 529.85C664.17 530.09 670.48 530.44 672.12 530.62C673.77 530.80 676.53 531.08 678.25 531.24C682.28 531.62 690.82 532.93 691.62 533.29C691.96 533.45 693.13 534.78 694.23 536.25C696.66 539.52 697.72 540.43 701.88 542.76C712.32 548.62 719.11 553.64 725.92 560.55C731.33 566.02 736.78 573.37 740.45 580.12C747.00 592.18 749.97 606.84 749.03 622.50C748.74 627.41 748.29 630.70 747.19 636.00C746.78 637.99 746.29 640.36 746.11 641.25C744.86 647.45 741.20 658.04 737.46 666.25C731.66 678.97 722.85 692.21 713.02 702.97C710.43 705.79 703.77 711.97 699.41 715.59C683.00 729.20 664.32 737.41 645.38 739.37C642.02 739.71 633.75 739.91 633.48 739.65Z"/></g>
+<g id="wing-core-left"><path id="core-left-forewing-outer" style="fill:var(--bf-core,#F3F0E4)" fill="#F3F0E5" d="M489.06 512.56C488.80 512.18 487.76 510.30 486.75 508.38C482.07 499.45 476.07 490.08 468.41 479.75C465.20 475.41 465.35 475.60 462.16 471.84C450.81 458.44 438.93 447.05 425.74 436.94C415.73 429.27 412.26 426.86 402.75 421.01C385.91 410.65 377.32 406.21 361.12 399.47C350.37 394.99 337.32 390.28 329.00 387.87C327.28 387.37 325.26 386.74 324.50 386.47C323.74 386.19 322.51 385.83 321.75 385.65C320.99 385.48 319.98 385.20 319.50 385.04C319.02 384.88 317.39 384.46 315.88 384.11C314.36 383.76 312.68 383.32 312.12 383.13C311.57 382.94 310.68 382.71 310.12 382.63C309.57 382.55 307.77 382.15 306.12 381.75C302.15 380.79 296.89 379.60 291.16 378.37C290.08 378.13 288.46 377.85 287.56 377.74C286.61 377.62 285.65 377.34 285.27 377.06C284.69 376.62 284.62 376.38 284.55 374.72C284.45 372.51 284.85 368.15 285.49 364.38C285.75 362.86 286.03 361.06 286.12 360.38C286.60 356.60 289.67 347.28 291.67 343.56C294.59 338.12 297.43 334.33 301.63 330.28C307.01 325.10 312.60 321.65 319.25 319.41C324.34 317.70 327.83 317.15 333.75 317.14C338.37 317.13 338.75 317.16 341.00 317.82C344.42 318.83 357.09 325.20 361.25 328.00C362.01 328.51 363.13 329.19 363.75 329.50C366.87 331.08 374.38 335.88 384.00 342.46C389.35 346.11 394.77 350.17 400.76 355.00C401.70 355.76 403.17 356.94 404.03 357.62C404.89 358.31 406.77 359.89 408.20 361.12C409.63 362.36 412.00 364.38 413.46 365.60C417.17 368.70 433.12 384.82 437.09 389.47C447.54 401.71 456.16 413.56 461.93 423.62C463.04 425.55 464.56 428.14 465.31 429.38C466.87 431.93 468.92 435.95 471.52 441.55C478.19 455.93 483.40 471.18 485.87 483.58C486.07 484.57 486.57 487.01 486.98 489.00C487.40 490.99 487.74 493.03 487.74 493.53C487.75 494.03 487.91 494.90 488.11 495.46C488.31 496.03 488.54 497.19 488.63 498.06C488.71 498.92 488.99 500.81 489.25 502.25C489.78 505.23 490.39 512.58 490.14 512.98C489.87 513.41 489.57 513.30 489.06 512.56Z"/><path id="core-left-forewing-inner" style="fill:var(--bf-core,#F3F0E4)" fill="#F3F0E4" d="M484.12 551.53C483.16 551.00 480.97 549.76 479.25 548.77C475.01 546.33 465.28 541.50 460.25 539.33C452.10 535.82 451.04 535.41 444.88 533.37C431.92 529.08 424.31 527.15 413.12 525.28C406.77 524.22 405.00 523.99 401.38 523.73C399.31 523.58 396.78 523.30 395.75 523.11C394.62 522.89 392.29 522.75 389.88 522.75C387.68 522.75 384.41 522.58 382.62 522.37C380.46 522.12 376.17 521.96 369.75 521.90C360.53 521.82 360.02 521.79 357.50 521.19C353.12 520.15 346.04 517.91 341.94 516.28C336.68 514.18 326.31 508.16 322.50 504.99C321.88 504.48 320.42 503.35 319.25 502.48C316.72 500.61 311.90 495.84 309.07 492.42C305.33 487.90 300.53 480.54 297.91 475.32C295.64 470.79 293.17 464.43 292.26 460.75C292.00 459.72 291.51 457.81 291.15 456.50C289.90 451.87 288.41 441.31 287.87 433.25C287.78 431.94 287.60 430.31 287.47 429.62C287.34 428.94 287.13 427.02 286.99 425.38C286.86 423.73 286.64 421.08 286.50 419.50C286.35 417.92 286.08 414.26 285.88 411.38C285.68 408.49 285.40 404.94 285.26 403.50C285.12 402.06 284.90 399.24 284.77 397.25C284.43 392.17 284.49 392.10 288.60 392.89C293.28 393.80 296.96 394.56 298.25 394.87C299.01 395.06 300.75 395.45 302.12 395.75C303.50 396.05 305.24 396.50 306.00 396.76C306.76 397.01 307.88 397.30 308.50 397.39C313.58 398.13 340.61 406.76 348.07 410.02C349.34 410.57 351.50 411.46 352.88 411.99C356.01 413.20 358.47 414.26 362.69 416.22C364.51 417.06 367.43 418.41 369.19 419.22C377.91 423.26 390.06 430.03 400.06 436.43C403.70 438.75 411.03 443.86 413.12 445.53C413.81 446.08 415.41 447.31 416.68 448.27C419.44 450.35 425.82 455.66 428.47 458.08C435.16 464.19 439.19 468.08 441.38 470.53C442.75 472.07 444.93 474.47 446.22 475.85C453.22 483.38 464.59 498.97 469.75 508.12C471.83 511.81 475.87 519.83 477.62 523.75C478.26 525.19 479.11 527.05 479.51 527.88C480.77 530.51 482.42 534.77 483.62 538.50C484.27 540.49 484.91 542.41 485.05 542.75C485.31 543.37 485.60 544.39 486.84 549.08C487.82 552.79 487.29 553.27 484.12 551.53Z"/><path id="core-left-hindwing" style="fill:var(--bf-core,#F3F0E4)" fill="#F3EFE4" d="M374.19 663.61C369.85 662.94 362.94 661.02 358.50 659.26C356.31 658.39 351.09 655.59 348.38 653.82C341.60 649.40 335.77 643.76 330.22 636.25C328.30 633.64 324.93 627.73 323.37 624.23C321.16 619.24 318.83 611.97 318.13 607.88C317.91 606.64 317.55 604.67 317.32 603.50C316.99 601.84 316.89 599.97 316.89 595.00C316.88 589.49 316.96 588.18 317.45 585.38C317.76 583.59 318.14 581.34 318.29 580.38C318.56 578.67 320.56 572.41 321.80 569.37C322.46 567.76 324.94 563.33 326.57 560.88C328.44 558.04 330.72 555.37 334.67 551.36C340.48 545.47 346.05 541.11 348.50 540.53C348.98 540.42 349.88 540.20 350.50 540.04C351.12 539.88 352.24 539.63 353.00 539.48C353.76 539.34 355.39 539.01 356.62 538.75C357.86 538.48 359.61 538.21 360.50 538.13C361.39 538.05 363.25 537.82 364.62 537.62C369.49 536.92 376.55 536.74 384.12 537.12C387.98 537.32 392.74 537.66 394.71 537.87C396.69 538.08 398.99 538.25 399.84 538.25C400.68 538.25 402.33 538.41 403.50 538.61C404.67 538.80 406.36 539.04 407.25 539.12C411.68 539.55 423.77 542.16 430.50 544.13C442.04 547.51 449.86 550.48 460.67 555.58C465.75 557.98 467.70 558.99 472.50 561.75C475.22 563.32 483.61 568.62 485.50 569.97C486.39 570.61 487.61 571.44 488.20 571.83C490.26 573.16 490.20 574.14 487.80 578.02C486.99 579.31 485.70 581.50 484.92 582.88C481.98 588.04 480.80 589.96 478.60 593.12C472.92 601.29 466.11 610.49 463.73 613.22C452.83 625.73 451.42 627.25 444.19 634.23C438.82 639.39 435.54 642.32 431.64 645.43C428.58 647.86 420.03 653.55 416.53 655.49C409.74 659.24 402.10 661.91 394.00 663.38C390.92 663.93 390.01 663.98 383.50 663.97C378.81 663.96 375.63 663.84 374.19 663.61Z"/></g>
+<g id="wing-core-right"><path id="core-right-forewing-outer" fill="url(#grad-core-right-forewing-outer)" d="M533.86 512.98C533.61 512.58 534.22 505.23 534.75 502.25C535.01 500.81 535.29 498.92 535.37 498.06C535.46 497.19 535.69 496.03 535.89 495.46C536.09 494.90 536.25 494.03 536.26 493.53C536.26 493.03 536.60 490.99 537.02 489.00C537.43 487.01 537.93 484.57 538.13 483.58C540.60 471.18 545.81 455.93 552.48 441.55C555.08 435.95 557.13 431.93 558.69 429.38C559.44 428.14 560.96 425.55 562.07 423.62C567.72 413.77 576.22 402.05 586.45 389.99C589.82 386.03 603.21 372.28 607.55 368.34C616.19 360.49 626.24 352.28 634.60 346.24C647.47 336.94 661.25 328.38 673.84 321.88C682.77 317.26 684.34 316.85 692.45 317.09C697.04 317.22 698.49 317.36 700.70 317.85C713.68 320.79 725.22 330.21 732.44 343.75C733.74 346.19 736.61 354.02 737.34 357.12C738.54 362.22 739.99 374.83 739.52 376.07C739.16 377.02 738.23 377.52 736.41 377.75C734.88 377.93 733.68 378.17 728.75 379.26C723.37 380.44 720.77 381.03 719.50 381.38C718.74 381.59 715.82 382.32 713.00 383.01C694.91 387.43 680.19 392.26 662.88 399.47C646.68 406.21 638.09 410.65 621.25 421.01C611.74 426.86 608.27 429.27 598.26 436.94C585.07 447.05 573.19 458.44 561.84 471.84C558.65 475.60 558.80 475.41 555.59 479.75C547.93 490.08 541.93 499.45 537.25 508.38C534.76 513.13 534.32 513.72 533.86 512.98Z"/><path id="core-right-forewing-inner" style="fill:var(--bf-core,#F3F0E4)" fill="#F3EFE4" d="M537.02 552.15C536.61 551.65 536.82 550.08 537.64 547.50C537.97 546.47 538.93 543.43 539.78 540.75C542.66 531.63 544.48 527.39 550.31 516.12C555.92 505.30 558.15 501.60 563.79 493.79C565.21 491.81 566.71 489.72 567.12 489.15C567.54 488.57 569.06 486.61 570.50 484.78C571.94 482.96 573.67 480.77 574.33 479.92C575.00 479.07 576.23 477.64 577.08 476.74C577.93 475.85 579.83 473.77 581.29 472.12C585.11 467.84 595.75 457.66 600.96 453.32C610.93 445.00 622.87 436.69 632.95 431.04C634.23 430.32 636.03 429.25 636.95 428.66C640.26 426.55 650.84 421.03 654.75 419.38C655.51 419.06 657.64 418.10 659.50 417.25C666.91 413.87 674.26 410.65 676.75 409.71C686.52 406.01 697.20 402.44 705.50 400.11C706.81 399.74 708.61 399.23 709.50 398.98C712.29 398.17 714.32 397.69 715.76 397.50C716.52 397.40 717.48 397.15 717.89 396.94C718.29 396.74 719.13 396.49 719.75 396.40C720.37 396.30 721.38 396.07 722.00 395.87C723.73 395.33 729.85 393.93 734.12 393.09C739.13 392.12 739.67 392.30 739.40 394.89C739.31 395.74 739.13 398.22 738.99 400.41C738.85 402.59 738.63 405.33 738.50 406.50C738.37 407.67 738.15 410.48 738.01 412.75C737.57 420.15 737.00 427.05 736.51 431.00C736.25 433.13 735.96 436.06 735.87 437.50C735.19 448.80 732.56 460.27 728.21 470.88C726.28 475.57 722.27 482.96 719.85 486.27C714.08 494.15 705.92 502.10 697.69 507.83C691.77 511.96 685.52 515.04 676.88 518.06C671.12 520.08 670.05 520.42 667.00 521.16C664.46 521.78 664.00 521.81 653.12 522.01C646.94 522.12 640.81 522.34 639.50 522.49C638.08 522.66 635.87 522.71 634.00 522.62C631.58 522.49 630.54 522.54 629.38 522.84C627.17 523.40 622.88 523.83 621.24 523.66C620.29 523.56 619.31 523.65 618.34 523.91C616.89 524.29 612.63 525.03 609.00 525.53C607.97 525.67 606.52 525.96 605.79 526.16C605.05 526.37 603.81 526.60 603.04 526.66C602.26 526.73 601.23 526.94 600.75 527.13C600.27 527.33 597.46 528.10 594.50 528.86C586.55 530.89 574.55 534.83 568.75 537.31C557.98 541.92 549.77 545.93 542.74 549.99C538.56 552.41 537.55 552.79 537.02 552.15Z"/><path id="core-right-hindwing" style="fill:var(--bf-core,#F3F0E4)" fill="#F3EFE4" d="M633.38 663.99C630.36 663.75 623.42 662.13 619.12 660.67C613.86 658.88 605.97 654.97 600.84 651.62C589.92 644.48 573.92 629.72 563.34 617.02C561.46 614.76 560.72 613.86 557.38 609.76C554.31 606.00 551.86 602.75 548.63 598.12C540.15 585.98 534.69 576.93 534.35 574.48C534.17 573.11 534.66 572.39 536.71 571.07C539.55 569.25 545.68 565.39 547.75 564.12C550.52 562.43 562.52 555.96 565.25 554.68C571.80 551.63 579.43 548.67 585.38 546.88C586.61 546.50 588.02 546.05 588.50 545.88C595.55 543.29 611.19 539.63 617.43 539.12C618.42 539.04 619.60 538.86 620.05 538.73C620.50 538.60 622.39 538.38 624.25 538.25C626.11 538.11 629.20 537.83 631.12 537.62C639.24 536.74 653.10 536.74 659.12 537.62C660.50 537.82 662.30 538.05 663.12 538.13C667.31 538.53 675.33 540.21 677.29 541.09C680.19 542.39 687.46 548.33 691.05 552.32C695.44 557.21 700.33 564.58 702.62 569.75C705.80 576.92 707.48 585.51 707.49 594.62C707.50 607.89 703.35 621.62 695.71 633.65C690.50 641.83 686.27 646.31 677.75 652.69C670.76 657.92 661.43 661.87 651.88 663.65C649.24 664.14 637.89 664.35 633.38 663.99Z"/></g>
+<g id="antennae" style="fill:var(--bf-line,#3F3B34)" fill="#3F3B34"><path id="antenna-left" d="M497.72 423.92C494.24 422.62 493.17 420.75 492.39 414.62C491.27 405.89 488.97 395.67 485.58 384.38C483.44 377.28 481.26 371.98 476.84 363.15C473.38 356.25 471.54 353.05 467.85 347.50C463.59 341.07 458.69 335.17 452.38 328.86C444.58 321.05 437.18 315.38 428.88 310.88C425.34 308.95 423.59 307.54 422.56 305.78C421.96 304.78 421.88 304.36 421.89 302.62C421.91 299.42 423.20 297.29 425.90 296.01C428.02 295.00 429.43 295.15 432.62 296.70C441.58 301.06 453.19 309.59 462.01 318.29C468.97 325.16 474.75 332.28 481.16 341.88C490.40 355.71 498.87 375.69 502.89 393.12C503.23 394.64 503.74 396.83 504.01 398.00C506.81 410.09 507.68 417.57 506.59 420.00C505.99 421.32 504.37 422.86 502.90 423.52C501.47 424.15 498.87 424.35 497.72 423.92Z"/><path id="antenna-right" d="M522.32 423.90C519.69 423.04 517.86 421.24 517.22 418.89C516.76 417.22 517.19 412.96 518.53 405.88C519.55 400.46 519.97 398.53 521.51 392.12C524.86 378.27 532.16 360.05 539.20 348.00C541.67 343.77 547.46 335.26 551.28 330.25C556.75 323.08 566.53 313.59 575.20 307.03C579.39 303.86 587.31 298.74 590.30 297.26C593.93 295.47 595.35 295.20 597.64 295.87C602.86 297.39 603.91 304.87 599.38 308.26C598.69 308.78 596.44 310.18 594.38 311.39C583.26 317.87 574.99 324.78 565.68 335.38C557.55 344.61 550.56 355.62 545.36 367.39C543.35 371.92 539.80 380.88 538.93 383.62C535.42 394.61 532.78 406.26 531.87 414.75C531.68 416.61 531.34 418.70 531.13 419.41C530.65 421.03 528.89 423.04 527.46 423.61C526.02 424.19 523.61 424.32 522.32 423.90Z"/></g>
+<g id="outline" style="fill:var(--bf-line,#3F3B34)" fill="#3F3B34" fill-rule="evenodd"><path id="outline-left" d="M377.12 746.33C365.67 745.00 354.08 741.55 343.71 736.38C335.27 732.18 328.46 727.73 320.12 720.97C311.60 714.06 301.28 703.24 295.48 695.12C290.71 688.43 285.62 680.01 282.11 673.00C276.53 661.82 271.69 647.32 269.52 635.25C268.18 627.77 267.94 625.02 267.94 616.75C267.94 609.49 267.99 608.52 268.60 604.41C270.14 594.15 272.24 587.24 276.25 579.23C279.74 572.27 283.95 565.81 288.22 560.89C292.87 555.53 299.44 549.43 304.34 545.93C305.32 545.23 306.66 544.24 307.32 543.72C308.61 542.70 314.20 539.24 317.31 537.53C320.63 535.71 320.38 535.05 316.12 534.36C299.57 531.71 285.79 526.69 274.39 519.15C268.99 515.58 265.66 512.92 261.85 509.13C254.85 502.16 249.13 494.12 244.99 485.40C240.04 474.96 236.46 463.69 233.55 449.38C232.91 446.20 231.34 436.60 230.89 433.12C230.57 430.62 229.64 425.25 228.84 421.25C226.18 407.97 223.89 401.55 211.31 372.12C208.23 364.93 206.99 361.73 205.16 356.25C202.30 347.69 201.50 343.86 200.73 335.12C200.26 329.67 200.25 329.16 200.62 325.25C201.30 318.09 203.07 311.13 205.57 305.75C206.18 304.44 207.58 302.02 208.69 300.38C213.47 293.22 218.92 288.32 226.35 284.49C233.50 280.81 239.88 278.91 249.12 277.72C257.03 276.70 270.43 277.49 280.00 279.54C283.41 280.28 290.76 282.11 293.38 282.88C294.61 283.25 296.34 283.76 297.22 284.01C305.83 286.55 324.99 293.79 334.38 298.07C345.25 303.03 360.37 310.70 367.73 314.98C373.69 318.45 388.38 327.90 394.38 332.13C403.68 338.68 415.49 348.11 424.55 356.22C432.80 363.60 446.40 377.61 452.00 384.48C462.56 397.45 467.66 404.80 476.89 420.38C486.12 435.94 495.75 460.45 499.61 478.19C499.82 479.18 500.16 480.76 500.37 481.69C501.08 484.97 501.97 489.67 502.50 492.88C502.79 494.66 503.20 497.05 503.39 498.18C503.59 499.31 503.87 501.39 504.01 502.80C504.15 504.22 504.37 505.99 504.50 506.75C504.72 508.02 505.14 512.49 505.73 519.88C506.09 524.42 506.62 538.08 506.62 542.88C506.62 550.80 505.59 569.39 504.48 581.38C503.54 591.55 502.87 596.16 500.47 609.00C499.13 616.13 496.87 624.81 493.94 634.00C492.13 639.69 486.37 654.61 484.05 659.62C479.73 668.96 472.60 682.76 469.13 688.50C464.40 696.32 457.47 706.04 452.28 712.12C449.47 715.42 440.97 724.04 438.12 726.48C424.54 738.15 410.46 744.42 393.50 746.37C389.39 746.84 381.38 746.82 377.12 746.33ZM388.88 732.50C397.36 731.74 398.13 731.61 403.68 729.97C411.85 727.57 419.72 723.16 427.92 716.39C431.34 713.57 439.78 705.10 442.27 701.99C445.07 698.50 450.69 690.96 452.42 688.38C454.14 685.81 460.60 674.88 463.11 670.31C467.19 662.87 473.99 647.41 477.71 637.12C483.48 621.16 488.07 601.76 489.00 589.39C489.14 587.61 489.35 585.53 489.49 584.76C489.83 582.74 490.29 574.38 490.10 573.57C490.01 573.19 489.81 572.71 489.65 572.52C489.28 572.03 480.37 566.19 475.25 563.06C464.65 556.60 450.96 550.37 438.12 546.18C424.36 541.68 410.45 538.76 398.00 537.75C395.06 537.51 393.32 537.39 383.38 536.75C381.18 536.61 378.35 536.49 377.09 536.50C373.82 536.50 364.74 537.19 362.25 537.63C361.08 537.83 359.76 538.00 359.32 538.00C358.25 538.00 350.28 539.60 348.25 540.23C347.35 540.50 346.07 540.85 345.40 541.00C342.96 541.54 331.69 546.15 326.77 548.62C317.44 553.29 309.27 559.47 301.77 567.50C296.44 573.21 292.76 578.31 289.65 584.26C286.20 590.88 283.61 599.22 282.99 605.75C282.85 607.19 282.61 609.11 282.46 610.00C282.11 612.07 282.11 622.11 282.46 624.25C282.61 625.14 282.84 627.00 282.98 628.38C284.01 638.50 289.69 656.40 295.66 668.32C299.66 676.32 305.60 685.19 312.24 693.11C319.10 701.28 326.28 707.99 334.90 714.28C340.28 718.21 344.13 720.58 349.43 723.22C359.96 728.48 370.18 731.46 380.38 732.25C382.44 732.41 384.35 732.57 384.62 732.61C385.63 732.76 386.18 732.74 388.88 732.50ZM487.75 552.75C488.08 552.14 487.29 548.80 485.10 541.62C482.63 533.49 476.02 518.75 470.25 508.48C466.96 502.63 460.36 492.86 455.15 486.12C443.93 471.62 429.54 457.55 413.88 445.78C396.69 432.85 378.07 422.33 354.75 412.37C345.71 408.51 332.92 403.98 321.88 400.72C312.31 397.89 308.11 396.80 298.75 394.66C295.09 393.82 284.45 391.74 282.00 391.37C280.56 391.16 278.19 390.77 276.75 390.52C266.53 388.69 257.04 387.38 251.12 387.00C249.06 386.86 246.41 386.65 245.23 386.52C244.05 386.39 241.10 386.21 238.67 386.11C232.72 385.87 232.84 385.74 234.63 390.37C236.75 395.87 239.97 406.03 241.35 411.58C242.77 417.34 244.86 427.36 245.13 429.75C245.22 430.51 245.44 431.97 245.62 433.00C245.81 434.03 246.20 436.51 246.50 438.50C249.05 455.66 252.76 468.29 258.90 480.75C261.58 486.21 262.62 487.94 265.38 491.62C270.50 498.46 275.44 502.94 283.50 508.06C289.95 512.16 292.99 513.64 299.21 515.72C303.40 517.12 313.01 519.38 316.88 519.87C317.56 519.96 318.86 520.19 319.75 520.38C320.64 520.57 322.89 520.85 324.75 521.00C326.61 521.15 328.86 521.39 329.75 521.53C331.22 521.77 355.36 522.25 371.25 522.36C377.25 522.40 383.82 522.69 391.88 523.27C405.74 524.27 408.44 524.62 420.62 527.04C434.09 529.72 449.10 534.64 463.81 541.21C468.67 543.38 476.45 547.42 481.00 550.14C483.59 551.68 486.62 553.24 487.05 553.25C487.29 553.25 487.60 553.03 487.75 552.75ZM490.60 514.35C490.84 513.71 490.77 511.85 490.39 508.90C490.19 507.37 489.91 505.06 489.77 503.75C489.39 500.23 488.64 495.74 487.52 490.12C484.97 477.40 483.70 472.44 480.72 463.62C477.67 454.64 472.58 442.59 468.24 434.12C462.28 422.52 452.62 407.88 443.44 396.56C435.01 386.18 423.36 373.97 414.12 365.85C401.48 354.73 392.16 347.56 378.62 338.52C365.11 329.49 359.97 326.53 342.64 317.75C324.71 308.67 309.05 302.23 293.75 297.66C279.05 293.26 268.24 291.38 257.62 291.38C246.40 291.37 236.78 294.00 229.08 299.16C226.62 300.82 223.09 304.40 221.27 307.10C218.65 310.97 216.63 316.02 215.48 321.50C215.01 323.80 214.94 324.87 214.96 330.12C214.99 338.42 215.69 342.52 218.62 351.38C220.22 356.22 224.84 368.08 225.81 369.80C226.70 371.38 226.95 371.43 236.50 371.74C241.24 371.90 246.08 372.14 247.25 372.28C248.42 372.42 251.01 372.68 253.00 372.86C254.99 373.05 257.81 373.37 259.25 373.59C260.69 373.80 263.56 374.21 265.62 374.50C273.47 375.59 279.51 376.55 284.38 377.49C285.75 377.75 288.23 378.21 289.88 378.51C292.68 379.02 297.08 379.94 299.38 380.50C299.93 380.63 303.24 381.42 306.75 382.26C315.34 384.30 322.41 386.18 328.44 388.02C329.30 388.29 330.76 388.72 331.69 389.00C337.50 390.72 350.12 395.25 357.12 398.12C377.11 406.33 388.18 412.06 406.60 423.75C413.94 428.41 422.44 434.55 430.62 441.10C437.86 446.89 450.03 458.48 456.50 465.75C468.42 479.13 479.58 495.14 486.83 509.25C489.47 514.39 490.20 515.39 490.60 514.35Z"/><path id="outline-right" d="M632.98 746.65C632.92 746.59 631.58 746.42 630.00 746.26C615.85 744.84 601.68 738.83 589.00 728.87C582.27 723.58 572.55 713.38 566.68 705.44C557.70 693.30 552.26 684.30 544.88 669.38C538.31 656.10 534.23 646.29 531.00 636.00C526.85 622.76 526.39 621.18 525.38 616.88C525.02 615.36 524.57 613.45 524.37 612.62C522.74 605.80 520.74 592.73 519.51 580.75C518.63 572.19 517.83 555.79 517.69 543.25C517.63 537.91 518.13 520.89 518.36 520.52C518.43 520.41 518.66 517.80 518.87 514.72C519.09 511.64 519.36 508.51 519.49 507.75C519.62 506.99 519.79 505.59 519.88 504.62C520.69 495.36 524.74 475.18 527.49 466.75C528.05 465.03 528.86 462.50 529.29 461.12C530.27 458.00 533.66 448.61 535.26 444.61C538.61 436.19 543.04 427.53 550.33 415.13C555.43 406.47 562.02 396.94 568.59 388.75C575.63 379.98 585.60 369.32 595.31 360.20C604.18 351.86 605.02 351.13 612.75 344.98C626.67 333.91 633.56 329.10 650.75 318.46C659.81 312.85 665.35 309.85 677.62 303.86C691.39 297.15 697.76 294.43 712.75 288.83C728.67 282.88 743.73 279.08 756.25 277.84C762.64 277.21 769.70 277.12 774.09 277.62C789.35 279.33 800.88 284.39 809.76 293.24C816.15 299.61 820.38 307.86 822.34 317.75C825.63 334.38 822.62 350.31 811.44 375.50C803.79 392.73 799.61 403.75 797.16 413.12C795.18 420.74 793.84 427.67 792.48 437.38C790.19 453.79 786.00 470.18 781.48 480.42C776.12 492.58 770.57 500.96 762.57 508.93C758.83 512.67 755.68 515.20 750.55 518.60C743.67 523.16 740.19 524.97 732.75 527.88C725.34 530.76 714.28 533.61 708.50 534.12C704.89 534.43 703.89 535.02 705.05 536.15C705.37 536.46 706.84 537.40 708.33 538.25C712.72 540.72 717.12 543.70 721.12 546.91C733.73 556.99 741.31 566.12 747.72 578.93C751.38 586.25 753.31 592.27 755.38 602.88C756.42 608.20 756.48 622.84 755.50 629.73C754.51 636.61 752.84 644.48 751.25 649.75C750.81 651.19 750.34 652.77 750.20 653.25C749.66 655.14 745.61 665.52 744.21 668.61C737.81 682.69 728.45 696.79 718.25 707.72C714.51 711.72 705.76 719.72 701.50 723.01C692.75 729.78 681.68 736.30 673.38 739.57C661.19 744.37 649.41 746.76 637.98 746.75C635.29 746.75 633.04 746.70 632.98 746.65ZM645.12 732.26C660.71 730.61 676.18 724.28 690.12 713.86C699.00 707.22 706.54 700.03 712.90 692.12C723.27 679.23 729.86 667.64 735.12 653.00C736.67 648.68 739.00 641.08 739.00 640.33C739.00 640.15 739.44 638.00 739.98 635.56C741.70 627.80 741.88 626.08 741.88 617.38C741.88 609.09 741.65 606.54 740.35 600.12C738.83 592.65 735.48 584.84 730.87 578.00C724.24 568.18 716.87 560.69 707.96 554.71C699.03 548.71 685.31 542.22 678.75 540.89C677.86 540.71 676.00 540.27 674.62 539.93C667.69 538.17 654.46 536.49 647.62 536.50C640.87 536.50 626.86 537.49 619.00 538.52C599.84 541.03 578.91 547.50 561.25 556.37C554.87 559.57 549.44 562.67 541.94 567.39C534.54 572.06 534.62 572.00 534.27 572.56C533.83 573.27 533.88 582.79 534.34 585.76C534.54 587.06 534.78 588.97 534.87 590.00C535.12 592.85 536.43 600.64 537.78 607.25C538.19 609.24 538.68 611.66 538.87 612.63C539.90 617.83 546.21 637.76 549.20 645.25C553.42 655.82 561.50 672.10 567.00 681.12C574.52 693.45 584.67 706.30 592.50 713.39C595.00 715.66 599.80 719.53 602.04 721.09C610.60 727.04 621.74 731.36 630.88 732.25C632.52 732.41 633.92 732.59 633.98 732.65C634.26 732.92 641.14 732.68 645.12 732.26ZM543.73 549.82C564.04 538.48 584.86 530.64 605.25 526.65C614.07 524.93 619.63 524.11 624.12 523.88C625.91 523.79 628.06 523.61 628.90 523.48C632.91 522.87 649.39 522.39 675.00 522.12C696.86 521.89 707.19 520.81 718.88 517.50C733.46 513.37 742.72 508.43 751.49 500.10C759.92 492.09 767.53 479.28 771.66 466.15C773.80 459.35 778.00 440.15 778.00 437.21C778.00 436.85 778.21 435.39 778.47 433.96C778.73 432.54 779.19 429.97 779.48 428.25C781.01 419.36 782.44 412.73 783.80 408.12C784.21 406.75 785.09 403.77 785.76 401.50C786.86 397.77 788.57 392.83 789.97 389.30C790.26 388.58 790.50 387.66 790.50 387.27C790.50 385.93 790.23 385.88 784.67 386.20C773.90 386.81 770.74 387.04 766.88 387.50C764.67 387.76 762.26 388.04 761.50 388.12C759.23 388.35 750.07 389.77 745.25 390.63C743.39 390.96 741.42 391.30 740.88 391.39C740.33 391.47 738.30 391.88 736.38 392.28C734.45 392.69 731.81 393.25 730.50 393.52C725.45 394.57 713.66 397.43 709.00 398.74C694.53 402.81 681.31 407.38 669.00 412.57C664.03 414.67 653.74 419.36 649.88 421.29C638.45 427.00 622.02 436.92 613.22 443.41C603.83 450.35 600.48 453.13 591.83 461.17C581.16 471.08 572.11 481.43 563.88 493.12C562.52 495.05 561.00 497.19 560.49 497.89C558.29 500.88 552.49 510.89 548.76 518.12C545.44 524.56 541.58 533.94 539.15 541.43C537.91 545.26 536.25 551.35 536.25 552.06C536.25 552.87 536.75 553.30 537.48 553.12C537.81 553.04 540.63 551.55 543.73 549.82ZM536.59 511.07C537.63 509.04 539.80 505.12 541.40 502.38C543.00 499.62 544.69 496.73 545.15 495.93C547.06 492.61 553.46 483.49 557.56 478.22C566.64 466.57 577.70 454.86 588.01 445.98C592.37 442.23 600.58 435.66 604.31 432.94C608.33 430.01 621.32 421.39 624.35 419.64C625.72 418.86 627.42 417.83 628.15 417.37C630.53 415.84 641.05 410.20 645.62 407.98C652.34 404.73 659.82 401.36 666.75 398.46C682.11 392.04 706.92 384.50 725.88 380.49C727.25 380.20 729.11 379.81 730.00 379.62C730.89 379.43 733.20 378.98 735.12 378.62C737.05 378.27 739.64 377.76 740.88 377.50C744.16 376.80 748.13 376.10 752.25 375.50C754.24 375.21 756.61 374.86 757.50 374.72C758.39 374.59 759.97 374.36 761.00 374.23C762.03 374.09 764.06 373.81 765.50 373.60C766.94 373.39 770.04 373.07 772.38 372.87C774.71 372.68 777.81 372.41 779.25 372.28C780.69 372.15 785.02 371.96 788.87 371.87C796.09 371.70 796.92 371.58 797.80 370.59C798.40 369.92 801.24 363.46 803.13 358.50C805.82 351.42 807.32 346.30 808.54 340.00C809.03 337.46 809.09 336.36 809.08 330.50C809.07 324.67 809.01 323.56 808.52 321.28C806.07 309.62 799.92 301.20 790.38 296.44C781.51 292.01 771.58 290.51 758.54 291.63C749.80 292.38 744.58 293.44 732.62 296.89C723.34 299.57 718.29 301.39 703.88 307.26C695.41 310.71 694.54 311.10 685.88 315.32C673.64 321.29 663.84 326.54 656.62 331.01C648.57 336.00 634.59 345.53 629.17 349.72C627.82 350.77 625.37 352.64 623.74 353.88C612.02 362.79 595.11 378.95 584.94 390.94C574.39 403.39 565.68 416.03 556.76 431.83C551.94 440.37 544.93 457.06 541.78 467.50C540.29 472.43 537.68 483.12 536.65 488.50C536.29 490.36 535.78 493.00 535.51 494.38C534.71 498.44 534.05 502.95 533.87 505.62C533.78 507.00 533.60 508.84 533.47 509.72C533.12 512.07 533.13 514.42 533.49 514.86C534.07 515.56 534.66 514.83 536.59 511.07Z"/></g>
+</symbol></svg>
+<div id="demo"></div>
+<div id="app"><aside id="side"></aside><main id="main"></main><aside id="right"></aside></div>
+<div id="notes"></div>
+<script>
+const ICON={
+ plus:'<path d="M12 5v14M5 12h14"/>',search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+ inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
+ memory:'<path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3z"/><path d="M9.5 21h5M10 17v-3M14 17v-3"/>',
+ skills:'<path d="M14.5 3.5 20.5 9.5 9.5 20.5H3.5v-6z"/><path d="m12 6 6 6"/>',
+ coin:'<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2M12 16v2"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+ panel:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',chev:'<path d="m6 9 6 6 6-6"/>',up:'<path d="m6 15 6-6 6 6"/>',right:'<path d="m9 6 6 6-6 6"/>',
+ more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+ attach:'<path d="m21 11-8.6 8.6a5 5 0 0 1-7-7l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l8-8"/>',
+ send:'<path d="M12 19V5M5 12l7-7 7 7"/>',stop:'<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
+ check:'<path d="M20 6 9 17l-5-5"/>',x:'<path d="M18 6 6 18M6 6l12 12"/>',file:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+ folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+ branch:'<path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/>',
+ cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+ mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+ pause:'<path d="M8 5v14M16 5v14"/>',play:'<path d="m7 4 13 8-13 8z"/>',flag:'<path d="M5 21V4h11l-1.5 4L16 12H5"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',term:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/>',
+ eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+ undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',edit:'<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+ shield:'<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/>',spark:'<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
+ db:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+ chat:'<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+ code:'<path d="m8 8-4 4 4 4M16 8l4 4-4 4"/>',arch:'<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9"/>'
+};
+const ic=(n,s='')=>`<svg class="ic" ${s?`style="${s}"`:''} viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
+const bf=(sz=26)=>`<span class="logo" style="width:${sz}px;height:${sz}px"><svg viewBox="0 0 1024 1024"><use href="#bf"/></svg></span>`;
+const $=s=>document.querySelector(s);
+const NEW=(id,html,tag='div',extra='')=>`<${tag} class="new" ${extra}><span class="tag">${id}</span>${html}</${tag}>`;
+
+const S={scene:'schedule',theme:'light',marks:true,notes:false,
+ selDay:14,openEv:null,planOpen:false,askAns:null,askLeft:118,jobOpen:'j1',
+ rec:false,recT:0,recText:'',wsMenu:false,setTab:'蝶君',persona:'静',pro:'高',uninst:false,keep:'del',advOpen:false,
+ inboxRule:null,restore:null,wbOpen:{},rowOpen:{x1:true},src:false,
+ tip:1,ed:'open',ob:0,obT:'',obA:'',noModel:false,tried:false,quota:false,fill:'',mSpend:'B',skSel:'sk1',g3:'B',thPick:'qiandie'};
+
+const SCENES=[
+ ['schedule','日程与巡检'],['goal','蝶君对话里的目标'],['inbox','等你处理'],['voice','语音输入'],
+ ['settings','设置'],['skills','技能和记忆'],['wizard','首次启动'],['workbench','工作台侧栏'],['process','回复里的过程'],['onboard','首次上手'],['managed','托管版对照'],['skillsx','技能和服务'],['themes','名画主题'],
+];
+
+/* ---------- sidebar ---------- */
+function side(space,opts={}){
+ const wb=space==='wb';
+ const convs=opts.convs||(wb?[]:[{t:'每天提醒吃药',st:''},{t:'整理三款温湿度传感器对比',st:'run',on:opts.active==='goal'},{t:'学 Silero 语音检测',st:'pause'},{t:'整理组会纪要模板',st:'block'}]);
+ const convHTML=convs.map(c=>{
+  const row=`<div class="conv ${c.on?'on':''} ${c.child?'child':''}">${c.child?ic('branch','width:13px;height:13px;color:var(--muted)'):''}${c.st?`<span class="st ${c.st}" title="${{run:'在推进',pause:'暂停了',block:'卡住了'}[c.st]}"></span>`:''}<span class="t">${c.t}</span>${c.on?ic('more','color:var(--muted)'):''}</div>`;
+  return c.mark?NEW(c.mark,row):row;}).join('');
+ return `<div class="brand">${bf()}DreamFlutter<small>梦蝶</small></div>
+ <div class="seg"><button class="${wb?'on':''}">工作台</button><button class="${wb?'':'on'}">蝶君</button></div>
+ ${wb?`<div style="position:relative">${opts.wsMark?NEW('G2',`<button class="wsbtn" data-a="ws">${ic('folder')}<span class="n">毕设-传感器数据</span>${ic('chev')}</button>`):`<button class="wsbtn">${ic('folder')}<span class="n">毕设-传感器数据</span>${ic('chev')}</button>`}${S.wsMenu?wsMenu():''}</div>`:''}
+ <button class="nav">${ic('plus')}新对话</button>
+ <button class="nav ${opts.nav==='inbox'?'on':''}">${ic('inbox')}等你处理<span class="badge">4</span></button>
+ ${!wb?NEW('D1',`<button class="nav ${opts.nav==='cal'?'on':''}" style="width:100%;margin:0">${ic('cal')}日程</button>`,'div','style="margin:0 4px"'):''}
+ <div class="search">${ic('search')}搜索</div>
+ <div class="grp">今天</div>${opts.convMark?NEW(opts.convMark,convHTML):convHTML}
+ <div class="bottom"><button class="${opts.bottom==='mem'?'on':''}">${ic('memory')}记忆</button><button class="${opts.bottom==='sk'?'on':''}">${ic('skills')}技能</button><button>${ic('coin')}花费</button><button class="${opts.bottom==='set'?'on':''}">${ic('gear')}设置</button></div>`;
+}
+function wsMenu(){
+ const rows=[['毕设-传感器数据',6,1],['iot-gateway',3,0],['论文写作',11,2]];
+ return `<div class="menu" style="left:8px;top:46px">${rows.map(([n,c,r])=>`<div class="mi">${ic('folder')}${n}<span class="c">${r?`<span class="st run" style="width:7px;height:7px;border-radius:50%;display:inline-block"></span>${r} 个在运行 · `:''}${c} 个对话</span></div>`).join('')}<div class="mi" style="border-top:1px solid var(--line2);margin-top:4px;color:var(--accent)">${ic('plus')}打开文件夹…</div></div>`;
+}
+function composer(opts={}){
+ const recUI=S.rec?`<div class="wave" id="wave">${Array.from({length:42},()=>'<i style="height:4px"></i>').join('')}</div><span class="rectime">${fmt(S.recT)}</span>`:'';
+ const ta=S.rec?`<textarea rows="1" readonly>${S.recText?S.recText+'':''}</textarea>`:`<textarea rows="1" placeholder="说点什么…">${S.recText}</textarea>`;
+ const mic=`<button class="mic ${S.rec?'rec':''}" data-a="mic" title="${S.rec?'结束':'说话'}">${ic(S.rec?'stop':'mic')}</button>`;
+ return `<div class="composer ${S.rec?'rec':''}">${ta}<div class="crow">
+  <button class="ibtn">${ic('attach')}</button>${opts.wb?`<span class="chip">无痕</span><span class="chip on">${ic('shield','width:13px;height:13px')}先问我</span>`:''}
+  ${S.rec?recUI:'<span style="flex:1"></span>'}
+  ${opts.mic?NEW('E1',mic,'span','style="border-radius:50%"'):''}
+  ${S.rec?'':`<span class="chip">DeepSeek V4.1 Flash · OpenCode Go ${ic('chev','width:12px;height:12px')}</span><span class="chip">思考 · 中</span>`}
+  <button class="send">${ic('send')}</button></div></div>`;
+}
+const fmt=t=>`${String(Math.floor(t/60)).padStart(1,'0')}:${String(t%60).padStart(2,'0')}`;
+
+/* ---------- scenes ---------- */
+const V={};
+V.schedule=()=>{
+ const days=[];const first=0;// Nov 2026 starts Sunday -> use Mon-first grid: 26..31 Oct + ...
+ const lead=[26,27,28,29,30,31];
+ lead.forEach(d=>days.push({d,out:true}));
+ for(let d=1;d<=30;d++)days.push({d});
+ while(days.length%7)days.push({d:days.length-35,out:true});
+ const evs={3:[['周一组会纪要','past']],10:[['周一组会纪要','past']],12:[['交传感器对比','fail']],14:[['14:00 导师见面','']],17:[['周一组会纪要','']],20:[['交周报','']],24:[['周一组会纪要','']]};
+ const cells=days.map(x=>{
+  const e=!x.out&&evs[x.d]?evs[x.d].map(([t,c])=>`<div class="e ${c}">${t}</div>`).join(''):'';
+  return `<div class="day ${x.out?'out':''} ${!x.out&&x.d===13?'today':''} ${!x.out&&x.d===S.selDay?'sel':''}" data-a="day" data-d="${x.out?'':x.d}"><span class="d">${x.d}</span>${e}</div>`;}).join('');
+ const items=S.selDay===14?[
+  ['08:00','提醒吃药','每天 · 提醒，不叫模型','已提醒','ok','e1'],
+  ['12:00','提醒吃药','每天 · 提醒','已提醒','ok','e1'],
+  ['14:00','导师见面','你建的 · 提醒','','','e2'],
+  ['18:00','提醒吃药','每天 · 提醒','','','e1'],
+  ['22:00','提醒吃药','每天 · 提醒','','','e1'],
+ ]:S.selDay===12?[['09:00','交传感器对比','蝶君做 · 任务','没做成：网页打不开','bad','e3']]:[['','这天没有安排','','','','']];
+ const open=S.openEv,isNew=open==='new';
+ const mode=S.evMode??(open==='e3'?'do':'remind');
+ const det=open?`<div class="det">
+   <div class="f"><label>名称</label><input value="${isNew?'':open==='e1'?'提醒吃药':open==='e2'?'导师见面':'交传感器对比'}"></div>
+   <div class="f"><label>时间</label><input placeholder="明天下午3点" value="${isNew?'':open==='e1'?'每天 08:00、12:00、18:00、22:00':open==='e2'?'11月14日 14:00':'11月12日 09:00'}"></div>
+   <div class="f"><label>方式</label><select data-a="mode"><option value="remind" ${mode==='remind'?'selected':''}>到点提醒我</option><option value="do" ${mode==='do'?'selected':''}>蝶君去做</option></select></div>
+   ${mode==='do'?`<div class="f ftop"><label>要做的事</label><textarea rows="2">${isNew?'':open==='e3'?'把三款传感器的精度、量程、价格做成对比表，放进交付':''}</textarea></div>`:''}
+   <div class="acts"><button class="btn pri">保存</button>${isNew?'':`<button class="btn">${ic('play','width:12px;height:12px')} 现在做一次</button><button class="btn warn">删除</button>`}</div>
+   ${isNew?'':`<div class="hist">${ic('undo','width:12px;height:12px;vertical-align:-2px')} 11月11日 蝶君把 21:00 改成 22:00（你同意的） · <a class="lnk">撤销这次修改</a></div>`}</div>`:'';
+ return {side:side('dj',{nav:'cal'}),right:null,main:`<div class="top"><span class="crumb">蝶君 / <b>日程</b></span><span class="sp"></span></div>
+ <div class="scroll"><div class="page">
+  <div class="ph"><div><h1>朝暮</h1><span class="plain">日程</span></div><span class="sp"></span><button class="btn pri" data-a="newEv">${ic('plus','width:13px;height:13px;vertical-align:-2px')} 新建</button></div>
+  ${NEW('D3',`<div class="patrol"><span class="dot"></span>巡检 14:30 完毕，无需行动<span style="color:var(--muted)">· 下次 15:00</span><span style="flex:1"></span><a class="lnk" data-a="log">${S.logOpen?'收起记录':'巡检记录'}</a><a class="lnk">现在巡检</a></div>${S.logOpen?`<div class="log" style="margin:-6px 0 12px"><div><span>14:30</span>无需行动</div><div><span>14:00</span>发现「整理组会纪要模板」卡住 2 小时，已通知你</div><div><span>13:30</span>无需行动</div><div><span>13:00</span>夜间不打扰时段结束，补看了 1 条未读交付</div></div>`:''}`)}
+  ${NEW('D2',`<div class="daily"><span class="lbl">每天</span><span class="ev remind" data-a="ev" data-e="e1">${ic('clock','width:12px;height:12px')}提醒吃药 08:00 · 12:00 · 18:00 · 22:00</span><span class="ev" data-a="ev" data-e="e3">每周一 09:00 组会纪要</span></div>
+  <div class="cal"><div class="month"><div class="mh"><button class="ibtn">${ic('right','transform:rotate(180deg)')}</button><b>2026 年 11 月</b><button class="ibtn">${ic('right')}</button><span style="flex:1"></span><button class="btn">今天</button></div>
+   <div class="grid7">${['一','二','三','四','五','六','日'].map(w=>`<div class="wd">${w}</div>`).join('')}${cells}</div></div>
+   <div class="daylist"><h3>11 月 ${S.selDay} 日<span class="sp"></span></h3>
+    ${items.map(([tm,t,s,r,rc,id])=>`<div class="it" data-a="ev" data-e="${id}"><span class="tm">${tm}</span><span class="w">${t}<div>${s}</div></span><span class="r ${rc}">${r}</span></div>`).join('')}
+    ${det}</div></div>`)}
+ </div></div>`};
+};
+V.goal=()=>{
+ const ask=S.askAns?`<div class="done-ask">${ic('check','width:13px;height:13px;vertical-align:-2px;color:var(--ok)')} 你选了「${S.askAns}」</div>`:
+ NEW('C4',`<div class="ask"><div class="q">${ic('info','color:var(--accent)')}三款里有一款只在海外卖，要算进对比吗？<span class="timer">${fmt(S.askLeft)} 后按「先不算」继续</span></div>
+  <div class="opts"><button class="opt" data-a="ans" data-v="算进去">算进去<small>运费按 60 元估</small></button><button class="opt on" data-a="ans" data-v="先不算">先不算<small>默认</small></button><button class="opt" data-a="ans" data-v="换一款国内的">换一款国内的<small>我来挑</small></button></div>
+  <div class="row"><input placeholder="自己回答…"><a class="lnk" data-a="ans" data-v="跳过">跳过</a></div></div>`);
+ const plan=[['读三款的规格书','d'],['抓京东、淘宝的价格','d'],['整理成对比表','c'],['写推荐结论',''],['交付 report.md','']];
+ const planHTML=NEW('C3',`<div class="plan"><div class="h" data-a="plan">${ic('flag','width:13px;height:13px')}计划 2/5${S.planOpen?'':'<span style="color:var(--ink)">· 正在：整理成对比表</span>'}<span class="bar"><i style="width:40%"></i></span>${ic(S.planOpen?'chev':'up','width:13px;height:13px')}</div>${S.planOpen?`<ul>${plan.map(([t,c])=>`<li class="${c}"><span class="ck">${c==='d'?ic('check','width:10px;height:10px'):''}</span>${t}</li>`).join('')}</ul>`:''}</div>`);
+ return {side:side('dj',{active:'goal',convMark:'C2'}),
+ main:`<div class="top"><span class="crumb">蝶君 / <b>整理三款温湿度传感器对比</b></span><span class="sp"></span><button class="ibtn on">${ic('panel')}</button></div>
+ <div class="scroll"><div class="chat">
+  ${NEW('B3',`<div class="proactive">今天 09:12 · 蝶君来找你</div><div class="a">早上好。昨晚空闲的时候我把 SHT40 的数据手册读完了，它的湿度精度比 DHT22 高一截，正好能用在你的传感器对比里。要我顺手把它加进去吗？<div class="meta">DeepSeek V4.1 Flash · 09:12</div></div>`)}
+  <div class="u"><div>加进去吧，三款一起对比，下午之前给我一份报告</div></div>
+  <div class="a"><div class="proc">${ic('check','width:13px;height:13px')}读取 3 份规格书 · 运行 2 条命令</div>好，这件事我按目标来推进，做完会核对交付再告诉你。先抓了一轮价格，画了张对比图：
+  ${NEW('C7',`<div class="shot"><div class="chart"><i style="height:40%"></i><i style="height:72%"></i><i style="height:55%"></i><i style="height:90%"></i><i style="height:35%"></i><i style="height:62%"></i></div><div class="cap">price.png · python scripts/plot.py</div></div>`)}
+  <div class="meta">DeepSeek V4.1 Flash · 41 秒 · 10:05</div></div>
+  ${NEW('D4',`<div class="hint"><span class="ln"></span>${ic('cal','width:13px;height:13px')}建了日程「下午 3 点交传感器报告」<a data-a="go" data-s="schedule">看日程</a><span class="ln"></span></div>`)}
+  ${ask}
+ </div></div>
+ <div class="cwrap">${planHTML}${composer()}</div>`,
+ right:`<div class="rh">这个对话<span class="sp"></span><button class="ibtn">${ic('x')}</button></div>
+  ${NEW('C1',`<div class="blk"><h5>${ic('flag')}目标<span class="sp"></span><small>在推进</small></h5><div class="card goal">
+   <div class="stage">整理对比表</div>
+   <div style="font-size:12.5px;color:var(--ink2)">三款温湿度传感器的规格和价格对比，写成 report.md</div>
+   <div class="next">下一步：等你回答海外那款算不算</div>
+   <div class="kv"><span>预算</span><span>$0.06 / $0.50</span></div><div class="meter"><i style="width:12%"></i></div>
+   <div class="kv"><span>用时</span><span>14 分</span></div>
+   <div class="acts"><button class="btn">${ic('pause','width:12px;height:12px;vertical-align:-2px')} 暂停目标</button><button class="btn warn">停止目标</button><button class="ibtn" data-a="estop" title="更多">${ic('more')}</button></div>
+   ${S.estop?`<div class="card" style="margin-top:8px;border-color:var(--seal)"><b style="color:var(--seal);font-size:13px">紧急停止</b><div style="font-size:12.5px;color:var(--ink2);margin:4px 0">停下所有目标（蝶君和工作台）和后台任务，正在发的请求会取消。已经写好的文件不会删。</div><div class="acts"><button class="btn warn">全部停下</button><button class="btn" data-a="estop">算了</button></div></div>`:''}
+  </div></div>`)}
+  ${NEW('C6',`<div class="blk"><h5>${ic('term')}后台任务<span class="sp"></span><small>2 个在跑</small></h5><div class="card">
+   <div class="job"><span class="st run" style="width:7px;height:7px;border-radius:50%"></span><span class="n"><code>python crawl_prices.py</code><div>3 分 12 秒</div></span><button class="ibtn" data-a="job" data-j="j1">${ic('eye')}</button><button class="ibtn">${ic('stop')}</button></div>
+   ${S.jobOpen==='j1'?`<div class="out">[jd] SHT40 ¥23.8\n[jd] DHT22 ¥12.5\n[tb] BME280 ¥31.0\n[tb] 第 4 页…</div>`:''}
+   <div class="job"><span class="st run" style="width:7px;height:7px;border-radius:50%"></span><span class="n">子任务：读 BME280 规格书<div>1 分 40 秒</div></span><button class="ibtn" data-a="job" data-j="j2">${ic('eye')}</button><button class="ibtn">${ic('stop')}</button></div>
+   <div class="job dim"><span class="n"><code>pip install pandas</code><div>结束 · 18 秒</div></span></div>
+  </div></div>`)}
+  <div class="blk"><div class="card ok"><div class="file">${ic('check','color:var(--ok)')}<b style="font-weight:500">交付</b><span style="margin-left:auto;font-size:12px;color:var(--muted)">还没有</span></div></div></div>
+  <div class="blk"><h5>下午 3 点交传感器报告</h5><div style="font-size:12px;color:var(--muted)">今天 15:00</div><div class="acts"><a class="lnk">暂停</a><a class="lnk" style="margin-left:14px">删除</a></div></div>`};
+};
+V.inbox=()=>{
+ const rule=S.inboxRule?`<div class="icard decide"><div class="from">蝶君 · 规则</div><div class="what">${S.inboxRule==='obs'?'规则已开始观察：命中时只记一笔，不动手':'没采用这条规则'}</div></div>`:
+ NEW('B2',`<div class="icard decide"><div class="from">蝶君 · 起草了一条规则</div><div class="what">要不要让蝶君以后自动做这件事？</div>
+  ${S.ruleEdit?`<div class="redit"><div class="f"><label>名称</label><input value="工作日 9 点整理新纪要"></div><div class="f"><label>要做的事</label><textarea rows="3">工作日早上 9 点，把「资料/组会」文件夹里的新纪要整理成要点，只读原件，结果放进交付，不对外发送。</textarea></div></div>
+  <div class="acts"><button class="btn pri" data-a="ruleEdit">保存</button><button class="btn" data-a="ruleEdit">取消</button></div></div>`:`<div class="rule">工作日早上 9 点，把「资料/组会」文件夹里的新纪要整理成要点，只读原件，结果放进交付，不对外发送。</div>
+  <div class="acts"><button class="btn pri" data-a="rule" data-v="obs">先观察</button><button class="btn" data-a="ruleEdit">改一改</button><button class="btn" data-a="rule" data-v="no">不要</button></div></div>`}`);
+ return {side:side('dj',{nav:'inbox'}),right:null,main:`<div class="top"><span class="crumb">蝶君 / <b>等你处理</b></span></div>
+ <div class="scroll"><div class="ib">${NEW('B6',`
+  <h2>${ic('flag','color:var(--accent)')}待你决定 · 2</h2>
+  <div class="icard decide"><div class="from">蝶君 · 整理三款温湿度传感器对比</div><div class="what">海外那款要算进对比吗？</div><div class="why">不算的话 14:20 后按「先不算」继续</div><div class="acts"><button class="btn">算进去</button><button class="btn pri">先不算</button><button class="btn">去对话里说</button></div></div>
+  ${rule}
+  <h2>${ic('x','color:var(--seal)')}卡住了 · 1</h2>
+  <div class="icard block"><div class="from">蝶君 · 整理组会纪要模板</div><div class="what">找不到「资料/组会」文件夹</div><div class="why">你上周把它挪走了？给我新位置就能接着做</div><div class="acts"><button class="btn pri">选文件夹</button><button class="btn">暂停这个目标</button></div></div>
+  <h2>${ic('check','color:var(--ok)')}等你验收 · 1</h2>
+  <div class="icard accept"><div class="from">蝶君 · 学 Silero 语音检测</div><div class="what">学习笔记写好了，程序核对过 3 项证据</div><div class="why">silero-notes.md · 4.2 KB · 附 2 段可运行的示例</div><div class="acts"><button class="btn pri">打开看看</button><button class="btn">收下</button><button class="btn">还要改</button></div></div>`)}
+ </div></div>`};
+};
+V.voice=()=>({side:side('wb',{convs:[{t:'ESP32 MQTT 断线重连',on:true}]}),right:null,main:`<div class="top"><span class="crumb">工作台 / <b>ESP32 MQTT 断线重连</b></span><span class="sp"></span><button class="ibtn">${ic('panel')}</button></div>
+ <div class="scroll"><div class="chat"><div class="u"><div>网关掉线以后 ESP32 不会自动重连，帮我看下 src/mqtt.cpp</div></div>
+ <div class="a">原来的 <code>loop()</code> 里只在启动时连一次 broker。我加了指数退避重连（1 秒起，最长 60 秒），重连成功后重新订阅主题。<div class="meta">DeepSeek V4.1 Flash · 22 秒 · 10:41</div></div></div></div>
+ <div class="cwrap">${composer({wb:true,mic:true})}</div>`});
+V.settings=()=>{
+ const tabs=[['通用','gear'],['模型','spark'],['工作台','chat'],['蝶君','spark'],['记忆','memory'],['数据与安全','folder'],['归档/回收','arch'],['关于与更新','info'],['开发者选项','code']];
+ const P={静:'嗯，资料都整理好了。还差一项，明天你确认就行。',暖:'辛苦啦！两份资料都整理好了，还差一项明天等你看看，不急哦～',利落:'两份已完成，1 项待你明天确认。',灵动:'两份资料已经乖乖排好队啦，只剩一位等你明天点名～'};
+ let body='';
+ if(S.setTab==='蝶君'){
+  body=`${NEW('B1',`<div class="sh">${bf(14)}性格</div><div class="scard"><div class="pgrid">${Object.keys(P).map(k=>`<button class="pc ${S.persona===k?'on':''}" data-a="persona" data-v="${k}"><b>${k}</b><p>${{静:'安静可靠，话少',暖:'亲切，关心你',利落:'只说结论和下一步',灵动:'活泼，爱用比喻'}[k]}</p></button>`).join('')}</div><div class="bubbles"><span class="me">资料整理得怎么样了？</span><span class="bf">${P[S.persona]}</span></div></div>
+  <div class="sh">${bf(14)}主动</div><div class="scard">
+   <div class="srow"><span class="l">主动性</span><span class="sg">${['低','中','高'].map(v=>`<button class="${S.pro===v?'on':''}" data-a="pro" data-v="${v}">${v}</button>`).join('')}</span></div>
+   <div class="srow" style="padding-top:0;border-top:0;font-size:12.5px;color:var(--muted)">${{低:'只做你交代的事和规则命中的事。',中:'再按你给的长期目标自己往前推。',高:'再加空闲时自己学、写技能，有发现会来找你聊，每天最多 5 次。'}[S.pro]}</div>
+   <div class="srow"><span class="l">自己做事每天最多花<small>到了就停，第二天再接着做</small></span><span class="val">$0.50 ${ic('chev','width:12px;height:12px')}</span></div>
+  </div>`)}
+  ${NEW('B7',`<div class="sh">${bf(14)}长期目标</div><div class="scard"><div class="srow"><span class="l">把传感器选型的门道摸清楚<small>空闲时自己学 · 上次 昨天 23:10</small></span><span class="toggle on"></span></div><div class="srow"><span class="l">熟悉 GB/T 7714 的细节<small>暂停了</small></span><span class="toggle"></span></div><div class="srow"><span class="l" style="color:var(--accent)">${ic('plus','width:13px;height:13px;vertical-align:-2px')} 加一个</span></div></div>
+  <div class="sh dim">${bf(14)}长期目标（没有时）</div><div class="scard"><div class="srow" style="display:block"><div class="inset">还没有。比如：把传感器选型的门道摸清楚。</div></div><div class="srow"><span class="l" style="color:var(--accent)">${ic('plus','width:13px;height:13px;vertical-align:-2px')} 加一个</span></div></div>`)}
+  ${NEW('B2',`<div class="sh">${bf(14)}规则</div><div class="scard">
+   ${[['工作日 9 点整理新纪要','观察'],['「资料/论文」有新 PDF 时做摘要','自动'],['每周五提醒备份','关']].map(([t,v])=>`<div class="srow"><span class="l">${t}</span><span class="sg">${['关','观察','自动'].map(x=>`<button class="${x===v?'on':''}">${x}</button>`).join('')}</span></div>`).join('')}
+  </div>`)}
+  ${NEW('D5',`<div class="sh">${bf(14)}日程与巡检</div><div class="scard">
+   <div class="srow"><span class="l">巡检</span><span class="toggle on"></span></div>
+   <div class="srow"><span class="l">多久一次</span><span class="val">30 分钟 ${ic('chev','width:12px;height:12px')}</span></div>
+   <div class="srow"><span class="l">夜间不打扰<small>这段时间不来找你，你让它提醒的事除外</small></span><span class="toggle on"></span></div>
+   <div class="srow sub"><span class="l">开始</span><span class="val">23:00 ${ic('clock','width:13px;height:13px')}</span></div>
+   <div class="srow sub"><span class="l">结束</span><span class="val">07:30 ${ic('clock','width:13px;height:13px')}</span></div>
+   <div class="srow"><span class="l">提醒到点时</span><span class="val">系统通知 ${ic('chev','width:12px;height:12px')}</span></div>
+   <button class="fold" data-a="adv">${ic(S.advOpen?'chev':'right','width:13px;height:13px')}高级</button>
+   ${S.advOpen?`<div class="srow"><span class="l">巡检用的模型</span><span class="val">小任务模型</span></div><div class="srow"><span class="l">巡检每天最多花</span><span class="val">$0.20</span></div><div class="srow"><span class="l">等你处理放多久算久</span><span class="val">1 天</span></div><div class="srow"><span class="l">错过的日程</span><span class="val">补做一次</span></div><div class="srow"><span class="l">记录保留</span><span class="val">30 天</span></div>`:''}
+  </div>`)}
+  <div class="sh dim">${bf(14)}沙箱</div><div class="scard dim"><div class="srow"><span class="l">蝶君沙箱<small>已就绪</small></span><span class="val">自检</span></div></div>`;
+ }else if(S.setTab==='通用'){
+  body=`<div class="sh dim">${bf(14)}你</div><div class="scard dim"><div class="srow"><span class="l">称呼</span><span class="val">未设置</span></div></div>
+  ${NEW('E2',`<div class="sh">${bf(14)}语音输入</div><div class="scard">
+   <div class="srow"><span class="l">识别方式</span><span class="sg"><button class="${S.cloud?'':'on'}" data-a="cloud" data-v="0">本机</button><button class="${S.cloud?'on':''}" data-a="cloud" data-v="1">云端</button></span></div>
+   ${S.cloud?`<div class="srow"><span class="l">服务</span><span class="val">阿里云百炼 ${ic('chev','width:12px;height:12px')}</span></div><div class="srow"><span class="l">Key</span><span class="val">填写</span></div>`:`<div class="srow" style="font-size:12.5px;color:var(--muted);border-top:0;padding-top:0">声音不出这台电脑，不花钱。</div>`}
+  </div>`)}
+  <div class="sh dim">${bf(14)}外观</div><div class="scard dim"><div class="srow"><span class="l">明暗</span><span class="val">跟随系统</span></div></div>`;
+ }else if(S.setTab==='数据与安全'){
+  body=`<div class="sh dim">${bf(14)}备份</div><div class="scard dim"><div class="srow"><span class="l">备份</span><span class="val">备份 · 恢复</span></div></div>
+  <div class="sh dim">${bf(14)}存储位置</div><div class="scard dim"><div class="srow"><span class="l">数据目录</span><span class="val">默认</span></div></div>
+  ${NEW('F1',`<div class="sh">${bf(14)}卸载</div><div class="scard"><div class="srow"><span class="l">卸载 DreamFlutter</span><button class="btn warn" data-a="uninst">卸载…</button></div></div>`)}`;
+ }else body=`<div style="color:var(--muted);padding:40px 0">这一组照 0.8.3 原样，不改。</div>`;
+ const dlg=S.uninst?`<div class="scrim"><div class="dlg"><h3>卸载 DreamFlutter</h3>
+  <div class="radio ${S.keep==='del'?'on':''}" data-a="keep" data-v="del"><span>●</span><div>全部清干净<small>对话、记忆、设置、蝶君沙箱都删除。</small></div></div>
+  <div class="radio ${S.keep==='keep'?'on':''}" data-a="keep" data-v="keep"><span>●</span><div>保留我的数据<small>只删程序和蝶君沙箱。以后在原位置重装，可以找回。</small></div></div>
+  <div class="acts"><button class="btn" data-a="uninst">取消</button><button class="btn warn" style="border-color:var(--seal)">卸载</button></div></div></div>`:'';
+ return {side:side('wb',{bottom:'set',convs:[{t:'新对话'}]}),right:null,main:`<div class="top"><span class="crumb">设置</span></div><div class="scroll"><div class="page" style="max-width:1000px">
+  <div class="ph"><div><h1>一方天地</h1><span class="plain">设置</span></div></div>
+  <div class="set" style="padding:0;max-width:none"><div class="snav">${tabs.map(([t,i])=>`<button class="${S.setTab===t?'on':''}" data-a="tab" data-v="${t}">${ic(i)}${t}</button>`).join('')}</div><div>${body}</div></div></div></div>${dlg}`};
+};
+V.skills=()=>({side:side('wb',{bottom:'sk',convs:[{t:'新对话'}]}),right:null,main:`<div class="top"><span class="crumb">技能</span></div><div class="scroll"><div class="slist">
+ <div class="ph"><div><h1>百工</h1><span class="plain">技能</span></div></div>
+ <div class="sk"><span class="n">周报卡片<small>把周报、简报做成排版好的卡片 · 内置</small></span><span class="pill">可用</span></div>
+ <div class="sk"><span class="n">Excel 表格处理<small>读写 xlsx、批量清洗和汇总表格 · 内置</small></span><span class="pill">可用</span></div>
+ ${NEW('B4',`<div class="sk"><span class="n">规格书要点提取<small>从传感器规格书里抽精度、量程、接口、价格 · 测过 6 份样例</small></span><span class="pill bf">蝶君写的</span><button class="btn pri">也给工作台用</button></div>
+ <div class="sk"><span class="n">组会纪要整理<small>按模板把录音转写整理成要点 · 测过 3 份样例</small></span><span class="pill bf">蝶君写的</span><span class="pill">工作台也在用</span></div>`)}
+ <div class="ph" style="margin-top:28px"><div><h1>记忆</h1><span class="plain">记忆页，只加一个分组</span></div></div>
+ ${NEW('B5',`<div class="daily"><span class="lbl">分组</span><span class="ev">全部</span><span class="ev">关于你</span><span class="ev">项目</span><span class="ev remind">蝶君自己记的</span></div>
+ <div class="sk"><span class="n">SHT40 湿度精度 ±1.8%，比 DHT22 高一截<small>蝶君空闲学习时记的 · 来源：学 Silero 语音检测 → SHT40 数据手册</small></span><button class="ibtn">${ic('edit')}</button><button class="ibtn">${ic('x')}</button></div>`)}
+ </div></div>`});
+V.wizard=()=>({side:'',right:null,main:`<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">${S.restore===null?NEW('F2',`<div class="wz"><div style="text-align:center">${bf(44)}</div><h2>欢迎回来</h2><div class="sub">在原来的位置找到了上次保留的数据</div>
+  <div class="card" style="margin:8px 0"><div class="kv"><span>保存时间</span><span>2026年11月10日 21:14</span></div><div class="kv"><span>大小</span><span>1.3 GB</span></div><div class="kv"><span>里面有</span><span>82 个对话 · 214 条记忆 · 2 个渠道</span></div></div>
+  <div class="acts" style="justify-content:center;margin-top:16px"><button class="btn pri" data-a="restore" data-v="yes">找回来</button><button class="btn" data-a="restore" data-v="no">重新开始</button></div></div>`):
+  S.restore==='no'?`<div class="wz"><h2>重新开始</h2><div class="sub">保留的数据还放在原处，不会删除：<br><code style="font-family:var(--mono);font-size:12px">%LOCALAPPDATA%\\DreamFlutter.preserved-data</code></div><div class="acts" style="justify-content:center"><button class="btn pri" data-a="restore" data-v="next">继续</button></div></div>`:S.restore==='yes'?`<div class="wz"><div style="text-align:center">${bf(44)}</div><h2>正在找回</h2><div class="sub">搬回对话、记忆和设置，完成后后台会重启一次</div><div class="meter" style="height:6px"><i style="width:62%"></i></div><div class="acts" style="justify-content:center;margin-top:14px"><button class="btn" data-a="restore" data-v="reset">（演示）回到第一步</button></div></div>`:
+  NEW('B1',`<div class="wz"><div style="text-align:center">${bf(44)}</div><h2>蝶君</h2><div class="sub">选一种说话的样子，以后可以在设置里改</div>
+  <div class="pgrid" style="grid-template-columns:repeat(2,1fr)">${['静','暖','利落','灵动'].map(k=>`<button class="pc ${S.persona===k?'on':''}" data-a="persona" data-v="${k}"><b>${k}</b><p>${{静:'嗯，资料都整理好了。',暖:'辛苦啦，都整理好了～',利落:'已完成，1 项待确认。',灵动:'资料乖乖排好队啦～'}[k]}</p></button>`).join('')}</div>
+  <div class="acts" style="justify-content:center"><button class="btn pri">下一步</button><button class="btn" data-a="restore" data-v="reset">（演示）回到第一步</button></div></div>`)}</div>`});
+V.workbench=()=>({side:side('wb',{wsMark:true,convMark:'G1',convs:[{t:'整理本周温湿度数据成周报',on:true},{t:'问一下：露点温度怎么算',child:true},{t:'分支：换成 pandas 实现',child:true},{t:'ESP32 MQTT 断线重连',st:'run'},{t:'第三章 文献综述润色'}]}),
+ right:null,main:`<div class="top"><span class="crumb">工作台 / <b>整理本周温湿度数据成周报</b></span><span class="sp"></span>${NEW('G2',`<button class="btn">${ic('branch','width:13px;height:13px;vertical-align:-2px')} 分支</button>`,'span','style="border-radius:8px"')}<button class="ibtn">${ic('panel')}</button></div>
+ <div class="scroll"><div class="chat"><div class="u"><div>把 data/raw 里这周的温湿度数据整理成周报，结论写进 reports/周报-W45.md</div></div>
+ <div class="a">W45 周报已经写好。这周室内温度整体平稳，湿度在周三雨天明显升高，夜间露点接近 18 ℃，实验柜需要注意防潮。<div class="meta">DeepSeek V4.1 Flash · 38 秒 · 10:12</div></div></div></div>
+ <div class="cwrap">${composer({wb:true,mic:true})}</div>`});
+
+/* K: the work block in a reply. Paths: folders may be cut short, the file name never is. */
+const P=(dir,fn)=>`<span class="p" title="${dir}${fn}"><span class="dir">${dir}</span><span class="fn">${fn}</span></span>`;
+const SR=(o)=>{
+ const id=o.id,open=id&&S.rowOpen[id];
+ const lead=o.lead||ic(o.icon,'').replace('class="ic"','class="ic lead"');
+ const row=`<div class="sr ${o.cls||''} ${o.body?'click':''}" ${o.body?`data-a="row" data-v="${id}"`:''}>${lead}<span class="v">${o.verb}</span>${o.what||''}<span class="r">${o.right||''}${o.body?ic(open?'up':'chev','width:12px;height:12px'):''}</span></div>`;
+ return row+(open&&o.body?o.body:'');
+};
+const WB=(k,o)=>{
+ const open=S.wbOpen[k]??o.open;
+ const head=`<button class="wb-h" data-a="wb" data-v="${k}">${o.mark}<span class="t">${o.title}</span>${o.err?`<span class="e">${o.err}</span>`:''}${o.n?`<span class="n">${o.n}</span>`:''}${ic('chev','width:14px;height:14px').replace('class="ic"','class="ic chev"')}</button>`;
+ return `<div class="wb ${open?'open':''} ${o.err?'err':''}">${head}${open?`<div class="wb-b">${o.rows}</div>`:''}</div>`;
+};
+const OK=ic('check','width:13px;height:13px;color:var(--ok)');
+V.process=()=>{
+ const think=(id,sec,text)=>SR({id,icon:'spark',verb:`<span class="think-l">思考 · ${sec} 秒</span>`,body:`<div class="think">${text}</div>`});
+ const read=(dir,fn,t)=>SR({icon:'file',verb:'读取',what:P(dir,fn),right:`${t}${OK}`});
+ const doneRows=(p)=>[
+  think(p+'t1',4,'先看这周有哪几天的数据：raw 下面按月分了文件夹，11 月的文件名带周次。周三下过雨，湿度应该会有一段明显升高，汇总时要单独标出来。'),
+  read('data/raw/2026-11/','传感器-温湿度-第45周.csv','0.2 秒'),
+  read('data/raw/2026-11/','1110.csv','0.1 秒'),
+  read('reports/','周报-W44.md','0.1 秒'),
+  SR({id:p+'c1',icon:'term',verb:'运行',what:`<span class="p"><span class="fn">python scripts/summary.py --week 45</span></span>`,right:`3.1 秒${OK}`,body:`<div class="out">读取 7 天 · 2016 条记录\n平均温度 22.4 ℃，湿度 61.8 %\n周三 19:00–次日 06:00 湿度超限 14 次</div>`}),
+  think(p+'t2',2,'超限集中在夜间，露点接近 18 ℃，结论里提醒实验柜防潮。'),
+  SR({id:p+'e1',icon:'edit',verb:'修改',what:P('reports/','周报-W45.md'),right:`<span class="add">+12</span><span class="del">−1</span>${OK}`,body:`<div class="out"> 温度：22.4 ℃（+0.6）\n-湿度：待补充\n+湿度：61.8 %，周三夜间 14 次超限\n+…</div>`}),
+ ].join('');
+ return {side:side('wb',{convs:[{t:'整理本周温湿度数据成周报',on:true},{t:'ESP32 MQTT 断线重连'},{t:'第三章 文献综述润色'}]}),right:null,
+ main:`<div class="top"><span class="crumb">工作台 / <b>整理本周温湿度数据成周报</b></span><span class="sp"></span><button class="ibtn">${ic('panel')}</button></div>
+ <div class="scroll"><div class="chat">
+  <div class="u"><div>把 data/raw 里这周的温湿度数据整理成周报，结论写进 reports/周报-W45.md</div></div>
+  <div class="a">${NEW('K1',WB('k1',{open:false,mark:OK,title:'思考了 6 秒 · 读取 3 个文件 · 运行 1 条命令 · 修改 1 个文件',n:'3.5 秒',rows:doneRows('a')}))}
+   W45 周报写好了。这周室内温度整体平稳，周三雨天夜里湿度连续超限，露点接近 18 ℃，实验柜要注意防潮。<div class="meta">DeepSeek V4.1 Flash · 38 秒 · 10:12</div></div>
+
+  <div class="u"><div>周报里加一段和上周的对比</div></div>
+  <div class="a">${NEW('K2',WB('k2',{open:true,mark:OK,title:'思考了 6 秒 · 读取 3 个文件 · 运行 1 条命令 · 修改 1 个文件',n:'3.5 秒',rows:doneRows('b')}))}
+   加好了。和 W44 比，平均温度高 0.6 ℃，湿度超限从 3 次变成 14 次，主要是周三那场雨。<div class="meta">DeepSeek V4.1 Flash · 27 秒 · 10:20</div></div>
+
+  <div class="u"><div>再把上周的也补一份</div></div>
+  <div class="a">${NEW('K3',WB('k3',{open:true,mark:'<span class="bdot"></span>',title:'正在运行 python scripts/summary.py --week 44',n:'前面 2 步',rows:[
+    read('data/raw/2026-11/','传感器-温湿度-第44周.csv','0.2 秒'),
+    think('t3',3,'上周有两天断电，数据缺口要在周报里写明，不要插值补齐。'),
+    SR({icon:'term',verb:'运行',what:`<span class="p"><span class="fn">python scripts/summary.py --week 44</span></span>`,lead:'<span class="spin" style="margin:0 1px"></span>',right:'4 秒'})].join('')}))}</div>
+
+  <div class="u"><div>把三个传感器的规格书都看一下</div></div>
+  <div class="a">${NEW('K4',WB('k4',{open:true,mark:'<span class="bdot"></span>',title:'同时在做 3 件事',n:'前面 1 步',rows:[
+    read('docs/','选型说明.md','0.1 秒'),
+    SR({icon:'file',verb:'读取',what:P('资料/规格书/Sensirion/','SHT40-Datasheet.pdf'),lead:'<span class="spin" style="margin:0 1px"></span>',right:'2 秒'}),
+    SR({icon:'file',verb:'读取',what:P('资料/规格书/Aosong/','DHT22-AM2302.pdf'),lead:'<span class="spin" style="margin:0 1px"></span>',right:'2 秒'}),
+    SR({icon:'file',verb:'读取',what:P('资料/规格书/Bosch Sensortec/环境传感器/','BME280-DS002.pdf'),lead:'<span class="spin" style="margin:0 1px"></span>',right:'1 秒'})].join('')}))}</div>
+
+  <div class="u"><div>把 11 号的数据也并进去</div></div>
+  <div class="a">${NEW('K5',WB('k5',{open:true,mark:ic('x','width:13px;height:13px;color:var(--seal)'),title:'读取 1 个文件 · 运行 1 条命令',err:'1 个出错',n:'0.6 秒',rows:[
+    read('data/raw/2026-11/','1110.csv','0.1 秒'),
+    SR({id:'x1',icon:'term',cls:'bad',verb:'运行',what:`<span class="p"><span class="fn">python scripts/merge.py --day 1111</span></span>`,right:'<span style="color:var(--seal)">出错</span>',body:`<div class="out bad">FileNotFoundError: data/raw/2026-11/1111.csv</div>`})].join('')}))}
+   11 号的文件不在 data/raw/2026-11 里，可能还没从网关导出来。导出后告诉我，我再并进去。<div class="meta">DeepSeek V4.1 Flash · 9 秒 · 10:31</div></div>
+
+  <div class="u"><div>结论那段改得简短一点</div></div>
+  <div class="a">${NEW('K6',`${WB('k6',{open:true,mark:'<span class="bdot"></span>',title:'等你批准：修改 reports/周报-W45.md',n:'前面 1 步',rows:[
+    read('reports/','周报-W45.md','0.1 秒'),
+    SR({icon:'edit',cls:'wait',verb:'修改',what:P('reports/','周报-W45.md'),right:'<span style="color:var(--ochre)">等你批准</span>'})].join('')})}
+   <div class="apv"><h4>${ic('shield')}修改 reports/周报-W45.md</h4><div class="why">把结论压成两句（+2 −5）</div><div class="acts"><button class="btn pri">允许</button><button class="btn">拒绝</button><button class="btn">这个对话里都允许这类操作</button></div></div>`)}</div>
+
+  <div class="u"><div>画个流程图说明数据怎么流到周报</div></div>
+  <div class="a">数据从网关到周报一共四步：
+   ${NEW('K7',`<div class="rb"><div class="rb-h">Mermaid 图<span class="sp"></span><span class="sg"><button class="${S.src?'':'on'}" data-a="src" data-v="0">图</button><button class="${S.src?'on':''}" data-a="src" data-v="1">源码</button></span><button class="ibtn" title="复制源码">${ic('file')}</button><button class="ibtn" title="放大">${ic('eye')}</button></div>
+   <div class="rb-body">${S.src?`<pre>flowchart LR
+  A[网关导出 CSV] --> B[data/raw/2026-11]
+  B --> C[summary.py 汇总]
+  C --> D[reports/周报-W45.md]</pre>`:`<svg viewBox="0 0 560 70" style="width:100%;max-width:560px" font-family="var(--sans)" font-size="12.5">
+    ${[['网关导出 CSV',0],['data/raw/2026-11',145],['summary.py 汇总',290],['周报-W45.md',435]].map(([t,x])=>`<rect x="${x+2}" y="17" width="122" height="36" rx="8" fill="var(--bg)" stroke="var(--line)"/><text x="${x+63}" y="40" text-anchor="middle" fill="var(--ink)">${t}</text>`).join('')}
+    ${[124,269,414].map(x=>`<path d="M${x+4} 35h17" stroke="var(--muted)" stroke-width="1.4"/><path d="M${x+16} 31l5 4-5 4" fill="none" stroke="var(--muted)" stroke-width="1.4"/>`).join('')}</svg>`}</div></div>`)}
+   <div class="meta">DeepSeek V4.1 Flash · 12 秒 · 10:40</div></div>
+ </div></div>
+ <div class="cwrap">${composer({wb:true})}</div>`};
+};
+/* in-scene demo switch: only for trying states, not part of the app */
+const DSW=(key,opts)=>`<span class="dsw">演示${opts.map(([v,t])=>`<button class="${S[key]===v?'on':''}" data-a="set" data-k="${key}" data-v="${v}">${t}</button>`).join('')}</span>`;
+
+/* ---------- L: first run (open / managed) ---------- */
+V.onboard=()=>{
+ const man=S.ed==='managed',n=S.ob;
+ const dots=n>=1&&n<=5?`<div class="dots">${[1,2,3,4,5].map(i=>`<i class="${i===n?'on':i<n?'done':''}"></i>`).join('')}</div>`:'';
+ const nav=(o={})=>`<div class="wnav">${n>1?'<button class="btn ghost" data-a="ob" data-v="-1">上一步</button>':''}<span class="sp"></span>${o.skip?`<button class="btn ghost" data-a="ob" data-v="${o.skipTo||1}" ${o.skipKey?`data-k="${o.skipKey}"`:''}>跳过</button>`:''}<button class="btn pri" data-a="ob" data-v="1" ${o.block?'disabled':''}>${o.label||'下一步'}</button></div>`;
+ let card='';
+ if(n===0)card=`<div class="wz2" style="text-align:center;padding:40px 26px">${bf(80)}<h2 style="font-family:var(--art);font-weight:400;font-size:28px;margin-top:14px">你好，我是 DreamFlutter</h2><div class="sub">住在你电脑里的助手。花一分钟设好，就能开始。</div><button class="btn pri" style="padding:6px 26px" data-a="ob" data-v="1">开始</button></div>`;
+ else if(n===1)card=`<div class="wz2">${dots}<h2>数据放在哪</h2><div class="sub">对话、记忆、设置都存在这里</div>
+  <div class="radio on"><span>●</span><div>跟软件放在一起（推荐）<small>E:\\DreamFlutter\\data · 剩余 142 GB</small></div></div><div class="radio"><span>○</span><div>选别的文件夹…</div></div>${nav()}</div>`;
+ else if(n===2)card=`<div class="wz2">${dots}<h2>怎么称呼你</h2><div class="sub">随时能改</div><div class="fld"><input value="小周" style="font-family:var(--sans)"></div>${nav()}</div>`;
+ else if(n===3&&!man){
+  const t=S.obT;
+  const st=t==='busy'?`<div class="state busy"><span class="spin"></span>正在试连接…</div>`:t==='ok'?`<div class="state ok">${ic('check','width:14px;height:14px')}连上了。对话用 DeepSeek V4.1 Flash，大任务用 DeepSeek V4.1，以后在输入框里能换。</div>`:t==='bad'?`<div class="state bad">${ic('x','width:14px;height:14px')}DeepSeek 说这个密钥无效。回网站重新复制一次，注意前后别多出空格。</div>`:'';
+  card=NEW('L1',`<div class="wz2">${dots}<h2>连接一个模型</h2><div class="sub">密钥只存在这台电脑上</div>
+  <div class="provs">${['DeepSeek','智谱','OpenCode Go','其他'].map((p,i)=>`<div class="prov ${i===0?'on':''}">${p}</div>`).join('')}</div>
+  <div class="fld"><label>密钥<a>去 DeepSeek 拿密钥 ↗</a></label><input type="password" value="${t?'sk-••••••••••••••••':''}" placeholder="粘贴后自动测试"></div>${st}
+  <div style="margin-top:6px">${DSW('obT',[['','未填'],['busy','测试中'],['ok','连上'],['bad','密钥不对']])}</div>
+  ${nav({block:t!=='ok',skip:true,skipKey:'noModel'})}</div>`);
+ }else if(n===3&&man){
+  const a=S.obA;
+  card=NEW('L3',`<div class="wz2">${dots}<h2>输入激活码</h2><div class="sub">发给你这份 DreamFlutter 的人会给你一个</div>
+  <div class="fld"><input value="${a?'MENG-7Q4K-28XD':''}" placeholder="比如 MENG-XXXX-XXXX" style="letter-spacing:.08em"></div>
+  ${a==='ok'?`<div class="card" style="margin-top:8px;font-size:13px"><div class="kv"><span>模型</span><span>由「梦蝶模型池」提供</span></div><div class="kv"><span>本月额度</span><span>还剩 100%</span></div><div class="meter"><i style="width:100%"></i></div></div>
+   <div class="state" style="color:var(--ink2);font-size:12.5px">${ic('info','width:14px;height:14px;color:var(--muted)')}<span>你发的内容会经过模型池转给模型服务商。<a style="color:var(--accent);cursor:pointer">数据怎么处理</a></span></div>`:a==='bad'?`<div class="state bad">${ic('x','width:14px;height:14px')}这个激活码不对，或者已经用过了。找发给你的人再要一个。</div>`:''}
+  <div style="margin-top:6px">${DSW('obA',[['','未填'],['ok','激活成功'],['bad','激活码不对']])}</div>
+  ${nav({block:a!=='ok'})}</div>`);
+ }else if(n===4)card=`<div class="wz2">${dots}<h2>常用的项目文件夹</h2><div class="sub">工作台默认在这里干活</div><div class="fld"><input value="" placeholder="选一个文件夹" style="font-family:var(--sans)"></div>${nav({skip:true})}</div>`;
+ else if(n===5)card=`<div class="wz2">${dots}<h2>蝶君</h2><div class="sub">选一种说话的样子，以后可以在设置里改</div>
+  <div class="pgrid" style="grid-template-columns:repeat(4,1fr);padding-top:0">${['静','暖','利落','灵动'].map(k=>`<button class="pc ${S.persona===k?'on':''}" data-a="persona" data-v="${k}"><b>${k}</b></button>`).join('')}</div>
+  <div class="radio on"><span>●</span><div>现在准备沙箱（推荐）<small>后台进行，大约 3 分钟，不影响先用工作台</small></div></div><div class="radio"><span>○</span><div>以后再说</div></div>${nav({label:'开始使用'})}</div>`;
+ const noModel=!man&&S.noModel;
+ if(n===6){
+  const guide=NEW('L2',`<div class="guide"><h4>开始之前</h4>
+   ${man?`<div class="gs"><span class="n done">${ic('check','width:11px;height:11px')}</span><div class="w"><b>模型由「梦蝶模型池」提供</b><span>本月额度还剩 ${S.quota?'0%':'100%'}</span></div></div>`:
+   noModel?`<div class="gs"><span class="n">1</span><div class="w"><b>连接一个模型</b><span>连上以后才能对话</span></div><a data-a="ob" data-v="toModel">去连接</a></div>`:`<div class="gs"><span class="n done">${ic('check','width:11px;height:11px')}</span><div class="w"><b>已连接模型：DeepSeek V4.1 Flash</b><span>模型可在输入框里更换</span></div><a>管理</a></div>`}
+   <div class="gs"><span class="n">2</span><div class="w"><b>工作区：未选择</b><span>它在这个文件夹里读写文件、运行命令</span></div><a>选一个文件夹</a></div>
+   <div class="gs"><span class="n">3</span><div class="w"><b>试一个任务</b><span>点下面的例子，或者直接说</span></div></div>
+   <div style="text-align:right"><a class="lnk" style="color:var(--accent);font-size:13px;cursor:pointer">知道了</a></div></div>`);
+  const exs=['帮我写一封请假邮件，明天下午要去医院','解释一下露点温度是什么','把下面这段话改得更通顺'];
+  const ex=NEW('L5',`<div class="exs">${exs.map(e=>`<button class="ex2" data-a="fill" data-v="${e}">${e}</button>`).join('')}</div>`);
+  const note=S.quota&&man?NEW('L4',`<div class="cnote bad">${ic('info','width:14px;height:14px')}这个月的额度用完了，下个月 1 号恢复。急用的话，找发给你的人。</div>`):noModel&&S.tried?NEW('L2',`<div class="cnote">${ic('info','width:14px;height:14px;color:var(--muted)')}还没连接模型，连上就能发。<a data-a="ob" data-v="toModel">去连接</a></div>`):'';
+  return {side:side('wb',{convs:[]}),right:null,main:`<div class="top"><span class="crumb">工作台</span><span class="sp"></span>${DSW('ed',[['open','开放版'],['managed','托管版']])}${man?DSW('quota',[[false,'有额度'],[true,'额度用完']]):DSW('noModel',[[false,'已连模型'],[true,'跳过了模型']])}<button class="btn" data-a="ob" data-v="reset">回到第一步</button></div>
+   <div class="scroll"><div class="home2">${bf(64)}<div class="greet2">晨安，小周</div><div class="quote2">昔者庄周梦为胡蝶，栩栩然胡蝶也。<cite>《庄子·齐物论》</cite></div>${guide}${ex}</div></div>
+   <div class="cwrap">${note}${composerFill()}</div>`};
+ }
+ return {side:'',right:null,main:`<div class="top"><span class="crumb">首次启动</span><span class="sp"></span>${DSW('ed',[['open','开放版'],['managed','托管版']])}<button class="btn" data-a="ob" data-v="reset">回到第一步</button></div><div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto">${card}</div>`};
+};
+function composerFill(){
+ const tips=['说点什么…','试试把一个表格文件拖进来','想让蝶君替你盯着一件事？去蝶君那边说','输入 / 用技能'];
+ return `<div class="composer">${NEW('L6',`<textarea rows="1" placeholder="${tips[S.tip%tips.length]}" style="width:100%">${S.fill||''}</textarea>`,'div','style="border-radius:6px"')}<div class="crow"><button class="ibtn">${ic('attach')}</button><span style="flex:1"></span><span class="chip">${S.ed==='managed'?'DeepSeek V4.1 Flash · 模型池':S.noModel?'还没有模型':'DeepSeek V4.1 Flash · DeepSeek'} ${ic('chev','width:12px;height:12px')}</span><button class="send" data-a="try">${ic('send')}</button></div></div>`;
+}
+
+/* ---------- M: managed edition vs open edition ---------- */
+V.managed=()=>{
+ const T=(n)=>`<span class="pill wait" style="font-size:11px">定型第 ${n} 条</span>`;
+ const open=`<div class="sh">${bf(14)}用哪个模型</div><div class="scard">${[['对话','DeepSeek V4.1 Flash · DeepSeek'],['小任务','DeepSeek V4.1 Flash · DeepSeek'],['大任务','日常（模型组）'],['看图','GLM-4.6V · 智谱']].map(([l,v])=>`<div class="srow"><span class="l">${l}</span><span class="val">${v} ${ic('chev','width:12px;height:12px')}</span></div>`).join('')}</div>
+  <div class="sh">${bf(14)}模型组</div><div class="scard"><div class="srow"><span class="l">日常<small>ChatGPT · GPT-6.1 Sol → DeepSeek · V4.1</small></span>${ic('right','width:14px;height:14px;color:var(--muted)')}</div><div class="srow"><span class="l" style="color:var(--accent)">${ic('plus','width:13px;height:13px;vertical-align:-2px')} 新建模型组</span></div></div>
+  <div class="sh">${bf(14)}渠道</div><div class="scard"><div class="srow"><span class="l">DeepSeek<small>3 个模型 · 正常</small></span>${ic('right','width:14px;height:14px;color:var(--muted)')}</div><div class="srow"><span class="l">智谱<small>2 个模型 · 正常</small></span>${ic('right','width:14px;height:14px;color:var(--muted)')}</div><div class="srow"><span class="l" style="color:var(--accent)">${ic('plus','width:13px;height:13px;vertical-align:-2px')} 添加渠道</span></div></div>`;
+ const man=`${NEW('M1',`<div class="sh">${bf(14)}模型池</div><div class="scard">
+   <div class="srow"><span class="l">提供方</span><span>梦蝶模型池</span></div>
+   <div class="srow"><span class="l">本月额度<small>11 月 1 日起算</small></span><span style="width:160px"><div class="meter"><i style="width:72%"></i></div><small style="color:var(--muted);font-size:12px">还剩 72%</small></span></div>
+   <div class="srow"><span class="l">激活码</span><span class="val">MENG-7Q4K-•••• · 换一个</span></div>
+   <div class="srow"><span class="l">数据怎么处理</span><span class="val">查看</span></div></div>`)}
+  <div class="sh">${bf(14)}用哪个模型</div><div class="scard">${[['对话','DeepSeek V4.1 Flash'],['小任务','DeepSeek V4.1 Flash'],['大任务','DeepSeek V4.1'],['看图','GLM-4.6V']].map(([l,v])=>`<div class="srow"><span class="l">${l}</span><span class="val">${v} ${ic('chev','width:12px;height:12px')}</span></div>`).join('')}</div>`;
+ const menuOpen=`<div class="menu2"><div class="g">模型组</div><div class="m">日常<small>3 个</small></div><div class="g">DeepSeek</div><div class="m on">DeepSeek V4.1 Flash</div><div class="m">DeepSeek V4.1</div><div class="g">智谱</div><div class="m">GLM-4.6</div><div class="m" style="color:var(--accent)">更多模型…</div></div>`;
+ const menuMan=`<div class="menu2"><div class="g">模型池</div><div class="m on">DeepSeek V4.1 Flash</div><div class="m">DeepSeek V4.1</div><div class="m">GLM-4.6</div><div class="m">Kimi K2.5</div></div>`;
+ const bars=[30,55,20,70,45,80,35,60,25,50,65,40];
+ const spendBody=S.mSpend==='A'?`<div class="spend">${bars.map(h=>`<i style="height:${h}%"></i>`).join('')}</div><div class="kv"><span>近 30 天</span><span>¥4.82 · 312 次</span></div>`:
+  S.mSpend==='B'?`<div class="spend">${bars.map(h=>`<i style="height:${h}%"></i>`).join('')}</div><div class="kv"><span>近 30 天</span><span>312 次</span></div><div class="kv"><span>本月额度</span><span>还剩 72%</span></div>`:
+  `<div style="color:var(--muted);font-size:13px;padding:20px 0;text-align:center">侧栏底部不显示「花费」</div>`;
+ return {side:side('wb',{bottom:'set',convs:[{t:'新对话'}]}),right:null,main:`<div class="top"><span class="crumb">托管版和开放版对照</span><span class="sp"></span><span style="font-size:12px;color:var(--muted)">左：开放版（0.8.3 原样） · 右：托管版建议</span></div>
+ <div class="scroll"><div class="cmp">
+  <div><h3>设置 › 模型 ${T('4、5、10')}</h3>${open}</div>
+  <div><h3>设置 › 模型（托管版）</h3>${man}</div>
+  <div><h3>输入框的模型按钮和列表 ${T(11)}</h3><span class="chip" style="margin-bottom:8px">DeepSeek V4.1 Flash · DeepSeek ${ic('chev','width:12px;height:12px')}</span>${menuOpen}</div>
+  <div><h3>托管版</h3>${NEW('M2',`<div><span class="chip" style="margin-bottom:8px">DeepSeek V4.1 Flash · 模型池 ${ic('chev','width:12px;height:12px')}</span>${menuMan}</div>`)}</div>
+  <div><h3>回复下面那一行 ${T(8)}</h3><div class="a" style="margin:0"><div class="meta">DeepSeek V4.1 Flash · 62 字/秒 · 38 秒 · 10:12</div><div class="meta">日常 → DeepSeek · DeepSeek V4.1（用模型组时）</div></div></div>
+  <div><h3>托管版</h3>${NEW('M3',`<div class="a" style="margin:0"><div class="meta">DeepSeek V4.1 Flash · 62 字/秒 · 38 秒 · 10:12</div><div class="meta">模型池换了模型时，照样写实际用的那个</div></div>`)}</div>
+  <div><h3>花费页 ${T(16)}</h3><div class="scard" style="padding:10px 16px"><div class="spend">${bars.map(h=>`<i style="height:${h}%"></i>`).join('')}</div><div class="kv"><span>近 30 天</span><span>¥4.82 · 312 次</span></div></div></div>
+  <div><h3>托管版 <span class="sg" style="margin-left:6px">${[['A','照旧'],['B','只看次数和额度'],['C','不显示']].map(([v,t])=>`<button class="${S.mSpend===v?'on':''}" data-a="set" data-k="mSpend" data-v="${v}">${t}</button>`).join('')}</span></h3>${NEW('M4',`<div class="scard" style="padding:10px 16px">${spendBody}</div>`)}</div>
+ </div></div>`};
+};
+
+/* ---------- G3 / G4: skills, services, and their way in ---------- */
+V.skillsx=()=>{
+ const fb=(k)=>`<div class="fb"><span>${ic('memory')}记忆${k==='B'?'<i class="num">3</i>':''}</span><span>${ic('skills')}技能${k==='B'?'<i class="dot"></i>':''}</span><span>${ic('coin')}花费</span><span>${ic('gear')}设置</span></div>`;
+ const mini=(k)=>`<div class="minibar"><div class="nav" style="padding:5px 10px">${ic('plus')}新对话</div><div class="nav" style="padding:5px 10px">${ic('inbox')}等你处理</div>${k==='C'?`<div class="nav" style="padding:5px 10px">${ic('memory')}记忆</div><div class="nav" style="padding:5px 10px">${ic('skills')}技能</div>`:''}<div class="grp" style="padding:8px 10px 2px">今天</div><div class="conv" style="margin:0 4px">整理本周温湿度数据</div><div class="conv" style="margin:0 4px">ESP32 MQTT 断线重连</div></div>`;
+ const g3=NEW('G3',`<div class="g3">${[['A','现状：底栏四个图标'],['B','建议：底栏不动，有新东西时加标记'],['C','侧栏导航里加两行（会改侧栏布局）']].map(([k,t])=>`<div class="opt ${S.g3===k?'on':''}" data-a="set" data-k="g3" data-v="${k}">${mini(k)}${k==='C'?`<div class="fb"><span>${ic('coin')}花费</span><span>${ic('gear')}设置</span></div>`:fb(k)}<div class="cap"><b>${k}</b> ${t}</div></div>`).join('')}</div>`);
+ const items=[
+  ['sk','sk1','规格书要点提取','从传感器规格书里抽精度、量程、接口、价格','<span class="pill bf">蝶君写的</span>'],
+  ['sk','sk2','周报卡片','把周报、简报做成排版好的卡片','<span class="pill">可用</span>'],
+  ['sk','sk3','Excel 表格处理','读写 xlsx、批量清洗和汇总','<span class="pill off">已停用</span>'],
+  ['sv','mcp1','Zotero 文献库','搜文献、读条目、加笔记','<span class="pill">可用</span>'],
+  ['sv','mcp2','飞书文档','读写飞书云文档','<span class="pill bad">连不上</span>'],
+  ['pd','pend','组会纪要整理','蝶君在沙箱里试过 3 次','<span class="pill wait">等你确认</span>'],
+ ];
+ const row=([g,id,n,s,p])=>`<div class="li ${S.skSel===id?'on':''}" data-a="set" data-k="skSel" data-v="${id}"><span class="n">${n}<small>${s}</small></span>${p}</div>`;
+ const list=`<div class="lst"><div class="gh">等你确认</div>${items.filter(i=>i[0]==='pd').map(row).join('')}<div class="gh">技能</div>${items.filter(i=>i[0]==='sk').map(row).join('')}<div class="gh">连接的服务</div>${items.filter(i=>i[0]==='sv').map(row).join('')}</div>`;
+ let det='';
+ if(S.skSel==='mcp1'||S.skSel==='mcp2'){
+  const bad=S.skSel==='mcp2';
+  const tools=bad?[]:[['search_items','搜索文献',true,''],['get_item','读取一条文献',true,''],['get_collections','列出文献分组',true,''],['add_note','给文献加笔记',true,'改东西，先问我'],['delete_item','删除文献',false,'改东西，先问我']];
+  det=NEW('G4',`<div class="dt"><div class="hd"><b>${bad?'飞书文档':'Zotero 文献库'}</b>${bad?'<span class="pill bad">连不上</span>':'<span class="pill">可用</span>'}<span style="flex:1"></span><span class="toggle ${bad?'':'on'}"></span><button class="ibtn" title="更多">${ic('more')}</button></div>
+   <div class="bd"><div class="one">${bad?'读写飞书云文档':'搜文献、读条目、加笔记'}</div>
+   ${bad?`<div class="state bad" style="margin-bottom:10px">${ic('x','width:14px;height:14px')}飞书说应用凭证过期了。去飞书开放平台重新生成一个，填到下面。</div>`:''}
+   <div class="sh" style="font-size:13px">${bf(14)}工具${bad?'':' · 5 个'}</div>
+   ${bad?`<div style="color:var(--muted);font-size:13px;padding:6px 0">连上以后显示</div>`:`<div class="scard">${tools.map(([c,d,on,w])=>`<div class="tool"><span class="n">${d}<small><code>${c}</code>${w?` · ${w}`:''}</small></span><span class="toggle ${on?'on':''}"></span></div>`).join('')}</div>`}
+   <div class="sh" style="font-size:13px;margin-top:14px">${bf(14)}连接方式</div>
+   <div class="scard"><div class="srow"><span class="l">命令</span><code style="font-family:var(--mono);font-size:12.5px">${bad?'npx @larksuite/mcp':'npx zotero-mcp'}</code></div><div class="srow"><span class="l">${bad?'FEISHU_APP_SECRET':'ZOTERO_API_KEY'}</span><span class="val">•••••••• 改</span></div></div>
+   <div class="kv2" style="margin-top:12px"><span>来源</span><span>你在对话里让工作台接上的 · 11 月 6 日</span><span>用过</span><span>${bad?'0 次':'23 次 · 上次 今天 09:40'}</span><span>谁在用</span><span>工作台、蝶君</span></div></div>
+   <div class="ft"><button class="btn">测试连接</button><span style="flex:1"></span><button class="btn pri">保存</button></div></div>`);
+ }else if(S.skSel==='pend'){
+  det=NEW('G4',`<div class="dt"><div class="hd"><b>组会纪要整理</b><span class="pill wait">等你确认</span></div><div class="bd">
+   <div class="one">按模板把录音转写整理成要点</div>
+   <div class="kv2"><span>来源</span><span>蝶君写的 · 参考了 GitHub 上的 meeting-notes 技能</span><span>试用</span><span>在沙箱里试了 3 份录音，3 份都通过了程序核对</span><span>会做的事</span><span>只读你给的文件，结果写成新文件，不改原件</span></div>
+   <div class="files"><div class="tree"><div class="on">${ic('file','width:13px;height:13px')}SKILL.md</div><div>${ic('folder','width:13px;height:13px')}templates/</div><div style="padding-left:24px">组会.md</div><div>${ic('folder','width:13px;height:13px')}examples/</div></div>
+   <div class="pv"><h5>组会纪要整理</h5>输入一段组会录音的转写稿，按「议题 → 结论 → 待办（谁、何时）」整理。没听清的地方标「待确认」，不要猜。</div></div></div>
+   <div class="ft"><button class="btn pri">采用</button><button class="btn">不要</button><span style="flex:1"></span><button class="btn">试一下</button></div></div>`);
+ }else{
+  const s=items.find(i=>i[1]===S.skSel)||items[0];
+  det=NEW('G4',`<div class="dt"><div class="hd"><b>${s[2]}</b>${s[4]}<span style="flex:1"></span><span class="toggle ${S.skSel==='sk3'?'':'on'}"></span><button class="ibtn" title="更多">${ic('more')}</button></div><div class="bd">
+   <div class="one">${s[3]}</div>
+   <div class="kv2"><span>来源</span><span>${S.skSel==='sk1'?'蝶君写的 · 11 月 12 日':'内置'}</span><span>用过</span><span>${S.skSel==='sk1'?'6 次 · 上次 昨天':'14 次 · 上次 11 月 10 日'}</span><span>谁在用</span><span>${S.skSel==='sk1'?'蝶君 <a style="color:var(--accent);cursor:pointer;margin-left:8px">也给工作台用</a>':'工作台、蝶君'}</span></div>
+   <div class="files"><div class="tree"><div class="on">${ic('file','width:13px;height:13px')}SKILL.md</div><div>${ic('folder','width:13px;height:13px')}scripts/</div><div style="padding-left:24px">extract.py</div><div>${ic('folder','width:13px;height:13px')}examples/</div><div style="padding-left:24px">SHT40.md</div></div>
+   <div class="pv"><h5>${s[2]}</h5>读一份传感器规格书（PDF），抽出精度、量程、接口、供电和参考价格，填进对比表。数字要带单位和出处页码，找不到的写「没写」。<br><br><span style="font-family:var(--mono);font-size:12px;color:var(--muted)">scripts/extract.py · examples/SHT40.md</span></div></div></div>
+   <div class="ft"><button class="btn">试一下</button><span style="flex:1"></span><button class="btn">${S.skSel==='sk3'?'启用':'停用'}</button><button class="btn warn">删除</button></div></div>`);
+ }
+ return {side:side('wb',{bottom:'sk',convs:[{t:'新对话'}]}),right:null,main:`<div class="top"><span class="crumb">技能</span></div>
+ <div class="scroll"><div style="max-width:1080px;margin:0 auto;padding:18px 28px 6px"><div class="ph"><div><h1>百工</h1><span class="plain">技能</span></div><span class="sp"></span><button class="btn">${ic('plus','width:13px;height:13px;vertical-align:-2px')} 新建</button></div></div>
+ <div class="two">${list}${det}</div>
+ <div style="max-width:1080px;margin:10px auto 0;padding:0 28px 30px"><div class="sh" style="margin-bottom:10px">记忆和技能的入口</div>${g3}</div></div>`};
+};
+
+/* ---------- H1: painting themes ---------- */
+const TH=[
+ {id:'warm',name:'暖纸',work:'默认',bg:'#F7F3EB',side:'#F0EAE0',card:'#FDFBF7',ink:'#392F2A',muted:'#70665E',acc:'#A54C28',line:'#DED6C9',r:14,div:'solid',mark:'seal',ins:'栩栩然胡蝶也'},
+ {id:'jiadie',name:'蛱蝶',work:'北宋 · 赵昌《写生蛱蝶图》',bg:'#F3ECDD',side:'#EFE7D5',card:'#FAF6EC',ink:'#2B2620',muted:'#6B6052',acc:'#3F6E5E',line:'rgba(74,58,36,.18)',r:10,div:'dots',mot:'gongbi',mark:'seal',ins:'栩栩然胡蝶也'},
+ {id:'caodie',name:'草蝶',work:'梵高《开花的长草与蝴蝶》，1890',bg:'#F6F7EC',side:'#E8EBD8',card:'#FFFFFB',ink:'#1F281B',muted:'#525E4B',acc:'#3C6B32',line:'rgba(31,40,27,.18)',r:18,div:'strokes',mot:'grass',mark:'glyph',ins:'Long Grass with Butterflies',lat:1},
+ {id:'yuhua',name:'羽化',work:'梅里安《苏里南昆虫变态图谱》，1705',bg:'#F7F3E9',side:'#ECE5D3',card:'#FFFFFF',ink:'#241E19',muted:'#5C5245',acc:'#18649A',line:'rgba(36,30,25,.22)',r:3,div:'double',mot:'plate',mark:'plate',mk:'Tab. LVIII',ins:'Metamorphosis insectorum Surinamensium',lat:1},
+ {id:'shensi',name:'神思',work:'多索·多西《朱庇特、墨丘利与美德》，约 1523',bg:'#F7F2E7',side:'#ECE4D2',card:'#FFFDF8',ink:'#29211B',muted:'#5E5246',acc:'#9C3328',line:'rgba(41,33,27,.2)',r:8,div:'gilt',mot:'laurel',mark:'plate',mk:'Silentium',ins:'Jupiter, Mercury and Virtue',lat:1},
+ {id:'qiandie',name:'千蝶',work:'神坂雪佳《蝶千种》，1904',bg:'#FAF7F0',side:'#EDE8DC',card:'#FFFFFF',ink:'#242220',muted:'#57524C',acc:'#C24C38',line:'rgba(36,34,32,.14)',r:10,div:'fold',mot:'kumo',mark:'seal',ins:'蝶千種',isNew:1,gold:'#C7A242'},
+ {id:'muse',name:'暮色',work:'默认',dark:1,bg:'#27231F',side:'#221F1C',card:'#302A25',ink:'#F0E5D6',muted:'#B9AB9B',acc:'#E6A17A',line:'#4C4238',r:14,div:'solid',mark:'seal',ins:'栩栩然胡蝶也'},
+ {id:'moye',name:'墨夜',work:'北宋 · 赵昌《写生蛱蝶图》，灯下',dark:1,bg:'#211E19',side:'#1C1915',card:'#2A2620',ink:'#ECE3D2',muted:'#A89C84',acc:'#86B8A6',line:'rgba(236,227,210,.16)',r:10,div:'dots',mot:'gongbi',mark:'seal',ins:'栩栩然胡蝶也'},
+ {id:'youhua',name:'幽华',work:'德·黑姆的花卉静物，约 1670',dark:1,bg:'#131517',side:'#1B1E22',card:'#21262B',ink:'#EDE7DD',muted:'#9DA4AA',acc:'#E2676A',line:'rgba(237,231,221,.15)',r:12,div:'fade',mot:'petals',mark:'glyph',ins:'Vanitas',lat:1},
+ {id:'liuguang',name:'琉光',work:'蒂芙尼工作室的蝴蝶台灯，约 1900',dark:1,bg:'#171513',side:'#201D1A',card:'#2A2622',ink:'#F2EAE0',muted:'#A39B8F',acc:'#E09F3E',line:'rgba(242,234,224,.2)',r:16,div:'lead',mot:'glass',mark:'glyph',ins:'Tiffany Studios',lat:1},
+ {id:'huandie',name:'幻蝶',work:'雷东《蝴蝶》，约 1910',dark:1,bg:'#121721',side:'#1A202D',card:'#232B3B',ink:'#EEF3FA',muted:'#9DAAC2',acc:'#38B8B0',line:'rgba(238,243,250,.13)',r:18,div:'glow',mot:'pastel',mark:'glyph',ins:'Papillons',lat:1,isNew:1,acc2:'#A86ECC'},
+ {id:'shiqing',name:'石青',work:'清同治《石青缎平金百蝶大坎肩》，1863',dark:1,bg:'#141A21',side:'#1C242E',card:'#242E3B',ink:'#F2EDE4',muted:'#A1ACBA',acc:'#D4AF37',line:'rgba(212,175,55,.28)',r:10,div:'gold2',mot:'ruyi',mark:'seal',ins:'百蝶翩跹',isNew:1},
+];
+const TDET={warm:'默认主题，不加纹样。',jiadie:'工笔：分隔线两端各一个小墨点；卡片角上一只极淡的线描蝶。',caodie:'笔触：分隔线是一串短笔触；卡片角上三笔长草。',yuhua:'铜版：分隔线是一粗一细双线；角上是图版编号 Tab. LVIII。',shensi:'壁画：分隔线是一条描金细线；角上是一枝月桂。',qiandie:'琳派：分隔线像折本的折痕（一明一暗两条）；卡片右上角一朵极淡的泥金云纹。',muse:'默认主题，不加纹样。',moye:'和「蛱蝶」同一套细节，换成灯下的颜色。',youhua:'静物：分隔线两头渐隐；角上散落几片花瓣。',liuguang:'玻璃：分隔线是一条深色铅条；角上是彩色玻璃的格子。',huandie:'色粉：分隔线是青到紫的渐变；角上几粒色粉光点。',shiqing:'平金：分隔线是两条金线；角上一枚如意云头。'};
+function motif(t){
+ const a=t.acc,g=t.gold||a;
+ return ({gongbi:`<svg width="44" height="34" viewBox="0 0 44 34" fill="none" stroke="${t.ink}" stroke-width=".8"><path d="M22 17c-6-9-15-10-16-4s8 7 16 4c-7 4-11 11-6 12s7-6 6-12zm0 0c6-9 15-10 16-4s-8 7-16 4c7 4 11 11 6 12s-7-6-6-12z"/></svg>`,
+  grass:`<svg width="44" height="34" viewBox="0 0 44 34" fill="none" stroke="${a}" stroke-width="1.6" stroke-linecap="round"><path d="M10 33C12 22 15 14 22 6M18 33c1-9 4-15 9-20M27 33c0-8 2-13 7-17"/></svg>`,
+  plate:'',laurel:`<svg width="44" height="34" viewBox="0 0 44 34" fill="${a}" opacity=".8"><path d="M8 30C18 24 28 14 38 4" stroke="${a}" fill="none"/>${[0,1,2,3].map(i=>`<ellipse cx="${14+i*7}" cy="${24-i*6}" rx="4" ry="1.6" transform="rotate(-40 ${14+i*7} ${24-i*6})"/>`).join('')}</svg>`,
+  kumo:`<svg width="54" height="34" viewBox="0 0 54 34" fill="none" stroke="${g}" stroke-width="1.4"><path d="M6 24c0-5 6-7 9-4 1-6 9-8 12-3 3-5 12-3 11 3 5-1 8 4 4 7H8c-2 0-2-2-2-3z"/></svg>`,
+  petals:`<svg width="44" height="34" viewBox="0 0 44 34" fill="${a}">${[[30,8,0],[36,15,40],[24,20,80],[34,26,120]].map(([x,y,r])=>`<ellipse cx="${x}" cy="${y}" rx="3.5" ry="1.8" transform="rotate(${r} ${x} ${y})"/>`).join('')}</svg>`,
+  glass:`<svg width="44" height="34" viewBox="0 0 44 34"><g stroke="#0c0a08" stroke-width="1.6">${[['#E09F3E',4,4],['#5E8F6B',18,4],['#9B3E5B',32,4],['#3E6E9B',4,18],['#E0C03E',18,18],['#E09F3E',32,18]].map(([c,x,y])=>`<rect x="${x}" y="${y}" width="13" height="13" fill="${c}"/>`).join('')}</g></svg>`,
+  pastel:`<svg width="44" height="34" viewBox="0 0 44 34">${[[12,10,'#38B8B0'],[26,6,'#A86ECC'],[34,18,'#F7C858'],[20,22,'#38B8B0'],[38,8,'#A86ECC']].map(([x,y,c])=>`<circle cx="${x}" cy="${y}" r="2.4" fill="${c}"/><circle cx="${x}" cy="${y}" r="6" fill="${c}" opacity=".18"/>`).join('')}</svg>`,
+  ruyi:`<svg width="44" height="34" viewBox="0 0 44 34" fill="none" stroke="${a}" stroke-width="1.3"><path d="M22 28c-8 0-12-6-8-10 2-2 5-1 5 1 0-6 6-9 9-5 3-4 9-1 7 4 3-1 5 3 2 5-2 3-8 5-15 5z"/></svg>`})[t.mot]||'';
+}
+function divider(t){
+ const L=t.line,a=t.acc;
+ return ({solid:`<div style="height:1px;background:${L}"></div>`,
+  dots:`<div style="display:flex;align-items:center;gap:4px"><i style="width:3px;height:3px;border-radius:50%;background:${t.ink};opacity:.5"></i><div style="flex:1;height:1px;background:${L}"></div><i style="width:3px;height:3px;border-radius:50%;background:${t.ink};opacity:.5"></i></div>`,
+  strokes:`<div style="height:2px;background:repeating-linear-gradient(90deg,${a} 0 7px,transparent 7px 11px);opacity:.35;border-radius:2px"></div>`,
+  double:`<div style="border-top:1.5px solid ${L};border-bottom:1px solid ${L};height:3px"></div>`,
+  gilt:`<div style="height:1px;background:linear-gradient(90deg,transparent,#B8923C,transparent)"></div>`,
+  fold:`<div style="height:2px;border-top:1px solid ${L};background:rgba(255,255,255,.9)"></div>`,
+  fade:`<div style="height:1px;background:linear-gradient(90deg,transparent,${L} 20%,${L} 80%,transparent)"></div>`,
+  lead:`<div style="height:2px;background:#0c0a08;opacity:.9"></div>`,
+  glow:`<div style="height:1px;background:linear-gradient(90deg,#38B8B0,#A86ECC);opacity:.6"></div>`,
+  gold2:`<div style="border-top:1px solid ${t.acc};border-bottom:1px solid ${t.acc};height:3px;opacity:.45"></div>`})[t.div];
+}
+V.themes=()=>{
+ const sel=TH.find(t=>t.id===S.thPick)||TH[1];
+ const card=t=>`<button class="tc ${S.thPick===t.id?'on':''}" data-a="set" data-k="thPick" data-v="${t.id}"><div class="win"><i style="width:9px;background:${t.side};filter:brightness(.96)"></i><i style="width:26px;background:${t.side}"></i><span style="flex:1;background:${t.bg};padding:6px;display:flex"><span style="flex:1;background:${t.card};border:1px solid ${t.line};border-radius:${Math.min(t.r,8)}px;display:flex;align-items:center;justify-content:center"><i style="width:14px;height:3px;border-radius:2px;background:${t.acc}"></i></span></span></div><div class="nm">${t.name}${t.isNew?'<span class="new2">新</span>':''}</div><div class="wk">${t.work}</div></button>`;
+ const t=sel,mk=t.mark==='seal'?`<svg class="seal" width="30" height="30" viewBox="0 0 30 30"><rect x="1" y="1" width="28" height="28" rx="3" fill="#B23A2E"/><text x="15" y="13" text-anchor="middle" font-size="9" fill="#fff" font-family="var(--serif)">梦</text><text x="15" y="24" text-anchor="middle" font-size="9" fill="#fff" font-family="var(--serif)">蝶</text></svg>`:t.mark==='plate'?`<span class="plate" style="color:${t.ink}">${t.mk}</span>`:`<span class="seal" style="color:${t.acc}">${bf(22)}</span>`;
+ const prev=`<div class="tprev" style="--tr:${t.r}px;background:${t.bg};color:${t.ink};border-color:${t.line}">
+  <div class="ps" style="background:${t.side};border-right:1px solid ${t.line}"><div class="bn">${bf(18)}DreamFlutter</div><div class="r" style="background:color-mix(in srgb,${t.acc} 16%,transparent)">整理本周数据</div><div class="r">ESP32 断线重连</div><div class="r">文献综述润色</div><div class="ins ${t.lat?'lat':''}">${t.ins}</div></div>
+  <div class="pm"><div style="display:flex;align-items:center;gap:12px">${bf(40)}<div><div class="gr">晨安，小周</div><div class="qt">昔者庄周梦为胡蝶，栩栩然胡蝶也。</div></div></div>
+   <div class="pc2" style="background:${t.card};border:1px solid ${t.line}"><span class="mot">${t.mot==='plate'?`<span style="font-family:var(--serif);font-style:italic;font-size:11px;color:${t.muted}">Fig. 3</span>`:motif(t)}</span>
+    <div class="h"><span style="color:${t.acc}">${bf(13)}</span>日程与巡检</div>${divider(t)}
+    <div class="row"><span>巡检</span><span style="color:${t.acc}">每 30 分钟</span></div>${divider(t)}
+    <div class="row"><span>夜间不打扰</span><span style="color:${t.acc}">23:00 – 07:30</span></div></div>
+   <div style="font-family:var(--serif);font-size:13.5px;line-height:1.8">W45 周报写好了，周三夜里湿度连续超限，实验柜要注意防潮。<div style="font-family:var(--sans);font-size:11.5px;color:${t.muted}">DeepSeek V4.1 Flash · 38 秒 · 10:12</div></div>
+   <div style="display:flex;gap:8px"><span style="background:${t.acc};color:${t.dark?t.bg:'#fff'};border-radius:${Math.min(t.r,10)}px;padding:4px 14px;font-size:12.5px">允许</span><span style="border:1px solid ${t.line};border-radius:${Math.min(t.r,10)}px;padding:4px 14px;font-size:12.5px">拒绝</span></div>
+   ${mk}</div></div>`;
+ return {side:side('wb',{bottom:'set',convs:[{t:'新对话'}]}),right:null,main:`<div class="top"><span class="crumb">设置 › 通用 › 外观</span></div>
+ <div class="scroll"><div style="max-width:1080px;margin:0 auto;padding:18px 28px 30px;display:grid;grid-template-columns:430px 1fr;gap:22px;align-items:start">
+  <div>${NEW('H1',`<div class="sh">${bf(14)}外观</div><div class="scard"><div class="srow"><span class="l">明暗</span><span class="sg"><button>浅色</button><button>深色</button><button class="on">跟随系统</button></span></div>
+   <div class="srow" style="display:block"><div style="font-size:13px;color:var(--muted)">白天</div><div class="tgrid">${TH.filter(x=>!x.dark).map(card).join('')}</div></div>
+   <div class="srow" style="display:block"><div style="font-size:13px;color:var(--muted)">夜里</div><div class="tgrid">${TH.filter(x=>x.dark).map(card).join('')}</div></div></div>`)}</div>
+  <div style="position:sticky;top:0">${prev}<div class="slots"><span>${t.name}</span><span>${t.work}</span><span>细节</span><span>${TDET[t.id]}</span><span>不变的</span><span>布局、字号、按钮形状、卡片标题前的小蝴蝶（定型第 4 条）只换颜色</span></div></div>
+ </div></div>`};
+};
+/* ---------- notes per scene ---------- */
+const NOTES={
+schedule:`<h4>日程与巡检（D1–D3）</h4><ul>
+<li><b>D1</b> 只在蝶君侧栏，「等你处理」下面一行。工作台没有。</li>
+<li><b>D2</b> 月历按周一起排。上方「每天」一行放重复的事项，点一下在右边打开详情。过去的格子显示结果，没做成的标红。点某天，右边列出当天的清单；点某一条，下面展开详情：改、现在做一次、删除。改动历史里每一条都能撤销。</li>
+<li>「到点提醒我」只发通知、不叫模型；「蝶君去做」会开一个蝶君对话来执行，多一栏「要做的事」写给蝶君的话，在蝶君自己的目录里做。</li>
+<li>「新建」在右边清单下面打开同一张空表单。时间直接写中文：「明天下午3点」「每天8点、12点」「每周一、三、五9点」「工作日9点半」「每月1号10点」「每2小时」；看不懂或已经过了的，在表单下面说一句。</li>
+<li>蝶君要改你建的事，一律先进「等你处理」，不做开关。</li>
+<li><b>D3</b> 顶上一行巡检状态：上次结果和下次时间。「巡检记录」原地展开，「现在巡检」有冷却。没事只写一句「无需行动」。</li></ul>`,
+goal:`<h4>蝶君对话里的目标（C1、C3–C7、B3、D4）</h4><ul>
+<li><b>B3</b> 蝶君主动来找你：消息直接出现在和你的对话里，上面一行小字写时间，不进「等你处理」。夜里不发；你没回之前不发第二条。</li>
+<li><b>C1</b> 目标放在右栏「这个对话」最上面（对话上方不放任务头，这是已定型第 2 条）：阶段、一句话目标、下一步、预算条、用时。「暂停目标」「停止目标」两个按钮；「⋯」里是紧急停止，要先确认，说清楚会停下什么、不会删什么。</li>
+<li><b>C5</b> 停止有三层：输入框的停止按钮 = 停下这一步；暂停 / 停止目标 = 管这个目标的续跑；紧急停止 = 停下所有目标（蝶君和工作台）。</li>
+<li><b>C3</b> 计划贴在输入框顶上，点标题收起或展开。做完的打勾划线，正在做的加粗。没有计划时不出现。</li>
+<li><b>C4</b> 提问：三张选项卡片加「自己回答」和「跳过」，限时的写明到点按哪个继续，默认项带「默认」两个字。答过以后收成一行。</li>
+<li><b>C6</b> 后台任务在右栏，显示正在跑的命令和子任务、用了多久；眼睛图标看输出（原地展开），方块图标停止。刚结束的变淡，留一会儿。</li>
+<li><b>C7</b> 过程中画的图、截图，直接显示在回复里。<b>D4</b> 对话里建了或改了日程，出一行淡色提示，能跳到日程。</li>
+<li><b>C2</b> 不另做目标列表页：侧栏对话前面的小圆点表示目标状态（绿色闪 = 在推进、赭色 = 暂停、红 = 卡住）；要你决定、卡住、等你验收的都进「等你处理」。</li></ul>`,
+inbox:`<h4>等你处理（B6、B2）</h4><ul>
+<li><b>B6</b> 分三组，固定顺序：待你决定 → 卡住了 → 等你验收，每组左边一条色带。没有内容的组不显示。</li>
+<li>每张卡片写清楚是谁、哪件事，现在怎样、会有什么影响，再给能直接做的按钮。</li>
+<li><b>B2</b> 蝶君起草的规则以卡片进来：「先观察」= 规则生效，但命中时只记一笔、不动手；「改一改」在卡片里原地改名称和要做的事，保存后回到卡片再选；「不要」= 丢弃。规则只有你能改。</li></ul>`,
+voice:`<h4>语音输入（E1）</h4><ul>
+<li>麦克风在输入框底栏、发送键左边。<b>按一下开始，再按一下结束</b>，不用一直按着。</li>
+<li>录音时输入框边框变成印章红，底栏换成实时声波和计时，模型选择先藏起来。识别到的字实时写进输入框。</li>
+<li>结束后文字留在输入框里，<b>不自动发送</b>。出错时在输入框下方用一行字说明（比如没有麦克风、本机模型缺失），不弹窗。</li>
+<li>工作台和蝶君都有。点下面的麦克风试试。</li></ul>`,
+settings:`<h4>设置（B1、B2、D5、E2、F1）</h4><ul>
+<li>不新增分组，都放进已有的分组里：性格、主动、规则、日程与巡检放「蝶君」；语音放「通用」；卸载放「数据与安全」。</li>
+<li><b>B1</b> 性格四张卡片，下面一句示例话随选择变化。主动性三档，下面一行写这一档会做什么。</li>
+<li>（2026-11-14 按 HanaAgent 调研改的写法）性格的示例改成一问一答的聊天气泡；「夜间不打扰」改成开关，打开后下面缩进出开始、结束两行；列表为空时，在凹进去的浅底框里写「还没有。比如：……」，给一个例子；说明行只写「改了会怎样 / 什么时候生效」。</li>
+<li><b>B7</b> 长期目标：你交给蝶君的长期方向，空闲时它自己决定学什么、写什么；每条能暂停，点开看它做过什么。也可以在对话里直接交代。</li><li><b>B2</b> 规则列表：每条都是「关 / 观察 / 自动」三档。</li>
+<li><b>D5</b> 日程与巡检：常用的四项直接给出，其余收在「高级」里。</li>
+<li><b>E2</b> 语音：本机 / 云端；选云端才出现服务和 Key。</li>
+<li><b>F1</b> 卸载：先问保留还是清干净，再启动卸载程序。选保留就写下「保留数据」标记。</li>
+<li>左边切到「通用」「数据与安全」可以看另外两处。</li></ul>`,
+skills:`<h4>技能和记忆（B4、B5）</h4><ul>
+<li><b>B4</b> 蝶君自己写的技能，标「蝶君写的」，默认只给蝶君用。点「也给工作台用」采纳一次以后，标成「工作台也在用」。</li>
+<li><b>B5</b> 记忆页（已定型第 16 条）不改布局，分组里加一个「蝶君自己记的」。每条都写来源，可以改、可以删。</li></ul>`,
+wizard:`<h4>首次启动（F2、B1）</h4><ul>
+<li><b>F2</b> 重装后，如果在原位置找到上次保留的数据，向导第一步问要不要找回来：写明保存时间、大小，以及里面有什么。</li>
+<li>「找回来」就搬回数据并重启后台；「重新开始」不删那份数据，告诉你它放在哪里。存储布局不一样、不能自动恢复的，也只给位置。</li>
+<li><b>B1</b> 向导里蝶君那一步选性格，四张卡片配示例话，以后在设置里能改。</li>
+<li>演示：点「重新开始」→「继续」能看到选性格那一步；点「找回来」看搬回的进度。</li></ul>`,
+process:`<h4>回复里的过程（K1–K7，参考 HanaAgent 调研，待用户看过再定）</h4><ul>
+<li>（2026-11-14 按 HanaAgent 调研调轻）块不加边框，用很浅的底色；折叠时只和标题一样宽，展开才占满正文宽度；展开内容 0.12 秒淡入，不做高度动画。</li>
+<li>思考和工具调用收在回复上方一块里，默认折叠。<b>K1</b> 做完后标题写做了什么（沿用现在的写法：思考了几秒、读取几个文件、运行几条命令……），右边是工具总用时。</li>
+<li><b>K2</b> 展开后按发生的顺序，一行一步：图标、动词、对象、右边用时和结果。<b>思考也只占一行</b>「思考 · 4 秒」，点开才看内容（现在折叠时会露出三行思考文字，这里改成一行）。命令点开看输出，改动点开看差异，文件读取不用点开。</li>
+<li>路径：目录太长时把目录截短，<b>文件名始终完整</b>；悬停看完整路径。点 K4 最后一行看长路径。</li>
+<li><b>K3</b> 进行中：标题写正在做的那一步，右边「前面 N 步」；正在跑的一行用转圈代替勾。<b>K4</b> 同时跑几件事时，标题写「同时在做 3 件事」，每行各自转圈。</li>
+<li><b>K5</b> 出错：块的边框和标题的图标变红，标题右边「1 个出错」，出错那一行自动展开，显示报错原文；回复正文用人话说怎么办。</li>
+<li><b>K6</b> 等你批准：标题写「等你批准：…」，那一行变赭色；批准卡（0.8.3 原样）紧跟在块下面。</li>
+<li><b>K7</b> Mermaid 图、图表：头上一行「图 / 源码」切换，复制源码、放大放在右边。</li>
+<li>不改：回复下面那一行（定型第 8 条）、等回复时的蝴蝶和正文不跳（第 12、13 条）。点块的标题展开或收起。</li></ul>`,
+onboard:`<h4>首次上手（L1–L5，待用户看过再定）</h4><ul>
+<li>步骤和现在的向导一样：数据放哪 → 称呼 → 模型 → 工作区 → 蝶君。有上次保留的数据时，最前面先问要不要找回来（F2，见「首次启动」场景）。</li>
+<li><b>L1</b>（开放版）连接模型：服务商做成四张卡片；密钥框右上角是「去 DeepSeek 拿密钥 ↗」，打开服务商官网；<b>粘贴后自动测试</b>，不用再点「测试连接」。失败时说清是哪里不对、怎么改。<b>可以跳过</b>（现在必须测通才能往下）。</li>
+<li><b>L2</b> 跳过模型后：首页「开始之前」第一步是「连接一个模型 · 去连接」；按发送时，输入框上面一行说「还没连接模型」并给去处，不弹窗。</li>
+<li><b>L3</b>（托管版）这一步换成「输入激活码」：激活后写清模型由谁提供、本月额度；下面一句告诉你内容会经过模型池，并给「数据怎么处理」的链接。激活码不对时说找谁要。托管版不能跳过这一步。</li>
+<li><b>L4</b>（托管版）额度用完：输入框上面一行红字，说什么时候恢复、急用找谁。</li>
+<li><b>L6</b> 输入框的占位文字轮换成「用法提示」（每 4 秒换一条，打字就停）：拖文件、找蝶君、用 / 调技能。功能靠占位文字被发现，不加说明行（学 HanaAgent 0002、0064、0116）。</li>
+<li><b>L5</b> 首页的例子：现在点了就填进输入框、不直接发，这点不变。没选工作区时，例子换成不需要文件夹的事。</li>
+<li>页面右上角带虚线的按钮只是演示开关，不是界面的一部分。</li></ul>`,
+managed:`<h4>托管版和开放版对照（M1–M4，等用户决定）</h4><ul>
+<li>开放版完全照 0.8.3，不动。右边是托管版的建议，每一处都标了碰到的定型条目。</li>
+<li><b>M1</b> 设置 › 模型：「模型组」「渠道」两张卡换成一张「模型池」：提供方、本月额度、激活码、数据怎么处理。「用哪个模型」照旧，只列池里的模型。渠道编辑页在托管版里进不去。碰到第 4、5、10 条。</li>
+<li><b>M2</b> 输入框的模型按钮写「模型 · 模型池」，列表只有池里的模型，没有模型组和「更多模型…」。碰到第 11 条。</li>
+<li><b>M3</b> 回复下面那一行不变；模型池换了模型时，照样写实际用的那个。不碰第 8 条。</li>
+<li><b>M4</b> 花费页三选一：照旧 / 只看次数和额度（建议）/ 不显示。碰到第 16 条。</li>
+<li>守护测试：开放版原样跑；托管版另写自己的测试，不改原来的期望。</li></ul>`,
+skillsx:`<h4>技能和服务（G4）、入口（G3），待用户看过再定</h4><ul>
+<li><b>G4</b> 照交互设计 5.1 的「列表 → 详情」：左边分三组，固定顺序：等你确认 → 技能 → 连接的服务，每行名字 + 一个状态 + 一句话；右边是详情，「新建」在右上角。</li>
+<li>技能详情：一句话、来源、用过几次、谁在用；下面是文件和 SKILL.md 预览（参考 HanaAgent 的技能预览）。底部「试一下 / 停用 / 删除」。蝶君写的技能多一个「也给工作台用」。</li>
+<li>服务详情：每个工具一行，可以单独关；会改东西的工具标「改东西，先问我」。连接方式里密钥只显示圆点。底部固定「测试连接 / 保存」，和渠道编辑页一样（定型第 5 条的做法）。连不上时说人话，告诉你去哪里修。</li>
+<li>等你确认的技能：来源、沙箱里试了几次、会做什么事，「采用 / 不要 / 试一下」。它也照旧出现在「等你处理」里。</li>
+<li><b>G3</b> 入口三个方案，点卡片切换。建议 <b>B</b>：底栏不动，有等你确认的技能时「技能」上出一个点，这周新记住的条数标在「记忆」上，看过就消失。C 会改侧栏布局，要用户点头。</li></ul>`,
+themes:`<h4>名画主题（H1，待用户看过再定）</h4><ul>
+<li>选主题照旧分「白天」「夜里」两组，各自独立选，明暗跟随系统时自动换。卡片是小窗缩略 + 名字 + 作品，「新」是这次新加的三套：<b>千蝶</b>（神坂雪佳《蝶千种》）、<b>幻蝶</b>（雷东《蝴蝶》）、<b>石青</b>（清同治平金百蝶坎肩）。三套都来自 2026-11-01 的主题调研，作品信息上线前再核一遍。</li>
+<li>给每套主题补「从画里来的细节」，但<b>只放在固定的几处</b>，其他地方不加花（HanaAgent 的经验：装饰只放一处，整体才安静）：① 卡片里的分隔线样式 ② 卡片右上角一枚极淡的纹样 ③ 侧栏底部的题字 ④ 角落的印章或图版号 ⑤ 主色和圆角。</li>
+<li>不变的：布局、字号、按钮形状、卡片标题前的小蝴蝶（定型第 4 条，只换颜色）。</li>
+<li>点左边的卡片，右边预览换成那一套。</li></ul>`,
+workbench:`<h4>工作台侧栏（G1、G2）</h4><ul>
+<li><b>G1</b> 分叉和侧边对话挂在原对话下面，缩进加分支图标；原对话折叠时一起收起。</li>
+<li><b>G2</b> 顶栏加「分支」按钮：从当前位置分出一个新对话，挂在原对话下面。工作区下拉里，每个工作区写对话数和在运行的个数（点工作区按钮看）。</li>
+<li>E1 的麦克风在工作台输入框里也有。</li></ul>`};
+
+/* ---------- render ---------- */
+function render(){
+ document.documentElement.dataset.theme=S.theme;
+ document.body.classList.toggle('nomark',!S.marks);
+ $('#demo').innerHTML=`<b>0.12 新增（演示）</b>${SCENES.map(([k,t])=>`<button class="sc ${S.scene===k?'on':''}" data-a="go" data-s="${k}">${t}</button>`).join('')}<span class="sp"></span>
+  <button class="tg ${S.marks?'on':''}" data-a="marks">标出新增</button><button class="tg ${S.notes?'on':''}" data-a="notes">交互说明</button><button class="tg" data-a="theme">${S.theme==='light'?'深色':'浅色'}</button>`;
+ const v=V[S.scene]();
+ $('#side').innerHTML=v.side;$('#side').style.display=v.side?'':'none';
+ $('#main').innerHTML=v.main;
+ $('#right').innerHTML=v.right||'';$('#right').style.display=v.right?'':'none';
+ $('#notes').innerHTML=NOTES[S.scene];
+ if(!S.keepScroll){const sc=document.querySelector('#main .scroll');if(sc&&document.querySelector('#main .chat'))sc.scrollTop=sc.scrollHeight;}$('#notes').classList.toggle('on',S.notes);
+}
+document.addEventListener('change',e=>{if(e.target.dataset&&e.target.dataset.a==='mode'){S.evMode=e.target.value;render();}});
+document.addEventListener('click',e=>{
+ const t=e.target.closest('[data-a]');if(!t){if(S.wsMenu&&!e.target.closest('.menu')){S.wsMenu=false;render();}return;}
+ const a=t.dataset.a,v=t.dataset.v;
+ if(a==='go'){S.scene=t.dataset.s;S.wsMenu=false;}
+ else if(a==='marks')S.marks=!S.marks;else if(a==='notes')S.notes=!S.notes;
+ else if(a==='theme')S.theme=S.theme==='light'?'dark':'light';
+ else if(a==='day'){if(!t.dataset.d)return;S.selDay=+t.dataset.d;S.openEv=null;S.evMode=null;}
+ else if(a==='newEv'){S.openEv='new';S.evMode=null;}
+ else if(a==='mode')return;
+ else if(a==='ev'){if(!t.dataset.e)return;S.openEv=S.openEv===t.dataset.e?null:t.dataset.e;S.evMode=null;}
+ else if(a==='log')S.logOpen=!S.logOpen;
+ else if(a==='plan')S.planOpen=!S.planOpen;
+ else if(a==='ans')S.askAns=v;
+ else if(a==='job')S.jobOpen=S.jobOpen===t.dataset.j?null:t.dataset.j;
+ else if(a==='estop')S.estop=!S.estop;
+ else if(a==='rule'){S.inboxRule=v;S.ruleEdit=false;}
+ else if(a==='ruleEdit')S.ruleEdit=!S.ruleEdit;
+ else if(a==='mic')toggleMic();
+ else if(a==='tab')S.setTab=v;else if(a==='persona')S.persona=v;else if(a==='pro')S.pro=v;
+ else if(a==='adv')S.advOpen=!S.advOpen;else if(a==='cloud')S.cloud=v==='1';
+ else if(a==='uninst')S.uninst=!S.uninst;else if(a==='keep')S.keep=v;
+ else if(a==='restore')S.restore=v==='reset'?null:v;
+ else if(a==='ws')S.wsMenu=!S.wsMenu;
+ else if(a==='wb'){const cur=S.wbOpen[v]??(v!=='k1');S.wbOpen[v]=!cur;S.keepScroll=true;}
+ else if(a==='row'){S.rowOpen[v]=!S.rowOpen[v];S.keepScroll=true;}
+ else if(a==='src'){S.src=v==='1';S.keepScroll=true;}
+ else if(a==='set'){S[t.dataset.k]=v==='true'?true:v==='false'?false:v;S.keepScroll=true;}
+ else if(a==='fill')S.fill=v;
+ else if(a==='try'){if(S.ed==='open'&&S.noModel)S.tried=true;}
+ else if(a==='ob'){
+  if(v==='reset'){S.ob=0;S.obT='';S.obA='';S.noModel=false;S.tried=false;S.fill='';}
+  else if(v==='toModel'){S.ob=3;S.obT='';}
+  else{if(S.ob===3&&S.ed==='open')S.noModel=t.dataset.k==='noModel';S.ob=Math.max(0,Math.min(6,S.ob+(+v)));}
+ }
+ render();S.keepScroll=false;
+});
+/* voice demo */
+const PHRASE='帮我把重连的最长等待改成三十秒，再加一条日志';
+let micTimer=null,waveTimer=null;
+function toggleMic(){
+ if(S.rec){S.rec=false;clearInterval(micTimer);clearInterval(waveTimer);S.recText=PHRASE;return;}
+ S.rec=true;S.recT=0;S.recText='';let n=0;
+ micTimer=setInterval(()=>{S.recT++;n=Math.min(PHRASE.length,n+5);S.recText=PHRASE.slice(0,n);render();},1000);
+ waveTimer=setInterval(()=>{document.querySelectorAll('#wave i').forEach(i=>i.style.height=(3+Math.random()*20)+'px');},90);
+}
+setInterval(()=>{if(S.scene==='onboard'&&S.ob===6&&!S.fill){S.tip++;const ta=document.querySelector('.composer textarea');if(ta)ta.placeholder=['说点什么…','试试把一个表格文件拖进来','想让蝶君替你盯着一件事？去蝶君那边说','输入 / 用技能'][S.tip%4];}},4000);
+setInterval(()=>{if(S.scene==='goal'&&!S.askAns&&S.askLeft>0){S.askLeft--;const el=document.querySelector('.ask .timer');if(el)el.textContent=`${fmt(S.askLeft)} 后按「先不算」继续`;}},1000);
+const q=new URLSearchParams(location.search);
+if(q.get('s'))S.scene=q.get('s');if(q.get('t'))S.theme=q.get('t');if(q.get('n'))S.notes=true;for(const k of ['openEv','setTab','restore','keep','evMode']){if(q.get(k))S[k]=q.get(k);}for(const k of ['logOpen','planOpen','estop','wsMenu','uninst','cloud','advOpen','ruleEdit']){if(q.get(k))S[k]=true;}if(q.get('day'))S.selDay=+q.get('day');for(const k of ['ed','obT','obA','mSpend','skSel','g3','thPick'])if(q.get(k)!==null)S[k]=q.get(k);if(q.get('ob'))S.ob=+q.get('ob');for(const k of ['noModel','quota','tried'])if(q.get(k))S[k]=true;if(q.get('ans'))S.askAns=q.get('ans');if(q.get('nomark'))S.marks=false;
+render();if(q.get('rec'))toggleMic();if(q.get('tab'))S.setTab=q.get('tab'),render();
+</script>
+</body>
+</html>

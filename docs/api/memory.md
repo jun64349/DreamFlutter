@@ -407,7 +407,7 @@
 - **调用方** 窗口，工作台和蝶君共用。
 - **参数** `id: string`（对象标识）
 - **返回** `{ sessionId: string; task: TaskView | null; }`。
-- **错误** `bad_request`（缺 id）；`not_found`（边界不存在或已撤销）；后续已有新的边界判断、无法撤销时返回 `internal`。
+  - **错误** `bad_request`（缺 id）；`not_found`（边界不存在或已撤销）；`conflict`（后续已有新的边界判断，需先处理最新的一条）。
 - **事件** [`memory.task`](events.md#memorytask)；按实际状态变化推送，次数与顺序见事件和本节说明。
 - **开放范围** 仅内部。
 - **源码** [modules/memory.ts:1022](../../core/src/modules/memory.ts#L1022)

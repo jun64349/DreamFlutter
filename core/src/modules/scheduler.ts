@@ -15,6 +15,7 @@ import { backfillScheduleCreators } from "../t96-migration.ts";
 import { GoalsModule } from "./goals.ts";
 import type { TasksModule } from "./tasks.ts";
 import type { Notice } from "../notify.ts";
+import { parseScheduleTime, scheduleTimeText } from "./schedule-time.ts";
 
 export type TriggerType = "once" | "interval" | "cron";
 /** task = do something; report = produce a result each time; monitor = check for changes, quiet when nothing changed. */
@@ -567,7 +568,7 @@ export class SchedulerModule implements CoreModule {
 	}
 
 	private view(schedule: Schedule) {
-		return { ...schedule, describe: this.describeTrigger(schedule.trigger), everyDay: everyDay(schedule.trigger), lastRun: this.runs(schedule.id, 1)[0] ?? null };
+		return { ...schedule, describe: this.describeTrigger(schedule.trigger), timeText: scheduleTimeText(schedule.trigger), everyDay: everyDay(schedule.trigger), lastRun: this.runs(schedule.id, 1)[0] ?? null };
 	}
 
 	private checkVersion(schedule: Schedule | undefined, expectedVersion?: number, message = "这件事刚被别人改过"): void {
@@ -1414,6 +1415,7 @@ export class SchedulerModule implements CoreModule {
 		};
 		const withRuns = (s: Schedule) => this.view(s);
 		core.register("schedules.list", () => this.list().map(withRuns));
+		core.register("schedules.parseTime", p => parseScheduleTime(p.text, p.timezone));
 		core.register("schedules.occurrences", p => this.occurrences(p.from, p.to, p.everyDay !== false));
 		core.register("schedules.history", p => this.history(requireStr(p.id, "id")));
 		core.register("schedules.undo", p => this.undo(requireStr(p.changeId, "changeId")));

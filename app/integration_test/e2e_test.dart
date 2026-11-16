@@ -6,6 +6,7 @@ import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/ui/conversation_cards.dart';
 import 'package:dreamflutter/ui/conversation_controls.dart';
+import 'package:dreamflutter/ui/butterfly_tasks_view.dart' show ButterflySchedule;
 import 'package:dreamflutter/ui/garden_page.dart';
 import 'package:dreamflutter/ui/memory_details.dart';
 import 'package:dreamflutter/ui/motion.dart' show MotionSwitchTile;
@@ -63,10 +64,12 @@ void main() {
     await h.tap(tester,find.widgetWithText(FilledButton,'允许'));
     await h.wait(tester,()=>!h.agent.isRunning&&reply(h.agent).contains('已按允许'));
     expect(File(p.join(h.workspace,'approved.txt')).readAsStringSync(),'批准后的内容');
+    expect(find.byType(ConversationApprovalCard),findsNothing,reason:'completed approvals stay folded after the answer finishes');
     await h.script([{'tools':[tool('write',{'file_path':'rejected.txt','content':'不该出现'})]},{'text':'这次没有写入。'}]);
     await h.send(tester,'尝试写 rejected.txt。',finish:false);
     await h.wait(tester,()=>h.agent.active!.pendingDialogs.isNotEmpty);
     await h.tap(tester,find.widgetWithText(OutlinedButton,'拒绝').last);await h.wait(tester,()=>!h.agent.isRunning);
+    expect(find.byType(ConversationApprovalCard),findsNothing,reason:'rejected approvals also fold immediately');
     expect(File(p.join(h.workspace,'rejected.txt')).existsSync(),false);
     await h.script([{'delayMs':10000,'text':'这段应被停止'}]);await h.send(tester,'慢一点回答。',finish:false);
     await h.wait(tester,()=>h.agent.isRunning);await h.tap(tester,find.byTooltip('停止'));await h.wait(tester,()=>!h.agent.isRunning);
@@ -83,7 +86,9 @@ void main() {
     for(final label in ['复制','重新生成','从这里重来']){expect(find.byTooltip(label),findsWidgets);}
     await h.tap(tester,find.byTooltip(RegExp('^详情')).first);
     expect(find.text('这个对话'),findsWidgets);expect(find.textContaining('report.md'),findsWidgets);
-    await h.script([{'text':'整理实验小结'}]);await h.tap(tester,find.text('提交这些改动'));
+    final beginCommit = find.text('提交这些改动');
+    await h.wait(tester,()=>beginCommit.evaluate().isNotEmpty);await tester.ensureVisible(beginCommit);
+    await h.script([{'text':'整理实验小结'}]);await h.tap(tester,beginCommit);
     await h.wait(tester,()=>find.text('确认提交').evaluate().isNotEmpty);
     final draft=find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.labelText=='提交说明');
     await h.wait(tester,()=>tester.widget<TextField>(draft).enabled==true);
@@ -165,7 +170,7 @@ void main() {
     await h.shot(tester,'4.8_delivery_and_continue');
     expect(find.byTooltip('详情：任务进度'),findsOneWidget,reason:'T91-P04: removed exchange/work tabs must not hide the task-progress entry');
     await h.tap(tester,find.byTooltip('详情：任务进度'));
-    await h.wait(tester,()=>find.textContaining('下次 ').evaluate().isNotEmpty);
+    await h.wait(tester,()=>find.byWidgetPredicate((w)=>w is ButterflySchedule&&w.schedule['id']==schedule['id']).evaluate().isNotEmpty);
     await h.shot(tester,'t93_4.8_details_light');
     await h.agent.setThemeMode(ThemeMode.dark);await h.shot(tester,'t93_4.8_details_dark');
     await h.agent.setThemeMode(ThemeMode.light);
@@ -178,7 +183,7 @@ void main() {
     await h.script([{'tools':[tool('write',{'file_path':'找回实验.md','content':'# 找回实验\n\n保留第二组复测结果。'})]},{'text':'找回实验的结果已经保存。'}]);await h.send(tester,'整理找回实验的记录。');
     await h.rpc('memory.save',{'content':'找回实验要保留原始数据','scope':'workspace','cwd':h.workspace});
     final path=h.agent.currentSessionPath!;
-    final search=find.descendant(of:find.byType(Sidebar),matching:find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.hintText=='搜索'));
+    final search=find.descendant(of:find.byType(Sidebar),matching:find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.hintText=='搜索对话'));
     await tester.enterText(search,'找回实验');await h.wait(tester,()=>find.text('产物').evaluate().isNotEmpty);
     for(final group in ['对话','产物','记忆']){expect(find.descendant(of:find.byType(Sidebar),matching:find.text(group)),findsWidgets);}
     final results=asJsonMap(await h.rpc('search.all',{'query':'找回实验','cwd':h.workspace}));for(final key in ['conversations','files','memories']){expect(results[key],isNotEmpty);}
@@ -186,15 +191,15 @@ void main() {
     await menu(tester,h,'归档');
     await h.wait(tester,()=>h.agent.archivedSessions.any((entry)=>SessionStore.samePath(entry.path,path)));
     // The 「已归档」 note sits over the sidebar's foot for a moment: open the page directly.
-    h.agent.showSection(AppSection.settings);await h.settle(tester);await h.tap(tester,find.byKey(const ValueKey('settings-nav-归档/回收')));
-    await h.wait(tester,()=>find.text('放回列表').evaluate().isNotEmpty);
-    await h.tap(tester,find.text('放回列表').first);
+    h.agent.showSection(AppSection.settings);await h.settle(tester);await h.tap(tester,find.byKey(const ValueKey('settings-nav-归档与回收')));
+    await h.wait(tester,()=>find.text('放回').evaluate().isNotEmpty);
+    await h.tap(tester,find.text('放回').first);
     await h.wait(tester,()=>!h.agent.archivedSessions.any((entry)=>SessionStore.samePath(entry.path,path)));
     h.agent.showSection(AppSection.chat);await h.agent.openSession(path);await h.settle(tester);
     await menu(tester,h,'删除');
     if(find.widgetWithText(FilledButton,'删除').evaluate().isNotEmpty)await h.tap(tester,find.widgetWithText(FilledButton,'删除'));
     await h.wait(tester,()=>!File(path).existsSync());
-    h.agent.showSection(AppSection.settings);await h.settle(tester);await h.tap(tester,find.byKey(const ValueKey('settings-nav-归档/回收')));
+    h.agent.showSection(AppSection.settings);await h.settle(tester);await h.tap(tester,find.byKey(const ValueKey('settings-nav-归档与回收')));
     await h.wait(tester,()=>find.text('恢复').evaluate().isNotEmpty);await h.tap(tester,find.text('恢复').first);
     await h.wait(tester,()=>File(path).existsSync());
   });

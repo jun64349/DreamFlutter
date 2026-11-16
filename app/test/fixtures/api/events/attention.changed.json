@@ -1,0 +1,154 @@
+[
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 0,
+      "later": 0,
+      "total": 0
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 5,
+      "later": 0,
+      "total": 5
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 4,
+      "later": 0,
+      "total": 4
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 4,
+      "later": 0,
+      "total": 4
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 4,
+      "later": 0,
+      "total": 4
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 3,
+      "later": 0,
+      "total": 3
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 3,
+      "later": 0,
+      "total": 3
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 3,
+      "later": 0,
+      "total": 3
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 2,
+      "later": 0,
+      "total": 2
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 1,
+      "later": 0,
+      "total": 1
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 0,
+      "later": 0,
+      "total": 0
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 0,
+      "later": 0,
+      "total": 0
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 0,
+      "later": 0,
+      "total": 0
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 0,
+      "later": 0,
+      "total": 0
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 0,
+      "later": 0,
+      "total": 0
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 0,
+      "later": 0,
+      "total": 0
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 0,
+      "later": 0,
+      "total": 0
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 2,
+      "later": 0,
+      "total": 2
+    }
+  },
+  {
+    "event": "attention.changed",
+    "counts": {
+      "now": 1,
+      "later": 0,
+      "total": 1
+    }
+  }
+]

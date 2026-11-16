@@ -66,6 +66,17 @@ void main() {
         {'period': 'm', 'key': 'web_fetch', 'requests': 44, 'amounts': {}},
       ]};
     };
+    Future<void> openSettingsGroup(String group) async {
+      final nav = find.byKey(ValueKey('settings-nav-$group'));
+      if (nav.evaluate().isNotEmpty) {
+        await t.tap(nav);
+      } else {
+        await t.tap(find.byType(DropdownButtonFormField<String>));
+        await wait(t);
+        await t.tap(find.text(group).last);
+      }
+      await wait(t);
+    }
     for (final dark in [false, true]) {
       final theme = dark ? 'dark' : 'light';
       await f.agent.setThemeMode(dark ? ThemeMode.dark : ThemeMode.light);
@@ -77,12 +88,12 @@ void main() {
         await shot(t, 'workbench_$tag');
         f.agent.showSection(AppSection.settings);
         await wait(t);
-        for (final group in ['通用', '模型', '工作台', '归档/回收', '开发者选项']) {
-          await t.tap(find.byKey(ValueKey('settings-nav-$group')));
-          await wait(t);
+        for (final group in ['通用', '模型', '工作台', '归档与回收', '开发者选项']) {
+          await openSettingsGroup(group);
           await shot(t, 'settings_${group.replaceAll('/', '-')}_$tag');
         }
-        await t.tap(find.byKey(const ValueKey('settings-nav-模型')));
+        await openSettingsGroup('模型');
+        await t.ensureVisible(find.text('DeepSeek').first);
         await wait(t);
         await t.tap(find.text('DeepSeek').first);
         await wait(t);
@@ -117,7 +128,7 @@ void main() {
       await t.tap(find.text('最近'));
       await wait(t);
       await shot(t, 'memory_recent_$theme');
-      await t.tap(find.text('全部'));
+      await t.tap(find.textContaining('全部'));
       await wait(t);
     }
     expect(f.items, isNotEmpty);

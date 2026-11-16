@@ -10,6 +10,7 @@ import '../state/memory_ui.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
+import 'proto_icon.dart';
 
 /// Shared inline editor: leaving the field saves through the versioned API.
 class MemoryEditableEntry extends StatefulWidget {
@@ -20,12 +21,18 @@ class MemoryEditableEntry extends StatefulWidget {
     this.onDelete,
     this.onSaved,
     this.highlighted = false,
+    this.headingStyle = false,
+    this.showEditButton = false,
+    this.actionLeading,
   });
   final Json item;
   final AgentController agent;
   final Future<void> Function(Json)? onDelete;
   final Future<void> Function()? onSaved;
   final bool highlighted;
+  final bool headingStyle;
+  final bool showEditButton;
+  final Widget? actionLeading;
   @override
   State<MemoryEditableEntry> createState() => MemoryEditableEntryState();
 }
@@ -58,7 +65,7 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
       );
       return {
         ...detail,
-        'sourceTitle': summary?.title,
+        'sourceTitle': summary?.title ?? detail['sourceTitle'],
         'sourceCwd': summary?.cwd,
       };
     }
@@ -140,7 +147,7 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
   Widget build(BuildContext context) => AnimatedContainer(
     duration: AppTokens.motion(context, AppTokens.medium),
     curve: AppTokens.curve,
-    padding: const EdgeInsets.fromLTRB(10, 8, 0, 10),
+    padding: widget.headingStyle ? EdgeInsets.zero : const EdgeInsets.fromLTRB(10, 8, 0, 10),
     decoration: BoxDecoration(
       color: widget.highlighted || _focus.hasFocus
           ? context.colors.accentSoft
@@ -160,11 +167,12 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
                 focusNode: _focus,
                 maxLines: null,
                 textInputAction: TextInputAction.done,
-                style: context.text.bodyMedium?.copyWith(height: 1.6),
+                // .mcard 的标题行：衬线 600；正文 13px、出处和时间 12px 淡色。
+                style: widget.headingStyle ? context.serif(context.text.bodyMedium).copyWith(height: 1.6, fontWeight: FontWeight.w600) : context.text.bodyMedium?.copyWith(height: 1.6),
                 decoration: InputDecoration(
                   filled: false,
                   isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                  contentPadding: widget.headingStyle ? EdgeInsets.zero : const EdgeInsets.symmetric(vertical: 6),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: UnderlineInputBorder(
@@ -193,7 +201,7 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
                       ],
                     );
                   }
-                  if (!snapshot.hasData) return const SizedBox(height: 32);
+                  if (!snapshot.hasData) return SizedBox(height: widget.headingStyle ? 19 : 32);
                   final detail = snapshot.data ?? const <String, dynamic>{};
                   final sources = memoryRows(detail['sources']);
                   final source =
@@ -212,18 +220,34 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
                       ? session?.title ??
                             detail['sourceTitle'] as String? ??
                             '原对话'
-                      : source['kind'] == 'user_edit'
-                      ? '你记下的'
-                      : '未记录出处';
+                      : switch (source['kind']) {
+                          'user_edit' => '你记下的',
+                          'learning' => '蝶君空闲学习时记的',
+                          'work' || 'run' => '蝶君工作时记的',
+                          'chat' => '蝶君在对话里记的',
+                          _ => '未记录出处',
+                        };
+                  final date = formatDate(
+                    (source['at'] as num?)?.toInt() ??
+                        (widget.item['updatedAt'] as num?)?.toInt(),
+                  );
+                  final sourceStyle = context.text.bodySmall?.copyWith(fontSize: 12, color: context.colors.muted, height: 1.6);
+                  final caption = ref != null && source['kind'] == 'session'
+                      ? widget.headingStyle ? '来自「$label」' : '来自 $label'
+                      : source['kind'] == 'learning' && detail['sourceTitle'] is String
+                          ? '$label · 来源 ${detail['sourceTitle']}'
+                          : label;
                   return Wrap(
                     crossAxisAlignment: WrapCrossAlignment.center,
                     spacing: 6,
                     children: [
-                      if (ref != null && source['kind'] == 'session')
-                        TextButton(
+                      Tooltip(
+                        message: '$caption · $date',
+                        child: ref != null && source['kind'] == 'session' ? TextButton(
                           style: TextButton.styleFrom(
                             padding: EdgeInsets.zero,
-                            minimumSize: const Size(0, 32),
+                            minimumSize: widget.headingStyle ? Size.zero : const Size(0, 32),
+                            tapTargetSize: widget.headingStyle ? MaterialTapTargetSize.shrinkWrap : null,
                             foregroundColor: context.colors.muted,
                           ),
                           onPressed: () async {
@@ -254,28 +278,14 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
                             }
                           },
                           child: Text(
-                            '来自 $label',
-                            style: context.text.bodySmall?.copyWith(
-                              decoration: TextDecoration.underline,
-                            ),
+                            caption,
+                            maxLines: widget.headingStyle ? 1 : null,
+                            overflow: widget.headingStyle ? TextOverflow.ellipsis : null,
+                            style: widget.headingStyle ? sourceStyle : sourceStyle?.copyWith(decoration: TextDecoration.underline),
                           ),
-                        )
-                      else
-                        Text(
-                          label,
-                          style: context.text.bodySmall?.copyWith(
-                            color: context.colors.muted,
-                          ),
-                        ),
-                      Text(
-                        formatDate(
-                          (source['at'] as num?)?.toInt() ??
-                              (widget.item['updatedAt'] as num?)?.toInt(),
-                        ),
-                        style: context.text.bodySmall?.copyWith(
-                          color: context.colors.muted,
-                        ),
+                        ) : Text(caption, style: sourceStyle),
                       ),
+                      if (!widget.headingStyle) Text(date, style: sourceStyle),
                       if (widget.item['possiblyOutdated'] == true)
                         Text(
                           '可能过时了',
@@ -322,6 +332,17 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
             ],
           ),
         ),
+        if (widget.actionLeading != null) ...[
+          const SizedBox(width: 12),
+          widget.actionLeading!,
+        ],
+        if (widget.showEditButton)
+          IconButton(
+            tooltip: '修改记忆',
+            onPressed: _saving ? null : _focus.requestFocus,
+            style: IconButton.styleFrom(fixedSize: const Size.square(30), minimumSize: const Size.square(30), padding: EdgeInsets.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+            icon: ProtoIcon('edit', size: 14, color: context.colors.muted),
+          ),
         if (widget.onDelete != null)
           IconButton(
             tooltip: '删除记忆',
@@ -331,11 +352,8 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
                     _focus.unfocus();
                     if (await save()) await widget.onDelete!(_saved);
                   },
-            icon: Icon(
-              Icons.delete_outline,
-              size: 18,
-              color: context.colors.muted,
-            ),
+            style: widget.headingStyle ? IconButton.styleFrom(fixedSize: const Size.square(30), minimumSize: const Size.square(30), padding: EdgeInsets.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap) : null,
+            icon: widget.headingStyle ? ProtoIcon('trash', size: 14, color: context.colors.muted) : Icon(Icons.delete_outline, size: 18, color: context.colors.muted),
           ),
       ],
     ),

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "ui-skill",
+    "name": "整理参考文献",
+    "active_version": 1,
+    "adopted_version": 1,
+    "source": "butterfly_self",
+    "versions": [
+      {
+        "version": 1,
+        "description": "把参考文献整理成统一格式",
+        "source_ref": "ui-run",
+        "tested_at": 1794564731487
+      }
+    ]
+  }
+]

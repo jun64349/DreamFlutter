@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
-import 'package:dreamflutter/ui/message_widgets.dart' show ChatRow, QuestionRow, ReplyRow;
+import 'package:dreamflutter/ui/message_widgets.dart' show ChatRow, QuestionRow, ReplyRow, replyFactsShort;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
@@ -434,6 +434,50 @@ void main() {
       expect(pis.last.target.sessionPath, other);
       expect(pis.first.sent('abort'), isEmpty);
       agent.dispose();
+    });
+
+    test('switching in place restores persisted reply timing from the selected branch', () async {
+      final agent = await startController();
+      addTearDown(agent.dispose);
+      final pi = pis.single;
+      final runtime = agent.active;
+      final stored = p.join(sessions.path, 'timed.jsonl');
+      final requested = now.subtract(const Duration(seconds: 38));
+      final user = <String, dynamic>{
+        'role': 'user', 'content': '写一份周报', 'timestamp': requested.millisecondsSinceEpoch,
+      };
+      final answer = <String, dynamic>{
+        'role': 'assistant', 'content': [{'type': 'text', 'text': '周报写好了。'}],
+        'model': 'm', 'provider': 'p', 'timestamp': requested.millisecondsSinceEpoch, 'stopReason': 'stop',
+        'usage': {'input': 880, 'output': 2356, 'totalTokens': 3236},
+      };
+      pi.onCommand = (command) {
+        if (command['type'] != 'switch_session') return;
+        pi.messages = [user, answer];
+        pi.extraResponses['get_tree'] = {
+          'leafId': 'saved-answer',
+          'tree': [
+            {'entry': {'id': 'saved-user', 'type': 'message', 'message': user}, 'children': [
+              {'entry': {
+                'id': 'saved-answer', 'parentId': 'saved-user', 'type': 'message',
+                'timestamp': now.toUtc().toIso8601String(), 'message': answer,
+              }, 'children': []},
+            ]},
+          ],
+        };
+      };
+
+      await agent.openSession(stored);
+      expect(agent.active, same(runtime));
+      expect(pis, hasLength(1));
+      expect(pi.sent('switch_session'), hasLength(1));
+      final reply = agent.transcript.items.whereType<AssistantItem>().single;
+      expect(agent.transcript.items.whereType<UserItem>().single.entryId, 'saved-user');
+      expect(reply.entryId, 'saved-answer');
+      expect(reply.requestedAt, requested);
+      expect(reply.endedAt, now);
+      expect(reply.usage?.output, 2356);
+      expect(replyFactsShort([reply], modelName: (id) => id, now: now), contains('62 token/秒 · 38 秒'));
     });
 
     test('idle background processes are closed after the grace period', () async {

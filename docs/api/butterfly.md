@@ -8,7 +8,7 @@
 - **用途** 列出立即处理、稍后处理和正在执行的动作。
 - **调用方** 窗口，工作台和蝶君共用。
 - **参数** 无。
-- **返回** `{ now: AttentionItem[]; later: AttentionItem[]; counts: { now: number; later: number; total: number; }; pending: ActionReceipt[]; }`。
+- **返回** `{ now: AttentionItem[]; later: AttentionItem[]; counts: { now: number; later: number; total: number; }; pending: ActionReceipt[]; }`。规则草稿条目的 `data` 为 `{ kind: "rule_draft", draft: RuleDefinition, version: number }`。
 - **错误** 无专属 RpcError；未分类异常按通用 `internal` 返回。
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。
@@ -73,6 +73,17 @@
 - **事件** 成功后发 `attention.action`（cancelled），然后发 `attention.changed`。
 - **开放范围** 仅内部。
 - **源码** [modules/attention.ts:44](../../core/src/modules/attention.ts#L44)
+
+## autonomy.drafts.update
+<!-- api:method -->
+
+- **用途** 修改尚待确认的结构化规则草稿；保存后仍是观察模式。
+- **调用方** 已连接窗口。
+- **参数** `id: string`（确认 ID）、`draft: RuleDefinition`（同起草工具的校验）、`version: number`。
+- **返回** 更新后的确认对象，含 `data: { kind: "rule_draft", draft: RuleDefinition, version: number }`。`attention.list` 条目和 `confirm.changed` 也带相同 data。
+- **错误** `forbidden`（非窗口）、`not_found`（无此规则草稿）、`gone`（已回答或失效）、`version_conflict`（旧版本）、`bad_request`（草稿或版本无效）。
+- **事件** `confirm.changed`。
+- **开放范围** 仅内部。
 
 ## autonomy.rules.delete
 <!-- api:method -->
@@ -404,7 +415,7 @@
 - **用途** 列出蝶君长期目标。
 - **调用方** 窗口或后台，蝶君。
 - **参数** 无。
-- **返回** `LongGoal[]`。
+- **返回** `LongGoal[]`；各项含 `enabled: boolean`、`lastStudiedAt: number | null`（关联的已完成自主工作时间）、`noteCount: number | null`（现有记录无法可靠归属笔记，暂为 null）。旧目标默认为启用。
 - **错误** 无专属 RpcError；未分类异常按通用 `internal` 返回。
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。
@@ -415,12 +426,23 @@
 
 - **用途** 保存或修改长期目标。
 - **调用方** 窗口或后台，蝶君。
-- **参数** id: string、title: string、instruction: string；revision?: number（更新时比对）
-- **返回** `LongGoal | undefined`。
+- **参数** title: string、instruction: string；id?: string（省略时新建；给出时修改已有的）；revision?: number（修改时必填，用来比对）
+- **返回** `LongGoal`。
 - **错误** `bad_request`（请填写长期目标标题和说明）；`conflict`（长期目标已经变化，请重新读取）。
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。
 - **源码** [modules/selfwork/index.ts:126](../../core/src/modules/selfwork/index.ts#L126)
+
+## selfwork.longGoals.setEnabled
+<!-- api:method -->
+
+- **用途** 暂停或恢复一个长期目标的后续挑选；已开始的工作继续运行，要停止请调用 `selfwork.stop`。
+- **调用方** 已连接窗口中的用户。
+- **参数** `id: string`、`enabled: boolean`、`revision: number`。
+- **返回** 更新后的 `LongGoal`，revision 增加 1。
+- **错误** `forbidden`（非窗口）、`bad_request`（参数无效）、`not_found`（目标不存在）、`conflict`（版本不符）、`busy`（维护中）。
+- **事件** 无专属推送。
+- **开放范围** 仅内部。
 
 ## selfwork.restoredPlans.confirm
 <!-- api:method -->

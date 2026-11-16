@@ -97,12 +97,15 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton,'查看').last); await shot('correction_$color');
       await tester.tap(find.text('关闭').last); await wait();
       agent.quoteInComposer('第二组在高温时波动稍大'); agent.setRunPanelOpen(true); await shot('changes_quote_$color');
-      await tester.tap(find.text('report.md').last); await shot('diff_$color');
+      final files = find.byKey(const ValueKey('panel-section-files'));
+      final report = find.descendant(of: files, matching: find.text('report.md'));
+      await tester.tap(report); await shot('diff_$color');
       await tester.tap(find.text('现在的内容')); await shot('panel_preview_$color');
       await tester.tap(find.byTooltip('回到这个对话')); await wait();
-      await tester.tap(find.text('report.md').last, buttons: kSecondaryButton); await shot('file_menu_$color');
+      await tester.tap(report, buttons: kSecondaryButton); await shot('file_menu_$color');
       await tester.sendKeyEvent(LogicalKeyboardKey.escape); await wait();
-      await tester.tap(find.text('提交这些改动')); await shot('git_confirm_fixture_$color');
+      final commit = find.text('提交这些改动');
+      await tester.ensureVisible(commit); await tester.tap(commit); await shot('git_confirm_fixture_$color');
       await tester.tap(find.text('取消').last); await wait();
       agent.setRunPanelOpen(false); agent.clearComposerQuote(); await wait();
       pi.extraResponses['get_session_stats'] = {'tokens':{'total':176000},'contextUsage':{'tokens':176000,'contextWindow':200000,'percent':88}};
@@ -118,7 +121,7 @@ void main() {
       await tester.enterText(find.byKey(const ValueKey('sidebar-search')),'实验'); await tester.pump(const Duration(milliseconds:350)); await shot('search_$color');
       await tester.tap(find.byTooltip('清除搜索')); await wait();
       // 0.8.2: 已归档 and 回收站 are in 设置 › 归档/回收.
-      agent.showSection(AppSection.settings); await wait(); await tester.tap(find.byKey(const ValueKey('settings-nav-归档/回收'))); await shot('recycle_$color');
+      agent.showSection(AppSection.settings); await wait(); await tester.tap(find.byKey(const ValueKey('settings-nav-归档与回收'))); await shot('recycle_$color');
       agent.showSection(AppSection.chat); await wait();
       // Actual protocol events drive the live states, never a pretend progress timer.
       pi.startRun('再检查一下温度记录。');

@@ -1,0 +1,94 @@
+[
+  {
+    "id": "goal_proposal:ui-proposal-accept",
+    "category": "decision",
+    "object": "整理实验记录",
+    "occurredAt": 1794564731684,
+    "situation": "要不要设为目标",
+    "actions": [
+      "accept",
+      "edit",
+      "reject"
+    ],
+    "target": {
+      "page": "chat",
+      "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+      "slotId": null,
+      "itemId": "ui-proposal-accept"
+    },
+    "notified": false
+  },
+  {
+    "id": "goal_proposal:ui-proposal",
+    "category": "decision",
+    "object": "整理实验记录",
+    "occurredAt": 1794564731682,
+    "situation": "要不要设为目标",
+    "actions": [
+      "accept",
+      "edit",
+      "reject"
+    ],
+    "target": {
+      "page": "chat",
+      "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+      "slotId": null,
+      "itemId": "ui-proposal"
+    },
+    "notified": false
+  },
+  {
+    "id": "question:ui-rule-reject",
+    "category": "decision",
+    "object": "确认蝶君起草的主动规则",
+    "occurredAt": 1794564731681,
+    "situation": "整理新纪要\n只读原件，整理要点\n保存为观察模式",
+    "actions": [
+      "allow",
+      "reject"
+    ],
+    "target": {
+      "page": "chat",
+      "sessionFile": null,
+      "slotId": "autonomy",
+      "itemId": "ui-rule-reject"
+    },
+    "notified": false
+  },
+  {
+    "id": "question:ui-rule",
+    "category": "decision",
+    "object": "确认蝶君起草的主动规则",
+    "occurredAt": 1794564731678,
+    "situation": "整理新纪要\n只读原件，整理要点\n保存为观察模式",
+    "actions": [
+      "allow",
+      "reject"
+    ],
+    "target": {
+      "page": "chat",
+      "sessionFile": null,
+      "slotId": "autonomy",
+      "itemId": "ui-rule"
+    },
+    "notified": false
+  },
+  {
+    "id": "question:f56a54ef-4e34-4205-a3a8-5cb5ebc800e1",
+    "category": "decision",
+    "object": "Agent 需要你补充信息：",
+    "occurredAt": 1794564731674,
+    "situation": "需要你的回答才能继续",
+    "actions": [
+      "answer",
+      "reject"
+    ],
+    "target": {
+      "page": "chat",
+      "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+      "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+      "itemId": "f56a54ef-4e34-4205-a3a8-5cb5ebc800e1"
+    },
+    "notified": false
+  }
+]

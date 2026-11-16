@@ -1,0 +1,19 @@
+<!doctype html><html lang="zh"><meta charset="utf-8"><title>DreamFlutter 上手调研目录</title>
+<style>
+body{font-family:"Microsoft YaHei",sans-serif;margin:0;background:#f6f4ef;color:#222}
+header{position:sticky;top:0;background:#fff;border-bottom:1px solid #ddd;padding:10px 16px;z-index:2}
+header input{width:320px;max-width:90%;padding:6px}
+nav{padding:8px 16px;display:flex;flex-wrap:wrap;gap:6px}nav a{background:#fff;border:1px solid #ccc;border-radius:12px;padding:2px 10px;text-decoration:none;color:#333;font-size:13px}
+section{padding:8px 16px}h2{border-bottom:2px solid #c9b;padding-bottom:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.card{background:#fff;border:1px solid #ddd;border-radius:6px;overflow:hidden;font-size:12px}
+.card img{width:100%;display:block;cursor:zoom-in;border-bottom:1px solid #eee}
+.card div{padding:6px 8px;line-height:1.5}.n{color:#888}.t{font-weight:bold}
+ul{line-height:1.8}#big{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:9}
+#big img{max-width:96vw;max-height:94vh}
+</style>
+<header><b>DreamFlutter 上手调研目录</b>　生成于 2026-11-14 10:33　<input id="q" placeholder="筛选：界面、状态、主题、备注…"></header><section><h2>文档</h2><ul><li><a href="01-新手走查记录.md">01-新手走查记录.md</a></li><li><a href="02-门槛清单.md">02-门槛清单.md</a></li><li><a href="03-外部调研.md">03-外部调研.md</a></li><li><a href="04-HanaAgent的上手设计.md">04-HanaAgent的上手设计.md</a></li><li><a href="05-方案-内置与集成.md">05-方案-内置与集成.md</a></li><li><a href="05-方案-使用说明与入门指南.md">05-方案-使用说明与入门指南.md</a></li><li><a href="05-方案-首次启动.md">05-方案-首次启动.md</a></li><li><a href="05-方案-引导与提示.md">05-方案-引导与提示.md</a></li><li><a href="06-方案-两个版本.md">06-方案-两个版本.md</a></li><li><a href="07-总结与待定项.md">07-总结与待定项.md</a></li><li><a href="加深-06A-Chatbox首次使用.md">加深-06A-Chatbox首次使用.md</a></li><li><a href="加深-06B-Cherry首次使用.md">加深-06B-Cherry首次使用.md</a></li><li><a href="加深-06C-Cursor首次使用.md">加深-06C-Cursor首次使用.md</a></li><li><a href="加深-07-悬停文案逐项复核.md">加深-07-悬停文案逐项复核.md</a></li><li><a href="加深-08-指南截图拍摄清单.md">加深-08-指南截图拍摄清单.md</a></li><li><a href="加深-测试副本隔离证据.md">加深-测试副本隔离证据.md</a></li><li><a href="加深-跨卡决策依赖.md">加深-跨卡决策依赖.md</a></li><li><a href="加深-来源-ChatGPT.md">加深-来源-ChatGPT.md</a></li><li><a href="加深-来源-Claude.md">加深-来源-Claude.md</a></li><li><a href="加深-来源-Jan.md">加深-来源-Jan.md</a></li><li><a href="加深-来源-LMStudio.md">加深-来源-LMStudio.md</a></li><li><a href="加深-来源-LobeHub.md">加深-来源-LobeHub.md</a></li><li><a href="加深-来源-Raycast.md">加深-来源-Raycast.md</a></li><li><a href="加深-来源-TRAE.md">加深-来源-TRAE.md</a></li><li><a href="加深-链接核验记录.md">加深-链接核验记录.md</a></li><li><a href="加深-门槛与方案追踪.md">加深-门槛与方案追踪.md</a></li><li><a href="加深-设计决策时间线.md">加深-设计决策时间线.md</a></li><li><a href="加深-托管版预算与隔离测试计划.md">加深-托管版预算与隔离测试计划.md</a></li><li><a href="加深-外部证据独立核验.md">加深-外部证据独立核验.md</a></li><li><a href="加深-新手任务覆盖自查.md">加深-新手任务覆盖自查.md</a></li><li><a href="加深-新手任务验证计划.md">加深-新手任务验证计划.md</a></li><li><a href="进度.md">进度.md</a></li><li><a href="Q0-设计材料与边界.md">Q0-设计材料与边界.md</a></li><li><a href="Q3-来源-客户端A.md">Q3-来源-客户端A.md</a></li><li><a href="Q3-来源-客户端B.md">Q3-来源-客户端B.md</a></li><li><a href="Q3-来源-令牌与风险.md">Q3-来源-令牌与风险.md</a></li><li><a href="Q3-来源-引导规范.md">Q3-来源-引导规范.md</a></li></ul></section><nav><a href="#anim">动效</a></nav><section id="anim"><h2>动效</h2><div class="grid"></div></section><div id="big" onclick="this.style.display='none'"><img></div>
+<script>
+document.querySelectorAll('.card > img').forEach(i=>i.onclick=()=>{const b=document.getElementById('big');b.querySelector('img').src=i.src;b.style.display='flex';});
+document.getElementById('q').oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll('.card').forEach(c=>{c.style.display=!q||c.dataset.k.toLowerCase().includes(q)?'':'none';});};
+</script></html>

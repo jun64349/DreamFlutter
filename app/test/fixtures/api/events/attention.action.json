@@ -1,0 +1,52 @@
+[
+  {
+    "event": "attention.action",
+    "receipt": {
+      "id": "0bb18fc3-7d8b-48bf-a329-9279b9ba63a2",
+      "itemId": "question:ui-rule",
+      "status": "pending",
+      "undoable": false,
+      "undoUntil": null,
+      "remainingMs": 0
+    }
+  },
+  {
+    "event": "attention.action",
+    "receipt": {
+      "id": "0bb18fc3-7d8b-48bf-a329-9279b9ba63a2",
+      "itemId": "question:ui-rule",
+      "status": "applied",
+      "undoable": false,
+      "undoUntil": null,
+      "remainingMs": 0,
+      "result": {
+        "ok": true
+      }
+    }
+  },
+  {
+    "event": "attention.action",
+    "receipt": {
+      "id": "11251dcc-5295-447a-a875-da465cceb958",
+      "itemId": "question:ui-rule-reject",
+      "status": "pending",
+      "undoable": false,
+      "undoUntil": null,
+      "remainingMs": 0
+    }
+  },
+  {
+    "event": "attention.action",
+    "receipt": {
+      "id": "11251dcc-5295-447a-a875-da465cceb958",
+      "itemId": "question:ui-rule-reject",
+      "status": "applied",
+      "undoable": false,
+      "undoUntil": null,
+      "remainingMs": 0,
+      "result": {
+        "ok": true
+      }
+    }
+  }
+]

@@ -35,7 +35,7 @@ class _LedgerTableState extends State<LedgerTable> {
     super.didChangeDependencies();
     final agent = AgentScope.read(context);
     if (_agent == agent) return;
-    _agent = agent;_events?.cancel();_events=agent.backend.events.listen((e){if(e['event']=='ledger.changed'||e['event']=='run.finished')_load();}); unawaited(_load());
+    _agent = agent;_events?.cancel();_events=agent.backend.events.listen((e){if(e['event']=='run.finished')_load();}); unawaited(_load());
   }
   @override
   void dispose() { _events?.cancel();_entryHorizontal.dispose();_horizontal.dispose(); super.dispose(); }

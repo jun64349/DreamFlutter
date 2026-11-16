@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "intervalMin": 30,
+  "nextAt": 1794565800000,
+  "running": false,
+  "lastRun": {
+    "id": "a6b66a81-efca-4fe4-b3e2-819089e68717",
+    "endedAt": 1794564732470,
+    "status": "skipped",
+    "note": "蝶君的沙箱还没准备好"
+  },
+  "budgetUsedToday": 0,
+  "budgetLimit": 0.5,
+  "quietNow": false,
+  "cooldownUntil": 1794564852465
+}

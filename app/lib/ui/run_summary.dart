@@ -12,25 +12,50 @@ import '../state/agent_controller.dart';
 import '../state/conversation_git.dart';
 import '../state/mentions.dart';
 import '../theme.dart';
+import '../craft_style.dart';
 import 'agent_scope.dart';
 import 'settings_layout.dart' show CardSurface;
 import 'artifact_widgets.dart';
 import 'conversation_panel.dart';
-import 'message_widgets.dart' show ChatRow, ReplyRow, DiffView, editDiff;
+import 'details_panel_widgets.dart';
+import 'message_widgets.dart' show DiffView, editDiff, toolPath;
 import 'side_chat_view.dart';
 import 'workspace_path.dart';
 import 'git_file_diff.dart';
+import 'goal_widgets.dart' show GoalJobs, GoalScope;
+import 'proto_icon.dart';
 
 List<ToolRun> _conversationTools(AgentController agent) {
-  final reply = ChatRow.fromItems(agent.transcript.items).whereType<ReplyRow>().lastOrNull;
-  return [for (final message in reply?.assistants ?? <AssistantItem>[]) for (final part in message.parts.whereType<ToolCallPart>()) ?agent.transcript.tool(part.toolCallId)];
+  final transcript = agent.transcript;
+  final ids = {
+    for (final message in transcript.items.whereType<AssistantItem>())
+      for (final part in message.parts.whereType<ToolCallPart>()) part.toolCallId,
+  };
+  return [for (final id in ids) ?transcript.tool(id)];
+}
+
+typedef _PanelFile = ({String path, ToolRun? run, bool changed, bool read});
+
+int _compareFileNames(_PanelFile a, _PanelFile b) =>
+    p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase());
+
+enum _WorkbenchSection {
+  files('文件'),
+  git('Git'),
+  jobs('后台'),
+  context('上下文');
+
+  const _WorkbenchSection(this.label);
+  final String label;
 }
 
 class RunPanel extends StatefulWidget {
-  const RunPanel({super.key, required this.sessionFile, required this.onClose, this.width = AppTokens.runPanelWidth, this.onPreviewChanged});
+  const RunPanel({super.key, required this.sessionFile, required this.onClose, this.width = AppTokens.runPanelWidth, this.onPreviewChanged, this.leadingSections, this.captionInset = 0});
+  final Widget? leadingSections;
   final String? sessionFile;
   final VoidCallback onClose;
   final double width;
+  final double captionInset;
 
   /// A file opened or closed in the panel (the panel widens while one is open).
   final ValueChanged<bool>? onPreviewChanged;
@@ -47,12 +72,23 @@ class _RunPanelState extends State<RunPanel> {
   ConversationGitBridge? _bridge;
   String? _error;
   int _generation = 0;
+  final _collapsedSections = <_WorkbenchSection>{};
+  String _fileFilter = '全部';
+  String _fileSort = '名字';
   @override
   void initState() {
     super.initState();
     _agent = AgentScope.read(context);
     _agent.workRevision.addListener(_load);
+    _agent.contextFocus.addListener(_showContext);
     unawaited(_load());
+  }
+  void _showContext() {
+    if (!mounted) return;
+    setState(() {
+      _collapsedSections.remove(_WorkbenchSection.context);
+      if (_preview != null) { _preview = null; _previewClosedLater(); }
+    });
   }
   @override
   void didUpdateWidget(RunPanel old) {
@@ -60,7 +96,7 @@ class _RunPanelState extends State<RunPanel> {
     if (old.sessionFile != widget.sessionFile) { _run = null; _task = null; _artifacts = []; _git = null; if (_preview != null) { _preview = null; _previewClosedLater(); } unawaited(_load()); }
   }
   @override
-  void dispose() { _agent.workRevision.removeListener(_load); if (_preview != null) _previewClosedLater(); super.dispose(); }
+  void dispose() { _agent.workRevision.removeListener(_load); _agent.contextFocus.removeListener(_showContext); if (_preview != null) _previewClosedLater(); super.dispose(); }
 
   /// Tells the panel the preview is gone, after this frame (it may be mid-build or unmounting).
   void _previewClosedLater() { final done = widget.onPreviewChanged; WidgetsBinding.instance.addPostFrameCallback((_) => done?.call(false)); }
@@ -152,49 +188,179 @@ class _RunPanelState extends State<RunPanel> {
     ]),
   );
 
-  Widget _fileRow(String path, ToolRun? run, bool changed) {
+  Widget _fileRow(String path, ToolRun? run, bool changed, {bool read = false}) {
     final colors = context.colors;
-    final folder = p.dirname(relativeWorkspacePath(_agent.workspace, path));
-    final tint = fileTypeColor(context, path);
+    final folder = p.dirname(relativeWorkspacePath(_agent.workspace, path)).replaceAll('\\', '/');
+    final extension = p.extension(path).replaceFirst('.', '').toUpperCase();
+    final tint = switch (extension) {
+      'MD' => const Color(0xFF5E7FA8),
+      'PY' => const Color(0xFF4E8A5E),
+      'CSV' => const Color(0xFFB5793F),
+      _ => fileTypeColor(context, path),
+    };
+    final status = read ? '读过' : changed ? '改了' : '新建';
+    final caption = folder == '.' || folder.isEmpty ? status : '$folder · $status';
+    final hover = colors.ink.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? .07 : .06);
     return GestureDetector(
       onSecondaryTapDown: (d) => _fileMenu(d.globalPosition, path, run, changed),
       child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: hover,
         onTap: () => _open(path, run, changed),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
           child: Row(children: [
             Container(
-              width: 30, height: 30,
-              decoration: BoxDecoration(color: tint.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(7)),
-              child: Icon(fileIcon(path), size: 17, color: tint),
+              width: 30, height: 30, alignment: Alignment.center,
+              decoration: BoxDecoration(color: tint.withAlpha(0x22), borderRadius: BorderRadius.circular(8)),
+              child: extension.isNotEmpty && extension.length <= 4
+                  ? FittedBox(fit: BoxFit.scaleDown, child: Text(extension, maxLines: 1,
+                      style: context.text.labelSmall?.copyWith(fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 0, color: tint)))
+                  : Icon(fileIcon(path), size: 17, color: tint),
             ),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(p.basename(path), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13.5, color: colors.ink)),
-              if (folder != '.' && folder.isNotEmpty) Text(folder, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 11.5, color: colors.muted)),
+              Text(p.basename(path), maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: context.text.bodyMedium?.copyWith(fontSize: 13, height: 1.6, color: colors.ink)),
+              Text(caption, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: context.text.bodySmall?.copyWith(fontSize: 11.5, height: 20.8 / 11.5, color: colors.muted)),
             ])),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(color: (changed ? colors.warning : colors.success).withValues(alpha: 0.14), borderRadius: BorderRadius.circular(5)),
-              child: Text(changed ? '改动' : '新建', style: context.text.labelSmall?.copyWith(fontSize: 11, color: changed ? colors.warning : colors.success)),
-            ),
           ]),
         ),
       ),
     );
   }
 
+  Widget _fileSection(List<_PanelFile> files, List<_PanelFile> reads) {
+    final colors = context.colors;
+    final visibleFiles = [if (_fileFilter != '读过') ...files, ...reads];
+    visibleFiles.sort((a, b) {
+      final byType = _fileSort == '类型' ? p.extension(a.path).compareTo(p.extension(b.path)) : 0;
+      return byType == 0 ? _compareFileNames(a, b) : byType;
+    });
+    final toolbarButtonStyle = IconButton.styleFrom(
+      fixedSize: const Size.square(30),
+      minimumSize: const Size.square(30),
+      padding: EdgeInsets.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      shape: craftButtonShape(context.painting.craftGeometry),
+    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 0, 4),
+          child: Row(children: [
+            Expanded(child: Text('${files.length} 个改动 · ${reads.length} 个读过', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted))),
+            const SizedBox(width: 4),
+            PopupMenuButton<String>(
+              tooltip: '只看某类', style: toolbarButtonStyle, icon: ProtoIcon('filter', size: 14, color: colors.ink2),
+              initialValue: _fileFilter, onSelected: (value) => setState(() => _fileFilter = value),
+              itemBuilder: (_) => const [PopupMenuItem(value: '全部', child: Text('全部文件')), PopupMenuItem(value: '读过', child: Text('读过的文件'))],
+            ),
+            const SizedBox(width: 4),
+            PopupMenuButton<String>(
+              tooltip: '排序', style: toolbarButtonStyle, icon: ProtoIcon('sort', size: 14, color: colors.ink2),
+              initialValue: _fileSort, onSelected: (value) => setState(() => _fileSort = value),
+              itemBuilder: (_) => const [PopupMenuItem(value: '名字', child: Text('按名字')), PopupMenuItem(value: '类型', child: Text('按类型'))],
+            ),
+          ]),
+        ),
+      if (visibleFiles.isEmpty) _sectionNote('这个对话还没有这类文件'),
+      for (final file in visibleFiles) _fileRow(file.path, file.run, file.changed, read: file.read),
+    ]);
+  }
+
+  Widget _sectionNote(String text) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+    child: Text(text, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: context.colors.muted)),
+  );
+
+  Widget _workbenchBody(List<_PanelFile> files, List<_PanelFile> reads) {
+    final jobs = GoalScope.of(context);
+    final activeJobs = jobs != null && jobs.jobs.isNotEmpty ? jobs : null;
+    final colors = context.colors;
+
+    Widget section(_WorkbenchSection section, Widget child, {String? status}) => _WorkbenchPanelSection(
+      key: ValueKey('panel-section-${section.name}'),
+      section: section,
+      status: status,
+      expanded: !_collapsedSections.contains(section),
+      onToggle: () => setState(() {
+        if (!_collapsedSections.remove(section)) _collapsedSections.add(section);
+      }),
+      child: child,
+    );
+
+    return Column(key: const ValueKey('panel-list'), crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      DetailsPanelHeading(onClose: widget.onClose, captionInset: widget.captionInset),
+      Expanded(child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(_error!, style: TextStyle(color: colors.danger))),
+          section(_WorkbenchSection.files, _fileSection(files, reads)),
+          section(_WorkbenchSection.git, _gitSection()),
+          section(
+            _WorkbenchSection.jobs,
+            activeJobs == null ? _sectionNote('还没有后台任务') : GoalJobs(state: activeJobs, showHeading: false),
+            status: activeJobs == null ? null : '${activeJobs.jobs.where((job) => job['status'] == 'running').length} 个在跑',
+          ),
+          section(_WorkbenchSection.context, Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const ConversationContextSection(showHeading: false),
+            if (widget.leadingSections != null) widget.leadingSections!,
+            if (_agent.active?.incognito != true) ...[const SizedBox(height: 14), const ConversationActionsSection()],
+          ])),
+        ]),
+      )),
+    ]);
+  }
+
+  Widget _gitSection() {
+    final git = _git;
+    final colors = context.colors;
+    if (git == null) return _sectionNote('正在读取…');
+    if (!git.isRepository) return _sectionNote(git.draftReason ?? '这个工作区不是 Git 仓库');
+    String full(String path) => p.normalize(p.isAbsolute(path) ? path : p.join(git.root ?? _agent.workspace, path));
+    return CardSurface(radius: context.radiusLg, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(padding: const EdgeInsets.fromLTRB(10, 8, 10, 4), child: Row(children: [
+        ProtoIcon('branch', size: 13, color: colors.muted),
+        const SizedBox(width: 6),
+        Expanded(child: Text(git.branch ?? 'Git', overflow: TextOverflow.ellipsis, style: context.label)),
+        const SizedBox(width: 8),
+        Text('${git.paths.length} 个改动', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+      ])),
+      if (git.paths.isEmpty) Padding(padding: const EdgeInsets.fromLTRB(6, 0, 6, 6), child: _sectionNote('这个对话还没有改动')),
+      if (git.paths.isNotEmpty) ...[
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 240),
+          child: SingleChildScrollView(primary: false, child: Column(children: [
+            for (final (i, path) in git.paths.indexed) ...[
+              if (i > 0) Divider(height: 1, thickness: .5, color: colors.border),
+              _fileRow(full(path), null, true),
+            ],
+          ])),
+        ),
+        Padding(padding: const EdgeInsets.all(8), child: Wrap(spacing: 8, children: [
+        FilledButton.icon(onPressed: _agent.isRunning ? null : _commit, icon: const Icon(Icons.commit, size: 16), label: const Text('提交这些改动')),
+        OutlinedButton(onPressed: () => _open(full(git.paths.first), null, true), child: const Text('看差异')),
+        ])),
+      ],
+    ]));
+  }
+
   Widget _previewView() {
     final preview = _preview!;
     final colors = context.colors;
     final path = preview.path;
+    final tint = fileTypeColor(context, path);
+    final genericFile = switch (fileKind(path)) {
+      FileKind.text || FileKind.doc || FileKind.other => true,
+      _ => false,
+    };
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(
-        padding: const EdgeInsets.all(6),
+        padding: EdgeInsets.fromLTRB(6, 6, 6 + widget.captionInset, 6),
         child: Row(children: [
           IconButton(tooltip: '回到这个对话', onPressed: _closePreview, icon: const Icon(Icons.arrow_back, size: 18)),
-          Icon(fileIcon(path), size: 18, color: fileTypeColor(context, path)),
+          genericFile ? ProtoIcon('file', size: 18, color: tint) : Icon(fileIcon(path), size: 18, color: tint),
           const SizedBox(width: 8),
           Expanded(child: Tooltip(message: path, child: Text(p.basename(path), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.titleSmall))),
           Builder(builder: (context) => IconButton(
@@ -255,50 +421,61 @@ class _RunPanelState extends State<RunPanel> {
     }
     final createdTools = {for (final e in changes.entries) e.key: e.value};
     changes.removeWhere((path, _) => products.any((product) => SessionStore.samePath(path, product)));
-    // 0.8.2 (user test): changed and created files are one list — the files this conversation touched —
-    // each marked 新建 or 改动 with its kind's icon; a click previews it here, a right click has the rest.
-    final files = <(String, ToolRun?, bool)>[
-      for (final entry in changes.entries) (entry.key, entry.value, true),
-      for (final path in products) (path, createdTools[path], false),
-    ]..sort((a, b) => p.basename(a.$1).toLowerCase().compareTo(p.basename(b.$1).toLowerCase()));
+    // Keep new and changed files together, with their kind's icon and the existing preview/menu.
+    final files = <_PanelFile>[
+      for (final entry in changes.entries) (path: entry.key, run: entry.value, changed: true, read: false),
+      for (final path in products) (path: path, run: createdTools[path], changed: false, read: false),
+    ];
+    final read = <String, ToolRun?>{};
+    for (final tool in tools.where((tool) => tool.status == ToolStatus.done && const {'read', 'read_image'}.contains(tool.name))) {
+      final path = toolPath(tool);
+      if (path != null) read[full(path)] = tool;
+    }
+    for (final file in files) { read.removeWhere((path, _) => SessionStore.samePath(path, file.path)); }
+    final reads = <_PanelFile>[
+      for (final entry in read.entries) (path: entry.key, run: entry.value, changed: false, read: true),
+    ];
     final colors = context.colors;
-    final Widget body;
+    final Widget? overlay;
     if (side != null) {
-      body = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Padding(padding: const EdgeInsets.fromLTRB(16, 10, 6, 10), child: Row(children: [
-          Expanded(child: Text('问一下', style: context.text.titleSmall)),
-          IconButton(tooltip: '收起详情', onPressed: () { agent.closeSideChat(); widget.onClose(); }, icon: const Icon(Icons.close, size: 18)),
-        ])),
+      overlay = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        DetailsPanelHeading(title: '问一下', captionInset: widget.captionInset, onClose: () { agent.closeSideChat(); widget.onClose(); }),
         Divider(height: 1, color: colors.border),
         Expanded(child: SideChatView(key: ObjectKey(side), side: side)),
       ]);
     } else if (_preview != null) {
-      body = KeyedSubtree(key: ValueKey('preview-${_preview!.path}'), child: _previewView());
+      overlay = KeyedSubtree(key: ValueKey('preview-${_preview!.path}'), child: _previewView());
     } else {
+      overlay = null;
+    }
+    final Widget body;
+    if (!agent.sandbox) {
+      body = Stack(fit: StackFit.expand, children: [
+        Visibility(visible: overlay == null, maintainState: true, child: _workbenchBody(files, reads)),
+        AnimatedSwitcher(
+          duration: AppTokens.motion(context, AppTokens.panel),
+          child: overlay ?? const SizedBox.shrink(),
+        ),
+      ]);
+    } else if (overlay != null) {
+      body = overlay;
+    } else {
+      files.sort(_compareFileNames);
       body = Column(key: const ValueKey('panel-list'), crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Padding(padding: const EdgeInsets.fromLTRB(16, 10, 6, 10), child: Row(children: [
-          Expanded(child: Text(agent.sandbox ? '任务进度' : '这个对话', style: context.text.titleSmall)),
-          IconButton(tooltip: '收起详情', onPressed: widget.onClose, icon: const Icon(Icons.close, size: 18)),
-        ])),
+        DetailsPanelHeading(onClose: widget.onClose, captionInset: widget.captionInset),
         Divider(height: 1, color: colors.border),
         Expanded(child: ListView(padding: const EdgeInsets.all(14), children: [
+          if (widget.leadingSections != null) widget.leadingSections!,
           if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(_error!, style: TextStyle(color: colors.danger))),
-          if (agent.sandbox && _task?['title'] is String) ...[Text(_task!['title'] as String, style: context.text.titleSmall), if (_task?['currentStep'] is String) Padding(padding: const EdgeInsets.only(top: 6, bottom: 16), child: Text(_task!['currentStep'] as String))],
+          if (_task?['title'] is String) ...[Text(_task!['title'] as String, style: context.text.titleSmall), if (_task?['currentStep'] is String) Padding(padding: const EdgeInsets.only(top: 6, bottom: 16), child: Text(_task!['currentStep'] as String))],
           _block(
-            '文件',
+            '交付',
             files.isEmpty
                 ? Padding(padding: const EdgeInsets.all(14), child: Text('这个对话还没动过文件', style: context.text.bodySmall?.copyWith(color: colors.muted)))
                 : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     for (final (i, f) in files.indexed) ...[
                       if (i > 0) Divider(height: 1, thickness: 0.5, indent: 52, color: colors.border),
-                      _fileRow(f.$1, f.$2, f.$3),
-                    ],
-                    if (_git?.isRepository == true && _git!.paths.isNotEmpty) ...[
-                      Divider(height: 1, thickness: 0.5, color: colors.border),
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: TextButton.icon(onPressed: agent.isRunning ? null : _commit, icon: const Icon(Icons.commit, size: 17), label: const Text('提交这些改动')),
-                      ),
+                      _fileRow(f.path, f.run, f.changed),
                     ],
                   ]),
             trailing: files.isEmpty ? null : Text('${files.length}', style: context.text.labelSmall?.copyWith(color: colors.muted)),
@@ -308,7 +485,65 @@ class _RunPanelState extends State<RunPanel> {
         ])),
       ]);
     }
-    return Material(color: colors.sidebar, child: SizedBox(width: widget.width, child: AnimatedSwitcher(duration: AppTokens.motion(context, AppTokens.medium), child: body)));
+    return Material(color: colors.sidebar, child: SizedBox(width: widget.width, child: AnimatedSwitcher(duration: AppTokens.motion(context, AppTokens.panel), child: body)));
+  }
+}
+
+class _WorkbenchPanelSection extends StatelessWidget {
+  const _WorkbenchPanelSection({
+    super.key,
+    required this.section,
+    required this.expanded,
+    required this.onToggle,
+    required this.child,
+    this.status,
+  });
+
+  final _WorkbenchSection section;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final Widget child;
+  final String? status;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          expanded: expanded,
+          child: TextButton(
+            key: ValueKey('panel-toggle-${section.name}'),
+            onPressed: onToggle,
+            style: TextButton.styleFrom(
+              foregroundColor: colors.ink,
+              minimumSize: const Size(0, 34),
+              visualDensity: VisualDensity.standard,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            ),
+            child: Row(children: [
+              Expanded(child: Text(section.label, style: context.label)),
+              if (status != null) ...[
+                Text(status!, style: context.text.bodySmall?.copyWith(fontSize: 11.5, color: colors.muted)),
+                const SizedBox(width: 8),
+              ],
+              RotatedBox(
+                quarterTurns: expanded ? 0 : -1,
+                child: ProtoIcon('chev', size: 14, color: colors.muted),
+              ),
+            ]),
+          ),
+        ),
+        Visibility(
+          visible: expanded,
+          maintainState: true,
+          child: Padding(padding: const EdgeInsets.only(bottom: 8), child: child),
+        ),
+        if (section != _WorkbenchSection.context) Divider(height: 1, thickness: 1, color: colors.border),
+      ],
+    );
   }
 }
 

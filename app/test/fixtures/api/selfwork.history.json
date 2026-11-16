@@ -1,0 +1,17 @@
+[
+  {
+    "id": "ui-run",
+    "source": "goal",
+    "long_goal_id": "ui-long",
+    "long_goal_revision": 1,
+    "goal_id": null,
+    "state": "completed",
+    "topic": "整理了三篇公开资料",
+    "plan": null,
+    "reason": null,
+    "started_at": 1794564731483,
+    "day": "2026-11-13",
+    "ended_at": 1794564731483,
+    "restore_review_required": 0
+  }
+]

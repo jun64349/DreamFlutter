@@ -18,6 +18,17 @@ Velopack 安装版使用安装根目录下的 `data`。预演和钩子读取该�
 
 保留模式仍会注销沙箱并删除磁盘和干净副本。因为 Velopack 会删除整个安装根，钩子把数据移到与安装根同级的 `<安装根名>.preserved-data`，遇到现有同名目录加数字后缀。钩子消费标记，重写存储配置中原先位于 `data` 内的路径。搬到安装根之外的数据仍在原处。 [Velopack 保留文件说明](https://docs.velopack.io/integrating/preserved-files)
 
+## uninstall.start
+<!-- api:method -->
+
+- **用途** 在 Windows 安装版启动分离卸载器。小启动器和它启动的 `Update.exe` 都以系统临时目录为工作目录；卸载器等待窗口与后台进程退出后执行安装根的 `Update.exe uninstall`。命令依据 [Velopack 官方 Windows CLI 文档](https://docs.velopack.io/reference/cli/content/update-windows)。现有卸载钩子照常运行。
+- **调用方** 已连接窗口。
+- **参数** `keepData: boolean`、`windowPid: number`。
+- **返回** `{ started: true }`。后台约 300 毫秒后关闭；窗口收到结果后自行退出。
+- **错误** `forbidden`（非窗口）、`unavailable`（非 Windows 安装版或无法启动）、`busy`（有工作运行）、`bad_request`（参数无效）、`bad_config`（保留数据标记不是普通文件）。
+- **事件** 无。
+- **开放范围** 仅内部。真实卸载待 0.13 安装版验收。
+
 ## uninstall.preservedData
 <!-- api:method -->
 

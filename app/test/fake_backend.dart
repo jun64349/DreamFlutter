@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:dreamflutter/state/backend.dart';
 import 'package:pi_rpc/pi_rpc.dart';
@@ -27,6 +29,17 @@ class FakeBackend implements AgentBackend {
 
   /// Canned answers for other core methods (memory, skills, templates...).
   final handlers = <String, Object? Function(Json params)>{};
+  /// Recorded WebSocket results; decode per call so tests cannot mutate the fixture.
+  void useFixture(String method, [String? scenario]) {
+    final name = '$method${scenario == null ? '' : '.$scenario'}';
+    final source = File('test/fixtures/api/$name.json').readAsStringSync();
+    handlers[method] = (_) => jsonDecode(source);
+  }
+
+  void pushFixture(String event) {
+    final rows = jsonDecode(File('test/fixtures/api/events/$event.json').readAsStringSync()) as List;
+    for (final row in rows) { push((row as Map).cast<String, dynamic>()); }
+  }
   final calls = <({String method, Json params})>[];
   Json settings = {
     'approvalMode': 'changes',
@@ -95,6 +108,11 @@ class FakeBackend implements AgentBackend {
         return searchHits;
       case _ when handlers.containsKey(method):
         return handlers[method]!(params);
+      // Tests that only stub goals.list still answer goals.bySession: each file's latest goal, any status.
+      case 'goals.bySession' when handlers.containsKey('goals.list'):
+        final rows = (handlers['goals.list']!(const {}) as List? ?? const []).whereType<Map>().toList()
+          ..sort((a, b) => ((b['createdAt'] as num?) ?? 0).compareTo((a['createdAt'] as num?) ?? 0));
+        return {'goals': {for (final file in (params['sessionFiles'] as List? ?? const []).cast<String>()) file: rows.where((g) => g['sessionFile'] == file).firstOrNull}};
       case 'memory.items':
         return handlers['memory.list']?.call({'status': 'active', ...params}) ?? <Json>[];
       case 'memory.pending':

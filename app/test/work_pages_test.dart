@@ -60,11 +60,6 @@ void main() {
           {'id': 'a0', 'path': r'C:\work\old-desk.md', 'taskId': 't0', 'exists': true},
         ],
       },
-      'notes.save': (p) {
-        final note = {'id': 'w1', 'cwd': p['cwd'], 'title': (p['title'] as String?)?.isNotEmpty == true ? p['title'] : '未命名写笺', 'content': p['content'] ?? ''};
-        notes = [note];
-        return note;
-      },
       'tasks.list': (p) => p['noteId'] != null ? const [] : const [],
       'artifacts.list': (_) => const [],
       'tasks.create': (p) => {
@@ -118,7 +113,7 @@ void main() {
     expect(agent.butterfly?.isReady, isTrue);
     expect(find.text('交流'), findsNothing); expect(find.text('工作'), findsNothing);
     expect(find.byTooltip('新写笺'), findsNothing);
-    final input = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…');
+    final input = find.byKey(const ValueKey('composer-input'));
     await tester.enterText(input, '你好');
     await tester.pump();
     await tester.tap(find.byTooltip('发送')); await settle(tester);
@@ -153,7 +148,7 @@ void main() {
     expect(agent.section, AppSection.butterfly, reason: '新对话 from another page goes back to 蝶君');
     expect(find.text('交给我吧，你去忙别的'), findsOneWidget);
 
-    await tester.tap(find.text('花费')); await settle(tester);
+    await tester.tap(find.byTooltip('花费')); await settle(tester); // 侧栏底部图标不带字（2026-11-15 用户定）
     await tester.tap(find.descendant(of: find.byType(Sidebar), matching: find.textContaining('帮我看看传感器')).first); await settle(tester);
     expect(agent.section, AppSection.butterfly, reason: 'a conversation in the side opens from another page');
     expect(SessionStore.samePath(agent.butterfly!.currentSessionPath ?? '', old.path), isTrue);

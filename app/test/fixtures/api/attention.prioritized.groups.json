@@ -1,0 +1,55 @@
+[
+  {
+    "id": "question:e6269d90-1d07-4146-8dfa-035b8fbfd3e1",
+    "category": "decision",
+    "object": "Agent 需要你补充信息：",
+    "occurredAt": 1794564732940,
+    "situation": "需要你的回答才能继续",
+    "actions": [
+      "answer",
+      "reject"
+    ],
+    "target": {
+      "page": "chat",
+      "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+      "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+      "itemId": "e6269d90-1d07-4146-8dfa-035b8fbfd3e1"
+    },
+    "notified": false
+  },
+  {
+    "id": "goal_blocked:g_6be21566",
+    "category": "blocked",
+    "object": "整理实验记录",
+    "occurredAt": 1794564732281,
+    "situation": "预算不足",
+    "actions": [
+      "open"
+    ],
+    "target": {
+      "page": "chat",
+      "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+      "itemId": "g_6be21566",
+      "goalId": "g_6be21566"
+    },
+    "notified": false
+  },
+  {
+    "id": "goal_acceptance:ui-review",
+    "category": "review",
+    "object": "整理实验记录",
+    "occurredAt": 1794564732938,
+    "situation": "等你验收产物",
+    "actions": [
+      "accept",
+      "reject"
+    ],
+    "target": {
+      "page": "chat",
+      "sessionFile": null,
+      "slotId": null,
+      "itemId": "ui-review"
+    },
+    "notified": false
+  }
+]

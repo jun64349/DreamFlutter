@@ -1,0 +1,8 @@
+[
+  {
+    "event": "job.finished",
+    "id": "16d0cade-2db6-4920-90b3-ccb1bea528be",
+    "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+    "status": "cancelled"
+  }
+]

@@ -39,7 +39,7 @@ class Preferences {
   /// Model used for new sessions until the user picks another one.
   static const defaultModelKey = 'cc-switch-deep-seek/deepseek-flash';
   static const maxRecentWorkspaces = 10;
-  static const textScales = [0.9, 1.0, 1.1, 1.25];
+  static const textScales = [0.9, 0.95, 1.0, 1.1, 1.25];
 
   static String defaultWorkspace() {
     final home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
@@ -128,6 +128,13 @@ class Preferences {
   String? get darkTheme => _prefs.getString('darkTheme');
   Future<void> setDarkTheme(String id) => _prefs.setString('darkTheme', id);
 
+  String get paperTexture => _prefs.getString('paperTexture') ?? 'xuan';
+  Future<void> setPaperTexture(String value) => _prefs.setString('paperTexture', value);
+  double get paperStrength => _prefs.getDouble('paperStrength') ?? .05;
+  Future<void> setPaperStrength(double value) => _prefs.setDouble('paperStrength', value);
+  bool get decorativeMotion => _prefs.getBool('decorativeMotion') ?? true;
+  Future<void> setDecorativeMotion(bool value) => _prefs.setBool('decorativeMotion', value);
+
   double get textScale => _prefs.getDouble('textScale') ?? 1.0;
   Future<void> setTextScale(double value) => _prefs.setDouble('textScale', value);
 
@@ -147,8 +154,8 @@ class Preferences {
   Future<void> setRunPanelOpen(bool value) => _prefs.setBool('detailsOpen', value);
 
   /// Widths the user dragged the sidebar and the details panel to (0.4, extra test 8).
-  static const sidebarWidths = (min: 232.0, initial: 248.0, max: 420.0);
-  static const panelWidths = (min: 280.0, initial: 340.0, max: 560.0);
+  static const sidebarWidths = (min: 232.0, initial: 264.0, max: 420.0);
+  static const panelWidths = (min: 280.0, initial: 312.0, max: 560.0);
 
   double get sidebarWidth => (_prefs.getDouble('sidebarWidth') ?? sidebarWidths.initial).clamp(sidebarWidths.min, sidebarWidths.max);
   Future<void> setSidebarWidth(double value) => _prefs.setDouble('sidebarWidth', value);

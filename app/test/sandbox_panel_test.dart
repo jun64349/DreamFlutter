@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/ui/settings_controls.dart' show SettingRow, V1Toggle;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
@@ -48,6 +49,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('settings-nav-蝶君')));
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
     await tester.pumpAndSettle();
+    // 0.12 put 性格/主动/长期目标/规则/日程 above the sandbox card: scroll down to it.
+    await tester.drag(find.byKey(const ValueKey('settings-蝶君')), const Offset(0, -4000));
+    await tester.pumpAndSettle();
   }
 
   testWidgets('without WSL it explains how to install it', (tester) async {
@@ -65,7 +69,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('自检全部通过（2 项）'), findsOneWidget);
     expect(find.text('运行不了 Windows 程序'), findsOneWidget);
-    await tester.tap(find.text('允许沙箱联网'));
+    expect(find.text('允许沙箱联网'), findsNothing, reason: 'one networking switch: 允许联网 above the panel');
+    final onlineSwitch = find.descendant(of: find.ancestor(of: find.text('允许联网'), matching: find.byType(SettingRow)).first, matching: find.byType(V1Toggle));
+    await tester.ensureVisible(onlineSwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(onlineSwitch);
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
     await tester.pumpAndSettle();
     expect(backend.callsTo('sandbox.setOnline').single, {'online': false});

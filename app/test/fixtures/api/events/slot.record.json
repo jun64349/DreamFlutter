@@ -1,0 +1,69 @@
+[
+  {
+    "event": "slot.record",
+    "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+    "record": {
+      "type": "df_agent_state",
+      "todos": null,
+      "planMode": false
+    }
+  },
+  {
+    "event": "slot.record",
+    "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+    "record": {
+      "type": "df_agent_state",
+      "planMode": false,
+      "todos": [
+        {
+          "content": "读三款的规格书",
+          "status": "completed"
+        },
+        {
+          "content": "抓京东、淘宝的价格",
+          "status": "completed"
+        },
+        {
+          "content": "整理成对比表",
+          "status": "in_progress"
+        },
+        {
+          "content": "写推荐结论",
+          "status": "pending"
+        },
+        {
+          "content": "交付 report.md",
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  {
+    "event": "slot.record",
+    "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+    "record": {
+      "type": "extension_ui_request",
+      "id": "f56a54ef-4e34-4205-a3a8-5cb5ebc800e1",
+      "method": "select",
+      "title": "Agent 需要你补充信息：\n\n海外那款要算进对比吗？",
+      "options": [
+        "算进去 — 运费按 60 元估",
+        "先不算（推荐）",
+        "换一款国内的 — 我来挑",
+        "自己回答…",
+        "跳过这个问题"
+      ],
+      "timeout": 120000
+    }
+  },
+  {
+    "event": "slot.record",
+    "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+    "record": {
+      "type": "extension_ui_request",
+      "id": "e6269d90-1d07-4146-8dfa-035b8fbfd3e1",
+      "method": "input",
+      "title": "Agent 需要你补充信息：\n\n海外那款要算进对比吗？"
+    }
+  }
+]

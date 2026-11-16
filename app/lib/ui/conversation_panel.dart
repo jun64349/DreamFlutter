@@ -17,7 +17,8 @@ String formatWan(int tokens) {
 /// The right panel's context block (0.8.1 R.2): how much of the window this conversation fills,
 /// what it took in and gave out, and tidying it up. Replaces the old centred "上下文" dialog.
 class ConversationContextSection extends StatefulWidget {
-  const ConversationContextSection({super.key});
+  const ConversationContextSection({super.key, this.showHeading = true});
+  final bool showHeading;
   @override
   State<ConversationContextSection> createState() => _ConversationContextSectionState();
 }
@@ -84,7 +85,7 @@ class _ConversationContextSectionState extends State<ConversationContextSection>
     ];
     final compacting = _busy || agent.isCompacting;
     return Column(key: const ValueKey('panel-context'), crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('上下文', style: context.label), const SizedBox(height: 8),
+      if (widget.showHeading) ...[Text('上下文', style: context.label), const SizedBox(height: 8)],
       AnimatedBuilder(
         animation: _flash,
         builder: (context, child) {
@@ -117,12 +118,17 @@ class _ConversationContextSectionState extends State<ConversationContextSection>
               Text(value, style: context.text.bodySmall),
             ]),
           ),
+          if (agent.autoCompactionEnabled) Padding(padding: const EdgeInsets.only(top: 8), child: Row(children: [
+            Text('整理阈值', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+            const Spacer(),
+            Text('${(agent.coreSettings['compactionThresholdPercent'] as num? ?? 80).toInt()}%', style: context.text.bodySmall),
+          ])),
           const SizedBox(height: 10),
           OutlinedButton.icon(
             key: const ValueKey('panel-compact'),
             onPressed: compacting || agent.isRunning || !known ? null : _compact,
             icon: compacting ? const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.compress, size: 16),
-            label: Text(compacting ? '正在整理…' : '整理上下文'),
+            label: Text(compacting ? '正在整理…' : '现在整理'),
           ),
           AnimatedSize(
             duration: AppTokens.motion(context, AppTokens.medium), curve: AppTokens.curve,

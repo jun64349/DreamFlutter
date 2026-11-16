@@ -69,7 +69,11 @@ export class AttentionModule implements CoreModule {
 		const keyed = new Map(rows.map(r => [`${r.kind}:${r.id}`, r]));
 		for (const c of this.core.confirmations.list({ status: "pending", limit: 2_147_483_647 })) {
 			const kind = c.kind === "approval" ? "approval" : c.kind === "trust" ? "trust" : "question";
-			keyed.set(`${kind}:${c.id}`, { kind, id: c.id, title: c.title, createdAt: c.createdAt, cwd: c.cwd, sessionFile: c.sessionFile, slotId: c.slotId, data: c.request });
+			const rule = this.core.db.get<{ payload: string }>("SELECT payload FROM autonomy_confirmations WHERE id=? AND kind='rule'", c.id);
+			const payload = rule ? parseJson<{ draft?: unknown; version?: number }>(rule.payload, {}) : undefined;
+			const data = payload ? { kind: "rule_draft", draft: payload.draft ?? parseJson(rule!.payload, null), version: payload.version ?? 1 } : c.request;
+			keyed.set(`${kind}:${c.id}`, { kind, id: c.id, title: c.title, body: rule ? c.request.message : undefined,
+				createdAt: c.createdAt, cwd: c.cwd, sessionFile: c.sessionFile, slotId: c.slotId, data });
 		}
 		for (const n of this.core.db.all<Record<string, unknown>>("SELECT * FROM notices WHERE status='pending'")) {
 			keyed.set(`limit:${n.id}`, { kind: "limit", id: n.id, title: n.title, body: n.body, createdAt: n.created_at, cwd: n.cwd, sessionFile: n.session_file, slotId: n.slot_id, data: { kind: n.kind } });

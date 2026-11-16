@@ -1,0 +1,21 @@
+{
+  "id": "sr_f22b94e7",
+  "scheduleId": "s_e3535e83",
+  "triggerKey": "manual:sr_f22b94e7",
+  "version": 3,
+  "scheduledAt": 1794564732407,
+  "startedAt": 1794564732412,
+  "endedAt": 1794564732415,
+  "manual": true,
+  "catchUp": false,
+  "status": "done",
+  "attempt": 1,
+  "retryAt": null,
+  "taskId": null,
+  "sessionFile": null,
+  "result": "已提醒",
+  "error": null,
+  "note": "手动运行",
+  "externalEffects": false,
+  "cost": 0
+}

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
+import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/data_storage_panel.dart';
 import 'package:flutter/material.dart';
@@ -33,7 +34,7 @@ void main() {
       final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: sessions.path), backend: backend);
       addTearDown(() { agent.dispose(); sessions.deleteSync(recursive: true); });
       await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(
-        theme: ThemeData(brightness: brightness),
+        theme: buildTheme(brightness),
         builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.5)), child: child!),
         home: const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DataStoragePanel()))),
       )));
@@ -80,16 +81,15 @@ void main() {
       final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: temporary.path), backend: backend);
       addTearDown(() { agent.dispose(); temporary.deleteSync(recursive: true); });
       Widget frame(String key) => AgentScope(controller: agent, child: MaterialApp(
-        theme: ThemeData(brightness: brightness),
+        theme: buildTheme(brightness),
         builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.5)), child: child!),
         home: Scaffold(body: SingleChildScrollView(child: Padding(padding: const EdgeInsets.all(16), child: DataStoragePanel(key: ValueKey(key))))),
       ));
       await tester.pumpWidget(frame('busy')); await tester.pumpAndSettle();
       expect(find.text(message), findsOneWidget, reason: 'persisted lastMove uses the same plain-language message');
       expect(find.textContaining('ERROR_SHARING_VIOLATION'), findsNothing);
-      // 0.8.1 S.5: moving is in the row's "⋯".
-      await tester.tap(find.byTooltip('更多')); await tester.pumpAndSettle();
-      await tester.tap(find.text('修改位置…')); await tester.pumpAndSettle();
+      // 1.0 原型：搬迁是每处路径旁的「搬到别处」。
+      await tester.ensureVisible(find.text('搬到别处')); await tester.tap(find.text('搬到别处')); await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextField, '目标新目录（绝对路径）'), '${temporary.path}/new-sandbox');
       await tester.tap(find.text('搬迁并重启')); await tester.pump(const Duration(milliseconds: 700));
       expect(find.text('后台正在重启并验证搬迁，请稍候…'), findsOneWidget);
@@ -134,14 +134,14 @@ void main() {
       final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: temporary.path), backend: backend);
       addTearDown(() { agent.dispose(); temporary.deleteSync(recursive: true); });
       await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(
-        theme: ThemeData(brightness: brightness),
+        theme: buildTheme(brightness),
         builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.5)), child: child!),
         home: const Scaffold(body: SingleChildScrollView(child: Padding(padding: EdgeInsets.all(16), child: DataStoragePanel()))),
       )));
       await tester.pumpAndSettle();
       expect(find.textContaining('工作区里的产物'), findsOneWidget);
       expect(find.textContaining('修改产物位置'), findsNothing);
-      Future<void> openMove() async { await tester.ensureVisible(find.byTooltip('更多')); await tester.tap(find.byTooltip('更多')); await tester.pumpAndSettle(); await tester.tap(find.text('修改位置（记忆跟着搬）…')); await tester.pumpAndSettle(); }
+      Future<void> openMove() async { await tester.ensureVisible(find.text('搬到别处')); expect(find.byTooltip('记忆跟着搬'), findsOneWidget); await tester.tap(find.text('搬到别处')); await tester.pumpAndSettle(); }
       await openMove();
       await tester.tap(find.text('取消')); await tester.pumpAndSettle();
       await tester.pump(const Duration(milliseconds: 300));

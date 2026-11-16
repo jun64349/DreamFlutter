@@ -1,0 +1,31 @@
+[
+  {
+    "id": "m_6f3c6d2928",
+    "version": 1,
+    "level": 1,
+    "kind": "experience",
+    "content": "阅读温湿度资料时，需要核对量程和精度。",
+    "conditions": null,
+    "scope": "butterfly",
+    "workspaceId": null,
+    "groupId": null,
+    "confidence": "agent_inferred",
+    "status": "active",
+    "pinned": false,
+    "retention": "normal",
+    "autoOk": false,
+    "occurredAt": null,
+    "validFrom": null,
+    "validUntil": null,
+    "lastVerifiedAt": null,
+    "nextReviewAt": null,
+    "lastUsedAt": null,
+    "useCount": 0,
+    "createdAt": 1794564731490,
+    "updatedAt": 1794564731490,
+    "createdBy": "main_agent",
+    "workspacePath": null,
+    "possiblyOutdated": false,
+    "review": null
+  }
+]

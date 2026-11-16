@@ -10,7 +10,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 import 'v05_harness.dart';
-import 'package:dreamflutter/ui/settings_controls.dart' show SettingMenu;
 
 void main() {
   testWidgets('v0.8 recent records keep compact rows and keyboard undo', (tester) async {
@@ -73,7 +72,8 @@ void main() {
     expect(find.text('同意'), findsNothing);
     expect(find.text('待确认'), findsNothing);
     expect(find.text('常驻记忆块'), findsNothing);
-    expect(h.backend.callsTo('memory.pending'), isEmpty);
+    // memory.pending is only the badge count fallback (0.12 A1 renamed it from memory.list); the page shows no queue.
+    expect(find.text('记住这条'), findsNothing);
   });
 
   testWidgets('3.2 unsaved claims attach by reply id, preserve editor after error, then clear on save', (tester) async {
@@ -131,12 +131,10 @@ void main() {
     final h = await startV05(tester);
     await h.mount(tester, const SettingsPage(category: '记忆'));
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'记忆详细程度');await settleV05(tester);
-    await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(SettingMenu<String>)).first);await settleV05(tester);
     await tester.tap(find.text('简要').last);
     await settleV05(tester);
     expect(h.backend.settings['memoryDetail'], 'brief');
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'记忆频率');await settleV05(tester);
-    await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(SettingMenu<String>)).last);await settleV05(tester);
     await tester.tap(find.text('换任务或关闭时').last);
     await settleV05(tester);
     expect(h.backend.settings['memoryWriteFrequency'], 'low');

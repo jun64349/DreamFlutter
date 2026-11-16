@@ -1,0 +1,40 @@
+[
+  {
+    "id": "g_6be21566",
+    "revision": 1,
+    "title": "整理实验记录",
+    "originText": "整理实验记录",
+    "spec": {
+      "objective": "整理实验记录",
+      "constraints": [],
+      "acceptance": [],
+      "deliverables": []
+    },
+    "scope": {
+      "cwd": "<fixture>\\workspace",
+      "partition": "workbench",
+      "sandbox": false
+    },
+    "mandateRef": "user:fixture-message",
+    "source": "user",
+    "status": "queued",
+    "reason": null,
+    "resumeWhen": null,
+    "stopIntent": null,
+    "currentTaskId": null,
+    "budget": null,
+    "progress": {},
+    "leaseOwner": "0104253f-828e-4bd7-96d3-e6a0f8239456",
+    "leaseGeneration": 1,
+    "leaseUntil": 1794564792241,
+    "latestReviewId": null,
+    "createdAt": 1794564732233,
+    "updatedAt": 1794564732241,
+    "endedAt": null,
+    "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+    "kind": "goal",
+    "view": "running",
+    "stage": "第 1 轮 · 等待执行",
+    "next": "继续推进目标"
+  }
+]

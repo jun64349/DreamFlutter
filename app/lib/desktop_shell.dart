@@ -28,6 +28,7 @@ class DesktopShell with WindowListener, TrayListener {
     await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
     await windowManager.setPreventClose(true);
     windowManager.addListener(this);
+    controller.closeWindowForUninstall = () => _quit(stopCore: false, updating: true);
     await trayManager.setIcon('assets/tray_icon.ico');
     await trayManager.setToolTip('DreamFlutter（后台运行中）');
     await trayManager.setContextMenu(

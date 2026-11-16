@@ -4,6 +4,7 @@ import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/ui/composer.dart' show MentionChip;
+import 'package:dreamflutter/ui/run_summary.dart' show RunPanel;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -101,10 +102,82 @@ void main() {
       await tester.tap(find.byTooltip(RegExp('^详情')));
       await settle(tester);
       expect(find.text('这个对话'), findsOneWidget);
-      expect(find.text('分支'), findsNothing);
+      // The panel has no branch block (0.8.1); 0.12 G2 put a 「分支」 button in the top bar instead.
+      expect(find.descendant(of: find.byType(RunPanel), matching: find.text('分支')), findsNothing);
       expect(find.text('常用操作'), findsOneWidget); // 0.8.1 R.3: back in the panel
       expect(find.text('相关对话'), findsNothing);
       expect(pi.sent('df_navigate_tree'), isEmpty);
+    });
+
+    testWidgets('the file panel keeps earlier reads after a later reply with no tools', (tester) async {
+      await startApp(tester);
+      final pi = backend.pis.single;
+      Json call(String id, String tool, String path) => {
+        'type': 'toolCall', 'id': id, 'name': tool, 'arguments': {'path': path},
+      };
+      Json result(String id, String tool) => {
+        'role': 'toolResult', 'toolCallId': id, 'toolName': tool, 'isError': false,
+        'content': [{'type': 'text', 'text': 'ok'}],
+      };
+      Json reply(int timestamp, String text) => {
+        'role': 'assistant', 'timestamp': timestamp, 'stopReason': 'stop',
+        'content': [{'type': 'text', 'text': text}],
+      };
+      pi.messages = [
+        {'role': 'user', 'timestamp': 1, 'content': '核对规格再写周报'},
+        {'role': 'assistant', 'timestamp': 2, 'stopReason': 'toolUse', 'content': [
+          call('read', 'read', 'specs.csv'), call('read-again', 'read', 'specs.csv'),
+          call('report-read', 'read', 'weekly.md'), call('report-edit', 'edit', 'weekly.md'),
+        ]},
+        result('read', 'read'), result('read-again', 'read'),
+        result('report-read', 'read'), result('report-edit', 'edit'),
+        reply(3, '核对完了。'),
+        {'role': 'user', 'timestamp': 4, 'content': '可不可以简短点？'},
+        reply(5, '可以。'),
+      ];
+      await tester.runAsync(agent.active!.refreshHistory);
+      await agent.setRunPanelOpen(true);
+      await settle(tester);
+      final fileSection = find.byKey(const ValueKey('panel-section-files'));
+      Finder inPanel(Finder finder) => find.descendant(of: fileSection, matching: finder);
+      expect(inPanel(find.text('1 个改动 · 1 个读过')), findsOneWidget);
+      expect(inPanel(find.text('weekly.md')), findsOneWidget);
+      expect(inPanel(find.text('specs.csv')), findsOneWidget);
+      expect(inPanel(find.text('读过')), findsOneWidget);
+      expect(inPanel(find.text('新建')), findsNothing);
+
+      await tester.tap(inPanel(find.byTooltip('只看某类')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('读过的文件'));
+      await tester.pumpAndSettle();
+      expect(inPanel(find.text('specs.csv')), findsOneWidget);
+      expect(inPanel(find.text('weekly.md')), findsNothing);
+
+      final filesToggle = find.byKey(const ValueKey('panel-toggle-files'));
+      final contextToggle = find.byKey(const ValueKey('panel-toggle-context'));
+      const contextKey = ValueKey('panel-context');
+      final context = find.byKey(contextKey);
+      expect(context, findsOneWidget, reason: 'both sections are expanded by default');
+      await tester.tap(filesToggle);
+      await settle(tester);
+      expect(inPanel(find.text('specs.csv')), findsNothing);
+      expect(context, findsOneWidget, reason: 'sections collapse independently');
+
+      await tester.ensureVisible(contextToggle);
+      await tester.tap(contextToggle);
+      await settle(tester);
+      expect(context, findsNothing);
+      expect(find.byKey(contextKey, skipOffstage: false), findsOneWidget, reason: 'collapsing keeps the context section mounted');
+      await tester.tap(find.byKey(const ValueKey('context-ring')));
+      await settle(tester);
+      expect(context, findsOneWidget);
+      expect(inPanel(find.text('specs.csv')), findsNothing, reason: 'opening context leaves the files collapsed');
+
+      await tester.ensureVisible(filesToggle);
+      await tester.tap(filesToggle);
+      await settle(tester);
+      expect(inPanel(find.text('specs.csv')), findsOneWidget);
+      expect(inPanel(find.text('weekly.md')), findsNothing, reason: 'the file filter survives folding');
     });
   });
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { RpcError } from "../core.ts";
 import type { Db } from "../db.ts";
 import { relevance, trigrams } from "./text.ts";
 
@@ -99,10 +100,10 @@ export class TaskViews {
 
 	undoDecision(id: string): { sessionId: string; task: TaskView | null } {
 		const row = this.db.get<{ session_id: string; before_task: string | null; after_task: string; undone_at: number | null; rowid: number }>("SELECT rowid,* FROM memory_boundary_decisions WHERE id=?", id);
-		if (!row || row.undone_at !== null) throw new Error("这次判断不存在或已经撤销");
+		if (!row || row.undone_at !== null) throw new RpcError("not_found", "这次判断不存在或已经撤销");
 		const after = JSON.parse(row.after_task) as TaskView;
 		const before = row.before_task ? JSON.parse(row.before_task) as TaskView : null;
-		if (this.current(row.session_id)?.id !== after.id || this.db.get("SELECT 1 FROM memory_boundary_decisions WHERE session_id=? AND rowid>? AND undone_at IS NULL", row.session_id, row.rowid)) throw new Error("后面已有新的任务判断，请先处理最新的一条");
+		if (this.current(row.session_id)?.id !== after.id || this.db.get("SELECT 1 FROM memory_boundary_decisions WHERE session_id=? AND rowid>? AND undone_at IS NULL", row.session_id, row.rowid)) throw new RpcError("conflict", "后面已有新的任务判断，请先处理最新的一条");
 		this.db.transaction(() => {
 			if (!before || before.id !== after.id) this.db.run("UPDATE memory_task_views SET status='ended', ended_at=?, end_reason='user_continued' WHERE id=?", this.clock(), after.id);
 			if (before) this.db.run("UPDATE memory_task_views SET status=?,ended_at=?,end_reason=?,last_active_at=? WHERE id=?", before.status, before.endedAt, before.endReason, before.lastActiveAt, before.id);

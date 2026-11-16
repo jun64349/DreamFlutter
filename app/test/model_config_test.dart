@@ -7,7 +7,7 @@ import 'package:dreamflutter/ui/model_group_pages.dart';
 import 'package:dreamflutter/ui/model_settings.dart';
 import 'package:dreamflutter/ui/providers_page.dart';
 import 'package:dreamflutter/ui/settings_page.dart';
-import 'package:dreamflutter/ui/settings_controls.dart' show SettingMenu;
+import 'package:dreamflutter/ui/settings_controls.dart' show V1Seg;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
@@ -45,14 +45,14 @@ void main() {
 
   testWidgets('default thinking can return to following the model; session selection does not overwrite it', (tester) async {
     await start(tester, const SettingsPage(category: '模型与网关'));
-    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'思考深度');await tester.pumpAndSettle();await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(SettingMenu<String>)));
+    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'思考深度');await tester.pumpAndSettle();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('高').last);
+    await tester.tap(find.descendant(of:find.byType(V1Seg<String>),matching:find.text('高')));
     await tester.pumpAndSettle();
     expect(agent.defaultThinkingLevel, 'high');
-    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'思考深度');await tester.pumpAndSettle();await tester.tap(find.descendant(of:find.byKey(const ValueKey('settings-search')),matching:find.byType(SettingMenu<String>)));
+    await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'思考深度');await tester.pumpAndSettle();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('自动').last);
+    await tester.tap(find.descendant(of:find.byType(V1Seg<String>),matching:find.text('自动')));
     await tester.pumpAndSettle();
     expect(agent.defaultThinkingLevel, isNull);
     await tester.runAsync(() => agent.selectThinkingLevel('low'));

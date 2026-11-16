@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'craft_surface.dart';
 import 'shell_widgets.dart';
+import 'motion.dart';
 
 /// Small building blocks shared by the full-page views (memory, skills...).
 
@@ -365,7 +367,7 @@ class PanelSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SwitchListTile(
+    return MotionSwitchTile(
       dense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 10),
       title: Text(title, style: context.text.bodyMedium),
@@ -392,10 +394,10 @@ class OutlinedCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: AppTokens.gap),
       padding: padding,
-      decoration: BoxDecoration(
+      decoration: craftSurfaceDecoration(context,
         color: highlight == null ? colors.card : highlight!.withValues(alpha: 0.05),
-        border: Border.all(color: highlight?.withValues(alpha: 0.5) ?? colors.border),
-        borderRadius: BorderRadius.circular(context.radius),
+        borderColor: highlight?.withValues(alpha: 0.5) ?? colors.border,
+        radius: context.radius,
       ),
       child: child,
     );

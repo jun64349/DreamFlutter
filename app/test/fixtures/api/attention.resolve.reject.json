@@ -1,0 +1,11 @@
+{
+  "id": "11251dcc-5295-447a-a875-da465cceb958",
+  "itemId": "question:ui-rule-reject",
+  "status": "applied",
+  "undoable": false,
+  "undoUntil": null,
+  "remainingMs": 0,
+  "result": {
+    "ok": true
+  }
+}

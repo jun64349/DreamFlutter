@@ -14,7 +14,8 @@ class ButterflyTasks extends ChangeNotifier {
     _events = root.backend.events.listen((event) {
       if ([
         'tasks.changed',
-        'butterfly.prepared',
+        'goals.changed',
+        'attention.changed',
         'butterfly.delivery',
         'butterfly.outbox',
         'schedules.changed',
@@ -34,6 +35,7 @@ class ButterflyTasks extends ChangeNotifier {
   final AgentController root;
   AgentController? worker;
   List<Json> tasks = [], schedules = [];
+  List<Json> questions = [];
   Json sandbox = {};
   String? selectedId, error;
   bool loading = true, preparing = false;
@@ -51,14 +53,18 @@ class ButterflyTasks extends ChangeNotifier {
     final request = ++_request;
     try {
       final results = await Future.wait([
-        root.backend.call('butterfly.tasks'),
+        root.backend.call('tasks.list', {'cwd': root.butterflyHome}),
         root.backend.call('schedules.list'),
         root.backend.call('sandbox.status'),
+        root.backend.call('attention.list'),
       ]);
       if (_disposed || request != _request) return;
       tasks = memoryRows(results[0]);
       schedules = memoryRows(results[1]);
       sandbox = memoryMap(results[2]);
+      final attention = memoryMap(results[3]);
+      questions = [...memoryRows(attention['now']), ...memoryRows(attention['later'])]
+          .where((q) => q['kind'] == 'question').toList();
       error = null;
       loading = false;
       if (ready && worker == null && !_connecting) {
@@ -70,7 +76,8 @@ class ButterflyTasks extends ChangeNotifier {
           worker?.butterflySubmission = submit;
           worker?.butterflySlotHasPlan = (slotId) =>
               preparing && slotId == worker?.active?.slotId ||
-              tasks.any((t) => memoryMap(t['intent'])['slot_id'] == slotId);
+              tasks.any((t) => !['completed', 'failed', 'cancelled', 'done'].contains(t['status']) &&
+                  t['sessionFile'] != null && t['sessionFile'] == worker?.currentSessionPath && slotId == worker?.active?.slotId);
           worker?.addListener(_changedSession);
         } finally {
           _connecting = false;
@@ -79,6 +86,21 @@ class ButterflyTasks extends ChangeNotifier {
       // The task can acquire its saved path after its first run has begun.
       // Resolve it again after the authoritative task list catches up.
       final file = worker?.currentSessionPath;
+      if (file != null) {
+        final rows = memoryRows(await root.backend.call('butterfly.chat.tasks', {'sessionFile': file}));
+        final additions = <Json>[];
+        for (final row in rows) {
+          final delivery = memoryMap(row['delivery']);
+          final files = <Json>[];
+          for (final name in (delivery['files'] as List? ?? []).whereType<String>()) {
+            files.add(memoryMap(await root.backend.call('butterfly.chat.artifact', {'goalId': row['goalId'], 'name': name})));
+          }
+          additions.add({...row, 'id': row['goalId'], 'sessionFile': file,
+            if (delivery.isNotEmpty) 'delivery': {...delivery, 'files': files}});
+        }
+        if (_disposed || request != _request || file != worker?.currentSessionPath) return;
+        tasks = [...additions.reversed, ...tasks.where((t) => !additions.any((a) => a['id'] == t['goalId']))];
+      }
       selectedId ??=
           tasks
                   .where(
@@ -88,10 +110,7 @@ class ButterflyTasks extends ChangeNotifier {
                             SessionStore.samePath(
                               t['sessionFile'] as String,
                               file,
-                            ) ||
-                        memoryMap(t['intent'])['slot_id'] != null &&
-                            memoryMap(t['intent'])['slot_id'] ==
-                                worker?.active?.slotId,
+                            ),
                   )
                   .firstOrNull?['id']
               as String?;
@@ -117,14 +136,14 @@ class ButterflyTasks extends ChangeNotifier {
               SessionStore.samePath(t['sessionFile'] as String, file),
         )
         .firstOrNull;
-    final intentSlot = memoryMap(selected?['intent'])['slot_id'];
     if (match != null) {
       selectedId = match['id'] as String?;
-    } else if (file == null || intentSlot != worker?.active?.slotId) {
+    } else {
       // A new conversation reuses the slot: it is not the old task's any more.
       selectedId = null;
     }
     _notify();
+    if (!loading && !_connecting) unawaited(load());
   }
 
   Future<void> open(Json task) async {
@@ -133,18 +152,6 @@ class ButterflyTasks extends ChangeNotifier {
     final file = task['sessionFile'] as String?;
     if (file != null && worker != null) {
       await worker!.openSession(file);
-    } else if (worker != null) {
-      final intent = memoryMap(task['intent']);
-      if (intent['slot_id'] is String &&
-          !await worker!.activateSlot(intent['slot_id'] as String)) {
-        await worker!.newSession(forceNew: true);
-        if (intent['state'] == 'needs_input') {
-          await root.backend.call('butterfly.start', {
-            'id': intent['id'],
-            'slotId': worker!.active!.slotId,
-          });
-        }
-      }
     }
     selectedId = task['id'] as String?;
     _notify();
@@ -156,13 +163,13 @@ class ButterflyTasks extends ChangeNotifier {
     if (agent == null || slotId == null || preparing) {
       throw StateError('蝶君还没准备好，请稍后重试');
     }
-    final current = selected;
-    final intent = memoryMap(current?['intent']);
+    final question = questions.where((q) => memoryMap(q['origin'])['slotId'] == slotId &&
+        (q['actions'] as List? ?? []).contains('answer') && memoryMap(q['data'])['method'] != 'select').firstOrNull;
     // 0.8.2 (user test): 蝶君 is a conversation. A message goes straight to
     // 蝶君, which says what it understood and starts in its reply; nothing
-    // lands in 「等你处理」 unless 蝶君 really needs an answer. Only a plan
-    // prepared by an earlier version is still answered through it.
-    if (intent.isEmpty) {
+    // lands in 「等你处理」 unless 蝶君 really needs an answer. Pending questions
+    // use the shared attention receipt, without starting another model prompt.
+    if (question == null) {
       // Pictures go into 蝶君's inbox as files, as before: it works on them with its tools.
       final message = images.isEmpty ? text : await _importImages(text, images);
       if (!await agent.active!.send(message)) {
@@ -174,46 +181,12 @@ class ButterflyTasks extends ChangeNotifier {
     error = null;
     _notify();
     try {
-      String goal = text;
-      if (images.isNotEmpty) goal = await _importImages(text, images);
-      Json prepared;
-      if (intent['state'] == 'needs_input') {
-        prepared = memoryMap(
-          await root.backend.call('butterfly.answer', {
-            'id': intent['id'],
-            'answer': goal,
-          }, const Duration(seconds: 90)),
-        );
-      } else if (intent.isNotEmpty &&
-          RegExp(r'^(可以|好|好的|开始|开工|就这样)[。！!\s]*$').hasMatch(goal.trim())) {
-        await start(intent);
-        return;
-      } else {
-        if (intent.isNotEmpty) goal = '${intent['goal']}\n用户补充：$goal';
-        prepared = memoryMap(
-          await root.backend.call('butterfly.prepare', {
-            'slotId': slotId,
-            'goal': goal,
-          }, const Duration(seconds: 90)),
-        );
-      }
-      if (agent.active?.slotId == slotId) {
-        selectedId = prepared['task_id'] as String?;
-      }
+      final answer = images.isEmpty ? text : await _importImages(text, images);
+      final receipt = memoryMap(await root.backend.call('attention.resolve', {
+        'id': question['id'], 'action': 'answer', 'response': {'value': answer},
+      }, const Duration(seconds: 90)));
+      if (receipt['status'] == 'failed') throw StateError('${receipt['error'] ?? '没能处理，请重试。'}');
       await load();
-      if (selectedId != null && selected == null) {
-        tasks = [
-          ...tasks,
-          {
-            'id': selectedId,
-            'title': prepared['goal'],
-            'goal': prepared['goal'],
-            'status': 'waiting',
-            'progress': '已复述任务',
-            'intent': prepared,
-          },
-        ];
-      }
     } catch (e) {
       error = SessionRuntime.describeError(e);
       rethrow;
@@ -257,19 +230,6 @@ class ButterflyTasks extends ChangeNotifier {
     } finally {
       if (await folder.exists()) await folder.delete(recursive: true);
     }
-  }
-
-  Future<void> start(Json intent) async {
-    await root.backend.call('butterfly.start', {
-      'id': intent['id'],
-      'slotId': ?worker?.active?.slotId,
-    });
-    await load();
-  }
-
-  Future<void> cancel(Json intent) async {
-    await root.backend.call('butterfly.cancel', {'id': intent['id']});
-    await load();
   }
 
   Future<void> changeSchedule(String id, String? status) async {

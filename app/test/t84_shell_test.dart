@@ -114,12 +114,15 @@ void main() {
     await tester.runAsync(agent.refreshSessions);
     await tester.pumpAndSettle();
     expect(find.text('父对话'), findsOneWidget);
+    // 2026-11-15 用户定：分支默认折叠，先点父对话左边的展开钮。
+    await tester.tap(find.byTooltip(RegExp(r'^展开 \d+ 个分支$'))); await tester.pumpAndSettle();
     expect(find.text('问一下'), findsOneWidget);
     expect(tester.getTopLeft(find.text('今天')).dx, lessThan(tester.getTopLeft(find.text('父对话')).dx + 20), reason: 'time groups stay aligned with their rows during list animation');
     expect(tester.getTopLeft(find.text('问一下')).dx, greaterThan(tester.getTopLeft(find.text('父对话')).dx));
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
-    expect(find.text('一方天地'), findsOneWidget);
+    expect(agent.section, AppSection.settings);
+    expect(find.byWidgetPredicate((widget) => widget is Semantics && widget.properties.label == '一方天地'), findsOneWidget);
     expect(find.text('新对话'), findsNWidgets(2), reason: 'navigation and the default conversation breadcrumb');
     await agent.setZoom(1.5);
     await tester.pumpAndSettle();

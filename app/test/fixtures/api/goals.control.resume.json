@@ -1,0 +1,108 @@
+{
+  "id": "g_6be21566",
+  "revision": 1,
+  "title": "整理实验记录",
+  "originText": "整理实验记录",
+  "spec": {
+    "objective": "整理实验记录",
+    "constraints": [],
+    "acceptance": [],
+    "deliverables": []
+  },
+  "scope": {
+    "cwd": "<fixture>\\workspace",
+    "partition": "workbench",
+    "sandbox": false
+  },
+  "mandateRef": "user:fixture-message",
+  "source": "user",
+  "status": "queued",
+  "reason": null,
+  "resumeWhen": null,
+  "stopIntent": null,
+  "currentTaskId": null,
+  "budget": null,
+  "progress": {},
+  "leaseOwner": "0104253f-828e-4bd7-96d3-e6a0f8239456",
+  "leaseGeneration": 4,
+  "leaseUntil": 1794564792276,
+  "latestReviewId": null,
+  "createdAt": 1794564732233,
+  "updatedAt": 1794564732276,
+  "endedAt": null,
+  "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+  "stage": "第 1 轮 · 等待执行",
+  "next": "继续推进目标",
+  "budgetStatus": {
+    "limits": {
+      "maxCostUsd": 2,
+      "maxTokens": null,
+      "maxActiveMs": 7200000,
+      "maxRuns": 30,
+      "maxParallel": 2
+    },
+    "used": {
+      "costUsd": 0,
+      "tokens": 0,
+      "activeMs": 0,
+      "runs": 0,
+      "parallel": 0
+    },
+    "reserved": {
+      "costUsd": 0,
+      "tokens": 0,
+      "activeMs": 0,
+      "runs": 0,
+      "parallel": 0
+    },
+    "remaining": {
+      "costUsd": 2,
+      "tokens": null,
+      "activeMs": 7200000,
+      "runs": 30,
+      "parallel": 2
+    }
+  },
+  "costUnknown": false,
+  "recentEvents": [
+    {
+      "id": "a20f45e1-dd15-4811-ac30-9b08c5a08e0c",
+      "goalId": "g_6be21566",
+      "kind": "user.control",
+      "dedupeKey": "control:b10f4475-b97c-4995-b62a-9804c9ec4e05",
+      "payload": {
+        "action": "resume"
+      },
+      "createdAt": 1794564732269,
+      "handledAt": 1794564732270,
+      "handledByGeneration": 3
+    },
+    {
+      "id": "43321a92-a1a2-4edb-b488-8557d990ac63",
+      "goalId": "g_6be21566",
+      "kind": "user.control",
+      "dedupeKey": "control:1bb424a4-c249-48b3-b50b-4a2874d04101",
+      "payload": {
+        "action": "pause"
+      },
+      "createdAt": 1794564732259,
+      "handledAt": 1794564732260,
+      "handledByGeneration": 2
+    }
+  ],
+  "emergency": false,
+  "executionEnded": false,
+  "artifactsGenerated": false,
+  "machineAccepted": false,
+  "awaitingAcceptance": false,
+  "completed": false,
+  "checks": [],
+  "missing": [],
+  "review": null,
+  "artifacts": [],
+  "approvals": [],
+  "stillRunning": [],
+  "waits": [],
+  "services": [],
+  "irreversible": []
+}

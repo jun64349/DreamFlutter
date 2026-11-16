@@ -7,6 +7,8 @@ import 'package:pi_rpc/pi_rpc.dart';
 import '../state/agent_controller.dart' show AgentController, asJsonMap;
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'settings_controls.dart' show SettingRow;
+import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
 
 /// Tables as people read them, for the counts in a preview.
 const _countNames = {
@@ -225,24 +227,20 @@ class _BackupPanelState extends State<BackupPanel> {
       children: [
         if (_error != null) ...[Text(_error!, style: context.text.bodyMedium?.copyWith(color: context.colors.danger)), const SizedBox(height: AppTokens.gap)],
         if (_job != null) _JobView(job: _job!, onCancel: () => _call('backup.cancel'), onReveal: (p) => _agent!.revealInExplorer(p)),
-        Padding(padding: const EdgeInsets.only(top: 16), child: Text('备份', style: context.label)),
-        const SizedBox(height: AppTokens.gap),
-        Row(
-          children: [
-            FilledButton.icon(onPressed: _running || busy.isNotEmpty ? null : _export, icon: const Icon(Icons.upload_file_outlined, size: 18), label: const Text('导出备份…')),
-            const SizedBox(width: AppTokens.gap),
-            OutlinedButton.icon(onPressed: _running ? null : _pick, icon: const Icon(Icons.download_outlined, size: 18), label: const Text('导入备份…')),
-          ],
-        ),
-        if (busy.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text('有任务正在运行（${busy.join('、')}），等它结束或先停止再导出。', style: muted)),
+        SettingRow('备份文件', desc: '升级前、导入前各自动备份一次，各留最近 3 份', child: Wrap(spacing: 8, runSpacing: 8, children: [
+          ShellButton('导出备份…', small: true, kind: ShellButtonKind.primary, onPressed: _running || busy.isNotEmpty ? null : _export),
+          ShellButton('导入备份…', small: true, onPressed: _running ? null : _pick),
+        ])),
+        if (busy.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text('有任务正在运行（${busy.join('、')}），等它结束或先停止再导出。', style: muted)),
         _importSection(muted),
         if (_agent!.restoreResult.value case final result?) ...[
           const SizedBox(height: AppTokens.gap * 2),
           _heading('上次恢复'),
           _restoreSection(result, muted),
         ],
-        const SizedBox(height: AppTokens.gap),
+        Divider(height: 1, thickness: 0.5, color: context.colors.border),
         _Fold(title: '导出选项', summary: _includeKeys ? '包含 API Key' : '不含 API Key', child: _exportOptions(overview, muted)),
+        Divider(height: 1, thickness: 0.5, color: context.colors.border),
         _Fold(title: '备份记录', summary: history.isEmpty ? '还没有' : '${history.length} 份', child: _historySection(overview, muted)),
       ],
     );
@@ -406,36 +404,40 @@ class _BackupPanelState extends State<BackupPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('升级前、导入前会各自动备份一次，各留最近 3 份（自动备份共 ${formatBytes(overview['autoBytes'] as num? ?? 0)}）。删除旧备份不会动其他数据。', style: muted),
-        if (history.isEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text('还没有备份。', style: muted)),
-        for (final h in history)
-          ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(h['auto'] == true ? Icons.history : Icons.archive_outlined, size: 20),
-            title: Text('${switch (h['kind']) {
-              'upgrade' => '升级前自动备份',
-              'import' => '导入前自动备份',
-              _ => '手动导出',
-            }} · ${_date(h['createdAt'] as num?)} · ${formatBytes(h['size'] as num? ?? 0)}'),
-            subtitle: Text(h['exists'] == true ? h['path'] as String : '${h['path']}（文件已不在）', overflow: TextOverflow.ellipsis),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (h['exists'] == true) IconButton(tooltip: '在文件夹中显示', icon: const Icon(Icons.folder_open_outlined, size: 18), onPressed: () => _agent!.revealInExplorer(h['path'] as String)),
-                IconButton(
-                  tooltip: h['auto'] == true ? '删除这个备份' : '从记录里移除',
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  onPressed: _running
-                      ? null
-                      : () async {
-                          await _call('backup.delete', {'path': h['path']});
-                          await _load();
-                        },
-                ),
-              ],
-            ),
+        if (history.isEmpty) Text('还没有备份。', style: muted),
+        // 原型 .lrow：时间一行，下面「哪种 · 大小」小字，右边在文件夹中显示、删除。
+        for (final (i, h) in history.indexed) ...[
+          if (i > 0) Divider(height: 1, thickness: 0.5, color: context.colors.border),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(children: [
+              Expanded(child: Tooltip(
+                message: h['exists'] == true ? h['path'] as String : '${h['path']}（文件已不在）',
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(_date(h['createdAt'] as num?), style: context.text.bodyMedium?.copyWith(fontSize: 14, color: context.colors.ink)),
+                  const SizedBox(height: 2),
+                  Text('${switch (h['kind']) {
+                    'upgrade' => '升级前自动备份',
+                    'import' => '导入前自动备份',
+                    _ => '手动导出',
+                  }} · ${formatBytes(h['size'] as num? ?? 0)}${h['exists'] == true ? '' : ' · 文件已不在'}', style: muted?.copyWith(fontSize: 12.5)),
+                ]),
+              )),
+              if (h['exists'] == true) IconButton(tooltip: '在文件夹中显示', visualDensity: VisualDensity.compact, icon: Icon(Icons.folder_open_outlined, size: 16, color: context.colors.muted), onPressed: () => _agent!.revealInExplorer(h['path'] as String)),
+              IconButton(
+                tooltip: h['auto'] == true ? '删除这个备份' : '从记录里移除',
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.delete_outline, size: 16, color: context.colors.muted),
+                onPressed: _running
+                    ? null
+                    : () async {
+                        await _call('backup.delete', {'path': h['path']});
+                        await _load();
+                      },
+              ),
+            ]),
           ),
+        ],
       ],
     );
   }
@@ -458,8 +460,12 @@ class _Fold extends StatelessWidget {
       childrenPadding: const EdgeInsets.only(bottom: AppTokens.gap),
       expandedCrossAxisAlignment: CrossAxisAlignment.start,
       dense: true,
-      title: Text(title, style: context.text.titleSmall),
-      subtitle: Text(summary, style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+      shape: const Border(),
+      collapsedShape: const Border(),
+      iconColor: context.colors.muted,
+      collapsedIconColor: context.colors.muted,
+      title: Text(title, style: context.text.bodyMedium?.copyWith(fontSize: 14, color: context.colors.ink)),
+      subtitle: Text(summary, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: context.colors.muted)),
       children: [child],
     ),
   );

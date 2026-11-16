@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "latencyMs": 21,
+  "model": "df-ccf03eabb/fixture-model",
+  "error": "Contract fixtures prohibit real model transport"
+}

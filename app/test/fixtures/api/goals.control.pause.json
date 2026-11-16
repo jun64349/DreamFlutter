@@ -1,0 +1,96 @@
+{
+  "id": "g_6be21566",
+  "revision": 1,
+  "title": "整理实验记录",
+  "originText": "整理实验记录",
+  "spec": {
+    "objective": "整理实验记录",
+    "constraints": [],
+    "acceptance": [],
+    "deliverables": []
+  },
+  "scope": {
+    "cwd": "<fixture>\\workspace",
+    "partition": "workbench",
+    "sandbox": false
+  },
+  "mandateRef": "user:fixture-message",
+  "source": "user",
+  "status": "paused",
+  "reason": "user_paused",
+  "resumeWhen": "由你继续这个目标",
+  "stopIntent": "pause",
+  "currentTaskId": null,
+  "budget": null,
+  "progress": {},
+  "leaseOwner": null,
+  "leaseGeneration": 2,
+  "leaseUntil": null,
+  "latestReviewId": null,
+  "createdAt": 1794564732233,
+  "updatedAt": 1794564732259,
+  "endedAt": null,
+  "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+  "stage": "已暂停",
+  "next": "由你继续这个目标",
+  "budgetStatus": {
+    "limits": {
+      "maxCostUsd": 2,
+      "maxTokens": null,
+      "maxActiveMs": 7200000,
+      "maxRuns": 30,
+      "maxParallel": 2
+    },
+    "used": {
+      "costUsd": 0,
+      "tokens": 0,
+      "activeMs": 0,
+      "runs": 0,
+      "parallel": 0
+    },
+    "reserved": {
+      "costUsd": 0,
+      "tokens": 0,
+      "activeMs": 0,
+      "runs": 0,
+      "parallel": 0
+    },
+    "remaining": {
+      "costUsd": 2,
+      "tokens": null,
+      "activeMs": 7200000,
+      "runs": 30,
+      "parallel": 2
+    }
+  },
+  "costUnknown": false,
+  "recentEvents": [
+    {
+      "id": "43321a92-a1a2-4edb-b488-8557d990ac63",
+      "goalId": "g_6be21566",
+      "kind": "user.control",
+      "dedupeKey": "control:1bb424a4-c249-48b3-b50b-4a2874d04101",
+      "payload": {
+        "action": "pause"
+      },
+      "createdAt": 1794564732259,
+      "handledAt": 1794564732260,
+      "handledByGeneration": 2
+    }
+  ],
+  "emergency": false,
+  "executionEnded": false,
+  "artifactsGenerated": false,
+  "machineAccepted": false,
+  "awaitingAcceptance": false,
+  "completed": false,
+  "checks": [],
+  "missing": [],
+  "review": null,
+  "artifacts": [],
+  "approvals": [],
+  "stillRunning": [],
+  "waits": [],
+  "services": [],
+  "irreversible": []
+}

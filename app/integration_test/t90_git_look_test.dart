@@ -33,9 +33,12 @@ void main(){
     final pi=backend.pis.last;
     for(final dark in [false,true]){
       final color=dark?'dark':'light';await agent.setThemeMode(dark?ThemeMode.dark:ThemeMode.light);agent.setRunPanelOpen(true);await shot('changes_$color');
-      expect(find.text('report.md'),findsOneWidget);expect(find.text('summary.md'),findsOneWidget);
-      await tester.tap(find.widgetWithText(ListTile,'report.md'));await shot('diff_$color');await tester.tap(find.text('关闭').last);await wait();
-      await tester.tap(find.text('提交这些改动'));await shot('commit_$color');expect(backend.callsTo('git.commit'),isEmpty);await tester.tap(find.text('取消').last);await wait();
+      final files = find.byKey(const ValueKey('panel-section-files'));
+      final report = find.descendant(of: files, matching: find.text('report.md'));
+      expect(report,findsOneWidget);expect(find.descendant(of: files, matching: find.text('summary.md')),findsOneWidget);
+      await tester.tap(report);await shot('diff_$color');await tester.tap(find.byTooltip('回到这个对话'));await wait();
+      final commit = find.text('提交这些改动');
+      await tester.ensureVisible(commit);await tester.tap(commit);await shot('commit_$color');expect(backend.callsTo('git.commit'),isEmpty);await tester.tap(find.text('取消').last);await wait();
       agent.setRunPanelOpen(false);pi.startRun('再检查一下实验小结。');
       final tool=<String,dynamic>{'role':'assistant','content':[{'type':'toolCall','id':'live-$color','name':'edit','arguments':{'path':'$cwd/report.md','oldText':'结论待补充。','newText':'已补充三组实验的对比与下一步验证。'}}],'timestamp':10,'stopReason':'toolUse'};
       pi.emit({'type':'message_start','message':tool});pi.emit({'type':'message_end','message':tool});pi.emit({'type':'tool_execution_start','toolCallId':'live-$color','toolName':'edit','args':tool['content'][0]['arguments']});await wait();
@@ -47,7 +50,8 @@ void main(){
       agent.transcript.loadHistory(t90History(cwd).map(AgentMessage.fromJson));pi.messages=t90History(cwd);await wait();
     }
     await tester.runAsync(()=>core.call('test.manual'));agent.setRunPanelOpen(true);await wait();
-    await tester.tap(find.text('提交这些改动'));await wait();
+    final commit = find.text('提交这些改动');
+    await tester.ensureVisible(commit);await tester.tap(commit);await wait();
     final input=find.byWidgetPredicate((w)=>w is TextField && w.decoration?.labelText=='提交说明');
     await tester.enterText(input,'手动确认实验小结');
     for(final dark in [false,true]){await agent.setThemeMode(dark?ThemeMode.dark:ThemeMode.light);await shot('manual_${dark?'dark':'light'}');}

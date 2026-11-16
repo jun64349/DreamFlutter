@@ -7,6 +7,8 @@ import 'package:pi_rpc/pi_rpc.dart';
 import '../state/agent_controller.dart' show AgentController, asJsonMap;
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'settings_controls.dart';
+import 'shell_widgets.dart' show ShellButton, ShellButtonKind, shellButtonStyle;
 
 /// Self-test checks by name, as people read them (core/src/sandbox/sandbox.ts SELF_TEST_SCRIPT).
 const sandboxCheckNames = {
@@ -165,37 +167,20 @@ class _SandboxPanelState extends State<SandboxPanel> {
         ),
       ]);
     } else {
-      final online = status['online'] == true;
       final disk = (status['diskBytes'] as num?)?.toDouble();
       children.addAll([
-        Row(
+        SettingRow('沙箱已就绪',
+          desc:'蝶君在这台电脑上一个隔离的 Linux 里干活，碰不到你的系统${disk == null ? '' : ' · 占用 ${(disk / 1024 / 1024 / 1024).toStringAsFixed(1)} GB'}',
+          child:Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          alignment: WrapAlignment.end,
           children: [
-            Icon(Icons.verified_user_outlined, size: 18, color: colors.accent),
-            const SizedBox(width: 8),
-            Text('沙箱已就绪', style: context.text.bodyLarge),
-            if (disk != null) ...[const SizedBox(width: 12), Text('占用 ${(disk / 1024 / 1024 / 1024).toStringAsFixed(1)} GB', style: muted)],
-          ],
-        ),
-        const SizedBox(height: AppTokens.gap),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          value: online,
-          onChanged: _busy != null ? null : (v) => _do(v ? '联网' : '断网', 'sandbox.setOnline', {'online': v}),
-          title: const Text('允许沙箱联网'),
-          subtitle: const Text('装 Python 包、查资料要用。无论开关，沙箱都访问不了你的局域网和这台电脑。'),
-        ),
-        const SizedBox(height: AppTokens.gap),
-        Wrap(
-          spacing: AppTokens.gap,
-          runSpacing: AppTokens.gap,
-          children: [
-            OutlinedButton.icon(
+            ShellButton('运行逃逸自检', small:true,
               onPressed: _busy != null ? null : () => _do('自检', 'sandbox.selfTest'),
-              icon: const Icon(Icons.fact_check_outlined, size: 18),
-              label: const Text('运行逃逸自检'),
             ),
-            OutlinedButton.icon(
+            TextButton(
+              style:shellButtonStyle(context,ShellButtonKind.normal,small:true).copyWith(foregroundColor:WidgetStatePropertyAll(colors.seal)),
               onPressed: _busy != null
                   ? null
                   : () async {
@@ -203,8 +188,7 @@ class _SandboxPanelState extends State<SandboxPanel> {
                         await _do('重置', 'sandbox.reset');
                       }
                     },
-              icon: const Icon(Icons.restart_alt, size: 18),
-              label: const Text('重置'),
+              child: const Text('重置'),
             ),
             TextButton(
               onPressed: _busy != null
@@ -217,7 +201,7 @@ class _SandboxPanelState extends State<SandboxPanel> {
               child: Text('删除沙箱', style: TextStyle(color: colors.danger)),
             ),
           ],
-        ),
+        )),
       ]);
     }
 
@@ -249,7 +233,7 @@ class _SandboxPanelState extends State<SandboxPanel> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppTokens.padLg, vertical: AppTokens.pad),
+      padding: state == 'ready' ? EdgeInsets.zero : const EdgeInsets.symmetric(vertical: AppTokens.pad),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
     );
   }

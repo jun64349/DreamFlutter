@@ -129,7 +129,7 @@ class ArtifactTile extends StatelessWidget {
           ),
           if (exists)
             PopupMenuButton<String>(
-              tooltip: '操作',
+              tooltip: '更多',
               icon: const Icon(Icons.more_horiz, size: 16),
               onSelected: (v) => switch (v) {
                 'preview' => showFilePreview(context, path),
@@ -303,7 +303,7 @@ class OutboxTile extends StatelessWidget {
           ),
           IconButton(tooltip: '保存到这台电脑', icon: const Icon(Icons.download_outlined, size: 18), visualDensity: VisualDensity.compact, onPressed: () => _save(context)),
           PopupMenuButton<String>(
-            tooltip: '操作',
+            tooltip: '更多',
             icon: const Icon(Icons.more_horiz, size: 16),
             onSelected: (v) => switch (v) {
               'preview' => showFilePreview(context, file.path),

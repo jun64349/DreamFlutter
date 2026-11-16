@@ -36,22 +36,59 @@ void main() {
     ];
     await show(tester, WorkBlock(steps: steps, active: true));
     expect(find.textContaining('正在读取'), findsOneWidget, reason: 'the header says what it is doing');
-    expect(find.text('前面还有 2 步'), findsNothing);
+    expect(find.text('前面 4 步'), findsOneWidget);
     expect(find.text('python make_chart.py'), findsNothing, reason: 'all steps stay folded');
     expect(find.textContaining('chart saved'), findsNothing, reason: 'its output only when opened');
-    expect(find.text('a.xlsx'), findsNothing, reason: 'older steps are behind 「前面还有」');
+    expect(find.text('a.xlsx'), findsNothing, reason: 'older steps are behind 「前面」');
 
     // Opened, every step in full.
     await tester.tap(find.textContaining('正在读取'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('a.xlsx'), findsOneWidget);
     expect(find.text('前面还有 2 步'), findsNothing);
+    expect(find.text('先看看数据\n再说'), findsNothing);
+    await tester.tap(find.text('思考'));
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text('先看看数据\n再说'), findsOneWidget);
   });
 
   testWidgets('a finished block is one line until opened', (tester) async {
     await show(tester, WorkBlock(steps: [tool('read', {'path': 'a.xlsx'}), tool('bash', {'command': 'dir'})], active: false));
     expect(find.text('读取 1 个文件 · 运行 1 条命令'), findsOneWidget);
     expect(find.text('a.xlsx'), findsNothing);
+  });
+
+  testWidgets('work background follows each theme and only thinking text is italic', (tester) async {
+    for (final painting in PaintingTheme.all) {
+      await tester.pumpWidget(const SizedBox());
+      final steps = <Object>[
+        ThinkingPart('先核对数据', durationMs: 2000),
+        tool('bash', {'command': 'python report.py'}),
+      ];
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(painting.brightness, painting: painting),
+        home: Scaffold(body: WorkBlock(steps: steps, active: false)),
+      ));
+      await tester.pump(const Duration(milliseconds: 400));
+      final colors = painting.colors;
+      final expected = Color.alphaBlend(colors.accent.withValues(alpha: .08), colors.background);
+      final boxes = tester.widgetList<Container>(find.descendant(of: find.byType(WorkBlock), matching: find.byType(Container)));
+      expect(boxes.any((box) => switch (box.decoration) {
+        BoxDecoration(:final color) || ShapeDecoration(:final color) => color == expected,
+        _ => false,
+      }), isTrue, reason: painting.id);
+      final header = tester.widget<Text>(find.text('思考了 2 秒 · 运行 1 条命令'));
+      final spans = (header.textSpan! as TextSpan).children!;
+      expect((spans.first as TextSpan).style?.fontStyle, FontStyle.italic);
+      expect((spans.last as TextSpan).style?.fontStyle, isNot(FontStyle.italic));
+      await tester.tap(find.text('思考了 2 秒 · 运行 1 条命令'));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.widget<Text>(find.text('思考 · 2 秒')).style?.fontStyle, FontStyle.italic);
+      expect(tester.widget<Text>(find.text('python report.py')).style?.fontStyle, isNot(FontStyle.italic));
+      await tester.tap(find.text('思考 · 2 秒'));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.widget<Text>(find.text('先核对数据')).style?.fontStyle, FontStyle.italic);
+    }
   });
 
   testWidgets('a command is one line that opens to the terminal; a failed one is open', (tester) async {

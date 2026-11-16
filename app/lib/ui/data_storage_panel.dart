@@ -9,6 +9,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'backup_panel.dart' show formatBytes;
 import 'settings_controls.dart';
+import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
 
 /// G-07 controls in the existing 数据与迁移 category.
 class DataStoragePanel extends StatefulWidget {
@@ -145,33 +146,56 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
     });
   }
 
-  // 0.8.1 S.5: one line per place (name, path, size, open, "⋯" to move); the upkeep numbers as setting rows.
+  // 原型「数据位置」：每处一行（名字 · 大小），下面是路径框和「打开」「搬到别处」；最后一条按大小分段的彩条和图例。
   @override
   Widget build(BuildContext context) {
     final data = _data;
     final space = asJsonMap(data?['space']);
     final path = data?['path'] as String?;
     final scheme = Theme.of(context).colorScheme;
-    final muted = context.text.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+    final colors = context.colors;
+    final muted = context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.muted);
     final rows = _locations == null ? <Json>[] : jsonRows(_locations!['rows']);
     final artifacts = _locations == null ? <Json>[] : jsonRows(_locations!['artifacts']);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, color: colors.ink);
+    final palette = [colors.accent, colors.ochre, colors.success, colors.seal, colors.ink2];
+    final sized = [for (final row in rows) if ((row['bytes'] as num? ?? 0) > 0) row];
+    final total = sized.fold<num>(0, (sum, row) => sum + (row['bytes'] as num));
     Widget place(Json row) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('${row['label']}', style: context.text.bodyMedium),
-          Tooltip(message: '${row['path']}', child: Text('${row['path']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: muted)),
-        ])),
-        const SizedBox(width: 12),
-        Text(formatBytes(row['bytes'] as num? ?? 0), style: muted),
-        IconButton(tooltip: '打开文件夹', visualDensity: VisualDensity.compact, onPressed: () => _agent!.revealInExplorer('${row['path']}'), icon: const Icon(Icons.folder_open_outlined, size: 18)),
-        if (row['movable'] == true)
-          MenuAnchor(
-            menuChildren: [MenuItemButton(onPressed: _busy || _moveId != null ? null : () => _move(row), child: Text(row['id'] == 'database' ? '修改位置（记忆跟着搬）…' : '修改位置…'))],
-            builder: (context, menu, _) => IconButton(tooltip: '更多', visualDensity: VisualDensity.compact, onPressed: () => menu.isOpen ? menu.close() : menu.open(), icon: const Icon(Icons.more_horiz, size: 18)),
-          )
-        else
-          const SizedBox(width: 40),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('${row['label']}', style: context.text.bodyMedium?.copyWith(fontSize: 14, color: colors.ink)),
+        Padding(padding: const EdgeInsets.only(top: 3), child: Text([if (row['layer'] is String) '${row['layer']}', formatBytes(row['bytes'] as num? ?? 0)].join(' · '), style: muted)),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(color: colors.sunk, borderRadius: BorderRadius.circular(9)),
+            child: Tooltip(message: '${row['path']}', child: Text('${row['path']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: mono)),
+          )),
+          const SizedBox(width: 8),
+          Tooltip(message: '打开文件夹', child: ShellButton('打开', small: true, onPressed: () => _agent!.revealInExplorer('${row['path']}'))),
+          if (row['movable'] == true) ...[
+            const SizedBox(width: 8),
+            Tooltip(message: row['id'] == 'database' ? '记忆跟着搬' : '换一个文件夹', child: ShellButton('搬到别处', small: true, onPressed: _busy || _moveId != null ? null : () => _move(row))),
+          ],
+        ]),
+      ]),
+    );
+    Widget usage() => Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        ClipRRect(borderRadius: BorderRadius.circular(4), child: SizedBox(height: 8, child: ColoredBox(color: colors.sunk, child: Row(children: [
+          for (final (i, row) in sized.indexed) Expanded(flex: ((row['bytes'] as num) / total * 1000).round().clamp(1, 1000), child: ColoredBox(color: palette[i % palette.length])),
+        ])))),
+        const SizedBox(height: 8),
+        Wrap(spacing: 14, runSpacing: 4, children: [
+          for (final (i, row) in sized.indexed) Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 7, height: 7, decoration: BoxDecoration(color: palette[i % palette.length], shape: BoxShape.circle)),
+            const SizedBox(width: 5),
+            Text('${row['label']} ${formatBytes(row['bytes'] as num)}', style: muted?.copyWith(fontSize: 12)),
+          ]),
+        ]),
       ]),
     );
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -185,17 +209,17 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
         AutoSaveField(label: '至少留出的磁盘空间', unit: 'GB', compact: true, value: ((space['minimumBytes'] as num? ?? 1073741824) / 1073741824).toStringAsFixed(2), number: true, validator: (v) { final n = double.tryParse(v); return n == null || !n.isFinite || n < 0 || n * 1073741824 > 9007199254740991 ? '请输入有效的非负数' : null; }, save: _saveMinimum),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          OutlinedButton(onPressed: _busy || data == null ? null : _compact, child: const Text('压缩历史…')),
-          if (path != null) TextButton(onPressed: () => _agent!.revealInExplorer(p.dirname(path)), child: const Text('打开数据库文件夹')),
+          ShellButton('压缩历史…', small: true, onPressed: _busy || data == null ? null : _compact),
+          if (path != null) ShellButton('打开数据库文件夹', small: true, kind: ShellButtonKind.ghost, onPressed: () => _agent!.revealInExplorer(p.dirname(path))),
         ]),
         if (_busy) const LinearProgressIndicator(),
         if (_receipt != null) SelectableText(_receipt!),
       ],
       if (_error != null) Text(_error!, style: TextStyle(color: scheme.error)),
       if (_locations != null && !widget.maintenanceOnly) ...[
-        Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: Text('数据位置', style: muted)),
         if (_moveId != null) const LinearProgressIndicator(),
-        for (final row in rows) place(row),
+        for (final (i, row) in rows.indexed) ...[if (i > 0) Divider(height: 1, thickness: 0.5, color: colors.border), place(row)],
+        if (sized.length > 1) usage(),
         if (artifacts.isNotEmpty) ExpansionTile(
           tilePadding: EdgeInsets.zero,
           title: Text('工作区里的产物 · ${artifacts.length} 个', style: context.text.bodyMedium),

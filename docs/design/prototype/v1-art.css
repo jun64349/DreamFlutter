@@ -1,0 +1,240 @@
+/* Painting details and tactile feedback. Kept separate from layout so the
+   implementation can tell theme art apart from structure. */
+:root{
+ --motion-ease:cubic-bezier(.2,.7,.2,1);
+ --art-2:var(--ochre);
+ --thumb:var(--card);
+ --card-art:none;
+ --side-art:none;
+ --home-art:radial-gradient(ellipse 60% 40% at 50% 0%,var(--accent-soft),transparent 70%);
+ --selection-edge:var(--accent);
+}
+[data-art="warm"],[data-art="muse"]{
+ --home-art:radial-gradient(ellipse 52% 42% at 50% 4%,var(--accent-soft),transparent 72%),linear-gradient(112deg,transparent 36%,color-mix(in srgb,var(--ochre) 4%,transparent) 50%,transparent 64%);
+ --side-art:linear-gradient(165deg,transparent 52%,color-mix(in srgb,var(--accent) 6%,transparent) 52.5%,transparent 53%),radial-gradient(ellipse at 90% 94%,var(--accent-soft),transparent 52%);
+}
+[data-art="jiadie"],[data-art="moye"]{
+ --art-2:#B58A52;
+ --home-art:radial-gradient(ellipse at 50% 4%,var(--accent-soft),transparent 64%),radial-gradient(ellipse 32% 18% at 12% 90%,color-mix(in srgb,var(--art-2) 7%,transparent),transparent 72%);
+ --side-art:linear-gradient(63deg,transparent 49.6%,color-mix(in srgb,var(--accent) 9%,transparent) 50%,transparent 50.4%) 88% 94%/90px 140px no-repeat,radial-gradient(ellipse at 90% 90%,var(--accent-soft),transparent 48%);
+ --card-art:linear-gradient(105deg,color-mix(in srgb,var(--art-2) 3%,transparent),transparent 32%);
+}
+[data-art="caodie"]{
+ --art-2:#C99B32;
+ --thumb:#F3D876;
+ --home-art:radial-gradient(ellipse 64% 46% at 50% 0%,var(--accent-soft),transparent 70%),repeating-linear-gradient(102deg,transparent 0 32px,color-mix(in srgb,var(--accent) 3%,transparent) 33px 34px,transparent 35px 57px);
+ --side-art:repeating-linear-gradient(78deg,transparent 0 20px,color-mix(in srgb,var(--accent) 8%,transparent) 21px 22px,transparent 23px 38px);
+ --card-art:linear-gradient(112deg,color-mix(in srgb,var(--art-2) 5%,transparent),transparent 26%);
+}
+[data-art="yuhua"]{
+ --art-2:#597E52;
+ --thumb:#F8F3E8;
+ --home-art:radial-gradient(ellipse 58% 40% at 50% 0%,var(--accent-soft),transparent 72%),repeating-linear-gradient(90deg,transparent 0 79px,color-mix(in srgb,var(--accent) 3%,transparent) 80px,transparent 81px);
+ --side-art:repeating-linear-gradient(0deg,transparent 0 11px,color-mix(in srgb,var(--ink) 6%,transparent) 12px,transparent 13px) 100% 92%/42px 96px no-repeat;
+ --card-art:repeating-linear-gradient(135deg,transparent 0 16px,color-mix(in srgb,var(--ink) 1.5%,transparent) 17px,transparent 18px);
+}
+[data-art="shensi"]{
+ --art-2:#C48D38;
+ --thumb:#C48D38;
+ --home-art:radial-gradient(ellipse 56% 44% at 50% 0%,color-mix(in srgb,var(--art-2) 12%,transparent),transparent 68%),linear-gradient(90deg,transparent 12%,color-mix(in srgb,var(--accent) 3%,transparent) 50%,transparent 88%);
+ --side-art:linear-gradient(90deg,transparent 94%,color-mix(in srgb,var(--art-2) 14%,transparent) 94.5%,transparent 95%),linear-gradient(0deg,transparent 8%,color-mix(in srgb,var(--art-2) 12%,transparent) 8.5%,transparent 9%);
+ --card-art:linear-gradient(135deg,color-mix(in srgb,var(--art-2) 4%,transparent),transparent 34%);
+}
+[data-art="qiandie"]{
+ --art-2:#C7A242;
+ --thumb:#C7A242;
+ --home-art:radial-gradient(ellipse 58% 42% at 50% 0%,color-mix(in srgb,var(--art-2) 13%,transparent),transparent 70%),linear-gradient(125deg,transparent 38%,color-mix(in srgb,var(--accent) 3%,transparent) 38.5%,transparent 39%);
+ --side-art:linear-gradient(145deg,transparent 47%,color-mix(in srgb,var(--art-2) 11%,transparent) 48%,transparent 49%) 90% 94%/72px 108px no-repeat,linear-gradient(35deg,transparent 47%,color-mix(in srgb,var(--accent) 7%,transparent) 48%,transparent 49%) 90% 94%/72px 108px no-repeat;
+ --card-art:linear-gradient(90deg,color-mix(in srgb,var(--art-2) 5%,transparent),transparent 18%);
+}
+[data-art="youhua"]{
+ --art-2:#E0B042;
+ --thumb:#F4EAD8;
+ --home-art:radial-gradient(ellipse 46% 38% at 50% 0%,color-mix(in srgb,var(--art-2) 9%,transparent),transparent 70%),radial-gradient(circle at 76% 20%,rgba(255,255,255,.035) 0 1px,transparent 2px);
+ --side-art:radial-gradient(circle at 82% 80%,rgba(255,255,255,.11) 0 1px,transparent 2px),radial-gradient(ellipse at 100% 100%,color-mix(in srgb,var(--accent) 8%,transparent),transparent 58%);
+ --card-art:radial-gradient(circle at 98% 4%,rgba(255,255,255,.055),transparent 18%);
+}
+[data-art="liuguang"]{
+ --art-2:#4FB3B1;
+ --thumb:#F3C873;
+ --home-art:radial-gradient(ellipse 58% 44% at 50% 0%,color-mix(in srgb,var(--accent) 13%,transparent),transparent 70%),conic-gradient(from 210deg at 50% 0%,transparent,color-mix(in srgb,var(--art-2) 4%,transparent),transparent 38%);
+ --side-art:linear-gradient(125deg,transparent 48%,color-mix(in srgb,var(--accent) 14%,transparent) 49%,transparent 50%) 50% 100%/120px 150px no-repeat,linear-gradient(55deg,transparent 48%,color-mix(in srgb,var(--art-2) 10%,transparent) 49%,transparent 50%) 50% 100%/120px 150px no-repeat;
+ --card-art:linear-gradient(118deg,color-mix(in srgb,var(--accent) 5%,transparent),transparent 25%,color-mix(in srgb,var(--art-2) 3%,transparent));
+}
+[data-art="huandie"]{
+ --art-2:#A86ECC;
+ --thumb:#B99ADD;
+ --home-art:radial-gradient(ellipse 52% 44% at 44% 0%,color-mix(in srgb,var(--accent) 14%,transparent),transparent 70%),radial-gradient(ellipse 38% 32% at 72% 16%,color-mix(in srgb,var(--art-2) 11%,transparent),transparent 72%);
+ --side-art:radial-gradient(ellipse at 90% 88%,color-mix(in srgb,var(--art-2) 13%,transparent),transparent 58%),radial-gradient(circle at 82% 68%,color-mix(in srgb,var(--accent) 20%,transparent) 0 1px,transparent 2px);
+ --card-art:linear-gradient(125deg,color-mix(in srgb,var(--art-2) 4%,transparent),transparent 36%);
+}
+[data-art="shiqing"]{
+ --art-2:#D86B85;
+ --thumb:#E2C66D;
+ --home-art:radial-gradient(ellipse 54% 42% at 50% 0%,color-mix(in srgb,var(--accent) 12%,transparent),transparent 70%),repeating-linear-gradient(45deg,transparent 0 24px,color-mix(in srgb,var(--accent) 2%,transparent) 25px,transparent 26px);
+ --side-art:radial-gradient(ellipse at 100% 94%,color-mix(in srgb,var(--accent) 11%,transparent),transparent 54%),linear-gradient(135deg,transparent 48%,color-mix(in srgb,var(--art-2) 8%,transparent) 49%,transparent 50%);
+ --card-art:linear-gradient(90deg,color-mix(in srgb,var(--accent) 5%,transparent),transparent 22%);
+}
+
+body,#side,#right,.card,.blk,.det,.mcard,.composer,.btn,.pill,.chip,.nav,.conv,.sni,.li,.tcard,.pcard,.opt,.choice,.prov,.seg button,.fp-h .tb{
+ transition:background-color .16s var(--motion-ease),color .16s var(--motion-ease),border-color .16s var(--motion-ease),box-shadow .16s var(--motion-ease),transform .1s var(--motion-ease);
+}
+#side::before{content:"";position:absolute;inset:80px 0 52px;pointer-events:none;background:var(--side-art);opacity:.72}
+#side>*{position:relative;z-index:1}
+#side .inscr{position:absolute}
+.home .wash{background:var(--home-art);opacity:.8;animation:art-drift 18s ease-in-out infinite}
+/* Home logo is standalone; no circular surround (2026-11-16 user review). */
+
+.card,.blk,.det,.mcard,.icard{background-image:var(--card-art)}
+.nav.on,.conv.on,.sni.on,.li.on{box-shadow:inset 2px 0 0 var(--selection-edge)}
+.seg button.on,.space button.on,.tabs button.on{background-image:linear-gradient(115deg,color-mix(in srgb,var(--art-2) 5%,transparent),transparent 70%)}
+[data-art="shensi"] .card{box-shadow:0 0 0 1px var(--line2),inset 0 0 0 3px var(--card),inset 0 0 0 4px color-mix(in srgb,var(--art-2) 12%,transparent)}
+[data-art="shiqing"] .card{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 13%,var(--line2))}
+
+.ib,.btn,.send{overflow:hidden}
+.ib::after,.btn::after,.send::after{content:"";position:absolute;inset:15%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,var(--accent-soft),transparent 70%);opacity:0;transform:scale(.5);transition:opacity .16s,transform .16s}
+.ib:not(:disabled):active::after,.btn:not(:disabled):active::after{opacity:1;transform:scale(1.7)}
+:is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard,.pcard,.opt,.choice,.prov):not(:disabled):active{transform:translateY(1px) scale(.975)}
+.ib .ic,.btn .ic,.send .ic,.pill .ic{transition:transform .14s var(--motion-ease)}
+button[title="重新生成"]:active .ic{transform:rotate(28deg)}
+button[title="复制"]:active .ic{transform:scale(.82)}
+[data-a="plan"] .ic:last-child{transition:transform .16s var(--motion-ease)}
+
+/* T-143 craft geometry. The chamfer belongs to the painted face, not the click area. */
+.ic.craft-angular{stroke-linecap:butt;stroke-linejoin:bevel}
+.ic.craft-solid{fill:currentColor;stroke:none}
+.brand > .ib,.foot > .ib{width:26px;height:26px}
+.send,.crow > .pill,.btn,.space > button,.sbody .sel{position:relative}
+.send:disabled{cursor:default}
+:is(.send,.crow > .ib,.crow > .pill,.brand > .ib,.foot > .ib,.sbody > .ib.x,.fp-h > .ib,.space > button,.btn):focus-visible{
+ outline:2px solid var(--accent);outline-offset:-2px
+}
+:is(.send.ready,.btn.pri):focus-visible{outline-color:var(--on-accent)}
+.send.stop:focus-visible{outline-color:var(--seal)}
+[data-craft="curved"] :is(.send,.crow > .ib,.crow > .pill,.brand > .ib,.foot > .ib,.sbody > .ib.x,.fp-h > .ib,.space > button,.btn){border-radius:10px 10px 8px 8px}
+[data-craft="curved"] .sbody .sel{border-radius:9px 9px 8px 8px}
+[data-craft="angular"] :is(.send,.crow > .ib,.crow > .pill,.brand > .ib,.foot > .ib,.sbody > .ib.x,.fp-h > .ib,.space > button,.btn,.sbody .sel){
+ --craft-face:transparent;
+ --craft-chamfer:polygon(3px 0,calc(100% - 3px) 0,100% 3px,100% calc(100% - 3px),calc(100% - 3px) 100%,3px 100%,0 calc(100% - 3px),0 3px);
+ isolation:isolate;background:transparent;border-color:transparent;border-radius:0;
+}
+[data-craft="angular"] :is(.send,.crow > .ib,.crow > .pill,.brand > .ib,.foot > .ib,.sbody > .ib.x,.fp-h > .ib,.space > button,.btn,.sbody .sel)::before{
+ content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;clip-path:var(--craft-chamfer);
+ background:var(--craft-face);transition:background-color .12s var(--motion-ease)
+}
+[data-craft="angular"] :is(.crow > .ib,.crow > .pill,.brand > .ib,.foot > .ib,.sbody > .ib.x,.fp-h > .ib,.send.stop,.btn):hover:not(:disabled){--craft-face:var(--hover)}
+[data-craft="angular"] :is(.foot > .ib.on,.crow > .pill.on){--craft-face:var(--accent-soft)}
+[data-craft="angular"] :is(.foot > .ib.on,.crow > .pill.on):hover:not(:disabled){--craft-face:color-mix(in srgb,var(--accent-soft),var(--hover) 32%)}
+[data-craft="angular"] .space > button.on{--craft-face:var(--card)}
+[data-craft="angular"] :is(.send:not(.stop):not(.ready),.crow > .pill.box,.btn:not(.line):not(.pri):not(:hover),.sbody .sel){--craft-face:var(--sunk)}
+[data-craft="angular"] :is(.send.ready,.btn.pri){--craft-face:var(--accent)}
+[data-craft="angular"] .btn.line{overflow:visible}
+[data-craft="angular"] .btn.line::before{
+ background:var(--line);inset:-1px;
+ clip-path:polygon(evenodd,3px 0,calc(100% - 3px) 0,100% 3px,100% calc(100% - 3px),calc(100% - 3px) 100%,3px 100%,0 calc(100% - 3px),0 3px,3px 0,
+ 3.4px 1px,calc(100% - 3.4px) 1px,calc(100% - 1px) 3.4px,calc(100% - 1px) calc(100% - 3.4px),calc(100% - 3.4px) calc(100% - 1px),3.4px calc(100% - 1px),1px calc(100% - 3.4px),1px 3.4px,3.4px 1px)
+}
+[data-craft="angular"] .send.ready::before{
+ background:linear-gradient(45deg,transparent 44%,color-mix(in srgb,var(--on-accent) 22%,transparent) 45% 55%,transparent 56%) right 3px top 3px / 4px 4px no-repeat,var(--craft-face)
+}
+:is(.foot > .ib.on,.send.ready)::after{
+ content:"";position:absolute;inset:auto auto 3px calc(50% - 5px);width:10px;height:4px;
+ border-radius:0;transform:none;opacity:.62;pointer-events:none;background:none
+}
+.foot > .ib.on:not(:disabled):active::after{transform:none}
+[data-craft="curved"] :is(.foot > .ib.on,.send.ready)::after{border-bottom:1px solid currentColor;border-radius:0 0 50% 50%}
+[data-craft="curved"] .send.ready::after{opacity:.22}
+[data-craft="angular"] .foot > .ib.on::after{height:1px;background:currentColor}
+[data-craft="angular"] .send.ready::after{content:none}
+[data-a="plan"]:active .ic:last-child{transform:translateY(2px)}
+
+.tg{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ink) 5%,transparent)}
+.tg::after{background:var(--thumb);box-shadow:0 1px 3px rgba(0,0,0,.2),inset 0 0 0 1px color-mix(in srgb,var(--art-2) 15%,transparent);transition:left .14s var(--motion-ease),transform .1s var(--motion-ease)}
+.tg:active::after{transform:scaleX(1.14);transform-origin:left}
+.tg.on:active::after{transform-origin:right}
+[data-art="shiqing"] .tg::after{border-radius:3px;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+[data-art="yuhua"] .tg::after{border-radius:3px}
+input[type="range"]{appearance:none;-webkit-appearance:none;height:4px;border-radius:4px;background:linear-gradient(to right,var(--accent) 0 50%,var(--line) 50% 100%);outline:none}
+input[type="range"]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;border-radius:50%;border:1px solid color-mix(in srgb,var(--art-2) 28%,var(--line));background:var(--thumb);box-shadow:0 1px 4px rgba(0,0,0,.18);transition:transform .12s}
+input[type="range"]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;border:1px solid color-mix(in srgb,var(--art-2) 28%,var(--line));background:var(--thumb);box-shadow:0 1px 4px rgba(0,0,0,.18)}
+input[type="range"]:active::-webkit-slider-thumb{transform:scale(1.16)}
+[data-art="yuhua"] input[type="range"]{border-radius:0;background:repeating-linear-gradient(to right,var(--accent) 0 5px,color-mix(in srgb,var(--accent) 35%,var(--line)) 5px 6px,var(--line) 6px 18px)}
+[data-art="yuhua"] input[type="range"]::-webkit-slider-thumb{width:9px;border-radius:2px}
+[data-art="shiqing"] input[type="range"]::-webkit-slider-thumb{border-radius:3px;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+[data-art="liuguang"] .btn.pri:hover,[data-art="liuguang"] .send.ready:hover{box-shadow:0 0 16px color-mix(in srgb,var(--accent) 24%,transparent),inset 0 1px 0 rgba(255,255,255,.18)}
+[data-art="youhua"] .btn:hover,[data-art="youhua"] .ib:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+
+.artmotif{position:absolute;right:3%;bottom:3%;width:min(35vw,400px);color:var(--accent);opacity:.13;pointer-events:none;animation:motif-breathe 22s ease-in-out infinite}
+.artmotif .motif{display:block;width:100%;height:auto}
+.motif path,.motif rect,.motif circle{vector-effect:non-scaling-stroke;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.motif .acc{stroke:var(--art-2)}
+.motif .dot{fill:var(--art-2);stroke:none}
+.motif .seal{fill:var(--seal);stroke:none;opacity:.72}
+.motif .dew{fill:color-mix(in srgb,var(--card) 60%,transparent);stroke:var(--art-2)}
+.motif .glass{fill:color-mix(in srgb,var(--accent) 18%,transparent)}
+.motif .glass2{fill:color-mix(in srgb,var(--art-2) 17%,transparent)}
+.motif .glass3{fill:color-mix(in srgb,var(--seal) 12%,transparent)}
+.tcard .tmotif{display:block;height:28px;margin:-4px -2px 8px;border-radius:7px;background:var(--card-art);border-bottom:1px solid color-mix(in srgb,var(--art-2) 14%,transparent);position:relative;overflow:hidden;color:var(--accent)}
+.tcard .tmotif .motif{display:block;width:120px;height:70px;margin:-20px auto 0;opacity:.52}
+.tcard .tmotif::after{content:"";position:absolute;left:12%;right:12%;bottom:0;height:1px;background:linear-gradient(90deg,transparent,var(--art-2),transparent);opacity:.34}
+.tcard.on .tmotif{opacity:1}
+.a.active .mk::after{content:"";position:absolute;width:3px;height:3px;border-radius:50%;left:8px;top:8px;background:var(--art-2);opacity:.4;animation:powder 2.8s ease-out infinite}
+[data-art="liuguang"] .a.active .mk{filter:drop-shadow(0 0 5px color-mix(in srgb,var(--accent) 45%,transparent))}
+@keyframes motif-breathe{50%{transform:translateY(-4px) rotate(.6deg);opacity:.1}}
+
+/* The plan, its rows, and the composer share one centered sizing container. */
+.cwrap>.planbox{width:100%;max-width:720px;margin-left:auto;margin-right:auto}
+.planbox>.plan,.planbox>.planlist,.planbox>.composer{width:100%;max-width:none;margin-left:0;margin-right:0}
+.planbox>.planlist{margin-top:-4px;margin-bottom:8px;animation:fadein .12s ease-out}
+.planbox:has(.planlist)>.plan{border-radius:10px 10px 0 0;margin-bottom:4px}
+.planbox:has(.planlist)>.planlist{border-radius:0 0 10px 10px;margin-top:-4px;border-top:1px solid var(--line2)}
+
+@keyframes art-drift{50%{transform:translate3d(0,5px,0) scale(1.015);opacity:.68}}
+@keyframes powder{0%{transform:translate(0,5px) scale(.7);opacity:0}25%{opacity:.42}100%{transform:translate(8px,-18px) scale(1);opacity:0}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+:root[data-motion="off"] *,:root[data-motion="off"] *::before,:root[data-motion="off"] *::after{animation:none!important;transition:none!important}
+@media(prefers-reduced-motion:reduce){
+ :is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard,.pcard,.opt,.choice,.prov):not(:disabled):active,
+ :is(button[title="重新生成"],button[title="复制"],[data-a="plan"]):active .ic{transform:none}
+}
+:root[data-motion="off"] :is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard,.pcard,.opt,.choice,.prov):not(:disabled):active,
+:root[data-motion="off"] :is(button[title="重新生成"],button[title="复制"],[data-a="plan"]):active .ic{transform:none}
+
+/* T-143 test.6 review: quieter sidebar and independent, open sections. */
+.space button.on{--craft-face:color-mix(in srgb,var(--accent) 11%,transparent)!important;background-image:none}
+.space button.on::after{content:"";position:absolute;bottom:3px;left:calc(50% - 5px);width:10px;height:3px;border-bottom:1px solid var(--accent);opacity:.7}
+[data-craft="curved"] .space button.on::after{border-radius:0 0 50% 50%}
+.inbox-empty{min-height:100%;display:flex;flex-direction:column}.inbox-rest{flex:1;min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;font-family:var(--serif);font-size:15px;color:var(--ink2)}.inbox-rest-icon{width:52px;height:52px;display:grid;place-items:center;border-radius:16px;background:color-mix(in srgb,var(--accent) 6%,transparent);color:var(--accent)}
+.right-sections{flex:1;overflow:auto;padding:6px 12px 16px}.rsection{margin-bottom:8px}.rsection summary{cursor:pointer;padding:10px 2px;font-weight:600;font-size:13px;color:var(--ink2)}.rsection .rbody{padding:0}.rsection .blk{background:transparent;padding:8px 0;box-shadow:none}.rsection .tool{padding:0 0 6px}.rsection summary:focus-visible{outline:1px solid var(--accent);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.home-breathe{animation:none}}
+:root[data-motion="off"] .home-breathe{animation:none}
+
+/* T-143 D-25: one craft vocabulary across real surfaces and states. */
+:root{--craft-edge:color-mix(in srgb,var(--accent) 22%,transparent);--craft-cut:4px}
+[data-craft="curved"] :is(.card,.blk,.det,.mcard,.icard,.ask,.opt,.sbody,.fp){border-radius:12px 12px 10px 10px}
+[data-craft="curved"] .composer{border-radius:18px 18px 16px 16px;background-image:radial-gradient(ellipse 36px 4px at 50% calc(100% - 4px),transparent 75%,var(--craft-edge) 80% 94%,transparent 100%)}
+[data-craft="curved"] :is(.btn,.crow>.pill.box){background-image:radial-gradient(ellipse 12px 3px at 50% calc(100% - 3px),transparent 75%,var(--craft-edge) 80% 94%,transparent 100%)}
+[data-craft="angular"] :is(.composer,.card,.blk,.det,.mcard,.icard,.ask,.opt,.sbody,.fp){border-radius:0;clip-path:polygon(var(--craft-cut) 0,calc(100% - var(--craft-cut)) 0,100% var(--craft-cut),100% calc(100% - var(--craft-cut)),calc(100% - var(--craft-cut)) 100%,var(--craft-cut) 100%,0 calc(100% - var(--craft-cut)),0 var(--craft-cut));background-image:linear-gradient(45deg,transparent 45%,var(--craft-edge) 46% 54%,transparent 55%);background-position:right 5px top 5px;background-size:8px 8px;background-repeat:no-repeat}
+[data-craft="angular"] .composer{--craft-cut:5px}
+[data-craft="angular"] :is(.nav,.conv,.seg button,.tabs button){border-radius:0;clip-path:polygon(3px 0,calc(100% - 3px) 0,100% 3px,100% calc(100% - 3px),calc(100% - 3px) 100%,3px 100%,0 calc(100% - 3px),0 3px)}
+[data-craft="curved"] :is(.seg,.seg button,.tabs button){border-radius:9px 9px 7px 7px}
+:is(.seg button,.tabs button,.nav,.conv):focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+[data-craft="angular"] :is(input:not([type=range]):not([type=checkbox]),select,.sel){border-radius:3px}
+[data-craft="curved"] :is(input:not([type=range]):not([type=checkbox]),select,.sel){border-radius:10px 10px 8px 8px}
+[data-craft="angular"] .tg{border-radius:4px}
+[data-craft="angular"] .tg::after{border-radius:3px;clip-path:polygon(3px 0,calc(100% - 3px) 0,100% 3px,100% calc(100% - 3px),calc(100% - 3px) 100%,3px 100%,0 calc(100% - 3px),0 3px)}
+[data-art="shiqing"] .tg::after{clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.craft-ornament{position:absolute;pointer-events:none;color:var(--art-2);overflow:hidden}
+#side > .craft-ornament.side{position:absolute;left:0;bottom:52px;width:104px;height:72px;opacity:.18;z-index:0}
+.craft-ornament.corner{right:0;top:0;width:54px;height:34px;opacity:.13}
+.craft-ornament svg{display:block;width:100%;height:100%}
+:is(.card,.blk,.icard,.sbody){position:relative}
+.composer{padding-left:20px;padding-right:20px}
+.btn:disabled{background:var(--sunk);color:var(--muted);cursor:default}
+[data-craft="angular"] .btn:disabled{--craft-face:var(--sunk)}
+
+/* Each preview keeps its own craft, independent of the active theme. */
+.tcard{border-radius:12px 12px 10px 10px}
+.tcard:is([data-art="caodie"],[data-art="yuhua"],[data-art="shensi"],[data-art="qiandie"],[data-art="youhua"],[data-art="liuguang"],[data-art="huandie"]){border-radius:0;clip-path:polygon(4px 0,calc(100% - 4px) 0,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0 calc(100% - 4px),0 4px);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.tcard.on:is([data-art="caodie"],[data-art="yuhua"],[data-art="shensi"],[data-art="qiandie"],[data-art="youhua"],[data-art="liuguang"],[data-art="huandie"]){box-shadow:inset 0 0 0 2px var(--accent)}
+[data-art="youhua"] .nav .badge{color:#000}

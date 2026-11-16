@@ -71,10 +71,10 @@ void main() {
         await shot('memory_$color');
         await tester.tap(find.text('最近'));
         await shot('memory_recent_$color');
-        await tester.tap(find.text('全部'));
+        await tester.tap(find.textContaining('全部'));
         await agent.setZoom(1.5);
         await shot('memory_150_$color');
-        await tester.tap(find.text('添加记忆'));
+        await tester.tap(find.byTooltip('添加记忆'));
         await shot('memory_add_150_$color');
         await tester.tap(find.text('取消'));
         await wait();
@@ -118,6 +118,8 @@ void main() {
         fixture.backend.push({'event': 'tasks.changed'});
         await wait();
       }
+      agent.showSection(AppSection.memory);
+      await wait();
       expect(find.byType(MemoryPage, skipOffstage: false), findsOneWidget);
     },
   );

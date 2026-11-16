@@ -170,8 +170,15 @@ it("attention and selfwork queries, validations and longitudinal goals", async t
 	}
 	await ws.error("selfwork.longGoals.save", {}, "bad_request");
 	const first = fields(await ws.call("selfwork.longGoals.save", { title: "合成长目标", instruction: "记录结果" }),
-		["id", "title", "instruction", "revision"]);
+		["id", "title", "instruction", "revision", "enabled", "lastStudiedAt", "noteCount"]);
 	assert.deepEqual(await ws.call("selfwork.longGoals.list"), [first]);
+	assert.equal(first.enabled, true);
+	assert.equal(first.noteCount, null);
+	const disabled = fields(await ws.call("selfwork.longGoals.setEnabled", { id: first.id, enabled: false, revision: first.revision }),
+		["id", "title", "instruction", "revision", "enabled", "lastStudiedAt", "noteCount"]);
+	assert.equal(disabled.enabled, false);
+	await ws.error("selfwork.longGoals.setEnabled", { id: first.id, enabled: true, revision: first.revision }, "conflict");
+	await ws.error("selfwork.longGoals.setEnabled", { id: "missing", enabled: true, revision: 1 }, "not_found");
 	await ws.error("selfwork.longGoals.save", { id: first.id, title: "改名", instruction: "记录结果", revision: 0 }, "conflict");
 	assert.deepEqual(await ws.call("selfwork.longGoals.delete", { id: first.id }), { deleted: first.id });
 	await ws.error("selfwork.longGoals.delete", { id: first.id }, "not_found");

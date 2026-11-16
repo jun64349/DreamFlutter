@@ -1,17 +1,19 @@
 # DreamFlutter：给 Agent 的项目规矩
 
-开工前先读 [docs/HANDOFF.md](docs/HANDOFF.md) 最上面的当前状态和 [docs/dev-guide.md](docs/dev-guide.md)。界面以 [docs/design/interaction-design.md](docs/design/interaction-design.md) 为准。
+开工前先读 [docs/NEW-AGENT-START.md](docs/NEW-AGENT-START.md)（接手须知：用户、规矩、方向、环境）、[docs/HANDOFF.md](docs/HANDOFF.md) 最上面的当前状态和 [docs/dev-guide.md](docs/dev-guide.md)。界面以 [docs/design/v1-redesign-spec.md](docs/design/v1-redesign-spec.md) 和原型 [docs/design/prototype/v1-redesign.html](docs/design/prototype/v1-redesign.html) 为准（2026-11-14 用户要求整体 UI 重做；概念、流程、用词仍看 [docs/design/interaction-design.md](docs/design/interaction-design.md)）。跟用户说话一律用平实的中文。
 
 ## 已定型的操作和体验（v0.8.3 起，用户 2026-11-11 定）
 
 - **现在的操作逻辑和体验已经不错，不要动。** 清单和守着它们的测试在 [docs/design/settled-0.8.3.md](docs/design/settled-0.8.3.md)。新功能装进现有位置，不改这些地方的交互、布局和用词；只有用户明确要求改某一条时才动。
 - 清单里列出的测试必须一直通过，不能为了让测试通过而改它的期望。后端和测试任务同样适用：后端改动不能让这些表现变样。
 
-## 分工（用户 2026-11-11 定）
+## 分工与验证（T-142，用户 2026-11-14 最新决定）
 
-- 前端（界面、交互、视觉）由 Claude 做。
-- **0.9 起只做后端**（用户 2026-11-11 定）：直到全部后端完成、0.11 接口文档闭环后，0.12 再统一做前端；0.9–0.11 不做用户实测。这段时间不加界面，修已定型界面的 bug 除外。见 [docs/roadmap.md](docs/roadmap.md) 第一节第 6 条。
-- 后端和测试派给 Codex：Claude 按 `Claude Codex Bridge/任务模板.md` 写派工单，用户贴进 Codex 窗口。派工单要写明不碰「已定型」清单里的表现，并列出要跑的守护测试。
+- **2026-11-16 后续决定优先**：用户试用 test.6 后基本接受，要求完成最后的侧栏、首页、案头、过程块、右栏与审批收起修正，展示真实效果，不再打包测试版，并授权整理 0.12 本地提交。子代理以 Sol 为主、必要时 Terra。每次只跑涉及文件、只拍对应场景；不推送、不打标签、不切分支。下面的「完成后再问提交」是此前阶段的约定，本轮提交已有授权。
+- 这次整体 UI 重做的原型、设计、Flutter 实现和验收都在当前 Kimi Code 窗口完成，**不再派 Codex**；Codex 留到全部完成后做全量 review。
+- 不再每批跑全量测试和守护测试；R1–R6 做针对性检查，R7 全部完成后统一跑一次 `flutter analyze`、窗口全量测试和守护测试。守护测试的行为断言仍不能改。
+- 0.12 先不提交；全部完成并验收后，再问用户是否提交和推送。
+- 原型预览使用用户指定的本机 Edge 扩展，不再使用此前会异常等待的预览工具。
 
 ## 界面设计原则
 

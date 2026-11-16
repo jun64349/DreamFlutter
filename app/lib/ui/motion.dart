@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'settings_controls.dart' show V1Toggle;
 
 /// Restrained motion shared by the pages: a breathing dot for running work,
 /// a fade-and-rise for new content, and the streaming caret.
@@ -59,6 +60,26 @@ class FadeSlideIn extends StatefulWidget {
 
   @override
   State<FadeSlideIn> createState() => _FadeSlideInState();
+}
+
+/// A plain 120–150ms fade, no slide (prototype: expanding lists and work
+/// blocks only fade in their contents).
+class FadeIn extends StatelessWidget {
+  const FadeIn({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: AppTokens.motion(context, AppTokens.fast),
+      curve: AppTokens.curve,
+      builder: (_, value, child) => Opacity(opacity: value, child: child),
+      child: child,
+    );
+  }
 }
 
 class _FadeSlideInState extends State<FadeSlideIn> with SingleTickerProviderStateMixin {
@@ -198,6 +219,52 @@ class _MotionRowsState extends State<MotionRows> with TickerProviderStateMixin {
   ]);
 }
 
+class PressFeedback extends StatefulWidget {
+  const PressFeedback({super.key, required this.child, this.enabled = true});
+  final Widget child;
+  final bool enabled;
+  @override
+  State<PressFeedback> createState() => _PressFeedbackState();
+}
+
+class _PressFeedbackState extends State<PressFeedback> with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(vsync: this, duration: AppTokens.press);
+  late final _curve = CurvedAnimation(parent: _controller, curve: AppTokens.curve);
+
+  bool get _still => MediaQuery.disableAnimationsOf(context) || !TickerMode.valuesOf(context).enabled;
+  void _down(PointerDownEvent event) { if (widget.enabled && !_still) _controller.forward(); }
+  void _up(PointerUpEvent event) => _controller.reverse();
+  void _cancel(PointerCancelEvent event) => _controller.reverse();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_still) { _controller.stop(); _controller.value = 0; }
+  }
+
+  @override
+  void dispose() { _curve.dispose(); _controller.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled || _still) return widget.child;
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: _down,
+      onPointerUp: _up,
+      onPointerCancel: _cancel,
+      child: AnimatedBuilder(
+        animation: _curve,
+        child: widget.child,
+        builder: (context, child) => Transform.translate(
+          offset: Offset(0, _curve.value),
+          child: Transform.scale(scale: 1 - .025 * _curve.value, alignment: Alignment.center, child: child),
+        ),
+      ),
+    );
+  }
+}
+
 /// Shared switch timing, including a genuinely immediate reduced-motion pose.
 /// Native Material Switch's private animation duration cannot be configured.
 class MotionSwitch extends StatelessWidget {
@@ -206,28 +273,19 @@ class MotionSwitch extends StatelessWidget {
   final ValueChanged<bool>? onChanged;
   final String? label;
   @override
-  Widget build(BuildContext context) {
-    final enabled = onChanged != null;
-    void toggle() => onChanged?.call(!value);
-    final colors = context.colors;
-    Widget track(double t) => Container(width: 52, height: 32, padding: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(color: Color.lerp(colors.sidebar, colors.accent, t)!.withValues(alpha: enabled ? 1 : .38), border: Border.all(color: enabled ? Color.lerp(colors.muted, colors.accent, t)! : colors.border, width: 2), borderRadius: BorderRadius.circular(20)),
-      child: Align(alignment: AlignmentDirectional(-1 + 2 * t, 0), child: Container(width: 16 + 8 * t, height: 16 + 8 * t, decoration: BoxDecoration(color: Color.lerp(colors.muted, Theme.of(context).colorScheme.onPrimary, t)!.withValues(alpha: enabled ? 1 : .5), shape: BoxShape.circle))),
-    );
-    return Semantics(label: label, toggled: value, enabled: enabled, onTap: enabled ? toggle : null, child: ExcludeSemantics(child: Material(color: Colors.transparent, child: InkWell(
-      onTap: enabled ? toggle : null, borderRadius: BorderRadius.circular(24),
-      child: SizedBox(width: 60, height: 48, child: Center(child: MediaQuery.disableAnimationsOf(context) ? track(value ? 1 : 0) : TweenAnimationBuilder<double>(
-        duration: AppTokens.motion(context, AppTokens.fast), curve: AppTokens.curve, tween: Tween(end: value ? 1 : 0),
-        builder: (context, t, _) => track(t),
-      ))),
-    ))));
-  }
+  Widget build(BuildContext context) => PressFeedback(
+    enabled: onChanged != null,
+    child: V1Toggle(value: value, onChanged: onChanged, label: label, padded: true),
+  );
 }
 class MotionSwitchTile extends StatelessWidget {
-  const MotionSwitchTile({super.key, required this.title, required this.value, required this.onChanged});
+  const MotionSwitchTile({super.key, required this.title, required this.value, required this.onChanged, this.subtitle, this.dense = false, this.contentPadding = EdgeInsets.zero});
   final Widget title;
+  final Widget? subtitle;
   final bool value;
   final ValueChanged<bool>? onChanged;
+  final bool dense;
+  final EdgeInsetsGeometry contentPadding;
   @override
-  Widget build(BuildContext context) => MergeSemantics(child: ListTile(contentPadding: EdgeInsets.zero, title: title, trailing: MotionSwitch(value: value, onChanged: onChanged), onTap: onChanged == null ? null : () => onChanged!(!value)));
+  Widget build(BuildContext context) => MergeSemantics(child: ListTile(contentPadding: contentPadding, dense: dense, title: title, subtitle: subtitle, trailing: MotionSwitch(value: value, onChanged: onChanged), onTap: onChanged == null ? null : () => onChanged!(!value)));
 }

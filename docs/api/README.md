@@ -1,6 +1,6 @@
 # DreamFlutter 后台接口参考
 
-供 0.12 窗口开发和 T-132 契约测试使用。接口名与字段按 v0.11 后台实现记录。
+供 0.12 窗口开发和契约测试使用。接口名与字段按当前后台实现记录。
 
 | 领域 | 内容 |
 | --- | --- |
@@ -18,7 +18,7 @@
 | [Agent 工具](agent-tools.md) | 工作台、蝶君、最小模式和条件工具 |
 | [数据结构](types.md) | 主要对象的字段、类型、时间和标识 |
 | [语音输入](voice.md) | 音频识别命令与推送 |
-| [卸载](uninstall.md) | 卸载预演、保留数据标记和安装器钩子；[查找保留数据](uninstall.md#uninstallpreserveddata)、[恢复保留数据](uninstall.md#uninstallrestorepreserveddata) |
+| [卸载](uninstall.md) | 卸载预演、启动桥、保留数据标记和安装器钩子；[查找保留数据](uninstall.md#uninstallpreserveddata)、[恢复保留数据](uninstall.md#uninstallrestorepreserveddata) |
 
 ## 连接与报文
 

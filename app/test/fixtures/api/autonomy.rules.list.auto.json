@@ -1,0 +1,38 @@
+[
+  {
+    "name": "整理新纪要",
+    "source": "conversation",
+    "task": "只读原件，整理要点",
+    "scope": {
+      "kind": "sandbox"
+    },
+    "actions": [
+      "read"
+    ],
+    "delivery": "/workspace/outbox",
+    "assess": false,
+    "filter": {},
+    "id": "8ed6fe78-7cef-426f-981f-a8c9fe88b880",
+    "revision": 1,
+    "mode": "observe",
+    "updatedAt": 1794564732307
+  },
+  {
+    "name": "整理新纪要",
+    "source": "conversation",
+    "task": "只读原件，整理要点",
+    "scope": {
+      "kind": "sandbox"
+    },
+    "actions": [
+      "read"
+    ],
+    "delivery": "/workspace/outbox",
+    "assess": false,
+    "filter": {},
+    "id": "c90fd85c-0446-4b40-857a-70d4bec660c4",
+    "revision": 4,
+    "mode": "auto",
+    "updatedAt": 1794564732456
+  }
+]

@@ -229,7 +229,7 @@ class T87Fixture {
         ],
         'hasMore': false,
       },
-      'butterfly.tasks': (_) => tasks.map((t) => {...t}).toList(),
+      'tasks.list': (_) => tasks.map((t) => {...t}).toList(),
       'butterfly.prepare': (params) {
         final intent = {
           'id': 'intent',
@@ -247,6 +247,7 @@ class T87Fixture {
           'title': params['goal'],
           'status': 'in_progress',
           'progress': '已复述任务，等待开工',
+          'sessionFile': backend.pis.last.sessionFile,
           'intent': intent,
         });
         return intent;

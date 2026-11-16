@@ -11,11 +11,23 @@ import 'agent_scope.dart';
 import 'settings_layout.dart' show CardSurface;
 import 'memory_details.dart';
 import 'memory_log.dart';
-import 'motion.dart';
+import 'overlay_panel.dart';
+import 'proto_icon.dart';
+import 'settings_page.dart';
 import 'shell_widgets.dart';
 
+class MemoryOverlay extends StatelessWidget {
+  const MemoryOverlay({super.key, required this.onClose});
+  final VoidCallback onClose;
+  @override
+  Widget build(BuildContext context) => ShellOverlay(label: '梦君记', width: 1000, height: 760, padding: 24, color: context.colors.background, onClose: onClose, child: MemoryPage(onClose: onClose));
+}
+
+enum _MemoryTab { recent, log, settings }
+
 class MemoryPage extends StatefulWidget {
-  const MemoryPage({super.key});
+  const MemoryPage({super.key, this.onClose});
+  final VoidCallback? onClose;
   @override
   State<MemoryPage> createState() => _MemoryPageState();
 }
@@ -23,13 +35,11 @@ class MemoryPage extends StatefulWidget {
 class _MemoryPageState extends State<MemoryPage> {
   late final AgentController _agent;
   late final MemoryPageModel _model;
-  bool _recent = false;
-  bool _setting = false;
+  _MemoryTab _tab = _MemoryTab.recent;
   int _routeRevision = -1;
   String? _selected;
   String? _workspace;
 
-  /// 0.8.2 (user test: "太乱了，没法快速查阅"): a filter by words and by group.
   final _filter = TextEditingController();
   String _group = '';
   final _entryKeys = <String, GlobalKey<MemoryEditableEntryState>>{};
@@ -61,14 +71,14 @@ class _MemoryPageState extends State<MemoryPage> {
       });
       return;
     }
-    _recent = _agent.memoryUi.tab == 'log';
+    _tab = _agent.memoryUi.tab == 'log' ? _MemoryTab.log : _MemoryTab.recent;
     _selected = _agent.memoryUi.itemId;
     if (mounted) setState(() {});
     _revealSelection();
   }
 
   void _revealSelection() {
-    if (_selected == null || _recent) return;
+    if (_selected == null || _tab != _MemoryTab.recent) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final target = _entryKeys[_selected]?.currentContext;
       if (mounted && target != null) {
@@ -128,17 +138,6 @@ class _MemoryPageState extends State<MemoryPage> {
     }
   }
 
-  Future<void> _toggle(bool value) async {
-    setState(() => _setting = true);
-    try {
-      await _agent.updateCoreSettings({'memoryEnabled': value});
-    } catch (e) {
-      _error(e);
-    } finally {
-      if (mounted) setState(() => _setting = false);
-    }
-  }
-
   Future<void> _add() async {
     final saved = await showDialog<bool>(
       context: context,
@@ -150,190 +149,247 @@ class _MemoryPageState extends State<MemoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final agent = AgentScope.of(context);
+    // 原型 .fp：底是 --bg；.fp-h 是药丸页签，.fp-b 是内容区（16/24/24）。
     return AnimatedBuilder(
       animation: _model,
-      builder: (context, _) => LayoutBuilder(
-        builder: (context, bounds) => Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 24,
-                    runSpacing: 16,
-                    children: [
-                      const PoeticPageTitle('记忆'),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('自动记忆', style: context.text.bodySmall),
-                          MotionSwitch(label: '自动记忆',
-                            value: agent.coreSettings['memoryEnabled'] != false,
-                            onChanged: _setting ? null : _toggle,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      _Tab(label: '全部', selected: !_recent, onTap: () => setState(() => _recent = false)),
-                      _Tab(label: '最近', selected: _recent, onTap: () => setState(() => _recent = true)),
-                      const Spacer(),
-                      if (!_recent) ...[
-                        SizedBox(
-                          width: 200,
-                          height: 34,
-                          child: TextField(
-                            controller: _filter,
-                            onChanged: (_) => setState(() {}),
-                            style: context.text.bodySmall,
-                            decoration: InputDecoration(
-                              hintText: '找一条记忆',
-                              isDense: true,
-                              prefixIcon: const Icon(Icons.search, size: 16),
-                              prefixIconConstraints: const BoxConstraints(minWidth: 32),
-                              contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                              suffixIcon: _filter.text.isEmpty ? null : IconButton(tooltip: '清除', iconSize: 14, onPressed: () => setState(_filter.clear), icon: const Icon(Icons.close)),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        ShellButton('添加记忆', icon: Icons.add, small: true, onPressed: _add),
-                      ],
-                    ],
-                  ),
-                  Divider(height: 1, color: context.colors.border),
-                  if (_model.error != null)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '记忆暂时打不开：${_model.error}',
-                            style: TextStyle(color: context.colors.danger),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: _model.load,
-                          child: const Text('重试'),
-                        ),
-                      ],
-                    ),
-                  Expanded(
-                    child: _recent
-                        ? const MemoryLog()
-                        : _model.loading
-                        ? const Center(child: CircularProgressIndicator())
-                        : _groups(),
-                  ),
-                ],
+      builder: (context, _) => Material(
+        color: context.colors.background,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 14, 0),
+              child: Row(children: [
+                _Tab(icon: 'memory', label: '最近', selected: _tab == _MemoryTab.recent, onTap: () => setState(() => _tab = _MemoryTab.recent)),
+                const SizedBox(width: 6),
+                _Tab(icon: 'clock', label: '日志', selected: _tab == _MemoryTab.log, onTap: () => setState(() => _tab = _MemoryTab.log)),
+                const SizedBox(width: 6),
+                _Tab(icon: 'gear', label: '设置', selected: _tab == _MemoryTab.settings, onTap: () => setState(() => _tab = _MemoryTab.settings)),
+                const Spacer(),
+                if (widget.onClose != null) OverlayCloseButton(onClose: widget.onClose!),
+              ]),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                child: switch (_tab) {
+                  _MemoryTab.recent => _recent(),
+                  _MemoryTab.log => const MemoryLog(),
+                  _MemoryTab.settings => const SettingsPage(category: '记忆', embedded: true),
+                },
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
 
-  static const _groupNames = {'global': '关于你', 'workspace': '关于这个项目', 'butterfly': '蝶君自己的'};
-  static String _groupOf(Json r) => r['scope'] == 'group' ? 'workspace' : '${r['scope']}';
-
-  /// The three groups as cards, each entry on its own line between hairlines; a row of group
-  /// chips with counts above them filters to one group, the search box by words (0.8.2).
-  Widget _groups() {
+  Widget _recent() {
     final colors = context.colors;
+    final rows = _filtered();
+    // .banner：accent-soft 渐变铺在 card 底上，左边书法字标题，右边搜索。
+    final banner = Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+      decoration: BoxDecoration(
+        color: colors.card,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [colors.accentSoft, colors.accentSoft.withValues(alpha: 0)],
+          stops: const [0, 0.7],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.hairline),
+      ),
+      child: LayoutBuilder(builder: (context, bounds) {
+        final title = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('梦君记', style: context.handwriting(context.text.headlineSmall).copyWith(fontSize: 28, letterSpacing: 2.24, height: 1.6)),
+          Text('它记得的事，按天排。点一条就能改，删了能撤销', style: context.text.bodySmall?.copyWith(fontSize: 12.5, height: 1.6, color: colors.muted)),
+        ]);
+        final border = OutlineInputBorder(borderRadius: BorderRadius.circular(9), borderSide: BorderSide.none);
+        final search = SizedBox(width: 240, child: TextField(
+            controller: _filter,
+            onChanged: (_) => setState(() {}),
+            style: context.text.bodySmall?.copyWith(fontSize: 13, height: 1.6),
+            decoration: InputDecoration(
+              hintText: '搜索记忆',
+              isDense: true,
+              fillColor: colors.sunk,
+              filled: true,
+              border: border,
+              enabledBorder: border,
+              prefixIcon: Center(widthFactor: 1, heightFactor: 1, child: ProtoIcon('search', size: 14, color: colors.muted)),
+              prefixIconConstraints: const BoxConstraints(minWidth: 32),
+              contentPadding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
+              suffixIconConstraints: const BoxConstraints.tightFor(width: 30, height: 30),
+              suffixIcon: _filter.text.isEmpty ? null : IconButton(tooltip: '清除', padding: EdgeInsets.zero, onPressed: () => setState(_filter.clear), icon: ProtoIcon('x', size: 14, color: colors.muted)),
+            ),
+        ));
+        return bounds.maxWidth < 480
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [title, const SizedBox(height: 8), search])
+            : Row(children: [Expanded(child: title), const SizedBox(width: 16), search]);
+      }),
+    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      banner,
+      if (_model.error != null)
+        Row(children: [
+          Expanded(child: Text('记忆暂时打不开：${_model.error}', style: TextStyle(color: colors.danger))),
+          TextButton(onPressed: _model.load, child: const Text('重试')),
+        ]),
+      Expanded(child: _model.loading ? const Center(child: CircularProgressIndicator()) : _groups(rows)),
+    ]);
+  }
+
+  static const _groupNames = {'global': '关于你', 'workspace': '项目', 'butterflySelf': '蝶君自己记的', 'butterfly': '蝶君自己的'};
+  static String _groupOf(Json r) => r['scope']=='butterfly'&&r['createdBy']=='main_agent'?'butterflySelf':r['scope'] == 'group' ? 'workspace' : '${r['scope']}';
+
+  /// 搜索过滤后的条目，按更新时间从新到旧。
+  List<Json> _filtered() {
     final words = _filter.text.trim().toLowerCase();
     bool hit(Json r) => words.isEmpty || '${r['content'] ?? ''}'.toLowerCase().contains(words);
-    final byGroup = {for (final key in _groupNames.keys) key: _model.items.where((r) => _groupOf(r) == key && hit(r)).toList()};
-    final total = byGroup.values.fold<int>(0, (n, rows) => n + rows.length);
-    const short = {'global': '你', 'workspace': '这个项目', 'butterfly': '蝶君'};
-    Widget chip(String key, String label, int count) => Padding(
-      padding: const EdgeInsets.only(right: 8),
+    return _model.items.where(hit).toList()..sort((a, b) => ((b['updatedAt'] as num?)?.toInt() ?? 0).compareTo((a['updatedAt'] as num?)?.toInt() ?? 0));
+  }
+
+  Widget _groups(List<Json> rows) {
+    final colors = context.colors;
+    final byGroup = {for (final key in _groupNames.keys) key: rows.where((r) => _groupOf(r) == key).toList()};
+    final total = rows.length;
+    Widget chip(String key, String label, int count) => Tooltip(
+      message: '$label $count',
       child: ChoiceChip(
-        label: Text('$label $count'),
+        label: Text(label, style: context.text.bodySmall?.copyWith(fontSize: 13, height: 1.6, color: _group == key ? colors.ink : colors.ink2)),
         selected: _group == key,
         showCheckmark: false,
-        visualDensity: VisualDensity.compact,
+        shape: const StadiumBorder(),
+        backgroundColor: colors.card,
+        selectedColor: colors.accentSoft,
+        side: BorderSide(color: _group == key ? colors.accent : colors.border),
+        labelPadding: EdgeInsets.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.standard,
         onSelected: (_) => setState(() => _group = key),
       ),
     );
+    final hasUserButterflyMemory = _group == 'butterfly' || _model.items.any((row) => _groupOf(row) == 'butterfly');
+    DateTime dayOf(Json row) {
+      final stamp = (row['updatedAt'] as num?)?.toInt();
+      final date = stamp == null ? DateTime.fromMillisecondsSinceEpoch(0) : DateTime.fromMillisecondsSinceEpoch(stamp);
+      return DateTime(date.year, date.month, date.day);
+    }
+    String dayLabel(DateTime day) {
+      final now = DateTime.now(), today = DateTime(now.year, now.month, now.day);
+      if (day == today) return '今天';
+      if (day == today.subtract(const Duration(days: 1))) return '昨天';
+      return day.year == today.year ? '${day.month}月${day.day}日' : '${day.year}年${day.month}月${day.day}日';
+    }
+    final shown = _group.isEmpty ? rows : rows.where((r) => _groupOf(r) == _group).toList();
+    final days = shown.map(dayOf).toSet().toList()..sort((a, b) => b.compareTo(a));
+    // .tl：左边一条 1px 竖线，每天一个 accent 圈点（.tli::before）。
+    final timeline = Stack(children: [
+      if (days.isNotEmpty) Positioned(left: 5, top: 6, bottom: 6, child: Container(width: 1, color: colors.border)),
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (final day in days) _daySection(dayLabel(day), shown.where((r) => dayOf(r) == day).toList()),
+      ]),
+    ]);
     return ListView(
       key: const PageStorageKey('memory-groups'),
-      padding: const EdgeInsets.only(top: 14),
       children: [
-        Wrap(runSpacing: 8, children: [
-          chip('', '全部', total),
-          for (final e in _groupNames.entries) chip(e.key, short[e.key]!, byGroup[e.key]!.length),
+        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Expanded(child: Wrap(spacing: 8, runSpacing: 8, children: [
+            chip('', '全部', total),
+            for (final e in _groupNames.entries)
+              if (e.key != 'butterfly' || hasUserButterflyMemory) chip(e.key, e.value, byGroup[e.key]!.length),
+          ])),
+          IconButton(tooltip: '添加记忆', icon: ProtoIcon('plus', color: colors.ink2), onPressed: _add),
         ]),
-        const SizedBox(height: 18),
-        for (final e in _groupNames.entries)
-          if (_group.isEmpty || _group == e.key) _groupCard(e.key, e.value, byGroup[e.key]!, searching: words.isNotEmpty),
-        if (words.isNotEmpty && total == 0)
-          Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text('没有找到', style: context.text.bodySmall?.copyWith(color: colors.muted)))),
+        const SizedBox(height: 14),
+        timeline,
+        if (total == 0)
+          Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text(_filter.text.trim().isEmpty ? '还没有记忆' : '没有找到', style: context.text.bodySmall?.copyWith(color: colors.muted)))),
         const SizedBox(height: 36),
       ],
     );
   }
 
-  /// Keyed by group so switching the filter moves a card instead of reusing another group's card
-  /// by position (its rows fading out would then share GlobalKeys with the same rows coming in).
-  Widget _groupCard(String group, String title, List<Json> rows, {bool searching = false}) {
+  /// 一天：左边的圈点 + 日期小字 + 这天的记忆卡（.tli）。
+  Widget _daySection(String label, List<Json> rows) {
     final colors = context.colors;
-    if (searching && rows.isEmpty) return SizedBox.shrink(key: ValueKey('memory-group-$group'));
     return Padding(
-      key: ValueKey('memory-group-$group'),
-      padding: const EdgeInsets.only(bottom: 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-            child: Row(children: [
-              ButterflyGlyph(size: 13, color: colors.accent.withValues(alpha: 0.75)),
-              const SizedBox(width: 8),
-              Text(title, style: context.text.titleSmall?.copyWith(color: colors.ink2, letterSpacing: 0.6)),
-              const SizedBox(width: 8),
-              Text('${rows.length}', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-            ]),
-          ),
-          CardSurface(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: MotionRows(children: [
-                if (rows.isEmpty)
-                  Padding(
-                    key: const ValueKey('empty'),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
-                    child: Text('还没有', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-                  ),
-                for (final (i, item) in rows.indexed)
-                  KeyedSubtree(
-                    key: ValueKey(item['id']),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      if (i > 0) Divider(height: 1, thickness: 0.5, indent: 10, endIndent: 10, color: colors.border),
-                      MemoryEditableEntry(
-                        key: _entryKeys.putIfAbsent(item['id'] as String, () => GlobalKey<MemoryEditableEntryState>()),
-                        item: item,
-                        agent: _agent,
-                        highlighted: _selected == item['id'],
-                        onDelete: _remove,
-                        onSaved: _model.load,
-                      ),
-                    ]),
-                  ),
-              ]),
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Stack(children: [
+        Positioned(left: 0, top: 6, child: Container(
+          width: 9, height: 9,
+          decoration: BoxDecoration(color: colors.card, shape: BoxShape.circle, border: Border.all(color: colors.accent, width: 2)),
+        )),
+        Padding(
+          padding: const EdgeInsets.only(left: 22),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+            for (final item in rows) Padding(padding: const EdgeInsets.only(top: 8), child: _memoryCard(item)),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  /// 一条记忆卡（.mcard）：左边书法字记号，中间内容，右边分组小标签。
+  Widget _memoryCard(Json item) {
+    final colors = context.colors;
+    final group = _groupOf(item);
+    String mark(Json it) {
+      final text = (it['content'] as String? ?? '').trim();
+      if (text.isEmpty) return '记';
+      final first = text.split(RegExp(r'[\s，。；：、！？,.!?;:]')).firstWhere((s) => s.isNotEmpty, orElse: () => '记');
+      return first.characters.first;
+    }
+    return KeyedSubtree(
+      key: ValueKey(item['id']),
+      child: CardSurface(
+        radius: 12,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(width: 32, child: Text(mark(item), key: ValueKey('memory-mark-${item['id']}'), textAlign: TextAlign.center, style: context.handwriting(context.text.titleLarge).copyWith(fontSize: 26, height: 1, color: colors.accent))),
+            const SizedBox(width: 12),
+            Expanded(child: MemoryEditableEntry(
+                key: _entryKeys.putIfAbsent(item['id'] as String, () => GlobalKey<MemoryEditableEntryState>()),
+                item: item,
+                agent: _agent,
+                highlighted: _selected == item['id'],
+                headingStyle: true,
+                showEditButton: true,
+                actionLeading: _GroupTag(group: group),
+                onDelete: _remove,
+                onSaved: _model.load,
+            )),
+          ]),
+        ),
       ),
+    );
+  }
+}
+
+/// .tag：分组小标签；「蝶君自己记的」用 .tag.bf 的 accent 色，其余用默认的绿色。
+class _GroupTag extends StatelessWidget {
+  const _GroupTag({required this.group});
+  final String group;
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final self = group == 'butterflySelf';
+    const names = {'global': '关于你', 'workspace': '项目', 'butterfly': '蝶君自己的', 'butterflySelf': '蝶君自己记的'};
+    final fg = self ? colors.accent : colors.success;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      decoration: BoxDecoration(
+        color: self ? colors.accentSoft : fg.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(names[group] ?? group, style: context.text.bodySmall?.copyWith(fontSize: 11, color: fg)),
     );
   }
 }
@@ -438,20 +494,37 @@ class _AddMemoryDialogState extends State<_AddMemoryDialog> {
 }
 
 
-/// An underlined tab (.tabs button): ink and an accent bar when selected.
+/// 原型 .fp-h .tb 的页签：小图标 + 字，选中时 card 底加一圈细线。
 class _Tab extends StatelessWidget {
-  const _Tab({required this.label, required this.selected, required this.onTap});
+  const _Tab({required this.icon, required this.label, required this.selected, required this.onTap});
+  final String icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: AppTokens.motion(context, AppTokens.medium),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: selected ? context.colors.accent : Colors.transparent, width: 2))),
-      child: Text(label, style: context.text.bodyMedium?.copyWith(color: selected ? context.colors.ink : context.colors.muted)),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final fg = selected ? colors.ink : colors.muted;
+    return Material(
+      color: selected ? colors.card : Colors.transparent,
+      borderRadius: BorderRadius.circular(9),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(9),
+        child: AnimatedContainer(
+          duration: AppTokens.motion(context, AppTokens.medium),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: selected ? colors.hairline : Colors.transparent),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            ProtoIcon(icon, size: 15, color: fg),
+            const SizedBox(width: 6),
+            Text(label, style: context.text.bodyMedium?.copyWith(fontSize: 13.5, color: fg, fontWeight: selected ? FontWeight.w500 : FontWeight.w400)),
+          ]),
+        ),
+      ),
+    );
+  }
 }

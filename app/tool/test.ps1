@@ -21,6 +21,17 @@ try {
   $env:TMP = $oldTmp
   Set-Location -LiteralPath $oldLocation
   # Only the directory this invocation created; never enumerate system TEMP.
-  if (Test-Path -LiteralPath $testTemp) { Remove-Item -LiteralPath $testTemp -Recurse -Force }
+  # WebView2 can release its profile lock just after the native test exits.
+  # Retry only this invocation's directory; cleanup is reported separately from tests.
+  $cleanupError = $null
+  for ($attempt = 0; $attempt -lt 20 -and (Test-Path -LiteralPath $testTemp); $attempt++) {
+    try { Remove-Item -LiteralPath $testTemp -Recurse -Force -ErrorAction Stop; $cleanupError = $null; break }
+    catch {
+      $cleanupError = $_
+      if ($_.Exception -isnot [IO.IOException]) { break }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  if ($null -ne $cleanupError) { Write-Warning "Tests exited with code $result; temporary directory retained: $testTemp. Cleanup: $($cleanupError.Exception.Message)" }
 }
 exit $result

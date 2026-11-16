@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "intervalMin": 30,
+  "nextAt": 1794565800000,
+  "running": false,
+  "lastRun": null,
+  "budgetUsedToday": 0,
+  "budgetLimit": 0.5,
+  "quietNow": false,
+  "cooldownUntil": null
+}

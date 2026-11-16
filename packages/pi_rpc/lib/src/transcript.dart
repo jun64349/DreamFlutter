@@ -35,6 +35,7 @@ class UserItem extends TranscriptItem {
 
 class AssistantItem extends TranscriptItem {
   AssistantItem(super.key);
+  String? proactiveRef;
 
   final List<AssistantPart> parts = [];
   bool streaming = true;
@@ -302,6 +303,7 @@ class Transcript {
         final item = AssistantItem(_key('a'))
           ..model = message.model
           ..provider = message.provider
+          ..proactiveRef = asString(message.raw['dfProactiveRef'])
           ..timestamp = message.timestamp
           ..requestedAt = _turnStartedAt ?? _clock();
         _turnStartedAt = null;
@@ -439,6 +441,7 @@ class Transcript {
       ..model = message.model
       ..provider = message.provider
       ..usage = message.usage
+      ..proactiveRef = asString(message.raw['dfProactiveRef'])
       ..timestamp = message.timestamp;
     lastUsage = message.usage;
     item.parts.clear();

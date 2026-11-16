@@ -4,9 +4,10 @@ import 'package:pi_rpc/pi_rpc.dart';
 import 'agent_controller.dart';
 
 class ConversationGitState {
-  const ConversationGitState({required this.isRepository, required this.head, required this.paths, this.root, this.suggestedMessage = '', this.diff = '', this.fingerprint, this.draftReason, this.createdPaths = const {}, this.modifiedPaths = const {}});
+  const ConversationGitState({required this.isRepository, required this.head, required this.paths, this.root, this.branch, this.suggestedMessage = '', this.diff = '', this.fingerprint, this.draftReason, this.createdPaths = const {}, this.modifiedPaths = const {}});
   final bool isRepository;
   final String? head;
+  final String? branch;
   final String? root;
   final List<String> paths;
   final String suggestedMessage;
@@ -48,7 +49,7 @@ class RpcConversationGitBridge implements ConversationGitBridge {
     String full(String path) => p.normalize(p.isAbsolute(path) ? path : p.join(cwd, path));
     final files = jsonRows(row['files']);
     return ConversationGitState(
-      isRepository: true, root: root, head: row['head'] as String?,
+      isRepository: true, root: root, head: row['head'] as String?, branch: row['branch'] as String?,
       paths: [for (final file in files) if (changedPaths.any((path) => SessionStore.samePath(full(path), p.join(root, file['path'] as String)))) file['path'] as String],
       createdPaths: {for (final file in files) if (file['index'] == '?' || file['index'] == 'A') p.normalize(p.join(root, file['path'] as String))},
       modifiedPaths: {for (final file in files) if (file['index'] != '?' && file['index'] != 'A') p.normalize(p.join(root, file['path'] as String))},

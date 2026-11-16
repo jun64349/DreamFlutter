@@ -140,7 +140,7 @@
 - **用途** 确认记录新增或状态更新。
 - **调用方** 窗口接收。根据对象归属用于工作台、蝶君或全局设置。
 - **参数** 无请求参数。
-- **返回** 推送对象，含 `event` 和 confirmation: Confirmation。
+- **返回** 推送对象，含 `event` 和 confirmation: Confirmation；规则草稿确认额外含 `data: { kind: "rule_draft", draft: RuleDefinition, version: number }`。
 - **错误** 无单独的 RPC 错误响应。
 - **事件** 确认建立和最终回答各可发；按确认 ID 更新。
 - **开放范围** 仅内部。

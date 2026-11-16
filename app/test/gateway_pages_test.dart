@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/preferences.dart';
-import 'package:dreamflutter/ui/dashboard_page.dart';
+import 'package:dreamflutter/ui/spending_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pi_rpc/pi_rpc.dart';
@@ -167,7 +167,6 @@ void main() {
     final settingsScroll = find.descendant(of: find.byKey(const ValueKey('settings-模型')), matching: find.byType(Scrollable)).first;
     await tester.scrollUntilVisible(find.text('新建模型组'),250,scrollable:settingsScroll);
     expect(find.text('新建模型组'), findsOneWidget, reason: '0.8.3: the 模型组 card sits between the models and the channels');
-    await tester.scrollUntilVisible(find.text('高级'),250,scrollable:settingsScroll);await tester.tap(find.text('高级'));await tester.pumpAndSettle();
     expect(find.text('按模型覆盖上下文窗口'), findsNothing);
   });
 
@@ -175,11 +174,12 @@ void main() {
     await startApp(tester);
     backend.handlers['ledger.summary']=(_)=>{'rows':[{'period':'2026-11','key':'conversation','requests':4,'amounts':{'USD':0.5},'amountSources':{'price_estimate':4}}]};
     await tester.tap(find.byTooltip(RegExp('^花费')));await settle(tester);
-    expect(find.byType(DashboardPage),findsOneWidget);
-    expect(find.text('本月'),findsOneWidget);expect(find.text('今天'),findsWidgets);
-    expect(find.text('本月按用途'),findsOneWidget);expect(find.byKey(const ValueKey('ledger-range')),findsOneWidget);
-    expect(find.text('\$0.50'),findsWidgets);expect(find.textContaining('4 次'),findsWidgets);
-    backend.push({'event':'gateway.switched','from':'智谱套餐 · glm-5.3','to':'DeepSeek · deepseek-flash','reason':'额度用完','toPaid':true});await settle(tester);
+    expect(find.byType(SpendingPage),findsOneWidget);
+    expect(find.text('这个月'),findsOneWidget);expect(find.text('今天'),findsWidgets);
+    expect(find.text('按用途'),findsOneWidget);expect(find.byKey(const ValueKey('ledger-range')),findsOneWidget);
+    expect(find.text('\$0.50'),findsWidgets);expect(find.byTooltip(RegExp(r'^4 次(?: · |$)')),findsWidgets);
+    backend.push({'event':'gateway.switched','from':'智谱套餐 · glm-5.3','to':'DeepSeek · deepseek-flash','reason':'额度用完','toPaid':true});
+    await tester.runAsync(()=>Future<void>.delayed(const Duration(milliseconds:30)));await tester.pump(const Duration(milliseconds:200));
     expect(find.textContaining('订阅用完了，已转到按量付费的「DeepSeek · deepseek-flash」'),findsOneWidget,reason:'a switch outside a conversation (titles, memory) still says it went to pay-as-you-go');
   });
 
@@ -192,7 +192,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('每天花费上限'), findsOneWidget);
     expect(find.text('每月花费上限'), findsOneWidget);
-    expect(find.text('工作台 › 高级'), findsWidgets);
+    expect(find.text('工作台'), findsWidgets);
     await tester.enterText(find.widgetWithText(TextField, '搜索设置'), '没有这一项');
     await tester.pumpAndSettle();
     expect(find.textContaining('没有找到'), findsOneWidget);

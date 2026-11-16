@@ -4,6 +4,7 @@ import 'package:dreamflutter/state/preferences.dart';
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/about_panel.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
+import 'package:dreamflutter/ui/settings_controls.dart' show SettingRow, V1Toggle;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,14 +48,16 @@ void main() {
       await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(
         theme: capture ? theme.copyWith(textTheme: theme.textTheme.apply(fontFamily: 'T67Capture')) : theme,
         builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.5)), child: child!),
-        home: Scaffold(body: SingleChildScrollView(padding: const EdgeInsets.all(20), child: const Column(children: [AboutPanel(), AboutPanel(details: true)]))),
+        home: Scaffold(body: SingleChildScrollView(padding: const EdgeInsets.all(20), child: const Column(children: [AboutPanel(), AboutPanel(startupOnly: true), AboutPanel(details: true)]))),
       )));
       await tester.pumpAndSettle();
       expect(find.text('测试版未签名'), findsOneWidget);
-      expect(find.text('DreamFlutter 0.6.0-test.1'), findsOneWidget);
+      expect(find.text('DreamFlutter'), findsOneWidget);
+      expect(find.text('v0.6.0-test.1'), findsOneWidget);
       expect(backend.callsTo('updates.check'), isEmpty);
       expect(backend.callsTo('app.setStartup'), isEmpty);
-      expect((tester.widgetList<SwitchListTile>(find.byType(SwitchListTile))).map((item) => item.value), [true, false]);
+      Finder toggleOf(String title) => find.descendant(of: find.ancestor(of: find.text(title), matching: find.byType(SettingRow)).first, matching: find.byType(V1Toggle));
+      expect(tester.widget<V1Toggle>(toggleOf('自动检查更新')).value, true);
       if (capture) await expectLater(find.byType(Scaffold), matchesGoldenFile('../../Claude Codex Bridge/T67-about-${brightness.name}-150.png'));
       Future<void> tap(String text) async { await tester.ensureVisible(find.text(text).last); await tester.pumpAndSettle(); await tester.tap(find.text(text).last); await tester.pumpAndSettle(); }
       await tap('安装并重启');
@@ -64,13 +67,14 @@ void main() {
       await tap('安装并重启'); await tap('确认安装并重启');
       expect(backend.callsTo('updates.install').single['approveUnsigned'], true);
       expect(backend.callsTo('updates.install').single['windowPid'], pid);
-      await tap('自动检查更新'); expect(backend.settings['autoCheckUpdates'], false);
-      await tap('开机启动'); expect(backend.callsTo('app.setStartup').last['enabled'], true);
-      await tap('开机启动'); expect(backend.callsTo('app.setStartup').last['enabled'], false);
+      Future<void> flip(String title) async { await tester.ensureVisible(toggleOf(title)); await tester.pumpAndSettle(); await tester.tap(toggleOf(title)); await tester.pumpAndSettle(); }
+      await flip('自动检查更新'); expect(backend.settings['autoCheckUpdates'], false);
+      await flip('开机启动'); expect(backend.callsTo('app.setStartup').last['enabled'], true);
+      await flip('开机启动'); expect(backend.callsTo('app.setStartup').last['enabled'], false);
       expect(find.text('关闭窗口时'), findsNothing, reason: '0.8.1 S.4: only in 通用');
-      await tap('导出诊断信息'); expect(find.textContaining('不会自动上传'), findsOneWidget);
+      await tap('导出…'); expect(find.textContaining('不会自动上传'), findsOneWidget);
       expect(find.text('数据备份与恢复'), findsNothing);
-      await tap('许可证与第三方声明'); await tap('Synthetic dependency 1.2.3');
+      await tap('开源许可 · 查看'); expect(find.text('许可证与第三方声明'), findsOneWidget); await tap('Synthetic dependency 1.2.3');
       expect(find.text('Synthetic license text from the generated package'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });

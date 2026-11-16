@@ -1,0 +1,102 @@
+[
+  {
+    "id": "36434b29-3393-4e67-afeb-0c2129ce8c1a",
+    "scheduleId": "s_e3535e83",
+    "versionBefore": 1,
+    "versionAfter": 2,
+    "actor": "user",
+    "reason": "save",
+    "before": {
+      "id": "s_e3535e83",
+      "name": "整理组会记录",
+      "prompt": "",
+      "cwd": "<fixture>\\data\\butterfly",
+      "owner": "butterfly",
+      "kind": "reminder",
+      "trigger": {
+        "type": "once",
+        "at": 1794651131480
+      },
+      "missedPolicy": "skip",
+      "sessionMode": "fresh",
+      "sessionFile": null,
+      "allowedTools": null,
+      "state": {},
+      "status": "active",
+      "version": 1,
+      "nextRunAt": 1794651131480,
+      "lastRunAt": null,
+      "createdBy": "user",
+      "createdRole": "user",
+      "createdAt": 1794564732359,
+      "updatedAt": 1794564732359
+    },
+    "after": {
+      "id": "s_e3535e83",
+      "name": "整理组会记录（已改）",
+      "prompt": "",
+      "cwd": "<fixture>\\data\\butterfly",
+      "owner": "butterfly",
+      "kind": "reminder",
+      "trigger": {
+        "type": "once",
+        "at": 1794651131480
+      },
+      "missedPolicy": "skip",
+      "sessionMode": "fresh",
+      "sessionFile": null,
+      "allowedTools": null,
+      "state": {},
+      "status": "active",
+      "version": 2,
+      "nextRunAt": 1794651131480,
+      "lastRunAt": null,
+      "createdBy": "user",
+      "createdRole": "user",
+      "createdAt": 1794564732359,
+      "updatedAt": 1794564732386
+    },
+    "summary": "把名称从「整理组会记录」改成「整理组会记录（已改）」",
+    "at": 1794564732386,
+    "undoneAt": null,
+    "status": "applied"
+  },
+  {
+    "id": "9e5bfff4-955f-4807-943c-be8c146c66de",
+    "scheduleId": "s_e3535e83",
+    "versionBefore": 0,
+    "versionAfter": 1,
+    "actor": "user",
+    "reason": "save",
+    "before": null,
+    "after": {
+      "id": "s_e3535e83",
+      "name": "整理组会记录",
+      "prompt": "",
+      "cwd": "<fixture>\\data\\butterfly",
+      "owner": "butterfly",
+      "kind": "reminder",
+      "trigger": {
+        "type": "once",
+        "at": 1794651131480
+      },
+      "missedPolicy": "skip",
+      "sessionMode": "fresh",
+      "sessionFile": null,
+      "allowedTools": null,
+      "state": {},
+      "status": "active",
+      "version": 1,
+      "nextRunAt": 1794651131480,
+      "lastRunAt": null,
+      "createdBy": "user",
+      "createdRole": "user",
+      "createdAt": 1794564732359,
+      "updatedAt": 1794564732359
+    },
+    "summary": "新建",
+    "at": 1794564732359,
+    "undoneAt": null,
+    "status": "applied"
+  }
+]

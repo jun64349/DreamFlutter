@@ -23,7 +23,7 @@ void main() {
   }
   testWidgets('T89 combines reusable commands with skills and keeps only three states', (tester) async {
     await start(tester);
-    expect(find.text('蝶园'),findsOneWidget); expect(find.text('实验周报'),findsOneWidget); expect(find.text('连接的服务'),findsOneWidget);
+    expect(find.text('百工'),findsOneWidget); expect(find.text('实验周报'),findsOneWidget); expect(find.text('连接的服务'),findsOneWidget);
     for(final text in ['任务模板','MCP 服务','已信任','待确认']) { expect(find.text(text),findsNothing); }
     await tester.tap(find.text('检查引用')); await waitGarden(tester);
     expect(find.text('去等你处理'),findsOneWidget); expect(find.text('采用'),findsNothing);
@@ -38,8 +38,9 @@ void main() {
   });
   testWidgets('T89 details expose real usage, test results and independent service permission', (tester) async {
     await start(tester);
-    await tester.tap(find.text('实验室资料库')); await waitGarden(tester);
-    expect(find.text('7 次'),findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton,'连接的服务')); await waitGarden(tester);
+    await tester.tap(find.text('实验室资料库').first); await waitGarden(tester);
+    expect(find.textContaining(RegExp(r'^7 次(?: · |$)')),findsOneWidget);
     await tester.tap(find.text('测试连接')); await waitGarden(tester); expect(find.text('连接成功'),findsOneWidget);
     await tester.tap(find.widgetWithText(MotionSwitchTile,'蝶君能用')); await waitGarden(tester);
     expect(fixture.backend.callsTo('mcp.setButterflyAllowed').single['allowed'],true);
@@ -48,7 +49,8 @@ void main() {
   testWidgets('T93 tool permissions survive stale test results, reenable and save failures', (tester) async {
     await start(tester);
     fixture.backend.handlers['mcp.test']=(_) => {'ok':true,'toolStates':[{'name':'搜索资料','enabled':true},{'name':'读取资料','enabled':false}]};
-    await tester.tap(find.text('实验室资料库')); await waitGarden(tester);
+    await tester.tap(find.widgetWithText(TextButton,'连接的服务')); await waitGarden(tester);
+    await tester.tap(find.text('实验室资料库').first); await waitGarden(tester);
     await tester.tap(find.text('测试连接')); await waitGarden(tester);
     final tile=find.widgetWithText(MotionSwitchTile,'搜索资料');
     expect(tester.widget<MotionSwitchTile>(tile).value,true);

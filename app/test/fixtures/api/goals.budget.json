@@ -1,0 +1,30 @@
+{
+  "limits": {
+    "maxCostUsd": 2,
+    "maxTokens": null,
+    "maxActiveMs": 7200000,
+    "maxRuns": 30,
+    "maxParallel": 2
+  },
+  "used": {
+    "costUsd": 0,
+    "tokens": 0,
+    "activeMs": 0,
+    "runs": 0,
+    "parallel": 0
+  },
+  "reserved": {
+    "costUsd": 0,
+    "tokens": 0,
+    "activeMs": 0,
+    "runs": 0,
+    "parallel": 0
+  },
+  "remaining": {
+    "costUsd": 2,
+    "tokens": null,
+    "activeMs": 7200000,
+    "runs": 30,
+    "parallel": 2
+  }
+}

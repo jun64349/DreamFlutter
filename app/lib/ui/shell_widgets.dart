@@ -1,6 +1,14 @@
+export 'painting_background.dart';
+
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
+import '../craft_style.dart';
+import 'craft_surface.dart';
+import 'painting_background.dart';
 import '../state/agent_controller.dart';
 import '../theme.dart';
 
@@ -8,6 +16,41 @@ void closeShellDrawer(BuildContext context) {
   final scaffold = Scaffold.maybeOf(context);
   if (scaffold?.isDrawerOpen ?? false) scaffold!.closeDrawer();
 }
+
+/// A standalone, gently breathing mark on both home pages (user review, 2026-11-16).
+class HomeButterflyMark extends StatefulWidget {
+  const HomeButterflyMark({super.key});
+  @override
+  State<HomeButterflyMark> createState() => _HomeButterflyMarkState();
+}
+
+class _HomeButterflyMarkState extends State<HomeButterflyMark> with SingleTickerProviderStateMixin {
+  late final _breath = AnimationController(vsync: this, duration: const Duration(seconds: 5));
+  Timer? _pause;
+  bool get _still => MediaQuery.disableAnimationsOf(context) || !TickerMode.valuesOf(context).enabled;
+  void _play() { if (mounted && !_still && !_breath.isAnimating) _breath.forward(from: 0); }
+  @override
+  void initState() {
+    super.initState();
+    _pause = Timer.periodic(const Duration(seconds: 6), (_) => _play());
+  }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_still) { _breath.stop(); _breath.value = 0; } else { _play(); }
+  }
+  @override
+  void dispose() { _pause?.cancel(); _breath.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) => SizedBox(width: 120, height: 94, child: Center(
+    child: AnimatedBuilder(animation: _breath, child: const ButterflyMark(size: 104), builder: (context, child) {
+      final wave = math.sin(math.pi * _breath.value);
+      return Opacity(opacity: 1 - .08 * wave, child: Transform.translate(offset: Offset(0, -2 * wave), child: Transform.scale(scale: 1 + .035 * wave, child: child)));
+    }),
+  ));
+}
+
+const homeContentMaxWidth = 900.0;
 
 // inbox.list already includes tool approvals; do not count live dialogs twice.
 int shellPendingCount(AgentController agent) => agent.attention.available ? agent.attention.total : agent.pendingInbox + agent.pendingMemories + agent.pendingProposals;
@@ -68,7 +111,7 @@ class ShellCount extends StatelessWidget {
       child: Text(
         count,
         textAlign: TextAlign.center,
-        style: context.text.labelSmall?.copyWith(color: Colors.white, fontSize: 12, fontFeatures: const [FontFeature.tabularFigures()]),
+        style: context.text.labelSmall?.copyWith(color: context.colors.seal.computeLuminance() > .179 ? Colors.black : Colors.white, fontSize: 12, fontFeatures: const [FontFeature.tabularFigures()]),
       ),
     ),
   );
@@ -120,12 +163,14 @@ class PoeticPageTitle extends StatelessWidget {
   const PoeticPageTitle(this.name, {super.key});
   final String name;
   static const titles = {
-    '记忆': '记下的事',
-    '技能与模板': '蝶园',
-    '技能': '蝶园',
-    '任务': '这一笔等你点头',
-    '等你处理': '这一笔等你点头',
+    '记忆': '梦君记',
+    '技能与模板': '百工',
+    '技能': '百工',
+    '花费': '锱铢',
+    '任务': '案头',
+    '等你处理': '案头',
     '设置': '一方天地',
+    '日程': '时令',
   };
 
   @override
@@ -223,18 +268,20 @@ extension ShellColors on AppColors {
 
 /// The page column: at most 760 wide, centred, 24 above and below (.col).
 class ShellColumn extends StatelessWidget {
-  const ShellColumn({super.key, required this.children, this.maxWidth = 760});
+  const ShellColumn({super.key, required this.children, this.maxWidth = 760, this.padding = const EdgeInsets.symmetric(vertical: 24), this.horizontalPadding = 16});
   final List<Widget> children;
   final double maxWidth;
+  final EdgeInsets padding;
+  final double horizontalPadding;
   @override
   Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
     // Every child takes the full column width, so labels and rows line up on the left.
     final width = box.maxWidth < maxWidth ? box.maxWidth : maxWidth;
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 24),
+      padding: padding,
       children: [
         for (final child in children)
-          Center(child: SizedBox(width: width, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: child))),
+          Center(child: SizedBox(width: width, child: Padding(padding: EdgeInsets.symmetric(horizontal: horizontalPadding), child: child))),
       ],
     );
   });
@@ -281,9 +328,9 @@ class ShellCard extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: colors.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: selected ? colors.accent : colors.hairline)),
+        shape: craftSurfaceShape(context, borderColor: selected ? colors.accent : colors.hairline),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(onTap: onTap, hoverColor: colors.accentSoft.withValues(alpha: 0.35), child: Padding(padding: padding, child: child)),
+        child: CraftCardEdge(child: InkWell(onTap: onTap, hoverColor: colors.accentSoft.withValues(alpha: 0.35), child: Padding(padding: padding, child: child))),
       ),
     );
   }
@@ -318,17 +365,20 @@ enum ShellButtonKind { primary, normal, ghost }
 /// The prototype's buttons (.btn / .btn.pri / .btn.ghost, .sm when [small]).
 ButtonStyle shellButtonStyle(BuildContext context, ShellButtonKind kind, {bool small = false}) {
   final colors = context.colors;
-  return TextButton.styleFrom(
+  return craftControlStyle(context, TextButton.styleFrom(
     foregroundColor: switch (kind) { ShellButtonKind.primary => colors.onAccent, ShellButtonKind.normal => colors.ink, ShellButtonKind.ghost => colors.muted },
     backgroundColor: switch (kind) { ShellButtonKind.primary => colors.accent, ShellButtonKind.normal => colors.card, ShellButtonKind.ghost => Colors.transparent },
     disabledForegroundColor: colors.muted,
+    disabledBackgroundColor: kind == ShellButtonKind.ghost ? Colors.transparent : colors.sunk,
     padding: EdgeInsets.symmetric(horizontal: small ? 10 : 14, vertical: small ? 4 : 7),
     minimumSize: Size(0, small ? 28 : 34),
     visualDensity: VisualDensity.standard,
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     textStyle: TextStyle(fontSize: small ? 13 : 14),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: kind == ShellButtonKind.normal ? BorderSide(color: colors.border) : BorderSide.none),
-  );
+    shape: craftButtonShape(context.painting.craftGeometry).copyWith(
+      side: kind == ShellButtonKind.normal ? BorderSide(color: colors.border) : BorderSide.none,
+    ),
+  ), focusColor: kind == ShellButtonKind.primary ? colors.onAccent : null);
 }
 
 class ShellButton extends StatelessWidget {
@@ -344,35 +394,26 @@ class ShellButton extends StatelessWidget {
       : TextButton.icon(onPressed: onPressed, style: shellButtonStyle(context, kind, small: small), icon: Icon(icon, size: 16), label: Text(label));
 }
 
-/// The 文选 line (.quoteline): a soft accent block with a bar on the left, the source after it.
+/// The centred literary line and its source on the next line.
 class ShellQuoteLine extends StatelessWidget {
   const ShellQuoteLine(this.line, this.source, {super.key});
   final String line;
   final String source;
-  // 0.8.2 (user test: "没咋对齐"): the boxed, left-barred quote sat off the centred greeting's
-  // axis. It is centred now, between two short rules, with its source under it.
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    Widget rule() => Container(width: 28, height: 0.8, color: colors.accent.withValues(alpha: 0.45));
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 560),
+      constraints: const BoxConstraints(maxWidth: 720),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          rule(),
-          const SizedBox(width: 12),
-          Flexible(child: Text(line, textAlign: TextAlign.center, style: context.serif(context.text.bodyMedium).copyWith(fontSize: 14, color: colors.ink2, height: 1.6))),
-          const SizedBox(width: 12),
-          rule(),
-        ]),
+        Text(line, textAlign: TextAlign.center, style: context.handwriting(context.text.bodyMedium).copyWith(fontSize: 18, color: colors.ink2, height: 1.6)),
         const SizedBox(height: 4),
-        Text(source, textAlign: TextAlign.center, style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+        Text(source, textAlign: TextAlign.center, style: context.handwriting(context.text.bodySmall).copyWith(fontSize: 14, color: colors.muted, height: 1.6)),
       ]),
     );
   }
 }
 
-/// A clickable example on an empty page (.ex).
+/// A clickable example on an empty page (.chip).
 class ShellExample extends StatelessWidget {
   const ShellExample(this.text, {super.key, required this.onPressed});
   final String text;
@@ -385,9 +426,9 @@ class ShellExample extends StatelessWidget {
       style: OutlinedButton.styleFrom(
         backgroundColor: colors.card, foregroundColor: colors.ink2,
         side: BorderSide(color: colors.border),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        textStyle: const TextStyle(fontSize: 13.5),
+        shape: craftButtonShape(context.painting.craftGeometry, radius: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+        textStyle: const TextStyle(fontSize: 13),
       ),
       child: Text(text),
     );
@@ -396,7 +437,7 @@ class ShellExample extends StatelessWidget {
 
 /// The greeting on a home page (.greet): handwriting, ink → accent → ochre.
 class ShellGreeting extends StatelessWidget {
-  const ShellGreeting(this.text, {super.key, this.size = 38});
+  const ShellGreeting(this.text, {super.key, this.size = 34});
   final String text;
   final double size;
   @override
@@ -404,7 +445,7 @@ class ShellGreeting extends StatelessWidget {
     final colors = context.colors;
     return ShaderMask(
       blendMode: BlendMode.srcIn,
-      shaderCallback: (rect) => LinearGradient(colors: [colors.ink, colors.accent, colors.ochre]).createShader(rect),
+      shaderCallback: (rect) => LinearGradient(begin: const Alignment(-1, -0.18), end: const Alignment(1, 0.18), colors: [colors.ink, colors.ink, colors.accent, colors.ochre], stops: const [0, .2, .6, 1]).createShader(rect),
       // Letter spacing also follows the last character: the same space on the left keeps it centred.
       child: Padding(padding: EdgeInsets.only(left: size * 0.12), child: Text(text, textAlign: TextAlign.center, style: context.handwriting(context.text.headlineSmall).copyWith(fontSize: size, letterSpacing: size * 0.12, height: 1.4))),
     );

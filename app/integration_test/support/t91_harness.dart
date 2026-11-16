@@ -79,7 +79,7 @@ class T91Harness {
     while(!probe()){if(DateTime.now().isAfter(deadline))throw TestFailure('T91 timeout: ${agent.statusDetail}; running=${agent.isRunning}; editor=${agent.active?.editorText}; transcript=${agent.transcript.items.length}; core=${jsonEncode(await rpc('test.inspect'))}; ${errors.join()}');await tick(tester);}
     await settle(tester);
   }
-  Finder get composer=>find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.hintText=='说点什么…');
+  Finder get composer=>find.byKey(const ValueKey('composer-input'));
   Future<void> send(WidgetTester tester,String text,{bool finish=true,AgentController? owner}) async {
     await tester.tap(composer);await tester.enterText(composer,text);await tester.pump();await tester.tap(find.byTooltip('发送'));await tick(tester);
     if(finish)await wait(tester,()=>!(owner??agent).isRunning&&(owner??agent).transcript.items.whereType<AssistantItem>().isNotEmpty);

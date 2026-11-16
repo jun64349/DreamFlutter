@@ -28,9 +28,10 @@ void main(){
     Future<void> shot(String name) async{await wait();await tester.runAsync(() async{final image=await (boundary.currentContext!.findRenderObject() as RenderRepaintBoundary).toImage(pixelRatio:1);final bytes=await image.toByteData(format:ui.ImageByteFormat.png);File(p.join(shots.path,'$name.png')).writeAsBytesSync(bytes!.buffer.asUint8List());image.dispose();});}
     await tester.binding.setSurfaceSize(const Size(1400,900));await tester.pumpWidget(RepaintBoundary(key:boundary,child:DreamFlutterApp(controller:agent)));
     await tester.runAsync(agent.init);await tester.runAsync(()=>agent.openSession(p.join(cwd,'conversation.jsonl')));agent.setRunPanelOpen(true);await wait();
+    final commit = find.text('提交这些改动');
     for(final dark in [false,true]){
       final color=dark?'dark':'light';await agent.setThemeMode(dark?ThemeMode.dark:ThemeMode.light);
-      await tester.tap(find.text('提交这些改动'));await shot('collapsed_$color');
+      await tester.ensureVisible(commit);await tester.tap(commit);await shot('collapsed_$color');
       expect(tester.widgetList<Checkbox>(find.byType(Checkbox)).map((w)=>w.value),everyElement(isTrue));
       await tester.tap(find.byKey(const ValueKey('commit-expand-report.md')));await tester.tap(find.byKey(const ValueKey('commit-expand-summary.md')));await shot('expanded_$color');
       expect(find.textContaining('diff --git'),findsNothing);expect(find.textContaining('@@'),findsNothing);
@@ -38,7 +39,7 @@ void main(){
       await tester.binding.setSurfaceSize(const Size(1000,800));await agent.setZoom(1.5);await tester.runAsync(()=>Future<void>.delayed(const Duration(seconds:2)));await shot('selected_150_$color');
       await tester.tap(find.text('取消').last);await agent.setZoom(1);await tester.binding.setSurfaceSize(const Size(1400,900));await wait();
     }
-    await tester.tap(find.text('提交这些改动'));await wait();await tester.tap(find.byKey(const ValueKey('commit-select-summary.md')));
+    await tester.ensureVisible(commit);await tester.tap(commit);await wait();await tester.tap(find.byKey(const ValueKey('commit-select-summary.md')));
     final input=find.byWidgetPredicate((w)=>w is TextField && w.decoration?.labelText=='提交说明');await tester.enterText(input,'只更新实验小结');await wait();
     await tester.tap(find.text('确认提交'));await wait();expect(find.textContaining('已提交 '),findsOneWidget);
     for(final dark in [false,true]){await agent.setThemeMode(dark?ThemeMode.dark:ThemeMode.light);await shot('success_${dark?'dark':'light'}');}

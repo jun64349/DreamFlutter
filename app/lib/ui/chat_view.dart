@@ -20,9 +20,9 @@ import 'providers_page.dart' show ProvidersPage;
 import 'run_summary.dart';
 import 'sidebar.dart' show WorkspaceSwitcher;
 import 'window_frame.dart' show ResizeHandle;
-import 'butterfly_motion.dart';
 import 'conversation_actions.dart';
 import 'conversation_cards.dart';
+import 'goal_widgets.dart';
 
 /// Takes files dropped anywhere on the conversation (not just on the input
 /// box) and hands them to the input box.
@@ -56,10 +56,13 @@ class _FileDropAreaState extends State<_FileDropArea> {
 /// The conversation: title bar, messages and the input box, with the run
 /// panel on the right when there is room.
 class ChatView extends StatelessWidget {
-  const ChatView({super.key, this.emptyStateBuilder, this.detailsPanelBuilder});
+  const ChatView({super.key, this.emptyStateBuilder, this.detailsPanelBuilder, this.headerBuilder, this.captionInset = 0, this.notice});
 
   final Widget Function(BuildContext context, AgentController agent)? emptyStateBuilder;
   final Widget Function(BuildContext context, AgentController agent)? detailsPanelBuilder;
+  final Widget Function(bool panelVisible)? headerBuilder;
+  final double captionInset;
+  final Widget? notice;
 
   /// Below this width the details panel stays closed.
   static const _panelMinWidth = 400.0;
@@ -73,7 +76,7 @@ class ChatView extends StatelessWidget {
     final incognito = agent.active?.incognito ?? false;
     // The latest card of the conversation on screen runs live.
     agent.cardStage.setLatest(latestCardId(agent.transcript));
-    return ConversationActionHost(child: ValueListenableBuilder<bool>(valueListenable: agent.panelPreviewing, builder: (context, _, _) => LayoutBuilder(
+    return GoalConversationHost(agent: agent, child: ConversationActionHost(child: ValueListenableBuilder<bool>(valueListenable: agent.panelPreviewing, builder: (context, _, _) => LayoutBuilder(
       builder: (context, constraints) {
         final roomForPanel = constraints.maxWidth >= _panelMinWidth && (!incognito || agent.sideChat != null);
         final showPanel = roomForPanel && agent.runPanelOpen;
@@ -91,35 +94,43 @@ class ChatView extends StatelessWidget {
               left: 0,
               right: docked ? panelWidth + 6 : 0,
               child: _FileDropArea(
-                enabled: agent.isReady,
+                enabled: agent.isReady && agent.main.section == (agent.sandbox ? AppSection.butterfly : AppSection.chat),
                 onDrop: agent.dropFiles,
-                builder: (dragging) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (agent.backendProblem != null && agent.status != ConnectionStatus.missingRuntime)
-                      _ProblemBanner(status: ConnectionStatus.crashed, detail: agent.backendProblem!, reconnecting: true)
-                    else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
-                      _ProblemBanner(status: agent.status, detail: agent.statusDetail),
-                    for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
-                    Expanded(
-                      child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
-                          ? const Center(child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  ButterflyMark(size: 72),
-                                  SizedBox(height: 20),
-                                  Text('正在准备工作台……'),
-                                ],
-                              ))
-                          : agent.transcript.items.isEmpty && agent.active?.pendingDialogs.any(isConversationApproval) != true
-                          ? emptyStateBuilder?.call(context, agent) ?? const _EmptyState()
-                          : ValueListenableBuilder<String?>(valueListenable: agent.entryTarget, builder: (_, _, _) => _MessageList()),
-                    ),
-                    if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
-                      _ContextWarning(percent: agent.stats.contextPercent),
-                    Composer(dragging: dragging),
-                  ],
-                ),
+                builder: (dragging) {
+                  final empty = agent.transcript.items.isEmpty && agent.active?.pendingDialogs.any((r) => isConversationApproval(r) || r.title.startsWith('Agent 需要你补充信息')) != true;
+                  final body = Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (headerBuilder != null) headerBuilder!(showPanel),
+                      ?notice,
+                      if (agent.backendProblem != null && agent.status != ConnectionStatus.missingRuntime)
+                        _ProblemBanner(status: ConnectionStatus.crashed, detail: agent.backendProblem!, reconnecting: true)
+                      else if (agent.status == ConnectionStatus.crashed || agent.status == ConnectionStatus.missingRuntime)
+                        _ProblemBanner(status: agent.status, detail: agent.statusDetail),
+                      for (final run in agent.interruptedRuns.take(3)) _InterruptedRunCard(run: run),
+                      Expanded(
+                        child: agent.status == ConnectionStatus.starting && agent.transcript.items.isEmpty
+                            ? const Center(child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ButterflyMark(size: 72),
+                                    SizedBox(height: 20),
+                                    Text('正在准备工作台……'),
+                                  ],
+                                ))
+                            : empty
+                            ? emptyStateBuilder?.call(context, agent) ?? _EmptyState(dragging: dragging)
+                            : ValueListenableBuilder<String?>(valueListenable: agent.entryTarget, builder: (_, _, _) => _MessageList()),
+                      ),
+                      if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
+                        _ContextWarning(percent: agent.stats.contextPercent),
+                      if (!empty)
+                        GoalPlanBox(key: ValueKey('plan-${agent.currentSessionPath}'), composer: Composer(dragging: dragging, contained: true)),
+                    ],
+                  );
+                  // 原型 .wash 的定位父级是 #main，包含顶栏；不能从正文下沿另起一块底色。
+                  return empty ? PaintingBackdrop(surface: PaintingSurface.home, animate: true, child: body) : body;
+                },
               ),
             ),
             Positioned(
@@ -131,13 +142,13 @@ class ChatView extends StatelessWidget {
                   switchInCurve: AppTokens.curve, switchOutCurve: AppTokens.curve,
                   transitionBuilder: (child, animation) => FadeTransition(opacity: animation,
                     child: SlideTransition(position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(animation), child: child)),
-                  child: showPanel ? _DetailsPanel(key: const ValueKey('details'), maxWidth: constraints.maxWidth - 80, floating: !docked, builder: detailsPanelBuilder) : const SizedBox.shrink(),
+                  child: showPanel ? _DetailsPanel(key: const ValueKey('details'), maxWidth: constraints.maxWidth - 80, floating: !docked, builder: detailsPanelBuilder, captionInset: captionInset) : const SizedBox.shrink(),
                 ),
               ),
           ],
         );
       },
-    )));
+    ))));
   }
 }
 
@@ -148,7 +159,7 @@ class ChatView extends StatelessWidget {
 /// The details of the conversation (run, files, cost, actions) sliding in over
 /// it from the right; its width is dragged on its left edge and remembered.
 class _DetailsPanel extends StatefulWidget {
-  const _DetailsPanel({super.key, required this.maxWidth, required this.floating, this.builder});
+  const _DetailsPanel({super.key, required this.maxWidth, required this.floating, required this.captionInset, this.builder});
 
   final Widget Function(BuildContext context, AgentController agent)? builder;
 
@@ -157,6 +168,7 @@ class _DetailsPanel extends StatefulWidget {
 
   /// Over the conversation (a shadow sets it apart) rather than beside it.
   final bool floating;
+  final double captionInset;
 
   @override
   State<_DetailsPanel> createState() => _DetailsPanelState();
@@ -196,11 +208,16 @@ class _DetailsPanelState extends State<_DetailsPanel> {
                 if (mounted) setState(() => _width = null);
               },
             ),
-            SizedBox(width: width, child: widget.builder?.call(context, agent) ?? RunPanel(
+            SizedBox(width: width, child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(border: Border(left: BorderSide(color: context.colors.hairline))),
+              child: widget.builder?.call(context, agent) ?? RunPanel(
               key: ValueKey('panel-${agent.currentSessionPath}'), width: width,
               sessionFile: agent.currentSessionPath, onClose: () => agent.setRunPanelOpen(false),
+              leadingSections: const ConversationGoalSections(showJobs: false),
               onPreviewChanged: (open) => agent.panelPreviewing.value = open,
-            )),
+              captionInset: widget.captionInset,
+            ))),
           ],
         ),
       ),
@@ -216,7 +233,8 @@ class _DetailsPanelState extends State<_DetailsPanel> {
 /// set large in the serif with a soft ink-to-accent wash; a different line for
 /// each conversation (see greetings.dart). The first-run guide stays until dismissed.
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({required this.dragging});
+  final bool dragging;
 
   @override
   Widget build(BuildContext context) {
@@ -226,36 +244,40 @@ class _EmptyState extends StatelessWidget {
     final greeting = pickGreeting(now: now, seed: identityHashCode(agent.active) ^ now.day, butterfly: agent.sandbox);
     final (line, source) = pickLiteraryLine(identityHashCode(agent.active));
     return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: FadeSlideIn(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ButterflyAvatar(size: 72, activity: butterflyActivity(agent)),
-              const SizedBox(height: 18),
-              ConstrainedBox(constraints: const BoxConstraints(maxWidth: 640), child: ShellGreeting(greeting)),
-              if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 32), const _FirstRunGuide()],
-              // Greeting, then the 文选 line, then the examples: the 1.0 prototype's order (蝶君's home matches).
-              const SizedBox(height: 18),
-              ShellQuoteLine(line, source),
-              const SizedBox(height: 18),
-              ConstrainedBox(constraints: const BoxConstraints(maxWidth: 620), child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  for (final prompt
-                      in agent.sandbox
-                          ? const ['每周一帮我整理上周的周报', '把这份资料整理成摘要', '帮我检查这个项目']
-                          : const ['整理这个文件夹里的资料', '帮我读懂这段代码', '一起梳理今天的工作'])
-                    ShellExample(prompt, onPressed: () => agent.insertIntoComposer(prompt)),
-                ],
-              )),
-            ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 30, 20, 60),
+          child: FadeSlideIn(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const HomeButterflyMark(),
+                const SizedBox(height: 14),
+                ConstrainedBox(constraints: const BoxConstraints(maxWidth: 640), child: ShellGreeting(greeting)),
+                const SizedBox(height: 16),
+                // 原型 .brush：问候下面一笔横向的淡朱色晕（椭圆），不是一个点。
+                Container(width: 120, height: 10, decoration: BoxDecoration(borderRadius: const BorderRadius.all(Radius.elliptical(60, 5)), gradient: LinearGradient(colors: [context.colors.accentSoft.withValues(alpha: 0), context.colors.accentSoft, context.colors.accentSoft.withValues(alpha: 0)]))),
+                const SizedBox(height: 14),
+                ShellQuoteLine(line, source),
+                if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 24), const _FirstRunGuide()],
+                const SizedBox(height: 22),
+                Composer(dragging: dragging, home: true),
+                const SizedBox(height: 14),
+                ConstrainedBox(constraints: const BoxConstraints(maxWidth: homeContentMaxWidth), child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (final prompt
+                        in agent.sandbox
+                            ? const ['每周一帮我整理上周的周报', '把这份资料整理成摘要', '帮我检查这个项目', '对比这几份资料的差别', '梳理下一步要做的事']
+                            : const ['整理这个文件夹里的资料', '帮我读懂这段代码', '一起梳理今天的工作', '对比这几份资料的差别', '把这篇文章整理成摘要'])
+                      ShellExample(prompt, onPressed: () => agent.insertIntoComposer(prompt)),
+                  ],
+                )),
+              ],
+            ),
           ),
         ),
-      ),
     );
   }
 }
@@ -478,28 +500,43 @@ class _MessageListState extends State<_MessageList> {
         builder: (context) {
           final registrar = SelectionContainer.maybeOf(context)!;
           Widget item(int index) {
-                final child = index < rows.length
+                final row = index < rows.length ? rows[index] : null;
+                final child = row != null
                     ? FadeSlideIn(
-                        key: ValueKey(rows[index].key),
-                        animate: fresh.contains(rows[index].key),
-                        child: ChatRowView(row: rows[index], transcript: transcript),
+                        key: ValueKey(row.key),
+                        animate: fresh.contains(row.key),
+                        child: ChatRowView(row: row, transcript: transcript),
                       )
                     : index == rows.length && queued.isNotEmpty ? QueuedMessages(messages: queued)
                     : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                         if (transcript.isRunning && (rows.isEmpty || rows.last is QuestionRow)) const ConversationPresence(),
-                        ConversationApprovalLane(key: ValueKey('approval-${agent.activeSessionId}-${transcript.items.whereType<UserItem>().lastOrNull?.key}'), runtime: agent.active),
+                        Padding(padding: const EdgeInsets.only(left: ChatRowView.replyGutter), child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ConversationApprovalLane(key: ValueKey('approval-${agent.activeSessionId}-${transcript.items.whereType<UserItem>().lastOrNull?.key}'), runtime: agent.active),
+                            const GoalQuestions(maxWidth: double.infinity),
+                            const GoalProposals(),
+                          ],
+                        )),
                       ]);
+                final top = switch (row) {
+                  QuestionRow() => 22.0,
+                  ReplyRow() when index == 0 => 10.0,
+                  null => 10.0,
+                  _ => 0.0, // The user's hover actions already occupy the gap before a reply.
+                };
                 return _AnchoredRow(
-                  key: index < rows.length ? _rowKeys.putIfAbsent(rows[index].key, GlobalKey.new) : null,
+                  key: row == null ? null : _rowKeys.putIfAbsent(row.key, GlobalKey.new),
                   controller: _scroll,
                   child: SelectionRegistrarScope(
                     registrar: registrar,
-                    child: Center(
+                    // .chat is a 720 px border box. The scroll thumb has its own gutter.
+                    child: Padding(padding: const EdgeInsets.only(right: 8), child: Center(
                       child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth + 56),
-                        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 6), child: child),
+                        constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth),
+                        child: Padding(padding: EdgeInsets.fromLTRB(24, top, 24, 0), child: child),
                       ),
-                    ),
+                    )),
                   ),
                 );
           }
@@ -514,12 +551,12 @@ class _MessageListState extends State<_MessageList> {
               key: const ValueKey('conversation-list'),
               controller: _scroll,
               slivers: [
-                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                const SliverToBoxAdapter(child: SizedBox(height: 18)),
                 SliverList(delegate: SliverChildBuilderDelegate((context, index) => item(index), childCount: tail)),
                 SliverToBoxAdapter(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [for (var i = tail; i < count; i++) item(i)]),
                 ),
-                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                const SliverToBoxAdapter(child: SizedBox(height: 30)),
               ],
             ),
           );

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "a6b66a81-efca-4fe4-b3e2-819089e68717",
+    "startedAt": 1794564732465,
+    "endedAt": 1794564732470,
+    "status": "skipped",
+    "manual": true,
+    "facts": [],
+    "newFacts": [],
+    "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "note": "蝶君的沙箱还没准备好",
+    "actions": [],
+    "notified": false,
+    "notificationState": null,
+    "notificationNote": null,
+    "model": null,
+    "cost": 0,
+    "error": null,
+    "sessionFile": null,
+    "sessionAvailable": false
+  }
+]

@@ -72,7 +72,8 @@ test("voice keys use an isolated credential directory and uninstall rejects deve
 	await expectRpcError(api.call("uninstall.preview"), "unavailable");
 	assert.deepEqual(await api.call("uninstall.preservedData"), { candidates: [] });
 	await expectRpcError(api.call("uninstall.restorePreservedData", { path: join(api.dir, "nonexistent") }), "unavailable");
-	for (const method of ["uninstall.preview", "uninstall.preservedData", "uninstall.restorePreservedData"])
+	await expectRpcError(api.call("uninstall.start", { keepData: true, windowPid: 123 }), "unavailable");
+	for (const method of ["uninstall.preview", "uninstall.preservedData", "uninstall.restorePreservedData", "uninstall.start"])
 		await assert.rejects(api.core.call(method, {}), { code: "forbidden" });
 });
 

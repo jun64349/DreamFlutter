@@ -25,13 +25,43 @@ void main(){
     await t.tap(find.text('允许').first);await t.pump();await t.pump(const Duration(milliseconds:300));expect(find.text('撤销'),findsNothing);expect(f.backend.callsTo('attention.resolve').single['id'],'approval:a');
     await t.tap(find.text('采用'));await t.pump();await t.pump(const Duration(milliseconds:300));expect(find.text('撤销'),findsOneWidget);await t.tap(find.text('撤销'));await t.pumpAndSettle();expect(find.text('采用「整理文献」技能'),findsOneWidget);expect(f.backend.callsTo('attention.undo').length,1);
   });
+  testWidgets('attention shows one empty state until a real group has work', (t) async {
+    await start(t);
+    final item = f.now.single;
+    f.now.clear();
+    f.later.clear();
+    await t.runAsync(f.agent.attention.refresh);
+    f.agent.showSection(AppSection.tasks);
+    await t.pumpAndSettle();
+
+    final page = find.byType(AttentionPage);
+    Finder pageText(String value) => find.descendant(of: page, matching: find.text(value));
+    expect(pageText('案头'), findsOneWidget);
+    expect(pageText('等你处理'), findsOneWidget);
+    expect(pageText('没有待处理的事项'), findsOneWidget);
+    expect(pageText('现在需要你'), findsNothing);
+    expect(pageText('有空看看'), findsNothing);
+
+    f.now.add(item);
+    await t.runAsync(f.agent.attention.refresh);
+    await t.pumpAndSettle();
+    expect(pageText('没有待处理的事项'), findsNothing);
+    expect(pageText('现在需要你'), findsOneWidget);
+    expect(pageText('运行项目的检查'), findsOneWidget);
+    expect(pageText('有空看看'), findsNothing);
+  });
   testWidgets('seven settings groups, search advanced settings, blur save and inline error',(t)async{
-    await start(t);f.agent.showSection(AppSection.settings);await t.pumpAndSettle();for(final name in ['通用','模型','工作台','蝶君','记忆','数据与安全','关于与更新']){expect(find.text(name),findsWidgets);}await t.tap(find.text('通用').last);await t.pumpAndSettle();
-    await t.tap(find.text('未设置'));await t.pump();await t.enterText(find.descendant(of:find.byType(EditableSetting),matching:find.byType(TextField)),'小周');await t.pump();await t.tap(find.widgetWithText(TextField,'搜索设置'));await t.pumpAndSettle();expect(f.backend.settings['userName'],'小周');
-    await t.enterText(find.widgetWithText(TextField,'搜索设置'),'记忆频率');await t.pumpAndSettle();expect(find.text('记忆频率'),findsWidgets);
+    await start(t);f.agent.showSection(AppSection.settings);await t.pumpAndSettle();
+    final groups=find.byType(DropdownButtonFormField<String>);
+    if(groups.evaluate().isNotEmpty){await t.tap(groups);await t.pumpAndSettle();}
+    for(final name in ['通用','模型','工作台','蝶君','记忆','数据与安全','关于与更新']){expect(find.text(name),findsWidgets);}
+    await t.tap(find.text('通用').last);await t.pumpAndSettle();
+    final nameField=find.descendant(of:find.byKey(const ValueKey('userName')),matching:find.byType(TextField));
+    await t.enterText(nameField,'小周');await t.pump();await t.tap(find.widgetWithText(TextField,'搜索设置'));await t.pumpAndSettle();expect(f.backend.settings['userName'],'小周');
+    await t.enterText(find.widgetWithText(TextField,'搜索设置'),'记忆频率');await t.pumpAndSettle();expect(find.text('什么时候记'),findsWidgets);
     await t.enterText(find.widgetWithText(TextField,'搜索设置'),'每天花费上限');await t.pumpAndSettle();await t.enterText(find.descendant(of:find.byType(AutoSaveField),matching:find.byType(TextField)).last,'-1');await t.pump();await t.tap(find.widgetWithText(TextField,'搜索设置'));await t.pumpAndSettle();expect(find.textContaining('请输入有效'),findsOneWidget);
   });
   testWidgets('wizard tests once, preserves back navigation and completes without copying secrets',(t)async{
-    await start(t);var completed=false;await t.pumpWidget(DreamFlutterApp(controller:f.agent,home:SetupWizard(status:{'dataRoot':f.root.path},initialStep:2,onComplete:()=>completed=true)));await t.pumpAndSettle();await t.enterText(find.widgetWithText(TextField,'称呼'),'小周');await t.tap(find.text('下一步'));await t.pumpAndSettle();await t.enterText(find.widgetWithText(TextField,'密钥'),'test-only-not-a-key');await t.tap(find.text('测试连接'));await t.pumpAndSettle();expect(find.text('连接成功'),findsOneWidget);expect(f.backend.callsTo('setup.testChannel').length,1);await t.tap(find.text('下一步'));await t.pumpAndSettle();await t.tap(find.text('上一步'));await t.pumpAndSettle();expect(find.text('连接成功'),findsOneWidget);await t.tap(find.text('下一步'));await t.pumpAndSettle();await t.tap(find.text('跳过'));await t.pumpAndSettle();await t.tap(find.text('以后再说'));await t.tap(find.text('开始使用'));await t.pumpAndSettle();expect(completed,isTrue);final p=f.backend.callsTo('setup.complete').single;expect(p['channelId'],'c1');expect(p['sandbox'],'later');expect(p.containsKey('channel'),isFalse);expect(p.toString(),isNot(contains('test-only-not-a-key')));
+    await start(t);var completed=false;await t.pumpWidget(DreamFlutterApp(controller:f.agent,home:SetupWizard(status:{'dataRoot':f.root.path},initialStep:2,onComplete:()=>completed=true)));await t.pumpAndSettle();await t.enterText(find.widgetWithText(TextField,'称呼'),'小周');await t.tap(find.text('下一步'));await t.pumpAndSettle();await t.enterText(find.byKey(const ValueKey('setup-model-key')),'test-only-not-a-key');await t.pump();await t.tap(find.byTooltip('测试连接'));await t.pumpAndSettle();expect(find.text('连接成功'),findsOneWidget);expect(f.backend.callsTo('setup.testChannel').length,1);await t.tap(find.text('下一步'));await t.pumpAndSettle();await t.tap(find.text('上一步'));await t.pumpAndSettle();expect(find.text('连接成功'),findsOneWidget);await t.tap(find.text('下一步'));await t.pumpAndSettle();await t.tap(find.text('跳过'));await t.pumpAndSettle();await t.tap(find.text('以后再说'));await t.tap(find.text('开始使用'));await t.pumpAndSettle();expect(completed,isTrue);final p=f.backend.callsTo('setup.complete').single;expect(p['channelId'],'c1');expect(p['sandbox'],'later');expect(p.containsKey('channel'),isFalse);expect(p.toString(),isNot(contains('test-only-not-a-key')));
   });
 }

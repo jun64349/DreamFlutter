@@ -45,9 +45,15 @@ void main() {
     'T87 shows three groups and only the outdated marker, without the old control panels',
     (tester) async {
       await start(tester);
-      for (final label in ['记下的事', '关于你', '关于这个项目', '蝶君自己的', '自动记忆', '可能过时了']) {
-        expect(find.text(label), findsOneWidget);
+      expect(find.text('梦君记'), findsOneWidget);
+      expect(find.text('可能过时了'), findsOneWidget);
+      for (final label in ['关于你', '项目', '蝶君自己的']) { // 原型卡片标签：关于你 / 项目
+        expect(find.text(label), findsWidgets);
       }
+      expect(find.byKey(const ValueKey('memory-mark-you')), findsOneWidget);
+      await tester.tap(find.text('设置'));
+      await pumpT87(tester);
+      expect(find.text('自动记忆'), findsOneWidget);
       for (final label in ['待确认', '常驻记忆块', '一级', '二级', '三级', '写入频率']) {
         expect(find.textContaining(label), findsNothing);
       }
@@ -105,7 +111,7 @@ void main() {
         await pumpT87(tester);
       }
       expect(find.textContaining('来自'), findsOneWidget);
-      await tester.tap(find.text('来自 讨论传感器项目的协作约定'));
+      await tester.tap(find.text('来自「讨论传感器项目的协作约定」'));
       await pumpT87(tester);
       expect(fixture.agent.section, AppSection.chat);
       expect(
@@ -119,12 +125,12 @@ void main() {
     'T87 add and cancel own the editor until the dialog finishes closing',
     (tester) async {
       await start(tester);
-      await tester.tap(find.text('添加记忆'));
+      await tester.tap(find.byTooltip('添加记忆'));
       await pumpT87(tester);
       await tester.tap(find.text('取消'));
       await pumpT87(tester);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('添加记忆'));
+      await tester.tap(find.byTooltip('添加记忆'));
       await pumpT87(tester);
       await tester.enterText(find.byType(TextField).last, '每周五整理实验记录');
       await tester.tap(find.text('添加'));
@@ -137,7 +143,7 @@ void main() {
     'T87 recent history and topic records call their owner undo APIs',
     (tester) async {
       await start(tester);
-      await tester.tap(find.text('最近'));
+      await tester.tap(find.text('日志'));
       await pumpT87(tester);
       expect(find.text('记住了'), findsOneWidget);
       expect(find.textContaining('换了话题'), findsOneWidget);

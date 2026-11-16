@@ -1,0 +1,8 @@
+[
+  {
+    "event": "voice.error",
+    "sessionId": "b550615b-8f7b-477a-a523-855f8710099e",
+    "code": "invalid_params",
+    "message": "没有收到麦克风音频。"
+  }
+]

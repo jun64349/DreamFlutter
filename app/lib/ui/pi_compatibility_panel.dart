@@ -8,6 +8,9 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'providers_page.dart';
+import 'settings_controls.dart' show SettingRow;
+import 'settings_layout.dart' show V1Inset;
+import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
 
 /// Migration state and the same app-owned configuration used by the Pi CLI.
 class PiCompatibilityPanel extends StatefulWidget {
@@ -59,47 +62,54 @@ class _PiCompatibilityPanelState extends State<PiCompatibilityPanel> {
     if (folder == null || !mounted) return;
     await _call('piMigration.import', {'folder': folder});
   }
+  // 原型「原有连接配置」：一行「从别处导入」（状态写在小字里，按钮在右），细节放进内嵌框，启动命令单独一行。
+  // 卡片内边距由外面的 SettingsCard 给，这里不再加一层。
   @override
   Widget build(BuildContext context) {
     final data = _data, done = data?['status'] == 'done';
     final busy = _busy || data?['busy'] == true;
     final unresolved = data?['unresolved'] as List? ?? const [];
-    return Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('原有连接配置', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 8),
-      Text(data == null ? '正在读取迁移状态…' : done ? '已迁入渠道 · 兼容配置由渠道生成' : data['status'] == 'failed' ? '迁移失败 · 原有配置页仍可用' : '尚未完成 原有服务商迁移'),
-      if (data != null) ...[
-        const SizedBox(height: 12),
-        SelectableText('配置路径：${data['path'] ?? ''}'),
+    final colors = context.colors;
+    final muted = context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.muted);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, color: colors.ink);
+    final status = data == null ? '正在读取迁移状态…' : done ? '已迁入渠道 · 兼容配置由渠道生成' : data['status'] == 'failed' ? '迁移失败 · 原有配置页仍可用' : '尚未完成 原有服务商迁移';
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SettingRow('从别处导入', desc: status, child: Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, children: [
+        if (done) ShellButton('从原配置导入', small: true, onPressed: busy ? null : _import)
+        else ...[
+          ShellButton('重试迁移', small: true, onPressed: busy || data == null ? null : () => _call('piMigration.retry')),
+          ShellButton('打开原有配置页', small: true, kind: ShellButtonKind.ghost, onPressed: busy ? null : () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ProvidersPage(legacyOnly: true)))),
+        ],
+      ])),
+      if (data != null) V1Inset(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SelectableText('配置路径：${data['path'] ?? ''}', style: mono),
         if (data['generatedAt'] is num) Text('上次生成：${DateTime.fromMillisecondsSinceEpoch((data['generatedAt'] as num).toInt()).toLocal()}'),
         Text(data['externalModified'] == true ? '检测到外部修改；重新生成前会先备份。' : '外部修改：未检测到'),
         if (data['externalBackup'] != null) SelectableText('检测到外部修改，已备份到 ${data['externalBackup']}；需要的话可以点“从原配置导入”。'),
         if (data['backup'] != null) SelectableText('迁移备份：${data['backup']}'),
-      ],
-      const SizedBox(height: 12),
-      const Text('密钥只在这台电脑的当前账户下可用。'),
+        if (unresolved.isNotEmpty) ...[const SizedBox(height: 6), const Text('以下模型引用未映射，已保留原值：'), for (final ref in unresolved) SelectableText('$ref', style: mono)],
+        for (final row in jsonRows(data['results'])) Text('${row['provider']}：${row['status']}'),
+      ])),
       if (done) ...[
-        const SizedBox(height: 8),
-        SelectableText(data?['command'] as String? ?? ''),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          TextButton(onPressed: busy ? null : () async { await Clipboard.setData(ClipboardData(text: data?['command'] as String? ?? '')); if (mounted) setState(() => _receipt = '启动命令已复制'); }, child: const Text('复制命令')),
-          OutlinedButton(onPressed: busy ? null : _import, child: const Text('从原配置导入')),
-          TextButton(onPressed: busy ? null : () => _call('piMigration.generate'), child: const Text('重新生成')),
-        ]),
-        const Text('手动导入只读所选文件夹，只添加新服务商；已有映射和渠道不会覆盖。cc-switch 的后续修改不会自动导入。'),
-      ] else ...[
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          OutlinedButton(onPressed: busy || data == null ? null : () => _call('piMigration.retry'), child: const Text('重试迁移')),
-          TextButton(onPressed: busy ? null : () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ProvidersPage(legacyOnly: true))), child: const Text('打开原有配置页')),
-        ]),
-      ],
-      if (unresolved.isNotEmpty) ...[const SizedBox(height: 8), const Text('以下模型引用未映射，已保留原值：'), for (final ref in unresolved) SelectableText('$ref')],
-      for (final row in jsonRows(data?['results'])) Text('${row['provider']}：${row['status']}'),
-      if (_receipt != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_receipt!)),
-      if (_error != null || data?['error'] != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error ?? '${data?['error']}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
-      if (busy) const LinearProgressIndicator(semanticsLabel: '正在更新连接配置'),
-      TextButton(onPressed: busy ? null : () => _run(_load), child: const Text('刷新迁移状态')),
-    ]));
+        Padding(padding: const EdgeInsets.only(top: 12), child: Divider(height: 1, thickness: 0.5, color: colors.border)),
+        SettingRow('启动命令', desc: '密钥只在这台电脑的当前账户下可用。', child: Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, children: [
+          ShellButton('复制命令', small: true, onPressed: busy ? null : () async { await Clipboard.setData(ClipboardData(text: data?['command'] as String? ?? '')); if (mounted) setState(() => _receipt = '启动命令已复制'); }),
+          ShellButton('重新生成', small: true, kind: ShellButtonKind.ghost, onPressed: busy ? null : () => _call('piMigration.generate')),
+        ])),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(color: colors.sunk, borderRadius: BorderRadius.circular(9)),
+          child: SelectableText(data?['command'] as String? ?? '', style: mono),
+        ),
+        Padding(padding: const EdgeInsets.only(top: 8), child: Text('手动导入只读所选文件夹，只添加新服务商；已有映射和渠道不会覆盖。cc-switch 的后续修改不会自动导入。', style: muted)),
+      ] else
+        Padding(padding: const EdgeInsets.only(top: 8), child: Text('密钥只在这台电脑的当前账户下可用。', style: muted)),
+      if (_receipt != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_receipt!, style: muted)),
+      if (_error != null || data?['error'] != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error ?? '${data?['error']}', style: TextStyle(color: colors.danger))),
+      if (busy) Padding(padding: const EdgeInsets.only(top: 8), child: LinearProgressIndicator(semanticsLabel: '正在更新连接配置', color: colors.accent, backgroundColor: colors.sunk)),
+      Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Align(alignment: Alignment.centerLeft, child: ShellButton('刷新迁移状态', small: true, kind: ShellButtonKind.ghost, onPressed: busy ? null : () => _run(_load)))),
+    ]);
   }
 }
 

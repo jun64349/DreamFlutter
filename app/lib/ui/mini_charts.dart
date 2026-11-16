@@ -14,19 +14,18 @@ List<Color> chartPalette(BuildContext context) {
   // The theme's accent leads; the rest are far apart in hue so neighbouring slices never blur.
   return [
     c.accent,
-    dark ? const Color(0xFF8FB0E8) : const Color(0xFF3F6CA8),
-    dark ? const Color(0xFF8FD1A5) : const Color(0xFF3E8A5A),
-    dark ? const Color(0xFFD9BE6A) : const Color(0xFFB38A1E),
+    dark ? const Color(0xFFD9A066) : const Color(0xFFB5793F),
+    c.success,
+    c.muted,
     dark ? const Color(0xFFC39BE3) : const Color(0xFF8E5BB5),
     dark ? const Color(0xFF8BC4C8) : const Color(0xFF3D7F84),
     dark ? const Color(0xFFEF8C80) : const Color(0xFFC0392B),
-    c.muted,
   ];
 }
 
 /// One bar per day; hovering a bar shows its label and value.
 class DayBarChart extends StatefulWidget {
-  const DayBarChart({super.key, required this.labels, required this.values, required this.format, this.height = 150});
+  const DayBarChart({super.key, required this.labels, required this.values, required this.format, this.height = 120});
   final List<String> labels;
   final List<double> values;
   final String Function(double) format;
@@ -43,19 +42,22 @@ class _DayBarChartState extends State<DayBarChart> {
     final colors = context.colors;
     final n = widget.values.length;
     final max = widget.values.fold<double>(0, math.max);
-    final label = context.text.bodySmall?.copyWith(fontSize: 11, color: colors.muted);
+    final label = context.text.bodySmall?.copyWith(fontSize: 12, height: 1.6, color: colors.muted);
     return LayoutBuilder(builder: (context, c) {
-      final slot = n == 0 ? 0.0 : c.maxWidth / n;
+      final gap = n == 0 ? 0.0 : math.min(4.0, c.maxWidth / n * .45);
+      final slot = n == 0 ? 0.0 : (c.maxWidth + gap) / n;
       final hover = _hover;
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        SizedBox(
-          height: 18,
-          child: hover == null || hover >= n
-              ? Text(max == 0 ? '' : '最高 ${widget.format(max)}', style: label)
-              : Text('${widget.labels[hover]} · ${widget.format(widget.values[hover])}', style: label?.copyWith(color: colors.ink)),
-        ),
-        const SizedBox(height: 6),
-        MouseRegion(
+        Row(children: [
+          Text('近 30 天', style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600, height: 1.6)),
+          const SizedBox(width: 8),
+          Expanded(child: Text(hover == null || hover >= n
+              ? '悬停看当天明细'
+              : '${widget.labels[hover]} · ${widget.format(widget.values[hover])}',
+            style: label, textAlign: TextAlign.right, maxLines: 1, overflow: TextOverflow.ellipsis,
+          )),
+        ]),
+        Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: MouseRegion(
           onHover: (e) => setState(() => _hover = slot <= 0 ? null : (e.localPosition.dx / slot).floor().clamp(0, n - 1)),
           onExit: (_) => setState(() => _hover = null),
           child: TweenAnimationBuilder<double>(
@@ -63,45 +65,34 @@ class _DayBarChartState extends State<DayBarChart> {
             duration: AppTokens.motion(context, AppTokens.slow),
             curve: AppTokens.curve,
             builder: (context, t, _) => CustomPaint(
-              size: Size(c.maxWidth, widget.height),
-              painter: _BarsPainter(values: widget.values, max: max, grow: t, hover: hover, bar: colors.accent, faint: colors.accent.withValues(alpha: 0.35), grid: colors.border),
+              size: Size(c.maxWidth, widget.height - 16),
+              painter: _BarsPainter(values: widget.values, max: max, grow: t, hover: hover, bar: colors.accent, gap: gap),
             ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Row(children: [
-          if (n > 0) Text(widget.labels.first, style: label),
-          const Spacer(),
-          if (n > 1) Text(widget.labels.last, style: label),
-        ]),
+        )),
       ]);
     });
   }
 }
 
 class _BarsPainter extends CustomPainter {
-  _BarsPainter({required this.values, required this.max, required this.grow, required this.hover, required this.bar, required this.faint, required this.grid});
+  _BarsPainter({required this.values, required this.max, required this.grow, required this.hover, required this.bar, required this.gap});
   final List<double> values;
-  final double max, grow;
+  final double max, grow, gap;
   final int? hover;
-  final Color bar, faint, grid;
+  final Color bar;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final line = Paint()..color = grid..strokeWidth = 0.6;
-    for (final f in [0.0, 0.5, 1.0]) {
-      final y = size.height * (1 - f);
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
-    }
     if (values.isEmpty) return;
-    final slot = size.width / values.length;
-    final w = math.max(2.0, slot * 0.62);
+    final slot = (size.width + gap) / values.length;
+    final w = slot - gap;
     for (var i = 0; i < values.length; i++) {
       final v = values[i];
       if (v <= 0 || max <= 0) continue;
-      final h = math.max(2.0, size.height * (v / max) * grow);
-      final x = slot * i + (slot - w) / 2;
-      final paint = Paint()..color = hover == null || hover == i ? bar : faint;
+      final h = math.max(2.0, size.height * .9 * (v / max) * grow);
+      final x = slot * i;
+      final paint = Paint()..color = hover == i ? bar : bar.withValues(alpha: .75);
       canvas.drawRRect(RRect.fromRectAndCorners(Rect.fromLTWH(x, size.height - h, w, h), topLeft: const Radius.circular(3), topRight: const Radius.circular(3)), paint);
     }
   }
@@ -112,15 +103,14 @@ class _BarsPainter extends CustomPainter {
 
 /// A ring of shares with its legend beside it (below on a narrow width).
 class DonutChart extends StatefulWidget {
-  const DonutChart({super.key, required this.names, required this.values, required this.details, required this.center, this.size = 132});
+  const DonutChart({super.key, required this.title, required this.names, required this.values, required this.details, this.size = 120});
+  final String title;
   final List<String> names;
   final List<double> values;
 
   /// Shown at the end of each legend row ("12 次 · $0.40").
   final List<String> details;
 
-  /// The ring's middle (the total).
-  final String center;
   final double size;
   @override
   State<DonutChart> createState() => _DonutChartState();
@@ -143,38 +133,36 @@ class _DonutChartState extends State<DonutChart> {
         curve: AppTokens.curve,
         builder: (context, t, _) => CustomPaint(
           painter: _DonutPainter(values: widget.values, colors: [for (var i = 0; i < widget.values.length; i++) colorOf(i)], sweep: t, hover: _hover, empty: colors.border),
-          child: Center(child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: FittedBox(child: Text(
-              _hover == null || total <= 0 ? widget.center : '${(widget.values[_hover!] * 100 / total).round()}%',
-              style: context.serif(context.text.titleMedium).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
-            )),
-          )),
         ),
       ),
     );
     final legend = Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-      for (var i = 0; i < widget.names.length; i++)
+      Text(widget.title, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600, height: 1.6)),
+      const SizedBox(height: 8),
+      for (var i = 0; i < widget.names.length; i++) ...[
+        if (i > 0) const SizedBox(height: 6),
         MouseRegion(
           onEnter: (_) => setState(() => _hover = i),
           onExit: (_) => setState(() => _hover = null),
-          child: AnimatedContainer(
-            duration: AppTokens.motion(context, AppTokens.fast),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-            decoration: BoxDecoration(color: _hover == i ? colors.accentSoft.withValues(alpha: 0.5) : Colors.transparent, borderRadius: BorderRadius.circular(6)),
+          child: Tooltip(
+            message: '${widget.names[i]} · ${widget.details[i]}',
             child: Row(children: [
-              Container(width: 10, height: 10, decoration: BoxDecoration(color: colorOf(i), borderRadius: BorderRadius.circular(3))),
-              const SizedBox(width: 10),
-              Expanded(child: Text(widget.names[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium)),
-              const SizedBox(width: 10),
-              Text(widget.details[i], style: context.text.bodySmall?.copyWith(color: colors.muted, fontFeatures: const [FontFeature.tabularFigures()])),
+              Container(width: 9, height: 9, decoration: BoxDecoration(color: colorOf(i), borderRadius: BorderRadius.circular(3))),
+              const SizedBox(width: 8),
+              Expanded(child: Text(widget.names[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 12.5, height: 1.6))),
+              const SizedBox(width: 8),
+              if (total > 0) Text(
+                '${(widget.values[i] * 100 / total).round()}%',
+                style: context.text.bodySmall?.copyWith(fontSize: 12.5, height: 1.6, color: colors.muted, fontFeatures: const [FontFeature.tabularFigures()]),
+              ),
             ]),
           ),
         ),
+      ],
     ]);
-    return LayoutBuilder(builder: (context, c) => c.maxWidth < 380
+    return LayoutBuilder(builder: (context, c) => c.maxWidth < 275
         ? Column(children: [ring, const SizedBox(height: 12), legend])
-        : Row(children: [ring, const SizedBox(width: 22), Expanded(child: legend)]));
+        : Row(children: [ring, const SizedBox(width: 18), Expanded(child: legend)]));
   }
 }
 
@@ -189,8 +177,8 @@ class _DonutPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final total = values.fold<double>(0, (a, b) => a + b);
-    final stroke = size.width * 0.15;
-    final rect = Rect.fromCircle(center: size.center(Offset.zero), radius: size.width / 2 - stroke / 2 - 3);
+    final stroke = size.width * .114;
+    final rect = Rect.fromCircle(center: size.center(Offset.zero), radius: size.width / 2 - stroke / 2);
     if (total <= 0) {
       canvas.drawArc(rect, 0, math.pi * 2, false, Paint()..color = empty..style = PaintingStyle.stroke..strokeWidth = stroke);
       return;
@@ -202,13 +190,12 @@ class _DonutPainter extends CustomPainter {
       final paint = Paint()
         ..color = colors[i].withValues(alpha: hover == null || hover == i ? 1 : 0.35)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = hover == i ? stroke + 5 : stroke;
-      // A hair of space between slices keeps them apart.
-      canvas.drawArc(rect, start, math.max(0.001, angle - (values.length > 1 ? 0.025 : 0)), false, paint);
+        ..strokeWidth = stroke;
+      canvas.drawArc(rect, start, angle, false, paint);
       start += angle;
     }
   }
 
   @override
-  bool shouldRepaint(_DonutPainter old) => old.values != values || old.sweep != sweep || old.hover != hover;
+  bool shouldRepaint(_DonutPainter old) => old.values != values || old.colors != colors || old.sweep != sweep || old.hover != hover || old.empty != empty;
 }

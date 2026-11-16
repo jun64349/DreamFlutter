@@ -849,6 +849,7 @@ class SessionRuntime extends ChangeNotifier {
       transcript.loadHistory(await client.getMessages());
       await _refreshState(client);
       await _refreshBranches();
+      await refreshEntryIds();
       _touch();
       return true;
     } catch (e) {

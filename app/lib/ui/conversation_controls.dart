@@ -1,8 +1,29 @@
 import 'package:flutter/material.dart';
 
+import '../craft_style.dart';
 import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'proto_icon.dart';
+
+/// 原型 .pill：高 26、圆角 8、内边距 4/9、图标 14 与字间距 5、字 12.5；平时 ink2 无底，开着时强调色字 + accentSoft 底。
+/// [warn]：「直接做」用警告色提醒。
+ButtonStyle composerPillStyle(BuildContext context, {required bool on, bool warn = false}) {
+  final c = context.colors;
+  return craftControlStyle(context, TextButton.styleFrom(
+    minimumSize: const Size(0, 26), fixedSize: const Size.fromHeight(26),
+    padding: const EdgeInsets.symmetric(horizontal: 9),
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    visualDensity: VisualDensity.standard,
+    shape: craftButtonShape(context.painting.craftGeometry),
+    iconSize: 14,
+    foregroundColor: warn ? c.warning : on ? c.accent : c.ink2,
+    iconColor: warn ? c.warning : on ? c.accent : c.ink2,
+    disabledForegroundColor: c.muted,
+    backgroundColor: warn ? c.warning.withValues(alpha: .12) : on ? c.accentSoft : null,
+    textStyle: const TextStyle(fontSize: 12.5),
+  ).copyWith(iconSize: const WidgetStatePropertyAll(14)));
+}
 
 class IncognitoToggle extends StatelessWidget {
   const IncognitoToggle({super.key});
@@ -16,15 +37,9 @@ class IncognitoToggle extends StatelessWidget {
       child: Semantics(
         toggled: on,
         child: TextButton.icon(
-          style: TextButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 9),
-            shape: const StadiumBorder(),
-            foregroundColor: on ? context.colors.accent : context.colors.muted,
-            backgroundColor: on ? context.colors.accentSoft : null,
-          ),
+          style: composerPillStyle(context, on: on),
           onPressed: agent.isReady && !agent.isRunning ? () => on ? agent.newSession() : agent.newTemporarySession() : null,
-          icon: const Icon(Icons.visibility_off_outlined, size: 16),
+          icon: const ProtoIcon('eye', size: 14),
           label: const Text('无痕', style: TextStyle(fontSize: 12.5)),
         ),
       ),
@@ -44,19 +59,13 @@ class AskBeforeActingToggle extends StatelessWidget {
       label: '操作前问我', toggled: on,
       child: TextButton.icon(
         key: const ValueKey('ask-before-acting'),
-        style: TextButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: 9),
-          shape: const StadiumBorder(),
-          foregroundColor: on ? context.colors.accent : context.colors.warning,
-          backgroundColor: on ? context.colors.accentSoft : context.colors.warning.withValues(alpha: .12),
-        ),
+        style: composerPillStyle(context, on: on, warn: !on),
         onPressed: agent.isReady ? () async {
           await agent.setApprovalMode(on ? ApprovalMode.off : ApprovalMode.changes);
           if (!context.mounted) return;
           ScaffoldMessenger.of(context)..hideCurrentSnackBar()..showSnackBar(SnackBar(content: Text(on ? '改文件、跑命令不再先问你' : '改文件、跑命令前会先问你')));
         } : null,
-        icon: Icon(on ? Icons.verified_user_outlined : Icons.bolt_outlined, size: 16),
+        icon: ProtoIcon(on ? 'shield' : 'spark', size: 14),
         label: Text(on ? '先问我' : '直接做', style: const TextStyle(fontSize: 12.5)),
       ),
     );

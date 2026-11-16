@@ -1,0 +1,36 @@
+[
+  {
+    "id": "ui-proposal-accept",
+    "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+    "originText": "整理实验记录",
+    "createdAt": 1794564731684,
+    "draft": {
+      "title": "整理实验记录",
+      "spec": {
+        "objective": "整理实验记录"
+      },
+      "scope": {
+        "cwd": "<fixture>\\workspace",
+        "partition": "workbench",
+        "sandbox": false
+      }
+    }
+  },
+  {
+    "id": "ui-proposal",
+    "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+    "originText": "整理实验记录",
+    "createdAt": 1794564731682,
+    "draft": {
+      "title": "整理实验记录",
+      "spec": {
+        "objective": "整理实验记录"
+      },
+      "scope": {
+        "cwd": "<fixture>\\workspace",
+        "partition": "workbench",
+        "sandbox": false
+      }
+    }
+  }
+]

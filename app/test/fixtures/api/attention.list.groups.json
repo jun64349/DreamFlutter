@@ -1,0 +1,71 @@
+{
+  "now": [
+    {
+      "id": "question:e6269d90-1d07-4146-8dfa-035b8fbfd3e1",
+      "kind": "question",
+      "group": "now",
+      "title": "Agent 需要你补充信息：",
+      "reason": "需要你的回答才能继续",
+      "origin": {
+        "role": "workbench",
+        "sessionName": null,
+        "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+        "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+        "cwd": "<fixture>\\workspace"
+      },
+      "target": {
+        "page": "chat",
+        "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+        "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+        "itemId": "e6269d90-1d07-4146-8dfa-035b8fbfd3e1"
+      },
+      "actions": [
+        "answer",
+        "reject"
+      ],
+      "data": {
+        "type": "extension_ui_request",
+        "id": "e6269d90-1d07-4146-8dfa-035b8fbfd3e1",
+        "method": "input",
+        "title": "Agent 需要你补充信息：\n\n海外那款要算进对比吗？"
+      }
+    },
+    {
+      "id": "goal_acceptance:ui-review",
+      "kind": "goal_acceptance",
+      "group": "now",
+      "title": "整理实验记录",
+      "reason": "等你验收产物",
+      "origin": {
+        "role": "workbench",
+        "sessionName": null,
+        "sessionFile": null,
+        "slotId": null,
+        "cwd": "<fixture>\\workspace"
+      },
+      "target": {
+        "page": "chat",
+        "sessionFile": null,
+        "slotId": null,
+        "itemId": "ui-review"
+      },
+      "actions": [
+        "accept",
+        "reject"
+      ],
+      "data": {
+        "goalId": "g_3c686b30",
+        "revision": 1,
+        "partition": "workbench",
+        "acceptance": []
+      }
+    }
+  ],
+  "later": [],
+  "counts": {
+    "now": 2,
+    "later": 0,
+    "total": 2
+  },
+  "pending": []
+}

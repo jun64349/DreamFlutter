@@ -12,6 +12,7 @@ import 'package:dreamflutter/ui/conversation_actions.dart';
 import 'package:dreamflutter/ui/conversation_cards.dart' show ConversationPresence;
 import 'package:dreamflutter/ui/conversation_controls.dart';
 import 'package:dreamflutter/ui/conversation_memory.dart';
+import 'package:dreamflutter/ui/composer.dart';
 import 'package:dreamflutter/ui/run_summary.dart';
 import 'package:dreamflutter/ui/message_widgets.dart' show ChatRowView, WorkBlock;
 import 'package:flutter/material.dart';
@@ -67,12 +68,12 @@ void main() {
     AgentController? emptyOwner, panelOwner;
     agent.setRunPanelOpen(true);
     await mount(tester, ChatView(
-      emptyStateBuilder: (_, owner) { emptyOwner = owner; return const Center(child: Text('自定义首页')); },
+      emptyStateBuilder: (_, owner) { emptyOwner = owner; return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Text('自定义首页'), Composer(home: true)])); },
       detailsPanelBuilder: (_, owner) { panelOwner = owner; return TextButton(onPressed: () => owner.setRunPanelOpen(false), child: const Text('自定义右栏')); },
     ));
     expect(emptyOwner, same(agent)); expect(panelOwner, same(agent));
     expect(find.text('自定义首页'), findsOneWidget); expect(find.byType(ComposerQuote), findsNothing);
-    expect(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…'), findsOneWidget);
+    expect(find.byKey(const ValueKey('composer-input')), findsOneWidget);
     await tester.tap(find.text('自定义右栏')); await settle(tester);
     expect(find.text('自定义右栏'), findsNothing);
     final butterfly = (await tester.runAsync(agent.ensureButterfly))!;
@@ -109,7 +110,8 @@ void main() {
     final labels=['存成技能','导出 Markdown','归档','删除'];
     for (final label in labels) { expect(find.descendant(of: find.byKey(const ValueKey('panel-actions')), matching: find.text(label)), findsOneWidget); }
     for (final gone in ['定时再做一次','这段对话不记忆']) { expect(find.text(gone), findsNothing); }
-    await tester.tap(find.byKey(const ValueKey('panel-compact'))); await settle(tester);
+    final compact = find.byKey(const ValueKey('panel-compact'));
+    await tester.ensureVisible(compact); await tester.tap(compact); await settle(tester);
     expect(pi.commands.any((c)=>c['type']=='compact'), isTrue);
   });
 
@@ -119,7 +121,7 @@ void main() {
     final error={'role':'assistant','content':<Json>[],'timestamp':2,'stopReason':'error','errorMessage':'连接中断，请重试'};
     pi.emit({'type':'message_start','message':error}); pi.emit({'type':'message_end','message':error}); pi.finishRun(); await settle(tester);
     expect(find.text('连接中断，请重试'), findsOneWidget); expect(find.text('去设置'), findsOneWidget);
-    await tester.enterText(find.byWidgetPredicate((w)=>w is TextField && w.decoration?.hintText=='说点什么…'),'补充信息'); await tester.pump();
+    await tester.enterText(find.byKey(const ValueKey('composer-input')),'补充信息'); await tester.pump();
     expect(tester.widget<IconButton>(find.byWidgetPredicate((w)=>w is IconButton && w.tooltip=='发送')).onPressed, isNotNull);
     await tester.tap(find.text('重试')); await settle(tester);
     expect(pi.commands.lastWhere((c)=>c['type']=='prompt')['message'], '核对实验记录');
@@ -161,7 +163,7 @@ void main() {
 
   testWidgets('quote card preserves typed text and sends real quoted content', (tester) async {
     await start(tester);
-    final input = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…');
+    final input = find.byKey(const ValueKey('composer-input'));
     await tester.enterText(input, '请解释'); agent.quoteInComposer('结论 A'); await settle(tester);
     expect(tester.widget<TextField>(input).controller!.text, '请解释'); expect(find.byType(ComposerQuote), findsOneWidget);
     await tester.tap(find.byTooltip('发送')); await settle(tester);

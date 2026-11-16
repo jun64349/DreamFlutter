@@ -11,6 +11,8 @@ import 'providers_page.dart';
 import 'pi_compatibility_panel.dart';
 import 'settings_controls.dart';
 import 'settings_layout.dart';
+import 'proto_icon.dart';
+import 'shell_widgets.dart' show ShellButton;
 
 class ChannelManagementPage extends StatelessWidget {
   const ChannelManagementPage({super.key});
@@ -104,20 +106,19 @@ class _ChannelListState extends State<ChannelList> {
           if (i > 0) Divider(height: 1, thickness: 0.5, color: colors.border),
           row,
         ],
-        Divider(height: 1, thickness: 0.5, color: colors.border),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(onPressed: () => _edit(null), icon: const Icon(Icons.add, size: 18), label: const Text('添加渠道')),
-          ),
-        ),
       ],
     );
   }
 }
 
-class _ChannelRow extends StatelessWidget {
+/// 渠道节标题右边的「+ 添加渠道」（原型 .sh 的链接）。
+class AddChannelLink extends StatelessWidget {
+  const AddChannelLink({super.key});
+  @override
+  Widget build(BuildContext context) => SettingsHeadLink('添加渠道', onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ChannelEditorPage(existing: null))));
+}
+
+class _ChannelRow extends StatefulWidget {
   const _ChannelRow({required this.channel, required this.testing, required this.test, required this.onTest, required this.onEdit});
 
   final GatewayChannel channel;
@@ -127,47 +128,52 @@ class _ChannelRow extends StatelessWidget {
   final VoidCallback onEdit;
 
   @override
+  State<_ChannelRow> createState() => _ChannelRowState();
+}
+
+class _ChannelRowState extends State<_ChannelRow> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final channel = widget.channel;
     final down = channel.unavailable;
     final state = down == null ? ('正常', colors.success) : (down.describe(), down.resting ? colors.warning : colors.danger);
-    final muted = context.text.bodySmall?.copyWith(color: colors.muted);
-    final test = this.test;
+    final muted = context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted);
+    final test = widget.test;
+    final kind = channel.fromPi ? '原有配置' : channelKindNames[channel.kind] ?? channel.kind;
     return InkWell(
-      onTap: onEdit,
+      onTap: widget.onEdit,
+      onHover: (value) => setState(() => _hovered = value),
+      onFocusChange: (value) => setState(() => _focused = value),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(
           children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: state.$2, shape: BoxShape.circle)),
-            const SizedBox(width: 14),
+            Container(width: 7, height: 7, decoration: BoxDecoration(color: state.$2, shape: BoxShape.circle)),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(children: [
-                    Flexible(child: Text(channel.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyLarge)),
-                    const SizedBox(width: 8),
-                    TagChip(channel.fromPi ? '原有配置' : channelKindNames[channel.kind] ?? channel.kind, color: channel.kind == 'plan' ? colors.accent : colors.ochre),
-                  ]),
-                  const SizedBox(height: 2),
-                  if (testing)
+                  Text(channel.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13.5)),
+                  if (widget.testing)
                     Text('测试中…', style: muted)
                   else if (test != null)
                     Tooltip(message: test.detail ?? '', child: Text(test.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: muted?.copyWith(color: test.ok ? colors.success : colors.danger)))
                   else
-                    Text('${state.$1} · ${channel.models.length} 个模型 · ${apiLabels[channel.api] ?? channel.api}', maxLines: 1, overflow: TextOverflow.ellipsis, style: muted),
+                    Text('$kind · ${down == null ? "${channel.models.length} 个模型" : state.$1}', maxLines: 1, overflow: TextOverflow.ellipsis, style: muted),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            OutlinedButton(
-              onPressed: testing ? null : onTest,
-              style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-              child: const Text('测试'),
-            ),
-            const SizedBox(width: 4),
-            Icon(Icons.chevron_right, color: colors.muted),
+            if (_hovered || _focused || widget.testing) ...[
+              const SizedBox(width: 8),
+              ShellButton('测试', small: true, onPressed: widget.testing ? null : widget.onTest),
+            ],
+            const SizedBox(width: 12),
+            ProtoIcon('right', color: colors.muted),
           ],
         ),
       ),
@@ -186,13 +192,14 @@ class _OAuthRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(children: [
-        Container(width: 8, height: 8, decoration: BoxDecoration(color: signedIn ? colors.success : colors.border, shape: BoxShape.circle)),
-        const SizedBox(width: 14),
-        Expanded(child: Text(name, style: context.text.bodyLarge)),
-        Text(signedIn ? '已登录' : '未登录', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-        const SizedBox(width: 8),
+        Container(width: 7, height: 7, decoration: BoxDecoration(color: signedIn ? colors.success : colors.border, shape: BoxShape.circle)),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(name, style: context.text.bodyMedium?.copyWith(fontSize: 13.5)),
+          Text(signedIn ? '已登录' : '未登录', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+        ])),
         if (onCommon != null) TextButton(key: ValueKey('oauth-common-$name'), onPressed: onCommon, child: const Text('常用模型')),
         TextButton(onPressed: onTap, child: Text(action)),
       ]),

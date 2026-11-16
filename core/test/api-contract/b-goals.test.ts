@@ -9,7 +9,7 @@ import { fields, startContractCore, type Json } from "./b-harness.ts";
 
 const goalFields = "id revision title originText spec scope mandateRef source status reason resumeWhen stopIntent currentTaskId budget progress leaseOwner leaseGeneration leaseUntil latestReviewId createdAt updatedAt endedAt sessionFile".split(" ");
 const detailFields = [...goalFields, ..."stage next executionEnded artifactsGenerated machineAccepted awaitingAcceptance completed checks missing review artifacts approvals stillRunning waits services irreversible budgetStatus costUnknown recentEvents emergency".split(" ")];
-const scheduleFields = "id name prompt cwd owner kind trigger missedPolicy sessionMode sessionFile allowedTools state status version nextRunAt lastRunAt createdBy createdRole createdAt updatedAt describe everyDay lastRun".split(" ");
+const scheduleFields = "id name prompt cwd owner kind trigger missedPolicy sessionMode sessionFile allowedTools state status version nextRunAt lastRunAt createdBy createdRole createdAt updatedAt describe timeText everyDay lastRun".split(" ");
 const watchFields = ["id", "text", "createdBy", "createdAt", "until", "doneAt"];
 
 it("goal draft, revision, control, budget, ledger and errors use WebSocket", async test => {
@@ -17,6 +17,9 @@ it("goal draft, revision, control, budget, ledger and errors use WebSocket", asy
 	test.after(ws.cleanup);
 	await ws.t.core.module(GoalsModule)!.executor.stop();
 	assert.deepEqual(await ws.call("goals.list"), []);
+	assert.deepEqual(await ws.call("goals.bySession", { sessionFiles: ["C:/missing.jsonl"] }), { goals: { "C:/missing.jsonl": null } });
+	await ws.error("goals.bySession", { sessionFiles: [] }, "bad_request");
+	await ws.error("goals.bySession", { sessionFiles: Array(201).fill("C:/x.jsonl") }, "bad_request");
 	assert.deepEqual(await ws.call("goals.approvals"), []);
 	assert.deepEqual(await ws.call("goals.proposals"), []);
 	const counts = fields(await ws.call("goals.counts"), ["butterfly", "workbench"]);
@@ -76,6 +79,9 @@ it("calendar versions, history, occurrences and watch events have stable shape a
 	const start = Date.now() + 3_600_000;
 	const trigger = { type: "once", at: start };
 	fields(await ws.call("schedules.defaults"), ["timezone"]);
+	const parsed = fields(await ws.call("schedules.parseTime", { text: "每天 9点半" }), ["trigger", "text"]);
+	assert.equal(parsed.text, "每天 09:30");
+	assert.deepEqual((await ws.error("schedules.parseTime", { text: "下辈子" }, "bad_request")).data, { examples: ["每天 08:00", "每周一 09:00", "11月14日 14:00"] });
 	assert.deepEqual(await ws.call("schedules.preview", { trigger }), { error: null, next: [start] });
 	await ws.error("schedules.preview", {}, "bad_request");
 	assert.deepEqual(await ws.call("schedules.list"), []);

@@ -10,6 +10,7 @@ import 'common.dart';
 import 'gateway_pages.dart' show ChannelTestResult, channelTestResult, describeChannelFailure;
 import 'settings_controls.dart';
 import 'settings_layout.dart';
+import 'proto_icon.dart';
 
 /// Model groups (0.8.3, docs/design/model-groups.md): a queue of channel models used as one model;
 /// when the first cannot take a request the next one does. 设置 › 模型 has a card listing them
@@ -31,7 +32,7 @@ Color memberColor(BuildContext context, GatewayChannel? channel, String model) {
   return down.resting ? colors.warning : colors.danger;
 }
 
-Widget _dot(Color color) => Container(width: 7, height: 7, decoration: BoxDecoration(color: color, shape: BoxShape.circle));
+Widget _dot(Color color) => Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle));
 
 /// The groups in their order; drag a row to reorder, click it to edit.
 class GroupList extends StatelessWidget {
@@ -77,21 +78,19 @@ class GroupList extends StatelessWidget {
                 ),
             ],
           ),
-        if (groups.isNotEmpty) Divider(height: 1, thickness: 0.5, color: colors.border),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              key: const ValueKey('new-model-group'),
-              onPressed: agent.gatewayChannels.isEmpty ? null : () => open(context, null),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('新建模型组'),
-            ),
-          ),
-        ),
+        if (groups.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: EmptyNote('还没有模型组。')),
       ],
     );
+  }
+}
+
+/// 模型组节标题右边的「+ 新建模型组」（原型 .sh 的链接）；没有渠道时不能点。
+class NewModelGroupLink extends StatelessWidget {
+  const NewModelGroupLink({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final agent = AgentScope.of(context);
+    return SettingsHeadLink('新建模型组', key: const ValueKey('new-model-group'), onPressed: agent.gatewayChannels.isEmpty ? null : () => GroupList.open(context, null));
   }
 }
 
@@ -120,7 +119,7 @@ class _GroupRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
     final colors = context.colors;
-    final muted = context.text.bodySmall?.copyWith(color: colors.muted);
+    final muted = context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted);
     GatewayChannel? channelOf(GroupEntry e) => agent.gatewayChannels.where((c) => c.id == e.channel).firstOrNull;
     final spans = <InlineSpan>[];
     for (final (t, tier) in groupTiers(group.entries).indexed) {
@@ -140,19 +139,19 @@ class _GroupRow extends StatelessWidget {
           children: [
             ReorderableDragStartListener(
               index: index,
-              child: Tooltip(message: '拖动排序', child: Padding(padding: const EdgeInsets.only(right: 10), child: Icon(Icons.drag_indicator, size: 18, color: colors.muted))),
+              child: Tooltip(message: '拖动排序', child: Padding(padding: const EdgeInsets.only(right: 12), child: RotatedBox(quarterTurns: 1, child: ProtoIcon('more', color: colors.muted)))),
             ),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(group.name, style: context.text.bodyLarge),
-                  const SizedBox(height: 3),
+                  Text(group.name, style: context.text.bodyMedium?.copyWith(fontSize: 13.5)),
                   if (group.entries.isEmpty) Text('还没有模型', style: muted) else Text.rich(TextSpan(children: spans), maxLines: 2, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: colors.muted),
+            const SizedBox(width: 12),
+            ProtoIcon('right', color: colors.muted),
           ],
         ),
       ),

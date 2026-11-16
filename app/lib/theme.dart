@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'butterfly_art.dart';
+import 'craft_style.dart';
 
 /// Every visual decision lives here (colors, type, radii, spacing, the
 /// butterfly), so a theme is one set of values.
@@ -27,7 +28,7 @@ class AppTokens {
   static const runPanelWidth = 300.0;
 
   /// Reading width of the conversation.
-  static const contentMaxWidth = 760.0;
+  static const contentMaxWidth = 720.0;
 
   /// Interface text. Windows 11 ships Noto Sans SC / Noto Serif SC.
   static const fontFamily = 'Noto Sans SC';
@@ -43,6 +44,9 @@ class AppTokens {
   /// Letter spacing of small section labels (「今天」「步骤」).
   static const labelSpacing = 1.4;
 
+  static const press = Duration(milliseconds: 100);
+  static const control = Duration(milliseconds: 120);
+  static const panel = Duration(milliseconds: 140);
   static const fast = Duration(milliseconds: 150);
   static const medium = Duration(milliseconds: 250);
   static const slow = Duration(milliseconds: 350);
@@ -251,6 +255,8 @@ class AppColors extends ThemeExtension<AppColors> {
     diffRemoved: Color(0x2EE07A6C),
   );
 
+  Color get sunk => Color.alphaBlend(ink.withValues(alpha: background.computeLuminance() > .5 ? .045 : .05), card);
+
   @override
   AppColors copyWith() => this;
 
@@ -322,6 +328,7 @@ class PaintingTheme {
   final double butterflyStroke;
 
   bool get isDark => brightness == Brightness.dark;
+  CraftGeometry get craftGeometry => craftGeometryFor(id);
 
   /// 赵昌《写生蛱蝶图》, the first theme.
   static const jiadie = PaintingTheme(id: 'jiadie', name: '蛱蝶', work: '北宋 · 赵昌《写生蛱蝶图》', colors: AppColors.light);
@@ -568,10 +575,133 @@ class PaintingTheme {
     radius: 8,
     radiusLg: 14,
   );
+  /// Kamisaka Sekka, Cho Senshu: Rinpa geometry and gold on folded paper.
+  static const qiandie = PaintingTheme(
+    id: 'qiandie',
+    name: '千蝶',
+    work: '神坂雪佳《蝶千种》',
+    radiusSm: 4,
+    radius: 6,
+    radiusLg: 10,
+    mark: MarkKind.glyph,
+    inscription: '蝶千種',
+    colors: AppColors(
+      rail: Color(0xFFE7DFD1),
+      sidebar: Color(0xFFEFEADF),
+      background: Color(0xFFFAF7F0),
+      userBubble: Color(0xFFEEE5D5),
+      onUserBubble: Color(0xFF242220),
+      card: Color(0xFFFFFFFF),
+      border: Color(0xFFE3DDD0),
+      ink: Color(0xFF242220),
+      ink2: Color(0xFF45413C),
+      muted: Color(0xFF655F58),
+      accent: Color(0xFFA84030),
+      onAccent: Color(0xFFFFFFFF),
+      accentSoft: Color(0x1AA84030),
+      ochre: Color(0xFF765414),
+      seal: Color(0xFFC24C38),
+      success: Color(0xFF546C5D),
+      warning: Color(0xFF765414),
+      danger: Color(0xFFA8332A),
+      codeBackground: Color(0xFFF0EADF),
+      terminal: Color(0xFF242220),
+      onTerminal: Color(0xFFF7F0E4),
+      terminalMuted: Color(0xFFC9BDAC),
+      terminalError: Color(0xFFE8A091),
+      butterfly: ButterflyColors(ground: Color(0xFFEFEADF), line: Color(0xFF242220), core: Color(0xFFFFFFFF), wing: Color(0xFFC7A242), glow: Color(0xFFF2E6C2)),
+      diffAdded: Color(0x29546C5D),
+      diffRemoved: Color(0x1FA8332A),
+    ),
+  );
+
+  /// Odilon Redon, Papillons: pastel nebulae and mineral pigments.
+  static const huandie = PaintingTheme(
+    id: 'huandie',
+    name: '幻蝶',
+    work: '雷东《蝴蝶》',
+    brightness: Brightness.dark,
+    radiusSm: 6,
+    radius: 12,
+    radiusLg: 18,
+    mark: MarkKind.glyph,
+    inscription: 'Papillons',
+    verticalInscription: false,
+    colors: AppColors(
+      rail: Color(0xFF111621),
+      sidebar: Color(0xFF161C28),
+      background: Color(0xFF121721),
+      userBubble: Color(0xFF273146),
+      onUserBubble: Color(0xFFEEF3FA),
+      card: Color(0xFF1E2635),
+      border: Color(0xFF2C3547),
+      ink: Color(0xFFEEF3FA),
+      ink2: Color(0xFFC9D3E3),
+      muted: Color(0xFF8E9BB4),
+      accent: Color(0xFF38B8B0),
+      onAccent: Color(0xFF121721),
+      accentSoft: Color(0x2438B8B0),
+      ochre: Color(0xFFB984D8),
+      seal: Color(0xFFE89AA8),
+      success: Color(0xFF8FCBA4),
+      warning: Color(0xFFD8AE67),
+      danger: Color(0xFFEF8C9A),
+      codeBackground: Color(0xFF151C29),
+      terminal: Color(0xFF0E121B),
+      onTerminal: Color(0xFFEEF3FA),
+      terminalMuted: Color(0xFFA7B4CA),
+      terminalError: Color(0xFFEF8C9A),
+      butterfly: ButterflyColors(ground: Color(0xFF161C28), line: Color(0xFFFFFFFF), core: Color(0xFF1E2635), wing: Color(0xFFA86ECC), glow: Color(0xFF26304A)),
+      diffAdded: Color(0x338FCBA4),
+      diffRemoved: Color(0x33EF8C9A),
+    ),
+  );
+
+  /// Qing dynasty goldwork on a stone-blue satin ground.
+  static const shiqing = PaintingTheme(
+    id: 'shiqing',
+    name: '石青',
+    work: '清同治 平金百蝶坎肩',
+    brightness: Brightness.dark,
+    radiusSm: 4,
+    radius: 6,
+    radiusLg: 10,
+    mark: MarkKind.glyph,
+    inscription: '百蝶翩跹',
+    colors: AppColors(
+      rail: Color(0xFF11171E),
+      sidebar: Color(0xFF18202A),
+      background: Color(0xFF141A21),
+      userBubble: Color(0xFF293646),
+      onUserBubble: Color(0xFFF2EDE4),
+      card: Color(0xFF202A36),
+      border: Color(0xFF2F3A48),
+      ink: Color(0xFFF2EDE4),
+      ink2: Color(0xFFD2CCC0),
+      muted: Color(0xFF97A2B0),
+      accent: Color(0xFFD4AF37),
+      onAccent: Color(0xFF141A21),
+      accentSoft: Color(0x24D4AF37),
+      ochre: Color(0xFFE47B94),
+      seal: Color(0xFFD86B85),
+      success: Color(0xFF9EBB96),
+      warning: Color(0xFFD4AF37),
+      danger: Color(0xFFEF8C9A),
+      codeBackground: Color(0xFF171F29),
+      terminal: Color(0xFF0F141B),
+      onTerminal: Color(0xFFF2EDE4),
+      terminalMuted: Color(0xFFADB7C4),
+      terminalError: Color(0xFFEF8C9A),
+      butterfly: ButterflyColors(ground: Color(0xFF18202A), line: Color(0xFFFFFFFF), core: Color(0xFF202A36), wing: Color(0xFFD4AF37), glow: Color(0xFF3A3420)),
+      diffAdded: Color(0x339EBB96),
+      diffRemoved: Color(0x33EF8C9A),
+    ),
+  );
+
   static const all = [
     warmPaper,
     twilight,
-    jiadie, caodie, yuhua, shensi, moye, youhua, liuguang];
+    jiadie, caodie, yuhua, shensi, qiandie, moye, youhua, liuguang, huandie, shiqing];
 
   /// The theme with [id] if it has the right brightness, else that side's default.
   static PaintingTheme byId(String? id, Brightness brightness) {
@@ -679,49 +809,56 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
     titleLarge: serif(text.titleLarge),
     titleMedium: serif(text.titleMedium),
   );
-  final radius = BorderRadius.circular(t.radius);
-  final shape = RoundedRectangleBorder(borderRadius: radius);
-  final border = OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: c.border));
+  final geometry = t.craftGeometry;
+  final buttonShape = craftButtonShape(geometry);
+  final border = craftInputBorder(geometry, side: BorderSide(color: c.border), detailColor: c.accent.withValues(alpha: .28));
+  final surface = CraftSurfaceBorder(geometry: geometry, side: BorderSide(color: c.border));
+  ButtonStyle buttonStates(ButtonStyle style, Color foreground) =>
+      _craftButtonStates(style, foreground: foreground, focus: foreground, duration: Duration.zero);
   return base.copyWith(
     textTheme: textTheme,
     dividerTheme: DividerThemeData(color: c.border, thickness: 0.5, space: 0.5),
     inputDecorationTheme: InputDecorationTheme(
       border: border,
       enabledBorder: border,
-      focusedBorder: border.copyWith(borderSide: BorderSide(color: c.accent)),
+      focusedBorder: border.copyWith(borderSide: BorderSide(color: c.accent, width: 2, strokeAlign: BorderSide.strokeAlignCenter)),
+      disabledBorder: border.copyWith(borderSide: BorderSide(color: c.border.withValues(alpha: .52), strokeAlign: BorderSide.strokeAlignCenter)),
+      errorBorder: border.copyWith(borderSide: BorderSide(color: c.danger, strokeAlign: BorderSide.strokeAlignCenter)),
+      focusedErrorBorder: border.copyWith(borderSide: BorderSide(color: c.danger, width: 2, strokeAlign: BorderSide.strokeAlignCenter)),
       filled: true,
       fillColor: c.card,
       contentPadding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 10),
       isDense: true,
       hintStyle: TextStyle(color: c.muted),
     ),
-    filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(shape: shape, elevation: 0)),
+    filledButtonTheme: FilledButtonThemeData(style: buttonStates(FilledButton.styleFrom(shape: buttonShape, elevation: 0), c.onAccent)),
     outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(shape: shape, foregroundColor: c.ink, side: BorderSide(color: c.border)),
+      style: buttonStates(OutlinedButton.styleFrom(shape: buttonShape, foregroundColor: c.ink, backgroundColor: c.sunk, side: BorderSide.none), c.ink),
     ),
-    textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(shape: shape, foregroundColor: c.accent)),
-    iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: c.muted, shape: shape)),
+    textButtonTheme: TextButtonThemeData(style: buttonStates(TextButton.styleFrom(shape: buttonShape, foregroundColor: c.accent), c.accent)),
+    iconButtonTheme: IconButtonThemeData(style: buttonStates(IconButton.styleFrom(foregroundColor: c.muted, shape: buttonShape), c.accent)),
+    elevatedButtonTheme: ElevatedButtonThemeData(style: buttonStates(ElevatedButton.styleFrom(shape: buttonShape), c.accent)),
     segmentedButtonTheme: SegmentedButtonThemeData(
-      style: SegmentedButton.styleFrom(
-        shape: shape,
+      style: buttonStates(SegmentedButton.styleFrom(
+        shape: buttonShape,
         side: BorderSide(color: c.border),
         selectedBackgroundColor: c.accentSoft,
         selectedForegroundColor: c.ink,
-      ),
+      ), c.accent),
     ),
-    cardTheme: CardThemeData(color: c.card, elevation: 0, shape: RoundedRectangleBorder(borderRadius: radius, side: BorderSide(color: c.border))),
+    cardTheme: CardThemeData(color: c.card, elevation: 0, shape: surface),
     dialogTheme: DialogThemeData(
       backgroundColor: c.card,
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.radiusLg)),
+      shape: surface.copyWith(radius: 16),
       titleTextStyle: serif(text.titleLarge),
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: c.card,
       elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: radius, side: BorderSide(color: c.border)),
+      shape: surface,
     ),
-    menuTheme: MenuThemeData(style: MenuStyle(backgroundColor: WidgetStatePropertyAll(c.card))),
+    menuTheme: MenuThemeData(style: MenuStyle(backgroundColor: WidgetStatePropertyAll(c.card), shape: WidgetStatePropertyAll(surface))),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 500),
       decoration: BoxDecoration(color: c.ink.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(t.radiusSm)),
@@ -733,7 +870,7 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
       contentTextStyle: TextStyle(color: c.ink, fontSize: 13),
       actionTextColor: c.accent,
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: radius, side: BorderSide(color: c.border)),
+      shape: surface,
     ),
     tabBarTheme: TabBarThemeData(
       labelColor: c.ink,
@@ -741,8 +878,8 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
       indicatorColor: c.accent,
       dividerColor: c.border,
     ),
-    chipTheme: ChipThemeData(backgroundColor: c.card, side: BorderSide(color: c.border), shape: shape),
-    listTileTheme: ListTileThemeData(shape: shape, iconColor: c.muted),
+    chipTheme: ChipThemeData(backgroundColor: c.card, side: BorderSide(color: c.border), shape: buttonShape),
+    listTileTheme: ListTileThemeData(shape: buttonShape, iconColor: c.muted),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? c.onAccent : c.muted),
       trackColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? c.accent : c.border),
@@ -754,6 +891,30 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
       thumbColor: WidgetStatePropertyAll(c.muted.withValues(alpha: 0.35)),
     ),
     appBarTheme: AppBarTheme(backgroundColor: c.background, foregroundColor: c.ink, titleTextStyle: serif(text.titleLarge)),
+  );
+}
+
+ButtonStyle craftControlStyle(BuildContext context, ButtonStyle style, {Color? focusColor}) {
+  final focus = focusColor ?? context.colors.accent;
+  return _craftButtonStates(style, foreground: focus, focus: focus, duration: AppTokens.motion(context, AppTokens.control));
+}
+
+/// Use the same feedback for local controls and the Material theme defaults.
+/// Theme defaults have no MediaQuery, so their border changes immediately.
+ButtonStyle _craftButtonStates(ButtonStyle style, {required Color foreground, required Color focus, required Duration duration}) {
+  return style.copyWith(
+    animationDuration: duration,
+    splashFactory: NoSplash.splashFactory,
+    overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
+      if (states.contains(WidgetState.disabled)) return Colors.transparent;
+      if (states.contains(WidgetState.pressed)) return foreground.withValues(alpha: .17);
+      if (states.contains(WidgetState.hovered)) return foreground.withValues(alpha: .085);
+      return Colors.transparent;
+    }),
+    side: WidgetStateProperty.resolveWith<BorderSide?>((states) {
+      if (craftKeyboardFocus(states)) return BorderSide(color: focus, width: 2);
+      return style.side?.resolve(states);
+    }),
   );
 }
 

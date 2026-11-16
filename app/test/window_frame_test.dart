@@ -25,7 +25,7 @@ void main() {
   late Directory thesis;
   late Directory other;
 
-  Future<void> startApp(WidgetTester tester, {Size size = const Size(1400, 900), Map<String, Object> prefs = const {}}) async {
+  Future<void> startApp(WidgetTester tester, {Size size = const Size(1400, 900), Map<String, Object> prefs = const {}, bool ownTitleBar = false}) async {
     await tester.binding.setSurfaceSize(size);
     root = Directory.systemTemp.createTempSync('df_frame_');
     thesis = Directory(p.join(root.path, '毕设论文'))..createSync();
@@ -42,7 +42,7 @@ void main() {
       sessionStore: SessionStore(sessionsDir: (Directory(p.join(root.path, 'sessions'))..createSync()).path),
       backend: backend,
     );
-    await tester.pumpWidget(DreamFlutterApp(controller: agent));
+    await tester.pumpWidget(DreamFlutterApp(controller: agent, ownTitleBar: ownTitleBar));
     await tester.runAsync(agent.init);
     await tester.pumpAndSettle();
   }
@@ -61,12 +61,14 @@ void main() {
 
   Finder inSidebar(Finder finder) => find.descendant(of: find.byType(SidebarWorkspaceButton), matching: finder);
 
-  testWidgets('the title bar says where you are; the workspace is chosen in the sidebar (0.8.2)', (tester) async {
+  // T-143（用户 2026-11-16「照原型改」，取代 0.8.2「顶栏说清在哪」）：顶栏只在对话有内容时写「标题 · 工作区 · 记忆开」，
+  // 新对话和其他页面顶上不写字，靠页面自己的标题。工作区仍在侧栏选。
+  testWidgets('the header follows the prototype; the workspace is chosen in the sidebar', (tester) async {
     await startApp(tester);
-    expect(inTitleBar(find.text('工作台')), findsOneWidget);
-    expect(inTitleBar(find.text('毕设论文')), findsNothing, reason: '0.8.2: the workspace moved to the sidebar');
+    expect(inTitleBar(find.text('工作台')), findsNothing);
+    expect(inTitleBar(find.text('毕设论文')), findsNothing, reason: 'a fresh conversation has no header');
     expect(inSidebar(find.text('毕设论文')), findsOneWidget);
-    expect(inTitleBar(find.text('新对话')), findsOneWidget, reason: 'the conversation\'s title');
+    expect(inTitleBar(find.text('新对话')), findsNothing, reason: 'a fresh conversation has no header (prototype home)');
     expect(find.text('毕设论文 的对话'), findsNothing, reason: 'the workspace is already named in the top bar');
     // The buttons sit at the right edge, whatever the breadcrumb's length (v0.4.0: a gap of a sixth of the window after them).
     final bar = tester.getRect(find.byType(AppTitleBar));
@@ -106,7 +108,7 @@ void main() {
     await tester.tap(find.byTooltip(RegExp('^记忆')));
     await settle(tester);
     expect(agent.section, AppSection.memory);
-    expect(inTitleBar(find.text('记忆')), findsOneWidget);
+    expect(inTitleBar(find.text('记忆')), findsNothing, reason: 'the memory overlay names itself (prototype)');
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyO);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
@@ -126,19 +128,47 @@ void main() {
     expect(find.text('常用操作'), findsOneWidget); // 0.8.1 R.3
     expect(find.text('刷新记忆快照'), findsNothing);
     final panel = tester.getRect(find.byType(RunPanel));
+    expect(panel.top, closeTo(tester.getTopLeft(find.byType(Sidebar)).dy, 0.5), reason: 'details and sidebar both reach the window top');
     final input = tester.getRect(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…'));
     expect(input.right, lessThanOrEqualTo(panel.left), reason: 'a wide window docks the panel beside the conversation');
 
     await tester.binding.setSurfaceSize(const Size(1000, 800));
     await tester.pumpAndSettle();
     final narrowPanel = tester.getRect(find.byType(RunPanel));
+    final contentHeader = find.byWidgetPredicate((w) => w is AppTitleBar && w.contentOnly && w.active);
+    expect(narrowPanel.top, closeTo(tester.getTopLeft(contentHeader).dy, 0.5));
     final narrowInput = tester.getRect(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == '说点什么…'));
     expect(narrowInput.right, greaterThan(narrowPanel.left), reason: 'a narrow one lays it over the conversation');
 
-    await tester.tap(find.byTooltip('收起详情').first);
+    await tester.tap(find.descendant(of: find.byType(RunPanel), matching: find.byTooltip('收起详情')));
     await settle(tester);
     expect(find.byType(RunPanel), findsNothing);
     expect(agent.preferences.runPanelOpen, isFalse);
+  });
+
+  testWidgets('native caption stays at the window edge and the panel close button stays clickable', (tester) async {
+    const channel = MethodChannel('window_manager');
+    final methods = <String>[];
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      methods.add(call.method);
+      return call.method == 'isMaximized' ? false : null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await startApp(tester, ownTitleBar: true);
+    final caption = find.byWidgetPredicate((w) => w is AppTitleBar && w.captionOnly);
+    final captionRect = tester.getRect(caption);
+    expect(captionRect, const Rect.fromLTWH(1262, 0, 138, 48));
+    await tester.tap(find.byTooltip(RegExp('^详情')).first);
+    await settle(tester);
+    final panel = find.byType(RunPanel);
+    final close = find.descendant(of: panel, matching: find.byTooltip('收起详情'));
+    expect(tester.getRect(panel).top, captionRect.top);
+    expect(tester.getRect(close).right, lessThanOrEqualTo(captionRect.left));
+    await tester.tap(close);
+    await settle(tester);
+    expect(panel, findsNothing);
+    expect(methods, isNot(contains('close')));
   });
 
   testWidgets('the details\' overview is in blocks that fold, and a long run shows its latest steps', (tester) async {
@@ -151,14 +181,14 @@ void main() {
     ];
     await tester.tap(find.byTooltip(RegExp('^详情')));
     await settle(tester);
-    expect(find.text('改动'), findsOneWidget, reason: '0.8.2: changed and created files are one list, each marked');
+    expect(find.textContaining(RegExp(r'(?:^| · )改了$')), findsOneWidget, reason: '0.8.2: changed and created files are one list, each marked');
     expect(find.textContaining('对比.docx'), findsOneWidget);
     expect(find.text('上下文与花费'), findsNothing);
     await tester.tap(find.byTooltip('收起详情').first);
     await settle(tester);
     await tester.tap(find.byTooltip(RegExp('^详情')));
     await settle(tester);
-    expect(find.text('改动'), findsOneWidget, reason: '0.8.2: changed and created files are one list, each marked');
+    expect(find.textContaining(RegExp(r'(?:^| · )改了$')), findsOneWidget, reason: '0.8.2: changed and created files are one list, each marked');
     expect(find.text('读取  报告9.md'), findsNothing);
   });
 

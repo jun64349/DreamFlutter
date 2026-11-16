@@ -1,0 +1,11 @@
+{
+  "id": "0bb18fc3-7d8b-48bf-a329-9279b9ba63a2",
+  "itemId": "question:ui-rule",
+  "status": "applied",
+  "undoable": false,
+  "undoUntil": null,
+  "remainingMs": 0,
+  "result": {
+    "ok": true
+  }
+}

@@ -5,14 +5,18 @@ import 'package:pi_rpc/pi_rpc.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../state/agent_controller.dart' show AgentController, asJsonMap;
 import '../state/session_runtime.dart' show SessionRuntime;
+import '../theme.dart';
 import 'agent_scope.dart';
-import 'settings_controls.dart' show SettingRow;
+import 'settings_controls.dart' show SettingRow, V1Toggle;
+import 'settings_layout.dart' show SettingsCard;
+import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
 
 class AboutPanel extends StatefulWidget {
-  const AboutPanel({super.key, this.details = false});
+  const AboutPanel({super.key, this.details = false, this.startupOnly = false});
 
   /// The build details (build number, core and Pi versions, platform, signing) for 高级, instead of the main rows.
   final bool details;
+  final bool startupOnly;
   @override
   State<AboutPanel> createState() => _AboutPanelState();
 }
@@ -82,14 +86,20 @@ class _AboutPanelState extends State<AboutPanel> {
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
     ));
   }
-  // 0.8.1 S.4: plain setting rows, one thing per row; build details live under 高级 (AboutPanel(details: true)).
-  // "关闭窗口时" is in 通用 only, and backups in 数据与安全 only.
+  // 原型「关于与更新」：居中的蝴蝶、名字、版本和状态、按钮；下面一张卡片，一行一件事。
+  // 构建细节在开发者选项（AboutPanel(details: true)）；开机启动在窗口与通知（startupOnly）。
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context), build = asJsonMap(_status['application']), release = asJsonMap(_status['available']), recovery = asJsonMap(_status['recovery']);
-    final muted = Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
+    final colors = context.colors;
+    final muted = context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.muted);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, color: colors.ink2);
+    Widget toggle(String title, bool value, ValueChanged<bool>? onChanged, {String? desc}) => SettingRow(title, desc: desc, child: V1Toggle(value: value, onChanged: onChanged));
+    if (widget.startupOnly) {
+      return toggle('开机启动', _status['startOnLogin'] == true, _working || _status['canStartup'] != true ? null : (value) => _action(() async { final status = asJsonMap(await agent.backend.call('app.setStartup', {'enabled': value})); if (mounted) { setState(() => _status = status); } }), desc: _status['canStartup'] == true ? null : '免安装版不能开机启动');
+    }
     if (widget.details) {
-      Widget row(String title, String value) => SettingRow(title, child: SelectableText(value));
+      Widget row(String title, String value) => SettingRow(title, child: SelectableText(value, style: mono));
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         row('构建号', '${build['build'] ?? '未知'}'),
         row('后台版本', '${_status['coreVersion'] ?? agent.coreInfo['version'] ?? '未知'}'),
@@ -102,28 +112,40 @@ class _AboutPanelState extends State<AboutPanel> {
     final active = {'checking', 'downloading', 'preparing', 'installing'}.contains(_status['state']);
     final enabled = !_working && !active;
     final message = _status['message'] as String?;
+    final version = build['version'] as String?;
+    Widget link(String text, VoidCallback? onTap) => TextButton(
+      onPressed: onTap,
+      style: TextButton.styleFrom(foregroundColor: colors.accent, padding: const EdgeInsets.symmetric(horizontal: 6), minimumSize: const Size(0, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap, textStyle: const TextStyle(fontSize: 13.5)),
+      child: Text(text),
+    );
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      SettingRow('DreamFlutter ${build['version'] ?? ''}'.trim(), child: Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        if (message != null && message.isNotEmpty) Text(message, style: muted),
-        if (release.isNotEmpty && _status['downloaded'] != true) FilledButton(onPressed: enabled ? () => _action(() => _method('updates.download')) : null, child: Text('下载 ${release['version'] ?? '新版本'}')),
-        if (_status['downloaded'] == true) FilledButton(onPressed: enabled && _status['canInstall'] == true ? () => _action(_install) : null, child: const Text('安装并重启')),
-        if (active && _status['state'] != 'installing') TextButton(onPressed: () async { try { await _agent!.backend.call('updates.cancel'); } catch (error) { if (mounted) setState(() => _error = SessionRuntime.describeError(error)); } }, child: const Text('取消更新')),
-        OutlinedButton(onPressed: enabled ? () => _action(() => _method('updates.check')) : null, child: Text(_status['state'] == 'checking' ? '正在检查…' : '检查更新')),
+      Padding(padding: const EdgeInsets.fromLTRB(0, 16, 0, 6), child: Column(children: [
+        // 原型 72px 的 SVG 四周有留白，蝴蝶占画框宽度的 625/1024。
+        const SizedBox.square(dimension: 72, child: Center(child: ButterflyMark(size: 72 * 625.38 / 1024))),
+        const SizedBox(height: 8),
+        Text('DreamFlutter', style: context.serif(context.text.titleLarge).copyWith(fontSize: 22, fontWeight: FontWeight.w700, color: colors.accent)),
+        const SizedBox(height: 2),
+        Text('住在你电脑里的助手，一只认真的蝴蝶。', textAlign: TextAlign.center, style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.ink2)),
+        if (version != null && version.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 2), child: Text('v$version', style: mono.copyWith(fontSize: 12, color: colors.muted))),
+        if (message != null && message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(message, style: muted, textAlign: TextAlign.center)),
+        const SizedBox(height: 10),
+        Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          if (release.isNotEmpty && _status['downloaded'] != true) ShellButton('下载 ${release['version'] ?? '新版本'}', kind: ShellButtonKind.primary, small: true, onPressed: enabled ? () => _action(() => _method('updates.download')) : null),
+          if (_status['downloaded'] == true) ShellButton('安装并重启', kind: ShellButtonKind.primary, small: true, onPressed: enabled && _status['canInstall'] == true ? () => _action(_install) : null),
+          if (active && _status['state'] != 'installing') ShellButton('取消更新', kind: ShellButtonKind.ghost, small: true, onPressed: () async { try { await _agent!.backend.call('updates.cancel'); } catch (error) { if (mounted) setState(() => _error = SessionRuntime.describeError(error)); } }),
+          ShellButton(_status['state'] == 'checking' ? '正在检查…' : '检查更新', small: true, onPressed: enabled ? () => _action(() => _method('updates.check')) : null),
+        ]),
+        if (_status['state'] == 'downloading') Padding(padding: const EdgeInsets.only(top: 12), child: SizedBox(width: 240, child: LinearProgressIndicator(value: (_status['progress'] as num?)?.toDouble(), color: colors.accent, backgroundColor: colors.sunk))),
       ])),
-      if (_status['state'] == 'downloading') LinearProgressIndicator(value: (_status['progress'] as num?)?.toDouble()),
-      if (release.isNotEmpty) ExpansionTile(tilePadding: EdgeInsets.zero, title: Text('${release['version']} 更新了什么'), children: [Align(alignment: Alignment.centerLeft, child: SelectableText('${release['notes'] ?? '这个版本没有写更新日志。'}'))]),
-      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('自动检查更新'), value: agent.coreSettings['autoCheckUpdates'] != false, onChanged: _working ? null : (value) => _action(() => agent.updateCoreSettings({'autoCheckUpdates': value}))),
-      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('开机启动'), subtitle: _status['canStartup'] == true ? null : const Text('免安装版不能开机启动'), value: _status['startOnLogin'] == true, onChanged: _working || _status['canStartup'] != true ? null : (value) => _action(() async { final status = asJsonMap(await agent.backend.call('app.setStartup', {'enabled': value})); if (mounted) setState(() => _status = status); })),
-      const SizedBox(height: 8),
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        OutlinedButton(onPressed: _working ? null : () => _action(() async { final result = asJsonMap(await agent.backend.call('updates.diagnostics')); if (mounted) setState(() => _diagnostics = result['path'] as String?); }), child: const Text('导出诊断信息')),
-        OutlinedButton(onPressed: () => _action(() async { final body = Uri.encodeComponent('版本：${build['version'] ?? ''}（${build['build'] ?? ''}）\n平台：${_status['platform'] ?? Platform.operatingSystem} / ${_status['arch'] ?? ''}\n\n问题描述：\n'); await launchUrl(Uri.parse('https://github.com/jun64349/DreamFlutter/issues/new?body=$body'), mode: LaunchMode.externalApplication); }), child: const Text('问题反馈')),
-        TextButton(onPressed: () => _action(_licenses), child: const Text('许可证与第三方声明')),
+      SettingsCard(children: [
+        if (release.isNotEmpty) Theme(data: Theme.of(context).copyWith(dividerColor: Colors.transparent), child: ExpansionTile(tilePadding: EdgeInsets.zero, title: Text('${release['version']} 更新了什么', style: context.text.bodyMedium?.copyWith(fontSize: 14)), children: [Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText('${release['notes'] ?? '这个版本没有写更新日志。'}')))])),
+        toggle('自动检查更新', agent.coreSettings['autoCheckUpdates'] != false, _working ? null : (value) => _action(() => agent.updateCoreSettings({'autoCheckUpdates': value}))),
+        SettingRow('导出诊断', desc: _diagnostics != null ? '已保存：$_diagnostics（不会自动上传）' : '不含对话内容，导出前可以先看一遍', child: ShellButton('导出…', small: true, onPressed: _working ? null : () => _action(() async { final result = asJsonMap(await agent.backend.call('updates.diagnostics')); if (mounted) setState(() => _diagnostics = result['path'] as String?); }))),
+        SettingRow('反馈问题', child: link('写给我们', () => _action(() async { final body = Uri.encodeComponent('版本：${build['version'] ?? ''}（${build['build'] ?? ''}）\n平台：${_status['platform'] ?? Platform.operatingSystem} / ${_status['arch'] ?? ''}\n\n问题描述：\n'); await launchUrl(Uri.parse('https://github.com/jun64349/DreamFlutter/issues/new?body=$body'), mode: LaunchMode.externalApplication); }))),
+        SettingRow('许可证', child: link('开源许可 · 查看', () => _action(_licenses))),
       ]),
-      if (_diagnostics != null) Padding(padding: const EdgeInsets.only(top: 8), child: SelectableText('诊断包已保存：$_diagnostics（不会自动上传）', style: muted)),
-      if (recovery['error'] != null) Text('${recovery['error']}'),
-      if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      if (recovery['error'] != null) Text('${recovery['error']}', style: TextStyle(color: colors.danger)),
+      if (_error != null) Text(_error!, style: TextStyle(color: colors.danger)),
     ]);
   }
-
 }

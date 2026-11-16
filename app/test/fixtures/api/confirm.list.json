@@ -1,0 +1,75 @@
+[
+  {
+    "id": "ui-rule-reject",
+    "slotId": "autonomy",
+    "sessionFile": null,
+    "cwd": "<fixture>\\data\\butterfly",
+    "method": "confirm",
+    "kind": "input",
+    "title": "确认蝶君起草的主动规则",
+    "request": {
+      "type": "extension_ui_request",
+      "id": "ui-rule-reject",
+      "method": "confirm",
+      "title": "确认蝶君起草的主动规则",
+      "message": "整理新纪要\n只读原件，整理要点\n保存为观察模式"
+    },
+    "status": "answered",
+    "answer": {
+      "id": "ui-rule-reject",
+      "confirmed": false
+    },
+    "createdAt": 1794564731681,
+    "resolvedAt": 1794564732314
+  },
+  {
+    "id": "ui-rule",
+    "slotId": "autonomy",
+    "sessionFile": null,
+    "cwd": "<fixture>\\data\\butterfly",
+    "method": "confirm",
+    "kind": "input",
+    "title": "确认蝶君起草的主动规则",
+    "request": {
+      "type": "extension_ui_request",
+      "id": "ui-rule",
+      "method": "confirm",
+      "title": "确认蝶君起草的主动规则",
+      "message": "整理新纪要\n只读原件，整理要点\n保存为观察模式"
+    },
+    "status": "answered",
+    "answer": {
+      "id": "ui-rule",
+      "confirmed": true
+    },
+    "createdAt": 1794564731678,
+    "resolvedAt": 1794564732307
+  },
+  {
+    "id": "f56a54ef-4e34-4205-a3a8-5cb5ebc800e1",
+    "slotId": "0f3b8421-8629-4443-a603-c4c9ff5d93c9",
+    "sessionFile": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+    "cwd": "<fixture>\\workspace",
+    "method": "select",
+    "kind": "input",
+    "title": "Agent 需要你补充信息：\n\n海外那款要算进对比吗？",
+    "request": {
+      "type": "extension_ui_request",
+      "id": "f56a54ef-4e34-4205-a3a8-5cb5ebc800e1",
+      "method": "select",
+      "title": "Agent 需要你补充信息：\n\n海外那款要算进对比吗？",
+      "options": [
+        "算进去 — 运费按 60 元估",
+        "先不算（推荐）",
+        "换一款国内的 — 我来挑",
+        "自己回答…",
+        "跳过这个问题"
+      ],
+      "timeout": 120000
+    },
+    "status": "pending",
+    "answer": null,
+    "createdAt": 1794564731674,
+    "resolvedAt": null
+  }
+]

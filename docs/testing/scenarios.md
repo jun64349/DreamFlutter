@@ -24,6 +24,25 @@ PowerShell先切到仓库对应目录。真窗口一次只跑一个，不能最�
 
 2026-11-10 T-93 最新结果：analyze 无问题；全量 Flutter **257 通过 / 1 付费跳过 / 0 失败**；原生九流程 **同一轮 9/9 通过（2分32秒，另构建22.1秒）**，4.8 / P04 与 4.12 / P05 已修复，4.12 增加关闭后重新开启及后台值断言。导入图 **83个 lib Dart文件全部可达**。T-91 巡检五项的既有结果仍是原轮次证据，不冒充本轮重跑。
 
+## T-143 本轮追加（2026-11-16）
+
+| 场景 | 入口与核对内容 | 证据边界 |
+|---|---|---|
+| 输入栏靠右与两套主题组件 | `composer_layout_test`；v1 的 `craft-jiadie-*` / `craft-shensi-*`：禁用、键盘聚焦、生成中停止；模型/思考/麦克风贴近发送 | 原型源码已按用户新要求同步；旧 PNG 中部居中排列不再作此处标准 |
+| 历史计时、全部文件、设置双开关 | `agent_controller_test`、`chat_panel_test`、`r4_settings_test`；切历史仍显示请求用时和速度，文件不漏前轮，自动记忆同时读写原两键 | 真实控制器 + 测试后台，不替代付费模型调用 |
+| 页面与窄窗 | `v1_compare_test` 日夜各 44 场景；三个定型实窗守护文件覆盖 150% 与旁聊；默认全量仅最终运行，修复仅复跑受影响文件 | 逐批只拍对应 `V1_ONLY`；原型缺参考 PNG 的页按 CSS/JS 核对，不借别页当参考 |
+| 案头、时令、11 页设置、记忆、技能、花费、向导 | 任务卡 D-12 至 D-19 的定向用例及原型并排图 | 保留既有行为；无后台接口的原型动作不伪接 |
+
+test.6 包的结果见 [test.6 发布说明](../releases/v0.12.0-test.6.md) 和 T-143 任务卡 D-21。用户试用后的修正见 [0.12 收尾记录](../releases/v0.12-收尾.md) 和 D-22 起记录；本轮不重打包，映射表本身不表示检查已经通过。
+
+| test.6 后修正 | 定向覆盖 | 实窗证据 |
+|---|---|---|
+| 独立呼吸蝴蝶、同字体居中引文、加宽加高首页输入区 | `t92_motion_test`、`t94_settled_test`、`composer_layout_test` | `t143-review/light/review-home*`、`review-butterfly-home` |
+| 主题浅染侧栏、案头空状态 | `r2_shell_test`、`t88_pages_test`、`work_pages_test` | `review-home`、`review-attention-empty/filled` |
+| 思考底色与摘要斜体 | `work_block_test` | `review-thinking` |
+| 工作台右栏默认四段展开、独立折叠、预览返回 | `chat_panel_test`、`window_frame_test`、`t94_settled_test`、E2E 4.5 | `review-right-open/folded` |
+| 审批处理后立即折叠、完成后不弹回、历史隔离 | `extension_dialog_test`、`side_chat_test`、E2E 4.4 | `review-approval-pending/done/history` |
+
 ## 二、设计第四节流程
 
 测试名表示执行入口，实际结果以 T-91 / T-88 / T-93 各自回执为准，不因脚本存在就写通过。九个场景各自启动隔离Core并清理临时数据。

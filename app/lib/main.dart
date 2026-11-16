@@ -90,6 +90,7 @@ class DreamFlutterApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    AppTitleBar.realWindow = ownTitleBar;
     return AgentScope(
       controller: controller,
       child: ValueListenableBuilder(
@@ -97,6 +98,7 @@ class DreamFlutterApp extends StatelessWidget {
         builder: (context, appearance, _) {
           return MaterialApp(
             navigatorKey: navigatorKey,
+            navigatorObservers: [_pageDepth],
             title: 'DreamFlutter',
             debugShowCheckedModeBanner: false,
             theme: buildTheme(Brightness.light, painting: PaintingTheme.byId(appearance.lightTheme, Brightness.light)),
@@ -107,12 +109,22 @@ class DreamFlutterApp extends StatelessWidget {
               final app = AppZoom(controller: controller, zoom: appearance.zoom, textScale: appearance.textScale, child: child!);
               // The title bar stays the same size when the interface is zoomed, and is on every page;
               // its own overlay holds its menus and tooltips (it is above the navigator).
-              return Overlay.wrap(
+              return MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: MediaQuery.disableAnimationsOf(context) || !appearance.decorativeMotion),
+                child: Overlay.wrap(
                 child: Column(
                   children: [
-                    if(setupVisible!=null)ValueListenableBuilder<bool>(valueListenable:setupVisible!,builder:(context,visible,_)=>AppTitleBar(windowButtons:ownTitleBar,brandOnly:visible)) else AppTitleBar(windowButtons:ownTitleBar,brandOnly:home is SetupWizard || home is FreshInstallation),
+                    // T-143（用户 2026-11-16「照原型改」）：主界面的栏在页面那一栏上方（HomePage 自己放，侧栏通顶）；
+                    // 这里只在首次启动和盖住整个窗口的子页面（渠道、模型组编辑）时放带字标的栏，好有窗口按钮。
+                    ListenableBuilder(listenable: Listenable.merge([_pageDepth, ?setupVisible]), builder: (context, _) {
+                      final depth = _pageDepth.value;
+                      final setup = setupVisible?.value ?? (home is SetupWizard || home is FreshInstallation);
+                      if (setup) return AppTitleBar(windowButtons: ownTitleBar, brandOnly: true);
+                      return depth > 1 ? AppTitleBar(windowButtons: ownTitleBar) : const SizedBox.shrink();
+                    }),
                     Expanded(child: app),
                   ],
+                ),
                 ),
               );
             },
@@ -122,4 +134,20 @@ class DreamFlutterApp extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 导航里叠了几层整页（PageRoute）；对话框不算。1 是主界面，大于 1 是盖住窗口的子页面。
+final _pageDepth = _PageDepth();
+
+class _PageDepth extends NavigatorObserver implements ValueListenable<int> {
+  final _value = ValueNotifier(0);
+  @override int get value => _value.value;
+  @override void addListener(VoidCallback listener) => _value.addListener(listener);
+  @override void removeListener(VoidCallback listener) => _value.removeListener(listener);
+  void _post(int delta, {bool root = false}) => WidgetsBinding.instance.addPostFrameCallback((_) {
+    _value.value = root ? 1 : (_value.value + delta).clamp(0, 99);
+  });
+  @override void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) { if (route is PageRoute) _post(1, root: previousRoute == null); }
+  @override void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) { if (route is PageRoute) _post(-1); }
+  @override void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) { if (route is PageRoute) _post(-1); }
 }

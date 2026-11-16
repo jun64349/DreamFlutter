@@ -26,7 +26,7 @@ class _ExtensionDialogHostState extends State<ExtensionDialogHost> {
 
   @override
   Widget build(BuildContext context) {
-    final request = AgentScope.of(context).active?.pendingDialogs.where((r) => !isConversationApproval(r)).firstOrNull;
+    final request = AgentScope.of(context).active?.pendingDialogs.where((r) => !isConversationApproval(r) && !r.title.startsWith('Agent 需要你补充信息')).firstOrNull;
     if (request != null && !identical(request, _showing)) {
       _showing = request;
       WidgetsBinding.instance.addPostFrameCallback((_) => _present(request));

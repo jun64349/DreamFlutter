@@ -122,10 +122,10 @@ class _MarkdownBlockState extends State<_MarkdownBlock> {
 
 Widget _replyMarkdownBody(BuildContext context, String text) {
     final colors = context.colors;
-    final body = context.serif(context.text.bodyLarge).copyWith(fontSize: 15, height: 1.85, color: colors.ink);
+    final body = context.serif(context.text.bodyLarge).copyWith(fontSize: 15, height: 1.85, letterSpacing: 0, color: colors.ink);
     TextStyle heading(double size) => context.serif(body).copyWith(fontSize: size, fontWeight: FontWeight.w600, height: 1.5);
     final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 13);
-    final sans = context.text.bodyMedium?.copyWith(fontSize: 13, height: 1.6, color: colors.ink);
+    final sans = context.text.bodyMedium?.copyWith(fontSize: 13, height: 1.85, letterSpacing: 0, color: colors.ink);
     return MarkdownBody(
       data: text,
       selectable: false,
@@ -161,15 +161,18 @@ Widget _replyMarkdownBody(BuildContext context, String text) {
         // Code blocks draw their own frame (_CodeBlock).
         codeblockPadding: EdgeInsets.zero,
         codeblockDecoration: const BoxDecoration(),
-        blockquote: body.copyWith(color: colors.ink2),
-        blockquotePadding: const EdgeInsets.only(left: 14, top: 2, bottom: 2),
-        blockquoteDecoration: BoxDecoration(border: Border(left: BorderSide(color: colors.ochre.withValues(alpha: 0.5), width: 2))),
+        blockquote: body.copyWith(color: colors.ink2, fontStyle: FontStyle.italic),
+        blockquotePadding: const EdgeInsets.only(left: 12, top: 2, bottom: 2),
+        blockquoteDecoration: BoxDecoration(border: Border(left: BorderSide(color: colors.border, width: 2))),
         horizontalRuleDecoration: BoxDecoration(border: Border(top: BorderSide(color: colors.border))),
-        tableHead: sans?.copyWith(fontWeight: FontWeight.w600, color: colors.muted),
+        tableHead: sans?.copyWith(fontWeight: FontWeight.w600, color: colors.ink),
+        tableHeadAlign: TextAlign.left,
+        tableHeadCellsDecoration: BoxDecoration(color: colors.sunk),
         tableBody: sans,
-        tableBorder: TableBorder(horizontalInside: BorderSide(color: colors.border), bottom: BorderSide(color: colors.border), top: BorderSide(color: colors.border)),
-        tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        tableColumnWidth: const IntrinsicColumnWidth(),
+        tableBorder: TableBorder.all(color: colors.border),
+        // 原型 .a .body table：撑满正文宽（width:100%）；按列内容比例分宽，长内容在格子里换行。
+        tableColumnWidth: const FlexColumnWidth(),
+        tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         checkbox: body.copyWith(color: colors.accent),
       ),
       onTapLink: (text, href, title) {
@@ -360,49 +363,60 @@ class _FileLinkState extends State<FileLink> {
 }
 
 /// A code block: language label and copy button above highlighted code.
-class CodeBlock extends StatelessWidget {
+class CodeBlock extends StatefulWidget {
   const CodeBlock({super.key, required this.code, this.language});
 
   final String code;
   final String? language;
 
   @override
+  State<CodeBlock> createState() => _CodeBlockState();
+}
+
+class _CodeBlockState extends State<CodeBlock> {
+  var _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, height: 1.55, color: colors.ink);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, height: 1.65, color: colors.ink);
     return Container(
       width: double.infinity,
-      decoration: BoxDecoration(
-        color: colors.codeBackground,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(context.radius),
-      ),
+      decoration: BoxDecoration(color: colors.sunk, borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 2, 2, 0),
-            child: Row(
-              children: [
-                Text(language?.isNotEmpty == true ? language! : '代码', style: context.label),
-                const Spacer(),
-                IconButton(
-                  tooltip: '复制代码',
-                  iconSize: 14,
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: code));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制代码'), duration: Duration(seconds: 1)));
-                  },
-                  icon: const Icon(Icons.copy_outlined),
-                ),
-              ],
+          MouseRegion(
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 8, 0),
+              child: Row(
+                children: [
+                  Text(widget.language?.isNotEmpty == true ? widget.language! : '代码', style: context.label),
+                  const Spacer(),
+                  AnimatedOpacity(
+                    opacity: _hovered ? 1 : .55,
+                    duration: AppTokens.motion(context, AppTokens.control),
+                    child: IconButton(
+                      tooltip: '复制代码',
+                      iconSize: 14,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: widget.code));
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制代码'), duration: Duration(seconds: 1)));
+                      },
+                      icon: const Icon(Icons.copy_outlined),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: Text.rich(TextSpan(style: mono, children: highlightCode(code, language, colors))),
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+            child: Text.rich(TextSpan(style: mono, children: highlightCode(widget.code, widget.language, colors))),
           ),
         ],
       ),

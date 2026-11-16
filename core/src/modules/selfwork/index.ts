@@ -29,7 +29,7 @@ const learningMaxOutput = 4096;
 const planningPreviewLength = 240;
 type Source = "goal" | "learning" | "skill";
 type State = "planning" | "testing" | "held" | "running" | "completed" | "skipped" | "stopped";
-interface LongGoal { id: string; title: string; instruction: string; revision: number }
+interface LongGoal { id: string; title: string; instruction: string; revision: number; enabled: boolean; lastStudiedAt: number | null; noteCount: number | null }
 interface Run {
 	id: string; source: Source; long_goal_id: string | null; long_goal_revision: number | null;
 	goal_id: string | null; state: State; topic: string | null; plan: string | null; reason: string | null;
@@ -129,9 +129,22 @@ export class SelfworkModule implements CoreModule {
 			if (!title || !instruction) throw new RpcError("bad_request", "请填写长期目标标题和说明");
 			const at = this.clock();
 			const id = p.id === undefined ? randomUUID() : requireStr(p.id, "id");
-			if (p.id === undefined) core.db.run("INSERT INTO selfwork_goals VALUES(?,?,?,1,?,?,NULL)", id, title, instruction, at, at);
+			if (p.id === undefined) core.db.run("INSERT INTO selfwork_goals(id,title,instruction,revision,created_at,updated_at,deleted_at) VALUES(?,?,?,1,?,?,NULL)", id, title, instruction, at, at);
 			else if (!core.db.run("UPDATE selfwork_goals SET title=?,instruction=?,revision=revision+1,updated_at=? WHERE id=? AND deleted_at IS NULL AND revision=?",
 				title, instruction, at, id, typeof p.revision === "number" ? p.revision : -1).changes) throw new RpcError("conflict", "长期目标已经变化，请重新读取");
+			this.recheck();
+			return this.longGoal(id);
+		});
+		core.register("selfwork.longGoals.setEnabled", (p, client) => {
+			requireUser(core, client);
+			const id = requireStr(p.id, "id");
+			if (typeof p.enabled !== "boolean" || typeof p.revision !== "number" || !Number.isSafeInteger(p.revision)) throw new RpcError("bad_request", "请提供目标开关和版本号");
+			if (!this.longGoal(id)) throw new RpcError("not_found", "没有这个长期目标");
+			if (!core.db.run("UPDATE selfwork_goals SET enabled=?,revision=revision+1,updated_at=? WHERE id=? AND deleted_at IS NULL AND revision=?", Number(p.enabled), this.clock(), id, p.revision).changes)
+				throw new RpcError("conflict", "长期目标已经变化，请重新读取");
+			// The toggle changes scheduling, not the already selected run's instructions.
+			core.db.run(`UPDATE selfwork_runs SET long_goal_revision=? WHERE long_goal_id=? AND long_goal_revision=?
+				AND state IN ${activeStates}`, p.revision + 1, id, p.revision);
 			this.recheck();
 			return this.longGoal(id);
 		});
@@ -201,11 +214,14 @@ export class SelfworkModule implements CoreModule {
 	}
 
 	private longGoals(): LongGoal[] {
-		return this.core.db.all<LongGoal>("SELECT id,title,instruction,revision FROM selfwork_goals WHERE deleted_at IS NULL ORDER BY created_at,rowid");
+		return this.core.db.all<Omit<LongGoal, "enabled"> & { enabled: number }>(`SELECT id,title,instruction,revision,enabled,
+			(SELECT MAX(ended_at) FROM selfwork_runs WHERE long_goal_id=selfwork_goals.id AND source='goal' AND state='completed') AS lastStudiedAt,
+			NULL AS noteCount FROM selfwork_goals WHERE deleted_at IS NULL ORDER BY created_at,rowid`)
+			.map(goal => ({ ...goal, enabled: goal.enabled === 1 }));
 	}
 
 	private longGoal(id: string): LongGoal | undefined {
-		return this.core.db.get<LongGoal>("SELECT id,title,instruction,revision FROM selfwork_goals WHERE id=? AND deleted_at IS NULL", id);
+		return this.longGoals().find(goal => goal.id === id);
 	}
 
 	private run(id: string): Run | undefined {
@@ -225,10 +241,19 @@ export class SelfworkModule implements CoreModule {
 			goals.list(state, 2, undefined, "butterfly").some(goal => goal.id !== run?.goal_id));
 	}
 
-	private allowed(run: Pick<Run, "source" | "long_goal_id" | "long_goal_revision" | "goal_id">): string | undefined {
+	private allowed(run: Run): string | undefined {
 		if (this.stopping || this.core.maintenance || !this.core.sandboxProvider?.()) return "unavailable";
 		if (!this.core.persona.allows(actions[run.source])) return "proactivity";
-		if (run.long_goal_id && this.longGoal(run.long_goal_id)?.revision !== run.long_goal_revision) return "mandate_changed";
+		if (run.long_goal_id) {
+			const revision = this.longGoal(run.long_goal_id)?.revision;
+			if (revision !== run.long_goal_revision) {
+				// A toggle can happen while an async plan is being prepared. Reconcile its
+				// in-memory copy with the persisted run that was explicitly grandfathered.
+				const current = this.run(run.id);
+				if (revision !== undefined && current?.long_goal_revision === revision) run.long_goal_revision = revision;
+				else return "mandate_changed";
+			}
+		}
 		if (this.userBusy(run)) return "user_priority";
 		if (run.source !== "goal" && !run.goal_id && this.clock() - this.lastUserActivity < idleFor) return "user_priority";
 	}
@@ -313,7 +338,7 @@ export class SelfworkModule implements CoreModule {
 		if (this.active() || this.stopping || this.core.maintenance || !this.core.sandboxProvider?.() || this.userBusy() ||
 			!this.core.persona.allows("goal_self")) return;
 		if (this.integratedGoals && this.dispatchHeldPlan()) return;
-		const goals = this.longGoals();
+		const goals = this.longGoals().filter(goal => goal.enabled);
 		const mandate = goals.find(goal => this.due("goal", goal));
 		const idle = this.clock() - this.lastUserActivity >= idleFor;
 		if (!mandate && (!idle || !this.core.persona.allows("learning"))) return;

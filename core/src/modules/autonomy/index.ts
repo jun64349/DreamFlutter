@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { RpcError, requireStr, type Core, type CoreModule, type Params } from "../../core.ts";
+import { RpcError, requireStr, type Client, type Core, type CoreModule, type Params } from "../../core.ts";
 import { json, parseJson } from "../../db.ts";
 import { Gateway } from "../../gateway/gateway.ts";
 import { withLedgerContext } from "../../ledger/types.ts";
@@ -42,6 +42,10 @@ const MANDATE_PREFIX = /^(?:rule|user):autonomy-([a-f0-9]{64})(?:@1)?$/;
 const OBSERVATION_OUTPUT_TOKENS = 2048;
 const OBSERVATION_PREVIEW_LENGTH = 160;
 export const AUTONOMY_DRAFT_TOOL = "autonomy_draft_rule";
+
+function draftMessage(draft: RuleDefinition): string {
+	return `${draft.name}\n${draft.task}\n${JSON.stringify(draft.scope)}\n允许动作：${draft.actions.join("、")}\n交付：${draft.delivery}\n保存为观察模式`;
+}
 
 function observationDecision(text: string): boolean | undefined {
 	// Accept the previous short protocol for older model replies and stored fixtures.
@@ -113,6 +117,7 @@ export class AutonomyModule implements CoreModule {
 			return { ok: true };
 		});
 		core.register("autonomy.rules.hits", p => this.hits(requireStr(p.id, "id"), p.limit));
+		core.register("autonomy.drafts.update", (p, client) => this.updateDraft(p, client));
 	}
 
 	private get db() { return this.core.db; }
@@ -294,10 +299,41 @@ export class AutonomyModule implements CoreModule {
 
 	private openConfirmation(id: string, kind: Confirmation["kind"], payload: object, title: string, message: string, slotId?: string): void {
 		const slot = slotId ? this.core.slots.get(slotId) : undefined;
-		this.db.run("INSERT INTO autonomy_confirmations(id,kind,payload) VALUES(?,?,?)", id, kind, json(payload));
+		this.db.run("INSERT INTO autonomy_confirmations(id,kind,payload) VALUES(?,?,?)", id, kind,
+			json(kind === "rule" ? { draft: payload, version: 1 } : payload));
 		this.core.confirmations.opened({ slotId: slotId ?? "autonomy", sessionFile: slot?.info().sessionFile ?? undefined,
 			cwd: slot?.cwd ?? this.core.paths.butterflyDir }, { type: "extension_ui_request", id, method: "confirm", title, message });
-		this.core.broadcast({ event: "confirm.changed", confirmation: this.core.confirmations.get(id) });
+		this.core.broadcast({ event: "confirm.changed", confirmation: this.draftConfirmation(id) });
+	}
+
+	private draftConfirmation(id: string) {
+		const confirmation = this.core.confirmations.get(id);
+		const row = this.db.get<Confirmation>("SELECT * FROM autonomy_confirmations WHERE id=?", id);
+		if (!confirmation || row?.kind !== "rule") return confirmation;
+		const payload = parseJson<{ draft?: RuleDefinition; version?: number }>(row.payload, {});
+		return { ...confirmation, data: { kind: "rule_draft", draft: payload.draft ?? parseJson(row.payload, null), version: payload.version ?? 1 } };
+	}
+
+	private updateDraft(p: Params, client?: Client) {
+		if (!client || !this.core.clients.has(client)) throw new RpcError("forbidden", "请通过已连接的窗口修改规则草稿");
+		const id = requireStr(p.id, "id");
+		const draft = readRule(p.draft);
+		if (typeof p.version !== "number" || !Number.isSafeInteger(p.version) || p.version < 1) throw new RpcError("bad_request", "规则草稿版本号无效");
+		this.db.transaction(() => {
+			const row = this.db.get<Confirmation>("SELECT * FROM autonomy_confirmations WHERE id=?", id);
+			if (!row || row.kind !== "rule") throw new RpcError("not_found", "没有这个规则草稿");
+			const confirmation = this.core.confirmations.get(id);
+			if (confirmation?.status !== "pending") throw new RpcError("gone", "这个确认已经处理或失效");
+			const previous = parseJson<{ version?: number }>(row.payload, {});
+			const version = previous.version ?? 1;
+			if (version !== p.version) throw new RpcError("version_conflict", "规则草稿刚被修改，请重新读取");
+			const message = draftMessage(draft);
+			this.db.run("UPDATE autonomy_confirmations SET payload=? WHERE id=?", json({ draft, version: version + 1 }), id);
+			this.db.run("UPDATE confirmations SET request=json_set(request,'$.message',?) WHERE id=?", message, id);
+		});
+		const result = this.draftConfirmation(id);
+		this.core.broadcast({ event: "confirm.changed", confirmation: result });
+		return result;
 	}
 
 	answerConfirmation(id: string, response: unknown): boolean {
@@ -306,10 +342,13 @@ export class AutonomyModule implements CoreModule {
 		if (this.core.confirmations.get(id)?.status !== "pending") throw new RpcError("gone", "这个确认已经处理或失效");
 		const confirmed = (response as { confirmed?: unknown } | null)?.confirmed === true;
 		this.db.transaction(() => {
-			if (confirmed && row.kind === "rule") this.save(parseJson(row.payload, null));
+			if (confirmed && row.kind === "rule") {
+				const payload = parseJson<{ draft?: RuleDefinition }>(row.payload, {});
+				this.save(payload.draft ?? parseJson(row.payload, null));
+			}
 			this.core.confirmations.closed(id, "answered", { id, confirmed });
 		});
-		this.core.broadcast({ event: "confirm.changed", confirmation: this.core.confirmations.get(id) });
+		this.core.broadcast({ event: "confirm.changed", confirmation: this.draftConfirmation(id) });
 		return true;
 	}
 
@@ -325,8 +364,7 @@ export class AutonomyModule implements CoreModule {
 					if (!slot?.sandboxed || slot.unattended || slot.incognito) throw new RpcError("bad_request", "只能在与蝶君的普通对话中起草规则");
 					const draft = readRule(args);
 					const id = randomUUID();
-					module.openConfirmation(id, "rule", draft, "确认蝶君起草的主动规则",
-						`${draft.name}\n${draft.task}\n${JSON.stringify(draft.scope)}\n允许动作：${draft.actions.join("、")}\n交付：${draft.delivery}\n保存为观察模式`, slotId);
+					module.openConfirmation(id, "rule", draft, "确认蝶君起草的主动规则", draftMessage(draft), slotId);
 					return { content: [{ type: "text", text: "已起草，等你确认后生效。" }], details: { id } };
 				},
 			});

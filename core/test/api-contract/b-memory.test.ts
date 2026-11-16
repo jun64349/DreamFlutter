@@ -74,6 +74,7 @@ it("a saved conversation creates memory tasks and publishes their boundary decis
 	fields(latest, ["id", "sessionId", "reason", "at", "before", "after", "changed", "undone"]);
 	const tasks = await ws.call("memory.tasks", { sessionId }) as Json[];
 	assert.equal(tasks.length, 2);
+	if (decisions[1]) await ws.error("memory.undoBoundary", { id: decisions[1].id }, "conflict");
 	const start = ws.messages.length;
 	const undone = fields(await ws.call("memory.undoBoundary", { id: latest!.id }), ["sessionId", "task"]);
 	assert.equal(undone.sessionId, sessionId);

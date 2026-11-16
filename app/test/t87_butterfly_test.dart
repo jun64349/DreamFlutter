@@ -62,13 +62,18 @@ void main() {
       intent['state'] = 'needs_input';
       intent['missing'] = '预算多少？';
       intent['start_at'] = null;
-      fixture.backend.handlers['butterfly.answer'] = (p) {
-        expect(p, {'id': 'intent', 'answer': '预算 300 元'});
-        return intent;
+      fixture.backend.handlers['attention.list'] = (_) => {
+        'now': [{'id': 'question:intent', 'kind': 'question', 'origin': {'slotId': model.worker!.active!.slotId},
+          'actions': ['answer', 'reject'], 'data': {'method': 'input'}}], 'later': [],
+        'counts': {'now': 1, 'later': 0, 'total': 1}, 'pending': [],
+      };
+      fixture.backend.handlers['attention.resolve'] = (p) {
+        expect(p, {'id': 'question:intent', 'action': 'answer', 'response': {'value': '预算 300 元'}});
+        return {'id': 'receipt', 'itemId': 'question:intent', 'status': 'applied', 'undoable': false};
       };
       await model.load();
       await model.worker!.send('预算 300 元');
-      expect(fixture.backend.callsTo('butterfly.answer'), hasLength(1));
+      expect(fixture.backend.callsTo('attention.resolve'), hasLength(1));
       expect(fixture.backend.pis.last.sent('prompt'), isEmpty);
     },
   );
@@ -128,6 +133,40 @@ void main() {
       expect(model.schedules, isEmpty);
     },
   );
+  testWidgets('the fixed schedule card follows the conversation even without a selected task', (tester) async {
+    final session = model.worker!.currentSessionPath!;
+    final sameSession = '${File(session).parent.path}/another/../${File(session).uri.pathSegments.last}';
+    final other = '${fixture.root.path}/elsewhere.jsonl';
+    final cwd = model.worker!.workspace;
+    model.tasks = [];
+    model.selectedId = null;
+    model.schedules = [
+      {'id': 'bound', 'name': '绑定当前对话', 'status': 'active', 'sessionFile': sameSession, 'cwd': cwd},
+      {'id': 'linked', 'name': '从当前任务关联', 'status': 'active', 'cwd': cwd},
+      {'id': 'other', 'name': '同工作区的别的对话', 'status': 'active', 'sessionFile': other, 'cwd': cwd},
+    ];
+    Future<void> show() => tester.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: Scaffold(body: ButterflyTaskProgress(tasks: model)),
+    ));
+    await show();
+    expect(find.text('定时'), findsOneWidget);
+    expect(find.text('绑定当前对话'), findsOneWidget);
+    expect(find.text('从当前任务关联'), findsNothing);
+    expect(find.text('同工作区的别的对话'), findsNothing);
+
+    model.tasks = [{'id': 'current', 'sessionFile': session, 'scheduleId': 'linked'}];
+    await show();
+    expect(find.text('定时'), findsOneWidget);
+    expect(find.text('从当前任务关联'), findsOneWidget);
+    expect(find.byType(ButterflySchedule), findsNWidgets(2));
+    expect(find.text('同工作区的别的对话'), findsNothing);
+
+    model.schedules = [];
+    await show();
+    expect(find.text('定时'), findsOneWidget);
+    expect(find.text('这段对话还没有定时安排'), findsOneWidget);
+  });
   test('T87 status labels have exactly four user-facing states', () {
   });
   for (final brightness in Brightness.values) {

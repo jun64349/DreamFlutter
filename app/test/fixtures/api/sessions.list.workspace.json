@@ -1,0 +1,19 @@
+[
+  {
+    "path": "<fixture>\\sessions\\2026-11-13T10-12-11-510Z_01a1d464-b275-753c-950d-6c71b7029d53.jsonl",
+    "cwd": "<fixture>\\workspace",
+    "sessionId": "ui-fixture",
+    "parentSession": null,
+    "sessionType": "ordinary",
+    "parentMissing": false,
+    "quote": null,
+    "quoteEntryId": null,
+    "title": "新会话",
+    "name": null,
+    "createdAt": 1794564731663,
+    "modifiedAt": 1794564731663,
+    "messageCount": 0,
+    "pinned": false,
+    "archived": false
+  }
+]

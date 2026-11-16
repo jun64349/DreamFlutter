@@ -138,11 +138,11 @@ void main() {
     // 界面缩放 sits under 通用 › 高级 (1.0 prototype); searching shows it.
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'缩放');await tester.pumpAndSettle();
     expect(find.text('界面缩放'), findsOneWidget);
-    await tester.tap(find.byTooltip('放大（Ctrl + +）'));
+    await tester.tap(find.text('110%'));
     await settle(tester);
     expect(agent.zoom, 1.1);
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'文字大小');await tester.pumpAndSettle();
-    await tester.tap(find.text('小'));
+    await tester.tap(find.text('−2'));
     await settle(tester);
     expect(agent.textScale, 0.9);
     await tester.pump(const Duration(seconds: 2));

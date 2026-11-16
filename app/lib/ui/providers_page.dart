@@ -74,10 +74,11 @@ class ProviderEntry {
       name = json['name'] as String? ?? '',
       baseUrl = json['baseUrl'] as String?,
       api = json['api'] as String?,
-      configured = json['configured'] == true,
+      configured = json['unavailable'] == null,
       authSource = json['authSource'] as String?,
-      custom = json['custom'] == true,
-      encryptedKey = json['encryptedKey'] == true,
+      custom = json['source'] == 'df',
+      encryptedKey = (json['keys'] as List? ?? []).isNotEmpty,
+      configuration = Map.of(json),
       models = (json['models'] as List? ?? const []).whereType<Map>().map((m) => ModelEntry.fromJson(m.cast<String, dynamic>())).toList();
 
   final String id;
@@ -89,6 +90,16 @@ class ProviderEntry {
   final bool custom;
   final bool encryptedKey;
   final List<ModelEntry> models;
+  final Json configuration;
+
+  Json withKeys(List<Json> keys) => {
+    for (final key in ['id', 'name', 'platform', 'kind', 'api', 'baseUrl', 'models', 'headers', 'authHeader', 'enabled', 'topUp', 'lowBalance'])
+      if (configuration[key] != null) key: configuration[key],
+    'keys': keys,
+  };
+
+  List<Json> get retainedKeys => [for (final key in (configuration['keys'] as List? ?? []).whereType<Map>())
+    {'id': key['id'], 'label': key['label'], 'enabled': key['enabled']}];
 }
 
 const apiLabels = {
@@ -116,7 +127,8 @@ class _ProvidersPageState extends State<ProvidersPage> {
   var _showAll = false;
   var _changed = false;
 
-  AgentController get _agent => AgentScope.read(context);
+  AgentController? _cachedAgent;
+  AgentController get _agent => _cachedAgent ??= AgentScope.read(context);
 
   @override
   void initState() {
@@ -133,12 +145,14 @@ class _ProvidersPageState extends State<ProvidersPage> {
           return;
         }
       }
-      final list = await _agent.backend.call('providers.list');
+      final list = await _agent.backend.call('gateway.channels');
+      if (!mounted) return;
       setState(() {
         _providers = (list as List).whereType<Map>().map((p) => ProviderEntry.fromJson(p.cast<String, dynamic>())).toList();
         _error = null;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = SessionRuntime.describeError(e));
     }
   }
@@ -157,7 +171,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
   Future<void> _test(ProviderEntry provider) async {
     setState(() => _tests[provider.id] = '正在测试…');
     try {
-      final result = (await _agent.backend.call('providers.test', {'provider': provider.id}, const Duration(seconds: 45))) as Map;
+      final result = (await _agent.backend.call('gateway.testChannel', {'channel': provider.id}, const Duration(seconds: 45))) as Map;
       setState(
         () => _tests[provider.id] = result['ok'] == true
             ? '✓ 连接正常（${result['model']}，${result['latencyMs']} ms）'
@@ -171,7 +185,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
   Future<void> _setKey(ProviderEntry provider) async {
     final key = await _askKey(context, provider.name);
     if (key == null || key.trim().isEmpty) return;
-    await _run(() => _agent.backend.call('providers.setKey', {'provider': provider.id, 'apiKey': key.trim()}), done: '已保存 ${provider.name} 的 API Key（已加密）');
+    await _run(() => _agent.backend.call('gateway.saveChannel', provider.withKeys([{'secret': key.trim()}])), done: '已保存 ${provider.name} 的 API Key（已加密）');
   }
 
   Future<void> _edit([ProviderEntry? existing]) async {
@@ -218,11 +232,9 @@ class _ProvidersPageState extends State<ProvidersPage> {
                   provider: p,
                   testResult: _tests[p.id],
                   onTest: () => _test(p),
-                  onEdit: p.custom ? () => _edit(p) : () => _setKey(p),
+                  onEdit: p.custom ? () => _edit(p) : null,
                   onRemove: p.custom
-                      ? () => _run(() => _agent.backend.call('providers.removeCustom', {'id': p.id}), done: '已删除 ${p.name}')
-                      : p.encryptedKey
-                      ? () => _run(() => _agent.backend.call('providers.removeKey', {'provider': p.id}), done: '已移除 ${p.name} 的 API Key')
+                      ? () => _run(() => _agent.backend.call('gateway.removeChannel', {'id': p.id}), done: '已删除 ${p.name}')
                       : null,
                 ),
                 const SizedBox(height: AppTokens.padLg),
@@ -240,7 +252,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
                     dense: true,
                     title: Text(p.name),
                     subtitle: Text('${p.id} · ${p.models.length} 个模型'),
-                    trailing: OutlinedButton(onPressed: () => _setKey(p), child: const Text('填写 API Key')),
+                    trailing: OutlinedButton(onPressed: p.custom ? () => _setKey(p) : null, child: const Text('填写 API Key')),
                   ),
               ],
             ),
@@ -254,7 +266,7 @@ class _ProviderCard extends StatefulWidget {
   final ProviderEntry provider;
   final String? testResult;
   final VoidCallback onTest;
-  final VoidCallback onEdit;
+  final VoidCallback? onEdit;
   final VoidCallback? onRemove;
 
   @override
@@ -434,10 +446,10 @@ class _CustomProviderPageState extends State<CustomProviderPage> {
       _message = null;
     });
     try {
-      final list = await _agent.backend.call('providers.fetchModels', {
+      final list = await _agent.backend.call('gateway.fetchModels', {
         'baseUrl': _baseUrl.text.trim(),
         'api': _api,
-        if (_apiKey.text.trim().isNotEmpty) 'apiKey': _apiKey.text.trim() else if (_editing) 'provider': widget.existing!.id,
+        if (_apiKey.text.trim().isNotEmpty) 'apiKey': _apiKey.text.trim() else if (_editing) 'channel': widget.existing!.id,
       });
       final ids = (list as List).whereType<Map>().map((m) => m['id'] as String).toList();
       if (!mounted) return;
@@ -462,12 +474,13 @@ class _CustomProviderPageState extends State<CustomProviderPage> {
       _message = null;
     });
     try {
-      await _agent.backend.call('providers.saveCustom', {
-        'id': _id.text.trim(),
+      await _agent.backend.call('gateway.saveChannel', {
+        if (_editing) ...widget.existing!.withKeys(widget.existing!.retainedKeys),
+        if (_editing) 'id': widget.existing!.id,
         'name': _name.text.trim(),
         'baseUrl': _baseUrl.text.trim(),
         'api': _api,
-        if (_apiKey.text.trim().isNotEmpty) 'apiKey': _apiKey.text.trim(),
+        'keys': _apiKey.text.trim().isNotEmpty ? [{'secret': _apiKey.text.trim()}] : widget.existing?.retainedKeys ?? <Json>[],
         'models': _models.where((m) => m.id.trim().isNotEmpty).map((m) => m.toJson()).toList(),
       });
       if (mounted) Navigator.pop(context, true);
@@ -508,7 +521,7 @@ class _CustomProviderPageState extends State<CustomProviderPage> {
               Expanded(
                 child: TextField(
                   controller: _id,
-                  enabled: !_editing,
+                  enabled: false, // Gateway assigns new IDs; existing IDs are immutable.
                   decoration: const InputDecoration(labelText: '服务商 ID', helperText: '字母、数字、横线；建好后不能改'),
                 ),
               ),

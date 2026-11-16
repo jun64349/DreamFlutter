@@ -1,17 +1,22 @@
 import 'dart:convert';
+import 'shell_widgets.dart' show ShellColors;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'proto_icon.dart';
 import 'package:flutter/services.dart';
 import 'package:pi_rpc/pi_rpc.dart';
+import 'package:path/path.dart' as p;
 
 import '../state/mentions.dart';
 import '../state/agent_controller.dart' show asJsonMap, groupProvider;
 import '../state/session_runtime.dart' show MessageBranch;
 import '../theme.dart';
+import '../craft_style.dart';
+import 'craft_surface.dart';
 import 'agent_scope.dart';
 import 'card_view.dart';
-import 'common.dart' show ImageThumb;
+import 'common.dart' show ImageThumb, memoryImageOf, showImagePreview;
 import 'composer.dart' show MentionChip;
 import 'markdown_view.dart';
 import 'motion.dart';
@@ -20,6 +25,7 @@ import 'dashboard_page.dart' show formatCost, formatTokens;
 import 'conversation_cards.dart';
 import 'conversation_memory.dart';
 import 'workspace_path.dart';
+import 'goal_widgets.dart' show GoalScheduleNotice;
 
 // ---------------------------------------------------------------------------
 // Rows: a question, or the whole reply to it
@@ -110,13 +116,22 @@ class ReplyInfo {
 class ChatRowView extends StatelessWidget {
   const ChatRowView({super.key, required this.row, required this.transcript});
 
+  static const replyGutter = 34.0;
+
   final ChatRow row;
   final Transcript transcript;
 
   @override
   Widget build(BuildContext context) => switch (row) {
     QuestionRow(:final item) => _UserBubble(item: item),
-    final ReplyRow reply => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [_ReplyView(row: reply, transcript: transcript, live: transcript.isRunning && reply.info.isLatest), ReplyMemoryCorrections(replies: reply.assistants), UnsavedMemoryNote(replies: reply.assistants)]),
+    final ReplyRow reply => Padding(
+      padding: const EdgeInsets.only(left: replyGutter),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _ReplyView(row: reply, transcript: transcript, live: transcript.isRunning && reply.info.isLatest),
+        ReplyMemoryCorrections(replies: reply.assistants),
+        UnsavedMemoryNote(replies: reply.assistants),
+      ]),
+    ),
   };
 }
 
@@ -170,14 +185,16 @@ class _UserBubbleState extends State<_UserBubble> {
               child: Wrap(spacing: 6, runSpacing: 6, alignment: WrapAlignment.end, children: [for (final m in attached) MentionChip(mention: m)]),
             ),
           if (question.isNotEmpty)
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
+            LayoutBuilder(builder: (context, constraints) => ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth * .78),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(color: colors.userBubble, borderRadius: BorderRadius.circular(context.radiusLg)),
-                child: _FoldingText(text: question, style: context.text.bodyMedium?.copyWith(color: colors.onUserBubble, height: 1.7)),
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+                decoration: BoxDecoration(color: colors.userBubble, borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomLeft: Radius.circular(16), bottomRight: Radius.circular(4))),
+                child: _FoldingText(text: question, style: context.text.bodyMedium?.copyWith(
+                  color: colors.onUserBubble, fontSize: 14, height: 1.6, letterSpacing: 0, wordSpacing: 0,
+                )),
               ),
-            ),
+            )),
           SizedBox(
             height: 26,
             child: Row(
@@ -200,12 +217,12 @@ class _UserBubbleState extends State<_UserBubble> {
                       if (branch != null) ...[
                         _ActionButton(
                           icon: Icons.edit_outlined,
-                          tooltip: busy ? '回复结束后才能编辑' : '编辑后重新发送（原来的版本会保留，可以切换回去）',
+                          tooltip: busy ? '回复结束后才能编辑' : '编辑后重新发送',
                           onTap: busy ? null : () => AgentScope.read(context).editMessage(item),
                         ),
                         _ActionButton(
                           icon: Icons.refresh,
-                          tooltip: busy ? '回复结束后才能重新生成' : '重新生成回复（原来的回复会保留）',
+                          tooltip: busy ? '回复结束后才能重新生成' : '重新生成',
                           onTap: busy ? null : () => AgentScope.read(context).regenerate(item),
                         ),
                       ],
@@ -312,6 +329,21 @@ class _VersionSwitcher extends StatelessWidget {
   }
 }
 
+/// 原型 .facts .ib：26 方、14 细线图标、淡色。
+class _FactButton extends StatelessWidget {
+  const _FactButton({required this.icon, required this.tooltip, required this.onTap});
+  final String icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: tooltip, onPressed: onTap, padding: EdgeInsets.zero,
+    constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+    style: IconButton.styleFrom(shape: craftButtonShape(context.painting.craftGeometry)),
+    icon: ProtoIcon(icon, size: 14, color: onTap == null ? context.colors.muted.withValues(alpha: .5) : context.colors.muted),
+  );
+}
+
 class _ActionButton extends StatelessWidget {
   const _ActionButton({required this.icon, required this.tooltip, required this.onTap});
 
@@ -392,6 +424,16 @@ class _CardSegment extends _Segment {
   final ToolRun run;
 }
 
+class _ProcessImageSegment extends _Segment {
+  _ProcessImageSegment(this.run);
+  final ToolRun run;
+}
+
+class _ScheduleSegment extends _Segment {
+  _ScheduleSegment(this.run);
+  final ToolRun run;
+}
+
 class _NoteSegment extends _Segment {
   _NoteSegment(this.icon, this.color, this.text);
   final IconData icon;
@@ -429,6 +471,8 @@ List<_Segment> _segments(ReplyRow row, Transcript transcript, AppColors colors) 
                 segments.add(_CardSegment(run));
               } else if (run != null) {
                 work().steps.add(run);
+                if (run.output.whereType<ImageBlock>().isNotEmpty) segments.add(_ProcessImageSegment(run));
+                if (['schedule_create', 'schedule_update'].contains(run.name) && run.status == ToolStatus.done && ['created', 'updated'].contains(run.details['action'])) segments.add(_ScheduleSegment(run));
               }
           }
         }
@@ -486,6 +530,13 @@ class _ReplyView extends StatelessWidget {
     final lastText = segments.lastIndexWhere((s) => s is _TextSegment);
     final streaming = row.assistants.any((a) => a.streaming);
     final children = <Widget>[];
+    final proactive = row.assistants.where((a) => a.proactiveRef != null).firstOrNull;
+    Widget? origin;
+    if (proactive != null) {
+      final at = DateTime.fromMillisecondsSinceEpoch(proactive.timestamp), now = DateTime.now();
+      final day = at.year == now.year && at.month == now.month && at.day == now.day ? '今天' : '${at.month}月${at.day}日';
+      origin = Padding(padding: const EdgeInsets.only(bottom: 2), child: Text('$day ${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')} · 蝶君来找你', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)));
+    }
     final work = segments.whereType<_WorkSegment>().toList();
     final steps = [for (final segment in work) ...segment.steps];
     final awaitingApproval = live && AgentScope.of(context).active?.pendingDialogs.any(isConversationApproval) == true;
@@ -493,16 +544,11 @@ class _ReplyView extends StatelessWidget {
     // then they fold away and a small butterfly stays at the reply's start, like a friend's avatar in a
     // chat — breathing while it writes, resting once it is done. Nothing vanishes in one frame.
     final hasText = segments.any((s) => s is _TextSegment);
-    final presence = AnimatedSize(
+    final presence = AnimatedSwitcher(
       duration: AppTokens.motion(context, AppTokens.medium),
-      curve: AppTokens.curve,
-      alignment: Alignment.topLeft,
-      child: AnimatedSwitcher(
-        duration: AppTokens.motion(context, AppTokens.medium),
-        child: live && !awaitingApproval && !hasText
-            ? const Padding(key: ValueKey('presence'), padding: EdgeInsets.symmetric(vertical: 5), child: ConversationPresence())
-            : const SizedBox(key: ValueKey('no-presence'), width: double.infinity),
-      ),
+      child: live && !awaitingApproval && !hasText
+          ? const Padding(key: ValueKey('presence'), padding: EdgeInsets.symmetric(vertical: 5), child: ConversationPresence())
+          : const SizedBox(key: ValueKey('no-presence'), width: double.infinity),
     );
     if (!awaitingApproval && (steps.isNotEmpty || live && segments.isEmpty)) children.add(WorkBlock(steps: steps, active: live, waiting: work.any((s) => s.waiting)));
     for (final (index, segment) in segments.indexed) {
@@ -515,6 +561,16 @@ class _ReplyView extends StatelessWidget {
         _WorkSegment() => WorkBlock(steps: segment.steps, active: live && isLast, waiting: segment.waiting),
         _NoticeSegment(:final notice) => notice.kind == NoticeKind.retryFailed && failure == null && !retrying ? ConversationErrorCard(reason: notice.message, question: row.info.question, model: lastAssistant?.model, attempts: attempts) : _NoticeView(notice: notice),
         _CardSegment(:final run) => CardBlock(key: ValueKey('card-${run.id}'), run: run),
+        _ProcessImageSegment(:final run) => Align(alignment: Alignment.centerLeft, child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(color: colors.card, borderRadius: BorderRadius.circular(10), border: Border.all(color: colors.border)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            for (final image in run.output.whereType<ImageBlock>()) InkWell(onTap: () => showImagePreview(context, image.data), child: ConstrainedBox(constraints: const BoxConstraints(maxHeight: 180), child: Image(image: memoryImageOf(image.data), fit: BoxFit.contain, gaplessPlayback: true, errorBuilder: (_, _, _) => const SizedBox(height: 180, child: Icon(Icons.broken_image_outlined))))),
+            Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.hairline))),
+              child: Text([if (run.details['path'] is String) p.basename(run.details['path'] as String), '${run.args['command'] ?? run.name}'].join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted))),
+          ]),
+        ))),
+        _ScheduleSegment(:final run) => GoalScheduleNotice(id: '${run.details['scheduleId']}', created: run.details['action'] == 'created'),
         _NoteSegment(:final icon, :final color, :final text) => _InlineNote(icon: icon, color: color, text: text),
       });
     }
@@ -522,10 +578,14 @@ class _ReplyView extends StatelessWidget {
     final content = Stack(clipBehavior: Clip.none, children: [
       Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [presence, for (final child in children) Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: child)],
+        children: [
+          presence,
+          ?origin,
+          for (final (index, child) in children.indexed) Padding(padding: EdgeInsets.only(top: index == 0 ? 0 : 10), child: child),
+        ],
       ),
       // In the conversation's side margin, so the text never moves when it comes or goes.
-      Positioned(left: -_ReplyMark.gutter, top: 7, child: _ReplyMark(shown: !live || hasText || awaitingApproval, writing: live && !awaitingApproval)),
+      Positioned(left: -ChatRowView.replyGutter, top: 2, child: _ReplyMark(shown: !live || hasText || awaitingApproval, writing: live && !awaitingApproval)),
     ]);
     // The same frame while writing and after, so the reply (and its butterfly) keep their place.
     return _ReplyFrame(row: row, live: live, child: content);
@@ -536,10 +596,6 @@ class _ReplyView extends StatelessWidget {
 /// when it is done. Reduced motion keeps it still.
 class _ReplyMark extends StatefulWidget {
   const _ReplyMark({required this.shown, required this.writing});
-
-  /// How far left of the reply it sits (inside the conversation's 28px side margin).
-  static const gutter = 26.0;
-  static const size = 18.0;
 
   final bool shown;
   final bool writing;
@@ -590,13 +646,16 @@ class _ReplyMarkState extends State<_ReplyMark> with SingleTickerProviderStateMi
         final t = Curves.easeInOut.transform(_breath.value);
         return Opacity(opacity: 0.55 + 0.45 * t, child: Transform.scale(scale: 0.88 + 0.12 * t, child: child));
       },
-      child: const ButterflyMark(key: ValueKey('reply-mark'), size: _ReplyMark.size),
+      child: const SizedBox.square(dimension: 22, child: Center(
+        // The prototype's 22px SVG includes the transparent area of its viewBox.
+        child: ButterflyMark(key: ValueKey('reply-mark'), size: 22 * 625.38 / 1024),
+      )),
     ),
   );
 }
 
-/// A finished reply with its numbers and actions. The latest reply always
-/// shows the actions; older ones on hover or keyboard focus.
+/// A finished reply keeps its numbers and actions under the text. The actions
+/// appear on hover or keyboard focus without changing the text's position.
 class _ReplyFrame extends StatefulWidget {
   const _ReplyFrame({required this.row, required this.child, this.live = false});
 
@@ -637,19 +696,22 @@ class _ReplyFrameState extends State<_ReplyFrame> {
       child: Focus(skipTraversal: true, onFocusChange: (value) => setState(() => _focused = value),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           widget.child,
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
+          // 原型 .facts：「模型 · 速度 · 用时 · 几点」一直在（定型第 8 条、0.8.2 实测），后面一排按钮悬停才出现。
+          ConstrainedBox(constraints: const BoxConstraints(minHeight: 28), child: Row(children: [
+          if (short.isNotEmpty && !widget.live) Flexible(child: Padding(padding: const EdgeInsets.only(right: 6), child: Text(short, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 12, color: context.colors.muted)))),
           AnimatedOpacity(opacity: visible ? 1 : 0, duration: AppTokens.motion(context, AppTokens.fast), curve: AppTokens.curve,
             child: IgnorePointer(ignoring: !visible, child: Wrap(
               key: ValueKey('reply-actions-${widget.row.key}'), spacing: 2, crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                _ActionButton(icon: Icons.copy_outlined, tooltip: '复制', onTap: info.text.isEmpty ? null : () {
+                _FactButton(icon: 'copy', tooltip: '复制', onTap: info.text.isEmpty ? null : () {
                   Clipboard.setData(ClipboardData(text: info.text));
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
                 }),
-                _ActionButton(icon: Icons.refresh, tooltip: '重新生成', onTap: canRegenerate ? () => agent.regenerate(question!) : null),
-                _ActionButton(icon: Icons.call_split, tooltip: '从这里重来', onTap: busy ? null : () => agent.forkAfterReply(info.nextQuestion)),
+                _FactButton(icon: 'refresh', tooltip: '重新生成', onTap: canRegenerate ? () => agent.regenerate(question!) : null),
+                _FactButton(icon: 'branch', tooltip: '从这里重来', onTap: busy ? null : () => agent.forkAfterReply(info.nextQuestion)),
                 PopupMenuButton<String>(
-                  tooltip: '回复菜单', icon: Icon(Icons.more_horiz, size: 18, color: context.colors.muted),
+                  tooltip: '更多', padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 26, minHeight: 26), icon: ProtoIcon('more', size: 14, color: context.colors.muted),
                   itemBuilder: (_) => [
                     const PopupMenuItem(value: 'memories', child: Text('它参考了哪些记忆')),
                     for (final model in others) PopupMenuItem(value: model.key, enabled: canRegenerate, child: Text('用 ${model.name} 重新生成')),
@@ -659,12 +721,12 @@ class _ReplyFrameState extends State<_ReplyFrame> {
                     else { final model = others.where((m) => m.key == value).firstOrNull; if (model != null && question != null) agent.regenerate(question, model: model); }
                   },
                 ),
-                _ActionButton(icon: Icons.lightbulb_outline, tooltip: '它参考了哪些记忆', onTap: () => showReplyMemoryReferences(context, widget.row.assistants)),
+                _FactButton(icon: 'memory', tooltip: '它参考了哪些记忆', onTap: () => showReplyMemoryReferences(context, widget.row.assistants)),
                 if (question != null && branch != null && branch.total > 1) _VersionSwitcher(item: question, branch: branch, enabled: !busy),
-                if (short.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 6), child: Text(short, style: context.text.labelSmall?.copyWith(color: context.colors.muted))),
               ],
             )),
           ),
+          ])),
         ]),
       ),
     );
@@ -758,9 +820,8 @@ String replyFacts(List<AssistantItem> replies, {required String Function(String 
 // ---------------------------------------------------------------------------
 
 /// A run of thinking and tool calls, summed up in one line
-/// (「思考了 12 秒 · 读取 2 个文件 · 运行 1 条命令」). Folded by default (0.4,
-/// tests 32 and extra 7): while it runs the header says what it is doing and
-/// the latest three steps show one line each; opened, every step in full.
+/// (「思考了 12 秒 · 读取 2 个文件 · 运行 1 条命令」). The folded block keeps
+/// every step behind its header; opened, every step is available in full.
 class WorkBlock extends StatefulWidget {
   const WorkBlock({super.key, required this.steps, required this.active, this.waiting = false});
 
@@ -788,70 +849,85 @@ class _WorkBlockState extends State<WorkBlock> {
     final summary = workSummary(steps);
     final current = widget.active ? _currentStep(steps, workspaceOf(context)) : null;
     final headerText = widget.active ? (current ?? (summary.isEmpty ? '正在思考…' : summary)) : (summary.isEmpty ? '思考过' : summary);
+    final thoughtEnd = headerText.startsWith('思考') || headerText.startsWith('正在思考')
+        ? (!headerText.contains(' · ') ? headerText.length : headerText.indexOf(' · '))
+        : 0;
     final canExpand = steps.isNotEmpty;
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.card,
-        border: Border.all(color: errors > 0 ? colors.danger.withValues(alpha: 0.4) : colors.border),
-        borderRadius: BorderRadius.circular(context.radiusLg),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: AnimatedSize(
-        duration: AppTokens.motion(context, AppTokens.medium),
-        curve: AppTokens.curve,
-        alignment: Alignment.topCenter,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            InkWell(
-              onTap: canExpand ? () => setState(() => _expanded = !expanded) : null,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                child: Row(
-                  children: [
-                    if (widget.active)
-                      const Padding(padding: EdgeInsets.all(4), child: BreathingDot())
-                    else
-                      Icon(errors > 0 ? Icons.error_outline : Icons.check, size: 15, color: errors > 0 ? colors.danger : colors.accent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Tooltip(message: widget.active && steps.lastOrNull is ToolRun && toolPath(steps.last as ToolRun) != null ? fullWorkspacePath(workspaceOf(context), toolPath(steps.last as ToolRun)!) : '', child: Text(
-                        headerText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.ink2),
-                      )),
-                    ),
-                    if (errors > 0) ...[
-                      Text('$errors 个出错', style: context.text.bodySmall?.copyWith(color: colors.danger)),
-                      const SizedBox(width: 8),
-                    ],
-                    if (toolMs > 0 && !widget.active) ...[
-                      Text(_seconds(toolMs), style: context.text.bodySmall?.copyWith(color: colors.muted)),
-                      const SizedBox(width: 6),
-                    ],
-                    if (canExpand) Icon(expanded ? Icons.expand_less : Icons.expand_more, size: 16, color: colors.muted),
-                  ],
-                ),
-              ),
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 380),
+        child: IntrinsicWidth(
+          child: Container(
+            width: expanded ? double.infinity : null,
+            decoration: craftSurfaceDecoration(context,
+              color: errors > 0 ? colors.seal.withValues(alpha: .08) : Color.alphaBlend(colors.accent.withValues(alpha: .08), colors.background),
+              radius: 10, borderColor: Colors.transparent, engraved: false,
             ),
-            if (expanded && canExpand) ...[
-              Divider(height: 0.5, color: colors.border),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final step in steps)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 3),
-                        child: switch (step) { ThinkingPart() => _ThinkingStep(part: step), NarrationStep(:final text) => _NarrationView(text: text), _ => ToolStep(run: step as ToolRun) },
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PressFeedback(
+                  child: InkWell(
+                    onTap: canExpand ? () => setState(() => _expanded = !expanded) : null,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      child: Row(
+                        children: [
+                          if (widget.active)
+                            Padding(padding: const EdgeInsets.all(4), child: BreathingDot(color: colors.ochre))
+                          else
+                            ProtoIcon(errors > 0 ? 'info' : 'check', size: 14, color: errors > 0 ? colors.danger : colors.success),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Tooltip(message: widget.active && steps.lastOrNull is ToolRun && toolPath(steps.last as ToolRun) != null ? fullWorkspacePath(workspaceOf(context), toolPath(steps.last as ToolRun)!) : '', child: Text.rich(
+                              TextSpan(children: [
+                                if (thoughtEnd > 0) TextSpan(text: headerText.substring(0, thoughtEnd), style: const TextStyle(fontStyle: FontStyle.italic)),
+                                TextSpan(text: headerText.substring(thoughtEnd)),
+                              ]),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.ink2),
+                            )),
+                          ),
+                          if (widget.active && steps.length > 1) ...[
+                            const SizedBox(width: 8),
+                            Text('前面 ${steps.length - 1} 步', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+                          ],
+                          if (errors > 0) ...[
+                            const SizedBox(width: 8),
+                            Text('$errors 个出错', style: context.text.bodySmall?.copyWith(color: colors.danger)),
+                          ],
+                          if (toolMs > 0 && !widget.active) ...[
+                            const SizedBox(width: 8),
+                            Text(_seconds(toolMs), style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+                          ],
+                          if (canExpand) ...[
+                            const SizedBox(width: 8),
+                            AnimatedRotation(turns: expanded ? .5 : 0, duration: AppTokens.motion(context, AppTokens.control), child: ProtoIcon('chev', size: 14, color: colors.muted)),
+                          ],
+                        ],
                       ),
-                  ],
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ],
+                if (expanded && canExpand) FadeIn(child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final step in steps)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: switch (step) { ThinkingPart() => _ThinkingStep(part: step), NarrationStep(:final text) => _NarrationView(text: text), _ => ToolStep(run: step as ToolRun) },
+                        ),
+                    ],
+                  ),
+                )),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1015,19 +1091,18 @@ class _ThinkingStepState extends State<_ThinkingStep> {
         _StepLine(
           icon: Icons.psychology_outlined,
           verb: label,
+          italic: true,
           onTap: part.redacted ? null : () => setState(() => _open = !_open),
           open: _open,
         ),
-        if (!part.redacted)
-          Padding(
+        if (!part.redacted && _open)
+          FadeSlideIn(child: Padding(
             padding: const EdgeInsets.only(left: 22, top: 2),
             child: Text(
               part.text.trim(),
-              maxLines: _open ? null : 3,
-              overflow: _open ? null : TextOverflow.ellipsis,
-              style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.65),
+              style: context.text.bodySmall?.copyWith(color: colors.muted, height: 1.65, fontStyle: FontStyle.italic),
             ),
-          ),
+          )),
       ],
     );
   }
@@ -1035,7 +1110,7 @@ class _ThinkingStepState extends State<_ThinkingStep> {
 
 /// One step's line: icon, verb, subject, and its state at the end.
 class _StepLine extends StatelessWidget {
-  const _StepLine({required this.icon, required this.verb, this.subject, this.subjectPath, this.trailing, this.onTap, this.open});
+  const _StepLine({required this.icon, required this.verb, this.subject, this.subjectPath, this.trailing, this.onTap, this.open, this.italic = false});
 
   final IconData icon;
   final String verb;
@@ -1044,6 +1119,7 @@ class _StepLine extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool? open;
+  final bool italic;
 
   @override
   Widget build(BuildContext context) {
@@ -1058,7 +1134,7 @@ class _StepLine extends StatelessWidget {
           children: [
             Icon(icon, size: 14, color: colors.muted),
             const SizedBox(width: 8),
-            Text(verb, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.ink2)),
+            Text(verb, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.ink2, fontStyle: italic ? FontStyle.italic : FontStyle.normal)),
             if (subject != null && subject!.isNotEmpty) ...[
               const SizedBox(width: 8),
               Expanded(child: subjectPath == null ? Text(subject!, maxLines: 1, overflow: TextOverflow.ellipsis, style: mono) : WorkspacePathLabel(path: subjectPath!, maxLines: 1, style: mono)),
@@ -1159,8 +1235,11 @@ class _ToolStepState extends State<ToolStep> {
         }.contains(run.name);
         // Pictures the tool returned (看图, screenshots from MCP tools): small, and open in full on a click.
         final images = run.output.whereType<ImageBlock>().toList();
-        final line = _Expandable(
-          line: (open, toggle) => _StepLine(icon: icon, verb: verb, subject: toolSubject(run), subjectPath: toolPath(run), trailing: trailing, onTap: toggle, open: open),
+        Widget stepLine(bool open, VoidCallback toggle) => _StepLine(icon: icon, verb: verb, subject: toolSubject(run), subjectPath: toolPath(run), trailing: trailing, onTap: toggle, open: open);
+        final line = run.name == 'read' && run.status != ToolStatus.error
+            ? _StepLine(icon: icon, verb: verb, subject: toolSubject(run), subjectPath: toolPath(run), trailing: trailing)
+            : _Expandable(
+          line: stepLine,
           body: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
