@@ -33,6 +33,78 @@ List<(bool, String)> mathIn(String text) {
 }
 
 void main() {
+  testWidgets('final reply uses bundled Kai and process Markdown stays italic', (tester) async {
+    Future<TextStyle?> render({required bool process}) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(body: ReplyMarkdown(text: '文字来源验证', process: process)),
+      ));
+      final paragraph = tester.widgetList<RichText>(find.byType(RichText)).firstWhere(
+        (text) => text.text.toPlainText().contains('文字来源验证'),
+      );
+      TextStyle? resolved;
+      void visit(InlineSpan span, TextStyle? inherited) {
+        final style = inherited?.merge(span.style) ?? span.style;
+        if (span is TextSpan) {
+          if (span.text?.contains('文字来源验证') == true) resolved = style;
+          for (final child in span.children ?? const <InlineSpan>[]) {
+            visit(child, style);
+          }
+        }
+      }
+      visit(paragraph.text, null);
+      return resolved;
+    }
+
+    final reply = await render(process: false);
+    expect(reply?.fontFamily, AppTokens.kaiFamily);
+    expect(reply?.fontStyle, FontStyle.normal);
+    final process = await render(process: true);
+    expect(process?.fontStyle, FontStyle.italic);
+    expect(process?.fontFamily, AppTokens.fontFamily);
+  });
+
+  testWidgets('blockquote follows message origin while explicit Markdown emphasis remains italic', (tester) async {
+    Future<FontStyle?> styleOf(String text, {required bool process}) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(body: ReplyMarkdown(text: text, process: process)),
+      ));
+      final paragraph = tester.widgetList<RichText>(find.byType(RichText)).firstWhere(
+        (rich) => rich.text.toPlainText().contains('引用正文'),
+      );
+      FontStyle? result;
+      void visit(InlineSpan span, TextStyle? inherited) {
+        final style = inherited?.merge(span.style) ?? span.style;
+        if (span is TextSpan) {
+          if (span.text?.contains('引用正文') == true) result = style?.fontStyle;
+          for (final child in span.children ?? const <InlineSpan>[]) {
+            visit(child, style);
+          }
+        }
+      }
+      visit(paragraph.text, null);
+      return result;
+    }
+
+    expect(await styleOf('> 引用正文', process: false), FontStyle.normal);
+    expect(await styleOf('> 引用正文', process: true), FontStyle.italic);
+    expect(await styleOf('*引用正文*', process: false), FontStyle.italic);
+  });
+
+  testWidgets('a diagram source inside a process chain stays italic before rendering', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: const Scaffold(body: ReplyMarkdown(text: '```mermaid\ngraph TD; A-->B\n```', process: true)),
+    ));
+    final rich = tester.widget<RichBlock>(find.byType(RichBlock));
+    expect(rich.process, isTrue);
+    final source = tester.widget<CodeBlock>(find.byType(CodeBlock));
+    expect(source.process, isTrue);
+    final code = tester.widget<Text>(find.byWidgetPredicate((widget) => widget is Text && widget.textSpan?.toPlainText().contains('graph TD') == true));
+    expect(code.textSpan?.style?.fontStyle, FontStyle.italic);
+  });
+
   test('formulas are found in all four spellings', () {
     expect(mathIn(r'质能方程 $E=mc^2$，还有 \(a_i * b_j\)。'), [(false, 'E=mc^2'), (false, r'a_i * b_j')]);
     expect(mathIn('结果：\n\n\$\$\n\\int_0^1 x\\,dx = \\frac12\n\$\$'), [(true, r'\int_0^1 x\,dx = \frac12')]);

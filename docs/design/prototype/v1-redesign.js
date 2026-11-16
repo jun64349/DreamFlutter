@@ -104,10 +104,10 @@ function side(){
  const on=S.scene==='chat'?(wb?'c1':'b1'):null;
  let g='',list='';
  for(const c of convs){if(c.child&&!S.br)continue;if(c.g&&c.g!==g){g=c.g;list+=`<div class="grp">${g}</div>`;}
-  list+=`<div class="conv ${c.child?'child':''} ${c.id===on?'on':''}" data-a="go" data-v="chat">${c.kids?`<button class="brt" title="${S.br?'收起分支':'展开分支（'+c.kids+'）'}" data-a="br">${ic(S.br?'chev':'right','width:12px;height:12px')}${S.br?'':`<em>${c.kids}</em>`}</button>`:''}${c.child?ic('branch','width:13px;height:13px;margin-top:3px;color:var(--muted)'):''}${c.dot?`<span class="dot ${c.dot}"></span>`:''}<div class="w"><div class="t">${c.t}</div><div class="m">${c.m}</div></div></div>`;}
+  list+=`<div class="conv ${c.child?'child':''} ${c.id===on?'on':''}" data-a="go" data-v="chat">${c.id===on?craftEdge('selection'):''}${c.kids?`<button class="brt" title="${S.br?'收起分支':'展开分支（'+c.kids+'）'}" data-a="br">${ic(S.br?'chev':'right','width:12px;height:12px')}${S.br?'':`<em>${c.kids}</em>`}</button>`:''}${c.child?ic('branch','width:13px;height:13px;margin-top:3px;color:var(--muted)'):''}${c.dot?`<span class="dot ${c.dot}"></span>`:''}<div class="w"><div class="t">${c.t}</div><div class="m">${c.m}</div></div></div>`;}
  const t=curTheme();
  return `<div class="brand">${bf(24,'float')}<span class="wm">DreamFlutter</span><small>梦蝶</small><span class="sp"></span><button class="ib" title="收起侧栏（Ctrl + B）" data-a="side">${ic('side')}</button></div>
- <div class="space"><button class="${wb?'on':''}" data-a="space" data-v="wb">${ic('chat','width:14px;height:14px')}工作台</button><button class="${wb?'':'on'}" data-a="space" data-v="bf">${bf(15)}蝶君</button></div>
+ <div class="space"><button class="${wb?'on':''}" data-a="space" data-v="wb">${wb?craftEdge('selection'):''}${ic('chat','width:14px;height:14px')}工作台</button><button class="${wb?'':'on'}" data-a="space" data-v="bf">${wb?'':craftEdge('selection')}${bf(15)}蝶君</button></div>
  <button class="nav ${S.scene==='home'?'on':''}" data-a="go" data-v="home">${ic('plus')}新对话</button>
  <button class="nav ${S.scene==='inbox'?'on':''}" data-a="go" data-v="inbox">${ic('inbox')}等你处理<span class="badge">4</span></button>
  ${wb?'':`<button class="nav ${S.scene==='schedule'?'on':''}" data-a="go" data-v="schedule">${ic('cal')}日程<span class="cnt">今天 5</span></button>`}
@@ -115,7 +115,7 @@ function side(){
  <button class="nav ${S.overlay==='skills'?'on':''}" data-a="ov" data-v="skills">${ic('skills')}技能${'<span class="cnt"><span class="sd" style="background:var(--ochre)"></span></span>'}</button>
  <div style="height:14px;flex:none"></div>
  <div class="search">${ic('search','width:14px;height:14px')}搜索对话<span style="margin-left:auto;font-size:11px">Ctrl K</span></div>
- ${wb?`<div class="ws">${ic('folder','color:var(--ochre)')}<span class="n">毕设-传感器数据</span>${ic('chev','width:14px;height:14px;color:var(--muted)')}</div>`:''}
+ ${wb?`<div class="ws">${craftEdge('selection')}${ic('folder','color:var(--ochre)')}<span class="n">毕设-传感器数据</span>${ic('chev','width:14px;height:14px;color:var(--muted)')}</div>`:''}
  <div class="list">${list}</div>
  <div class="inscr ${t&&t.lat?'lat':''}">${t?t.ins:''}</div>
   <div class="foot"><span class="me"><span class="av">周</span>小周</span><button class="ib ${S.overlay==='spend'?'on':''}" title="花费" data-a="ov" data-v="spend">${ic('coin')}</button><button class="ib ${S.overlay==='settings'?'on':''}" title="设置（Ctrl + ,）" data-a="ov" data-v="settings">${ic('gear')}</button></div>
@@ -134,6 +134,7 @@ function composer(o={}){
   <span class="sp"></span>
   <button class="pill box" title="换模型">${S.ed==='managed'?'DeepSeek V4.1 Flash · 模型池':'DeepSeek V4.1 Flash · OpenCode Go'}${ic('chev','width:12px;height:12px')}</button>
   <button class="pill" title="思考深度">${ic('think','width:14px;height:14px')}中</button>
+  <button class="context-ring" data-a="context" aria-label="${S.scene==='home'?'上下文尚未使用':'上下文已用 59k / 128k'}" title="${S.scene==='home'?'上下文尚未使用':'上下文已用 59k / 128k'}" style="--used:${S.scene==='home'?0:59/128}"><span></span></button>
   <button class="ib" title="说话（Ctrl + Shift + M）">${ic('mic')}</button>
   ${running?`<button class="send stop" title="停下这一步">${ic('stop','width:14px;height:14px')}</button>`:`<button class="send ${has?'ready':''}" title="发送（Enter）" data-a="send"${has?'':' disabled'}>${ic('send')}</button>`}
  </div></div>`;
@@ -148,7 +149,7 @@ function vHome(){
  <div class="scroll"><div class="home"><div class="wash"></div><div class="artmotif">${motif(curTheme().id)}</div>
   <div class="home-mark">${bf(104,'home-breathe')}</div>
   <div class="greet inkgreet">${greet}</div><div class="brush"></div>
-  <div class="quote">昔者庄周梦为胡蝶，栩栩然胡蝶也。<cite>《庄子·齐物论》</cite></div>
+  <div class="quote">${['warm','muse','jiadie','moye','shiqing'].includes(curTheme().id)?'至人无己，神人无功，圣人无名。<cite>《庄子·逍遥游》</cite>':'<span class="quote-en">We are such stuff as dreams are made on.</span><span class="quote-translation">我们也是梦织成的。</span><cite>莎士比亚《暴风雨》第四幕第一场</cite>'}</div>
   ${composer({ph:wb?undefined:'交代一件事，或者只是聊聊'})}
   <div class="chips">${ex.map(e=>`<button class="chip" data-a="fill" data-v="${esc(e)}">${e}</button>`).join('')}</div>
  </div></div>`,right:null};
@@ -168,7 +169,7 @@ function work(k,o){
 const think=(id,s,t)=>step({id,icon:'think',cls:'think',verb:`<em>思考 · ${s} 秒</em>`,body:`<div style="margin:0 12px 6px 34px;font-size:12.5px;color:var(--muted);font-style:italic;line-height:1.75">${t}</div>`});
 const read=(d,f,t)=>step({icon:'file',verb:'读取',what:P(d,f),right:`${t}${OK}`});
 function reply(body,facts,o={}){
- return `<div class="a ${o.active?'active':''}"><span class="mk">${bf(22,o.active?'flap':'')}</span>${o.pre||''}<div class="body">${body}</div>${facts?`<div class="facts">${facts}<span class="acts"><button class="ib" title="复制">${ic('copy','width:14px;height:14px')}</button><button class="ib" title="重新生成">${ic('refresh','width:14px;height:14px')}</button><button class="ib" title="从这里重来">${ic('branch','width:14px;height:14px')}</button><button class="ib" title="它参考了哪些记忆">${ic('memory','width:14px;height:14px')}</button><button class="ib" title="更多">${ic('more','width:14px;height:14px')}</button></span></div>`:''}</div>`;
+ return `<div class="a ${o.active?'active':''} ${o.process?'process':''}"><span class="mk">${bf(22,o.active?'flap':'')}</span>${o.pre||''}<div class="body">${body}</div>${facts?`<div class="facts">${facts}<span class="acts"><button class="ib" title="复制">${ic('copy','width:14px;height:14px')}</button><button class="ib" title="重新生成">${ic('refresh','width:14px;height:14px')}</button><button class="ib" title="从这里重来">${ic('branch','width:14px;height:14px')}</button><button class="ib" title="它参考了哪些记忆">${ic('memory','width:14px;height:14px')}</button><button class="ib" title="更多">${ic('more','width:14px;height:14px')}</button></span></div>`:''}</div>`;
 }
 function vChat(){
  return S.space==='wb'?vChatWb():vChatBf();
@@ -219,7 +220,7 @@ function vChatBf(){
  <div class="scroll"><div class="chat">
   ${reply(`<div class="proactive">今天 09:12 · 蝶君来找你</div><p>早上好。昨晚空闲的时候我把 SHT40 的数据手册读完了，它的湿度精度比 DHT22 高一截，正好能用在你的传感器对比里。要我顺手加进去吗？</p>`,'DeepSeek V4.1 Flash · 09:12')}
   <div class="u"><div class="b">加进去吧，三款一起对比，下午之前给我一份报告</div></div>
-  ${reply(`<p>好，这件事我按目标来推进，做完会核对交付再告诉你。先抓了一轮价格，画了张对比图：</p><div style="border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 0 0 1px var(--line2);max-width:420px;margin:6px 0"><div style="display:flex;align-items:flex-end;gap:10px;height:110px;padding:14px 18px 0">${[40,72,55,90,35,62].map(h=>`<i style="flex:1;height:${h}%;background:var(--accent);opacity:.7;border-radius:3px 3px 0 0"></i>`).join('')}</div><div style="font-family:var(--sans);font-size:11.5px;color:var(--muted);padding:6px 12px">price.png · python scripts/plot.py</div></div>`,'DeepSeek V4.1 Flash · 41 秒 · 10:05',{pre:work('b1',{open:false,mark:OK,title:'读取 3 份规格书 · 运行 2 条命令',n:'1 分 12 秒',rows:read('资料/规格书/','SHT40-Datasheet.pdf','2.0 秒')})})}
+  ${reply(`<p>好，这件事我按目标来推进，做完会核对交付再告诉你。先抓了一轮价格，画了张对比图：</p><div style="border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 0 0 1px var(--line2);max-width:420px;margin:6px 0"><div style="display:flex;align-items:flex-end;gap:10px;height:110px;padding:14px 18px 0">${[40,72,55,90,35,62].map(h=>`<i style="flex:1;height:${h}%;background:var(--accent);opacity:.7;border-radius:3px 3px 0 0"></i>`).join('')}</div><div style="font-family:var(--sans);font-size:11.5px;color:var(--muted);padding:6px 12px">price.png · python scripts/plot.py</div></div>`,'DeepSeek V4.1 Flash · 41 秒 · 10:05',{process:true,pre:work('b1',{open:false,mark:OK,title:'读取 3 份规格书 · 运行 2 条命令',n:'1 分 12 秒',rows:read('资料/规格书/','SHT40-Datasheet.pdf','2.0 秒')})})}
   <div class="hint"><span class="ln"></span>${ic('cal','width:13px;height:13px')}建了日程「下午 3 点交传感器报告」<a data-a="go" data-v="schedule">看日程</a><span class="ln"></span></div>
   ${ask}
  </div></div>

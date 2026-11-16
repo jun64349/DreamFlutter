@@ -102,11 +102,12 @@ class RichRenderer {
 /// A ```mermaid / ```chart / ```svg block: the picture, with zoom, copy and save.
 /// While the reply is still streaming (the source keeps changing) the code shows.
 class RichBlock extends StatefulWidget {
-  const RichBlock({super.key, required this.kind, required this.source, this.initial});
+  const RichBlock({super.key, required this.kind, required this.source, this.initial, this.process = false});
 
   final String kind;
   final String source;
   final RichResult? initial;
+  final bool process;
 
   @override
   State<RichBlock> createState() => _RichBlockState();
@@ -199,12 +200,12 @@ class _RichBlockState extends State<RichBlock> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          CodeBlock(code: widget.source, language: widget.kind),
-          Padding(padding: const EdgeInsets.only(top: 4), child: Text('没能画出$_label：$_error', style: context.text.bodySmall?.copyWith(color: colors.warning))),
+          CodeBlock(code: widget.source, language: widget.kind, process: widget.process),
+          Padding(padding: const EdgeInsets.only(top: 4), child: Text('没能画出$_label：$_error', style: context.text.bodySmall?.copyWith(color: colors.warning, fontStyle: widget.process ? AppTokens.processFontStyle : FontStyle.normal))),
         ],
       );
     }
-    if (result == null) return CodeBlock(code: widget.source, language: widget.kind);
+    if (result == null) return CodeBlock(code: widget.source, language: widget.kind, process: widget.process);
     return LayoutBuilder(
       builder: (context, constraints) {
         if ((constraints.maxWidth - _width).abs() > 40 && constraints.maxWidth.isFinite) {
@@ -247,7 +248,7 @@ class _RichBlockState extends State<RichBlock> {
                 ]),
               ),
               if (_source)
-                Padding(padding: const EdgeInsets.fromLTRB(14, 6, 14, 12), child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: SelectableText(widget.source, style: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, height: 1.65, color: colors.ink))))
+                Padding(padding: const EdgeInsets.fromLTRB(14, 6, 14, 12), child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: SelectableText(widget.source, style: TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontStyle: widget.process ? AppTokens.processFontStyle : FontStyle.normal, fontSize: 12.5, height: 1.65, color: colors.ink))))
               else
                 Padding(
                   padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),

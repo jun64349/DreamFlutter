@@ -20,9 +20,11 @@ import 'rich_blocks.dart';
 /// stuttering): the text is drawn block by block. A block that is finished keeps its built widgets, so
 /// each update parses and lays out only the block still being written, not the whole reply again.
 class ReplyMarkdown extends StatelessWidget {
-  const ReplyMarkdown({super.key, required this.text});
+  const ReplyMarkdown({super.key, required this.text, this.process = false});
 
   final String text;
+  /// Text inside an agent's work chain, rather than its final reply.
+  final bool process;
 
   /// The gap between blocks: MarkdownBody's own blockSpacing.
   static const blockGap = 10.0;
@@ -30,14 +32,14 @@ class ReplyMarkdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blocks = markdownBlocks(text);
-    if (blocks.length <= 1) return _MarkdownBlock(text: text);
+    if (blocks.length <= 1) return _MarkdownBlock(text: text, process: process);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (final (i, block) in blocks.indexed)
           Padding(
             padding: EdgeInsets.only(top: i == 0 ? 0 : blockGap),
-            child: _MarkdownBlock(key: ValueKey(i), text: block),
+            child: _MarkdownBlock(key: ValueKey(i), text: block, process: process),
           ),
       ],
     );
@@ -93,9 +95,10 @@ List<String> markdownBlocks(String text) {
 /// One block of a reply. It keeps what it built until its text or the theme changes: handing Flutter
 /// the same widget again skips the subtree, so a finished paragraph costs nothing while the reply grows.
 class _MarkdownBlock extends StatefulWidget {
-  const _MarkdownBlock({super.key, required this.text});
+  const _MarkdownBlock({super.key, required this.text, required this.process});
 
   final String text;
+  final bool process;
 
   @override
   State<_MarkdownBlock> createState() => _MarkdownBlockState();
@@ -113,24 +116,33 @@ class _MarkdownBlockState extends State<_MarkdownBlock> {
   @override
   void didUpdateWidget(_MarkdownBlock old) {
     super.didUpdateWidget(old);
-    if (old.text != widget.text) _built = null;
+    if (old.text != widget.text || old.process != widget.process) _built = null;
   }
 
   @override
-  Widget build(BuildContext context) => _built ??= _replyMarkdownBody(context, widget.text);
+  Widget build(BuildContext context) => _built ??= _replyMarkdownBody(context, widget.text, widget.process);
 }
 
-Widget _replyMarkdownBody(BuildContext context, String text) {
+Widget _replyMarkdownBody(BuildContext context, String text, bool process) {
     final colors = context.colors;
-    final body = context.serif(context.text.bodyLarge).copyWith(fontSize: 15, height: 1.85, letterSpacing: 0, color: colors.ink);
-    TextStyle heading(double size) => context.serif(body).copyWith(fontSize: size, fontWeight: FontWeight.w600, height: 1.5);
-    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 13);
-    final sans = context.text.bodyMedium?.copyWith(fontSize: 13, height: 1.85, letterSpacing: 0, color: colors.ink);
+    final body = (context.text.bodyLarge ?? const TextStyle()).copyWith(
+      fontFamily: process ? AppTokens.fontFamily : AppTokens.kaiFamily,
+      fontFamilyFallback: process ? AppTokens.fontFallback : AppTokens.kaiFallback,
+      fontStyle: process ? AppTokens.processFontStyle : FontStyle.normal,
+      fontSize: 15, height: 1.85, letterSpacing: 0, color: colors.ink,
+    );
+    TextStyle heading(double size) => body.copyWith(fontSize: size, fontWeight: FontWeight.w600, height: 1.5);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback,
+      fontStyle: process ? AppTokens.processFontStyle : FontStyle.normal, fontSize: 13);
+    final sans = context.text.bodyMedium?.copyWith(fontFamily: process ? AppTokens.fontFamily : AppTokens.kaiFamily,
+      fontFamilyFallback: process ? AppTokens.fontFallback : AppTokens.kaiFallback,
+      fontStyle: process ? AppTokens.processFontStyle : FontStyle.normal,
+      fontSize: 13, height: 1.85, letterSpacing: 0, color: colors.ink);
     return MarkdownBody(
       data: text,
       selectable: false,
       inlineSyntaxes: mathSyntaxes,
-      builders: {'code': _CodeBuilder(FileLinks.maybeOf(context)), 'math': _MathBuilder(body)},
+      builders: {'code': _CodeBuilder(FileLinks.maybeOf(context), process), 'math': _MathBuilder(body)},
       // Images in a reply load from the web only: never local files or network shares.
       imageBuilder: (uri, title, alt) => uri.scheme == 'http' || uri.scheme == 'https'
           ? Image.network(uri.toString(), errorBuilder: (_, _, _) => Text(alt ?? uri.toString(), style: body.copyWith(color: colors.muted)))
@@ -161,7 +173,7 @@ Widget _replyMarkdownBody(BuildContext context, String text) {
         // Code blocks draw their own frame (_CodeBlock).
         codeblockPadding: EdgeInsets.zero,
         codeblockDecoration: const BoxDecoration(),
-        blockquote: body.copyWith(color: colors.ink2, fontStyle: FontStyle.italic),
+        blockquote: body.copyWith(color: colors.ink2),
         blockquotePadding: const EdgeInsets.only(left: 12, top: 2, bottom: 2),
         blockquoteDecoration: BoxDecoration(border: Border(left: BorderSide(color: colors.border, width: 2))),
         horizontalRuleDecoration: BoxDecoration(border: Border(top: BorderSide(color: colors.border))),
@@ -277,9 +289,10 @@ class FileLinks extends InheritedWidget {
 /// inline code that names a file becomes a [FileLinks] link, other inline
 /// code keeps the default rendering.
 class _CodeBuilder extends MarkdownElementBuilder {
-  _CodeBuilder(this.links);
+  _CodeBuilder(this.links, this.process);
 
   final FileLinks? links;
+  final bool process;
 
   @override
   Widget? visitElementAfterWithContext(BuildContext context, md.Element element, TextStyle? preferredStyle, TextStyle? parentStyle) {
@@ -308,8 +321,8 @@ class _CodeBuilder extends MarkdownElementBuilder {
     }
     final language = className.startsWith('language-') ? className.substring('language-'.length) : null;
     final source = text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
-    if (language != null && richLanguages.contains(language.toLowerCase())) return RichBlock(kind: language.toLowerCase(), source: source);
-    return CodeBlock(code: source, language: language);
+    if (language != null && richLanguages.contains(language.toLowerCase())) return RichBlock(kind: language.toLowerCase(), source: source, process: process);
+    return CodeBlock(code: source, language: language, process: process);
   }
 }
 
@@ -364,10 +377,11 @@ class _FileLinkState extends State<FileLink> {
 
 /// A code block: language label and copy button above highlighted code.
 class CodeBlock extends StatefulWidget {
-  const CodeBlock({super.key, required this.code, this.language});
+  const CodeBlock({super.key, required this.code, this.language, this.process = false});
 
   final String code;
   final String? language;
+  final bool process;
 
   @override
   State<CodeBlock> createState() => _CodeBlockState();
@@ -379,7 +393,9 @@ class _CodeBlockState extends State<CodeBlock> {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, height: 1.65, color: colors.ink);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback,
+      fontStyle: widget.process ? AppTokens.processFontStyle : FontStyle.normal,
+      fontSize: 12.5, height: 1.65, color: colors.ink);
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(color: colors.sunk, borderRadius: BorderRadius.circular(12)),
@@ -393,7 +409,8 @@ class _CodeBlockState extends State<CodeBlock> {
               padding: const EdgeInsets.fromLTRB(14, 6, 8, 0),
               child: Row(
                 children: [
-                  Text(widget.language?.isNotEmpty == true ? widget.language! : '代码', style: context.label),
+                  Text(widget.language?.isNotEmpty == true ? widget.language! : '代码', style: context.label?.copyWith(
+                    fontStyle: widget.process ? AppTokens.processFontStyle : FontStyle.normal)),
                   const Spacer(),
                   AnimatedOpacity(
                     opacity: _hovered ? 1 : .55,

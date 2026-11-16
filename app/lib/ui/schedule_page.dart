@@ -213,7 +213,7 @@ class _SchedulePageState extends State<SchedulePage> {
               child: TextButton(
                 onPressed: () => setState(() => logOpen = !logOpen),
                 style: smallButton(padding: EdgeInsets.zero, color: colors.muted),
-                child: Text('$patrolText · 下次 ${scheduleTime(s.patrol['nextAt'])}', style: small?.copyWith(fontSize: 12.5, height: 1.6, color: colors.muted)),
+                child: Text('$patrolText · 下次 ${scheduleTime(s.patrol['nextAt'])}', style: small?.copyWith(fontSize: 12.5, height: 1.6, color: colors.muted, fontStyle: AppTokens.processFontStyle)),
               ),
             ),
             TextButton(
@@ -227,7 +227,7 @@ class _SchedulePageState extends State<SchedulePage> {
         if (s.error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(s.error!, style: small?.copyWith(color: colors.danger))),
         if (logOpen) Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: card.copyWith(borderRadius: BorderRadius.circular(10)), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Align(alignment: Alignment.centerRight, child: TextButton(style: smallButton(), onPressed: s.canPatrol ? () => s.action('patrol.runNow') : null, child: const Text('现在巡检'))),
-          for (final row in s.log) Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [SizedBox(width: 54, child: Text(scheduleTime(row['startedAt']), style: small?.copyWith(fontSize: 12.5, color: colors.muted))), Expanded(child: Text('${row['error'] ?? row['note'] ?? ''}', style: small?.copyWith(fontSize: 12.5, color: colors.ink)))])),
+          for (final row in s.log) Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [SizedBox(width: 54, child: Text(scheduleTime(row['startedAt']), style: small?.copyWith(fontSize: 12.5, color: colors.muted, fontStyle: AppTokens.processFontStyle))), Expanded(child: Text('${row['error'] ?? row['note'] ?? ''}', style: small?.copyWith(fontSize: 12.5, color: colors.ink, fontStyle: AppTokens.processFontStyle)))])),
         ])),
         LayoutBuilder(builder: (context, box) => box.maxWidth < 760
             ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [calendar(), const SizedBox(height: 14), dayList()])

@@ -584,7 +584,7 @@ class _DiffPaneState extends State<_DiffPane> {
     if (_loading) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     if (_error != null) return Text(_error!, style: TextStyle(color: context.colors.danger));
     if (lines != null && lines.isNotEmpty) return SingleChildScrollView(child: DiffView(lines: lines));
-    if (patch != null && patch.isNotEmpty) return SingleChildScrollView(child: SelectableText(patch, style: const TextStyle(fontFamily: AppTokens.monoFamily, fontSize: 12.5)));
+    if (patch != null && patch.isNotEmpty) return SingleChildScrollView(child: SelectableText(patch, style: const TextStyle(fontFamily: AppTokens.monoFamily, fontStyle: AppTokens.processFontStyle, fontSize: 12.5)));
     return Text('暂时没有可显示的差异', style: context.text.bodySmall?.copyWith(color: context.colors.muted));
   }
 }

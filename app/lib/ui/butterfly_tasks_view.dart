@@ -13,7 +13,7 @@ import 'artifact_widgets.dart';
 import 'common.dart';
 import 'composer.dart';
 import 'details_panel_widgets.dart';
-import 'greetings.dart';
+import 'home_quote.dart';
 import 'proto_icon.dart';
 import 'shell_widgets.dart';
 
@@ -31,7 +31,6 @@ class ButterflyTasksHome extends StatelessWidget {
   ];
   @override
   Widget build(BuildContext context) {
-    final (line, source) = pickLiteraryLine(DateTime.now().day);
     return Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 30, 20, 60),
@@ -42,7 +41,7 @@ class ButterflyTasksHome extends StatelessWidget {
             const SizedBox(height: 16),
             Container(width: 120, height: 10, decoration: BoxDecoration(borderRadius: const BorderRadius.all(Radius.elliptical(60, 5)), gradient: LinearGradient(colors: [context.colors.accentSoft.withValues(alpha: 0), context.colors.accentSoft, context.colors.accentSoft.withValues(alpha: 0)]))),
             const SizedBox(height: 14),
-            ShellQuoteLine(line, source),
+            const HomeQuote(),
             const SizedBox(height: 22),
             const Composer(home: true),
             const SizedBox(height: 14),

@@ -38,6 +38,13 @@ class AppTokens {
   static const serifFamily = 'Noto Serif SC';
   static const serifFallback = ['Source Han Serif SC', 'Songti SC', 'SimSun', 'serif'];
 
+  /// User and assistant conversation text. Bundled so it reads consistently on Windows.
+  static const kaiFamily = 'LXGW WenKai';
+  static const kaiFallback = ['KaiTi', 'STKaiti', 'Kaiti SC', 'SimKai', 'SimSun'];
+
+  /// Process text keeps its existing sans or mono family, with a slanted shape.
+  static const processFontStyle = FontStyle.italic;
+
   static const monoFamily = 'Cascadia Mono';
   static const monoFallback = ['Consolas', 'Courier New', 'monospace'];
 

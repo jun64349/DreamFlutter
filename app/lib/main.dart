@@ -37,6 +37,9 @@ Future<void> startApplication(List<String> args) async {
     yield LicenseEntryWithLineBreaks([
       'Ma Shan Zheng',
     ], await rootBundle.loadString('assets/fonts/OFL-MaShanZheng.txt'));
+    yield LicenseEntryWithLineBreaks([
+      'LXGW WenKai',
+    ], await rootBundle.loadString('assets/fonts/OFL-LXGWWenKai.txt'));
   });
   // Everything the window keeps goes to the app's data folder too (v0.3.2), next to the core's.
   final dataDir = Installation.dataRoot();

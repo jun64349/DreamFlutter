@@ -58,7 +58,7 @@ void main() {
     expect(find.text('a.xlsx'), findsNothing);
   });
 
-  testWidgets('work background follows each theme and only thinking text is italic', (tester) async {
+  testWidgets('work background follows each theme and every process step is italic', (tester) async {
     for (final painting in PaintingTheme.all) {
       await tester.pumpWidget(const SizedBox());
       final steps = <Object>[
@@ -78,13 +78,15 @@ void main() {
         _ => false,
       }), isTrue, reason: painting.id);
       final header = tester.widget<Text>(find.text('思考了 2 秒 · 运行 1 条命令'));
-      final spans = (header.textSpan! as TextSpan).children!;
-      expect((spans.first as TextSpan).style?.fontStyle, FontStyle.italic);
-      expect((spans.last as TextSpan).style?.fontStyle, isNot(FontStyle.italic));
+      expect(header.style?.fontStyle, FontStyle.italic);
       await tester.tap(find.text('思考了 2 秒 · 运行 1 条命令'));
       await tester.pump(const Duration(milliseconds: 400));
       expect(tester.widget<Text>(find.text('思考 · 2 秒')).style?.fontStyle, FontStyle.italic);
-      expect(tester.widget<Text>(find.text('python report.py')).style?.fontStyle, isNot(FontStyle.italic));
+      expect(tester.widget<Text>(find.text('python report.py')).style?.fontStyle, FontStyle.italic);
+      await tester.tap(find.text('python report.py'));
+      await tester.pumpAndSettle();
+      final command = tester.widget<Text>(find.byWidgetPredicate((widget) => widget is Text && widget.textSpan?.toPlainText().contains('python report.py') == true));
+      expect(command.style?.fontStyle, FontStyle.italic);
       await tester.tap(find.text('思考 · 2 秒'));
       await tester.pump(const Duration(milliseconds: 400));
       expect(tester.widget<Text>(find.text('先核对数据')).style?.fontStyle, FontStyle.italic);
@@ -103,6 +105,18 @@ void main() {
     await tester.tap(find.text('画图'));
     await tester.pumpAndSettle();
     expect(find.textContaining('chart saved'), findsOneWidget);
+  });
+
+  testWidgets('command output and file diff render as italic process text', (tester) async {
+    await show(tester, Column(children: [
+      ToolStep(run: tool('bash', {'command': 'echo ready'}, status: ToolStatus.error, output: 'failed output')),
+      ToolStep(run: tool('edit', {'path': 'note.txt', 'oldText': 'before', 'newText': 'after'})),
+    ]));
+    final command = tester.widget<Text>(find.byWidgetPredicate((widget) => widget is Text && widget.textSpan?.toPlainText().contains('echo ready') == true));
+    expect(command.style?.fontStyle, FontStyle.italic);
+    expect(tester.widget<Text>(find.text('failed output')).style?.fontStyle, FontStyle.italic);
+    expect(tester.widget<Text>(find.text('− before')).style?.fontStyle, FontStyle.italic);
+    expect(tester.widget<Text>(find.text('+ after')).style?.fontStyle, FontStyle.italic);
   });
 
   testWidgets('the terminal takes the page\'s colours by day and its own at night', (tester) async {

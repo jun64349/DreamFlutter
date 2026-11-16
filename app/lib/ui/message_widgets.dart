@@ -191,7 +191,8 @@ class _UserBubbleState extends State<_UserBubble> {
                 padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
                 decoration: BoxDecoration(color: colors.userBubble, borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomLeft: Radius.circular(16), bottomRight: Radius.circular(4))),
                 child: _FoldingText(text: question, style: context.text.bodyMedium?.copyWith(
-                  color: colors.onUserBubble, fontSize: 14, height: 1.6, letterSpacing: 0, wordSpacing: 0,
+                  fontFamily: AppTokens.kaiFamily, fontFamilyFallback: AppTokens.kaiFallback,
+                  fontStyle: FontStyle.normal, color: colors.onUserBubble, fontSize: 14, height: 1.6, letterSpacing: 0, wordSpacing: 0,
                 )),
               ),
             )),
@@ -567,7 +568,7 @@ class _ReplyView extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             for (final image in run.output.whereType<ImageBlock>()) InkWell(onTap: () => showImagePreview(context, image.data), child: ConstrainedBox(constraints: const BoxConstraints(maxHeight: 180), child: Image(image: memoryImageOf(image.data), fit: BoxFit.contain, gaplessPlayback: true, errorBuilder: (_, _, _) => const SizedBox(height: 180, child: Icon(Icons.broken_image_outlined))))),
             Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), decoration: BoxDecoration(border: Border(top: BorderSide(color: colors.hairline))),
-              child: Text([if (run.details['path'] is String) p.basename(run.details['path'] as String), '${run.args['command'] ?? run.name}'].join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted))),
+              child: Text([if (run.details['path'] is String) p.basename(run.details['path'] as String), '${run.args['command'] ?? run.name}'].join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted, fontStyle: AppTokens.processFontStyle))),
           ]),
         ))),
         _ScheduleSegment(:final run) => GoalScheduleNotice(id: '${run.details['scheduleId']}', created: run.details['action'] == 'created'),
@@ -883,25 +884,25 @@ class _WorkBlockState extends State<WorkBlock> {
                           Flexible(
                             child: Tooltip(message: widget.active && steps.lastOrNull is ToolRun && toolPath(steps.last as ToolRun) != null ? fullWorkspacePath(workspaceOf(context), toolPath(steps.last as ToolRun)!) : '', child: Text.rich(
                               TextSpan(children: [
-                                if (thoughtEnd > 0) TextSpan(text: headerText.substring(0, thoughtEnd), style: const TextStyle(fontStyle: FontStyle.italic)),
+                                if (thoughtEnd > 0) TextSpan(text: headerText.substring(0, thoughtEnd)),
                                 TextSpan(text: headerText.substring(thoughtEnd)),
                               ]),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.ink2),
+                              style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.ink2, fontStyle: AppTokens.processFontStyle),
                             )),
                           ),
                           if (widget.active && steps.length > 1) ...[
                             const SizedBox(width: 8),
-                            Text('前面 ${steps.length - 1} 步', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+                            Text('前面 ${steps.length - 1} 步', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted, fontStyle: AppTokens.processFontStyle)),
                           ],
                           if (errors > 0) ...[
                             const SizedBox(width: 8),
-                            Text('$errors 个出错', style: context.text.bodySmall?.copyWith(color: colors.danger)),
+                            Text('$errors 个出错', style: context.text.bodySmall?.copyWith(color: colors.danger, fontStyle: AppTokens.processFontStyle)),
                           ],
                           if (toolMs > 0 && !widget.active) ...[
                             const SizedBox(width: 8),
-                            Text(_seconds(toolMs), style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted)),
+                            Text(_seconds(toolMs), style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted, fontStyle: AppTokens.processFontStyle)),
                           ],
                           if (canExpand) ...[
                             const SizedBox(width: 8),
@@ -1063,7 +1064,7 @@ class _NarrationView extends StatelessWidget {
   Widget build(BuildContext context) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Padding(padding: const EdgeInsets.only(top: 3), child: Icon(Icons.chat_bubble_outline, size: 14, color: context.colors.muted)),
     const SizedBox(width: 8),
-    Expanded(child: SelectableText(text.trim().replaceAll(RegExp(r'\*\*|__|`'), ''), style: context.text.bodySmall?.copyWith(color: context.colors.ink2, height: 1.65))),
+    Expanded(child: SelectableText(text.trim().replaceAll(RegExp(r'\*\*|__|`'), ''), style: context.text.bodySmall?.copyWith(color: context.colors.ink2, height: 1.65, fontStyle: AppTokens.processFontStyle))),
   ]);
 }
 
@@ -1091,7 +1092,6 @@ class _ThinkingStepState extends State<_ThinkingStep> {
         _StepLine(
           icon: Icons.psychology_outlined,
           verb: label,
-          italic: true,
           onTap: part.redacted ? null : () => setState(() => _open = !_open),
           open: _open,
         ),
@@ -1110,7 +1110,7 @@ class _ThinkingStepState extends State<_ThinkingStep> {
 
 /// One step's line: icon, verb, subject, and its state at the end.
 class _StepLine extends StatelessWidget {
-  const _StepLine({required this.icon, required this.verb, this.subject, this.subjectPath, this.trailing, this.onTap, this.open, this.italic = false});
+  const _StepLine({required this.icon, required this.verb, this.subject, this.subjectPath, this.trailing, this.onTap, this.open});
 
   final IconData icon;
   final String verb;
@@ -1119,12 +1119,11 @@ class _StepLine extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final bool? open;
-  final bool italic;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12, color: colors.muted);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12, color: colors.muted, fontStyle: AppTokens.processFontStyle);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(context.radiusSm),
@@ -1134,7 +1133,7 @@ class _StepLine extends StatelessWidget {
           children: [
             Icon(icon, size: 14, color: colors.muted),
             const SizedBox(width: 8),
-            Text(verb, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.ink2, fontStyle: italic ? FontStyle.italic : FontStyle.normal)),
+            Text(verb, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.ink2, fontStyle: AppTokens.processFontStyle)),
             if (subject != null && subject!.isNotEmpty) ...[
               const SizedBox(width: 8),
               Expanded(child: subjectPath == null ? Text(subject!, maxLines: 1, overflow: TextOverflow.ellipsis, style: mono) : WorkspacePathLabel(path: subjectPath!, maxLines: 1, style: mono)),
@@ -1169,9 +1168,9 @@ class _ToolStepState extends State<ToolStep> {
     final colors = context.colors;
     final trailing = switch (run.status) {
       ToolStatus.running || ToolStatus.pending || ToolStatus.drafting => const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.4)),
-      ToolStatus.error => Text('出错', style: context.text.bodySmall?.copyWith(color: colors.danger)),
-      ToolStatus.interrupted => Text('已中断', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-      ToolStatus.done => Text(run.durationMs == null ? '' : _seconds(run.durationMs!), style: context.text.bodySmall?.copyWith(color: colors.muted)),
+      ToolStatus.error => Text('出错', style: context.text.bodySmall?.copyWith(color: colors.danger, fontStyle: AppTokens.processFontStyle)),
+      ToolStatus.interrupted => Text('已中断', style: context.text.bodySmall?.copyWith(color: colors.muted, fontStyle: AppTokens.processFontStyle)),
+      ToolStatus.done => Text(run.durationMs == null ? '' : _seconds(run.durationMs!), style: context.text.bodySmall?.copyWith(color: colors.muted, fontStyle: AppTokens.processFontStyle)),
     };
     switch (run.name) {
       case 'bash' || 'powershell' || 'pwsh':
@@ -1197,8 +1196,8 @@ class _ToolStepState extends State<ToolStep> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (added > 0) Text('+$added ', style: context.text.bodySmall?.copyWith(color: colors.accent)),
-                  if (removed > 0) Text('−$removed ', style: context.text.bodySmall?.copyWith(color: colors.danger)),
+                  if (added > 0) Text('+$added ', style: context.text.bodySmall?.copyWith(color: colors.accent, fontStyle: AppTokens.processFontStyle)),
+                  if (removed > 0) Text('−$removed ', style: context.text.bodySmall?.copyWith(color: colors.danger, fontStyle: AppTokens.processFontStyle)),
                   if (added > 0 || removed > 0) const SizedBox(width: 6),
                   trailing,
                 ],
@@ -1220,7 +1219,7 @@ class _ToolStepState extends State<ToolStep> {
             subject: toolSubject(run), subjectPath: toolPath(run),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
-              children: [if (lines > 0) Text('+$lines 行 ', style: context.text.bodySmall?.copyWith(color: colors.accent)), trailing],
+              children: [if (lines > 0) Text('+$lines 行 ', style: context.text.bodySmall?.copyWith(color: colors.accent, fontStyle: AppTokens.processFontStyle)), trailing],
             ),
             onTap: toggle,
             open: open,
@@ -1308,8 +1307,8 @@ class _SubagentStep extends StatelessWidget {
             if (run.status == ToolStatus.error)
               _OutputBox(text: run.outputText, error: true)
             else
-              ReplyMarkdown(text: run.outputText.isEmpty ? '（没有回复）' : run.outputText),
-            if (stats.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(stats, style: context.text.bodySmall?.copyWith(color: colors.muted))),
+              ReplyMarkdown(text: run.outputText.isEmpty ? '（没有回复）' : run.outputText, process: true),
+            if (stats.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(stats, style: context.text.bodySmall?.copyWith(color: colors.muted, fontStyle: AppTokens.processFontStyle))),
           ],
         ),
       ),
@@ -1411,6 +1410,7 @@ class TodoList extends StatelessWidget {
                     style: context.text.bodySmall?.copyWith(
                       color: todo.status == 'completed' ? colors.muted : colors.ink2,
                       decoration: todo.status == 'completed' ? TextDecoration.lineThrough : null,
+                      fontStyle: AppTokens.processFontStyle,
                       fontWeight: todo.status == 'in_progress' ? FontWeight.w600 : null,
                     ),
                   ),
@@ -1445,8 +1445,8 @@ class _PlanStepState extends State<_PlanStep> {
     final approved = run.details['approved'] == true;
     final open = _open ?? !approved;
     final status = switch (run.status) {
-      ToolStatus.done when approved => Text('已批准', style: context.text.bodySmall?.copyWith(color: colors.accent)),
-      ToolStatus.error => Text('继续修改', style: context.text.bodySmall?.copyWith(color: colors.muted)),
+      ToolStatus.done when approved => Text('已批准', style: context.text.bodySmall?.copyWith(color: colors.accent, fontStyle: AppTokens.processFontStyle)),
+      ToolStatus.error => Text('继续修改', style: context.text.bodySmall?.copyWith(color: colors.muted, fontStyle: AppTokens.processFontStyle)),
       _ => widget.trailing,
     };
     return Column(
@@ -1462,7 +1462,7 @@ class _PlanStepState extends State<_PlanStep> {
               color: colors.codeBackground,
               borderRadius: BorderRadius.circular(context.radius),
             ),
-            child: ReplyMarkdown(text: plan),
+            child: ReplyMarkdown(text: plan, process: true),
           ),
         if (run.status == ToolStatus.error && run.outputText.isNotEmpty) _OutputBox(text: run.outputText),
       ],
@@ -1493,6 +1493,7 @@ class _OutputBox extends StatelessWidget {
           style: TextStyle(
             fontFamily: AppTokens.monoFamily,
             fontFamilyFallback: AppTokens.monoFallback,
+            fontStyle: AppTokens.processFontStyle,
             fontSize: 12,
             height: 1.5,
             color: error ? colors.danger : colors.ink2,
@@ -1528,7 +1529,7 @@ class _TerminalStepState extends State<_TerminalStep> {
     final lines = output.isEmpty ? <String>[] : output.split('\n');
     const tail = 12;
     final hidden = _all ? 0 : (lines.length - tail).clamp(0, lines.length);
-    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12, height: 1.6);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontStyle: AppTokens.processFontStyle, fontSize: 12, height: 1.6);
     // The terminal follows the theme (0.4, test 32: a black block on the paper-coloured page stood out):
     // the code colours by day, the terminal's own at night.
     final night = Theme.of(context).brightness == Brightness.dark;
@@ -1652,7 +1653,7 @@ class _DiffViewState extends State<DiffView> {
     final colors = context.colors;
     const limit = 16;
     final lines = _all ? widget.lines : widget.lines.take(limit).toList();
-    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12, height: 1.55, color: colors.ink2);
+    final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontStyle: AppTokens.processFontStyle, fontSize: 12, height: 1.55, color: colors.ink2);
     return Container(
       decoration: BoxDecoration(color: colors.codeBackground, borderRadius: BorderRadius.circular(context.radius)),
       padding: const EdgeInsets.symmetric(vertical: 6),

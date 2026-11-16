@@ -376,3 +376,10 @@ test.6 包的结果见 [test.6 发布说明](../releases/v0.12.0-test.6.md) 和 
 5. 用户决定目录/替换与备份；默认不覆盖`E:\DreamFlutter测试版`或个人数据。交定稿用户清单，v0.6真实账号项可选且密钥自填。用户问题先修复复测，再进入v0.8。测试副本按已给用户的清理清单处理，不绕过既有删除拦截。
 
 </details>
+
+### T-143 三项追加反馈（D-28 至 D-30）
+
+- `home_quote_test` 和 T94 首页居中：按十二主题文化来源分组，英文斜体／译文／出处顺序与高度。
+- `work_block_test`、`markdown_view_test`、`subagent_step_test`、`t138_schedule_test`：完整过程、源码回退和巡检斜体，正式楷体与显式 Markdown 强调区分。
+- `context_usage_ring_test`、`r2_shell_test`、`composer_layout_test`、`t84_shell_test`、`chat_and_zoom_test`：占用比例升降、未知／0、减少动效、十二主题对比度，原切换／复制／输入布局行为保留。
+- `V1_ONLY=polish-…` 按确切场景名选择，原生图 `app/build/t143-polish/`；不要重跑全套。注入演示思考前先等待历史加载完成；直接替换演示统计后必须触发受测控件刷新，并断言真实显示值再截图。

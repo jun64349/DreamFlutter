@@ -12,6 +12,7 @@ import 'package:pi_rpc/pi_rpc.dart';
 
 import '../craft_style.dart';
 import 'craft_surface.dart';
+import 'context_usage_ring.dart';
 import '../state/mentions.dart';
 import '../state/agent_controller.dart' show AgentController, asJsonMap, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
 import '../state/side_chat.dart';
@@ -556,7 +557,7 @@ class _ComposerState extends State<Composer> {
                         minLines: widget.home ? 3 : 1,
                         maxLines: 8,
                         enabled: agent.isReady,
-                        style: context.text.bodyMedium?.copyWith(height: 1.6),
+                        style: context.text.bodyMedium?.copyWith(height: 1.6, fontFamily: AppTokens.kaiFamily, fontFamilyFallback: AppTokens.kaiFallback, fontStyle: FontStyle.normal),
                         decoration: InputDecoration(
                           hintText: agent.sandbox ? '交代一件事，或者只是聊聊' : _hints[_hintIndex % _hints.length],
                           border: InputBorder.none,
@@ -921,10 +922,8 @@ class _ContextRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final agent = AgentScope.of(context);
-    final colors = context.colors;
     final stats = agent.stats;
     final percent = stats.contextKnown ? stats.contextPercent : 0.0;
-    final color = percent >= 85 ? colors.danger : (percent >= 60 ? colors.warning : colors.accent);
     final known = stats.contextKnown && stats.contextWindow > 0;
     final tip = [
       known ? '上下文已用 ${percent.toStringAsFixed(percent < 10 ? 1 : 0)}%' : '上下文用量未知',
@@ -935,21 +934,14 @@ class _ContextRing extends StatelessWidget {
       child: Semantics(
         button: true,
         label: '上下文',
+        value: known ? '${percent.toStringAsFixed(1)}%' : '用量未知',
         child: InkWell(
           key: const ValueKey('context-ring'),
           customBorder: const CircleBorder(),
           onTap: agent.isReady ? agent.showContextPanel : null,
           child: Padding(
-            padding: const EdgeInsets.all(7),
-            child: SizedBox.square(
-              dimension: 16,
-              child: CircularProgressIndicator(
-                value: known ? (percent / 100).clamp(0.02, 1.0) : 0,
-                strokeWidth: 1.6,
-                color: known ? color : colors.muted,
-                backgroundColor: colors.muted,
-              ),
-            ),
+            padding: const EdgeInsets.all(6),
+            child: ContextUsageRing(value: known ? percent / 100 : null),
           ),
         ),
       ),

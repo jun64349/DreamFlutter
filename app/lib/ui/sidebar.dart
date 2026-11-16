@@ -252,15 +252,8 @@ class _PlaceSwitch extends StatelessWidget {
       child: Semantics(
         button: true,
         selected: selected,
-        child: AnimatedContainer(
-          duration: AppTokens.motion(context, AppTokens.medium),
-          curve: AppTokens.curve,
-          decoration: ShapeDecoration(
-            color: selected
-                ? colors.accent.withValues(alpha: .11)
-                : Colors.transparent,
-            shape: shape,
-          ),
+        child: CraftSelectionSurface(
+          selected: selected,
           child: CraftControlMark(
             geometry: geometry,
             color: selected
@@ -359,8 +352,8 @@ class _NavRow extends StatelessWidget {
       message: label,
       child: PressFeedback(
         enabled: onTap != null,
-        child: Material(
-          color: selected ? colors.accentSoft : Colors.transparent,
+        child: CraftSelectionSurface(selected: selected, child: Material(
+          color: Colors.transparent,
           shape: craftButtonShape(context.painting.craftGeometry),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -380,7 +373,7 @@ class _NavRow extends StatelessWidget {
               ]),
             ),
           ),
-        ),
+        )),
       ),
     );
   }
@@ -496,10 +489,10 @@ class _SidebarWorkspaceButtonState extends State<SidebarWorkspaceButton>{
       builder: (context, controller, _) => Tooltip(
         message: current.isEmpty ? '选择工作区（Ctrl + O）' : '$current（Ctrl + O 切换）',
         waitDuration: const Duration(milliseconds: 600),
-        // 原型 .ws：card 底、圆角 10、1px 细描边；赭色文件夹图标、13 号常规字、右边向下小箭头。
-        child: Material(
-          color: colors.card,
-          shape: craftSurfaceShape(context, radius: 10, borderColor: colors.border.withValues(alpha: .6)),
+        // The workspace shares the painting's selected surface, including in dark mode.
+        child: CraftSelectionSurface(child: Material(
+          color: Colors.transparent,
+          shape: craftButtonShape(context.painting.craftGeometry, radius: 10),
           child: InkWell(
             customBorder: craftButtonShape(context.painting.craftGeometry, radius: 10),
             onTap: () => controller.isOpen ? controller.close() : controller.open(),
@@ -523,7 +516,7 @@ class _SidebarWorkspaceButtonState extends State<SidebarWorkspaceButton>{
               ),
             ),
           ),
-        ),
+        )),
       ),
     );
   }
@@ -1095,9 +1088,8 @@ class _SessionTileState extends State<_SessionTile> {
         onSecondaryTapUp: (details) => _showMenu(details.globalPosition),
         child: Padding(
           padding: const EdgeInsets.only(bottom: 2),
-          child: Material(
-            // 原型 .conv：圆角 8；选中 accentSoft 底 + 左 2px 强调色条（v1-art.css），悬停淡底。
-            color: selected ? colors.accentSoft : (_hovered ? colors.ink.withValues(alpha: .04) : Colors.transparent),
+          child: CraftSelectionSurface(selected: selected, child: Material(
+            color: _hovered ? colors.ink.withValues(alpha: .04) : Colors.transparent,
             shape: craftButtonShape(context.painting.craftGeometry),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
@@ -1199,7 +1191,7 @@ class _SessionTileState extends State<_SessionTile> {
                 ),
               ),
             ),
-          ),
+          )),
         ),
       ),
     );

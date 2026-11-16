@@ -144,6 +144,7 @@ document.addEventListener('click',e=>{
  else if(a==='side')S.side=!S.side;
  else if(a==='right')S.right=!S.right;
  else if(a==='rtab')S.rtab=v;
+ else if(a==='context'){S.right=true;S.rtab='上下文';}
  else if(a==='rsection'){e.preventDefault();S.rClosed??={};S.rClosed[v]=!S.rClosed[v];}
  else if(a==='br')S.br=!S.br;
  else if(a==='wk')S.wk[v]=!(S.wk[v]??document.querySelector(`[data-a="wk"][data-v="${v}"]`).parentElement.classList.contains('open'));

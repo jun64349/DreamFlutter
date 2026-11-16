@@ -43,7 +43,11 @@ flutter:
     - assets/tray_icon.ico
     - assets/paper_noise.png
     - assets/fonts/OFL-MaShanZheng.txt
+    - assets/fonts/OFL-LXGWWenKai.txt
   fonts:
+    - family: LXGW WenKai
+      fonts:
+        - asset: assets/fonts/LXGWWenKai-Regular.ttf
     - family: Ma Shan Zheng
       fonts:
         - asset: assets/fonts/MaShanZheng-Regular.ttf

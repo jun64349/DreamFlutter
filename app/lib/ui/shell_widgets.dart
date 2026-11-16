@@ -396,18 +396,26 @@ class ShellButton extends StatelessWidget {
 
 /// The centred literary line and its source on the next line.
 class ShellQuoteLine extends StatelessWidget {
-  const ShellQuoteLine(this.line, this.source, {super.key});
+  const ShellQuoteLine(this.line, this.source, {super.key, this.translation, this.englishOriginal = false});
   final String line;
   final String source;
+  final String? translation;
+  final bool englishOriginal;
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 720),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(line, textAlign: TextAlign.center, style: context.handwriting(context.text.bodyMedium).copyWith(fontSize: 18, color: colors.ink2, height: 1.6)),
+      constraints: const BoxConstraints(maxWidth: 720, minHeight: 100),
+      child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+        Text(line, textAlign: TextAlign.center, style: englishOriginal
+            ? context.text.bodyMedium?.copyWith(fontFamily: 'Georgia', fontFamilyFallback: const ['Times New Roman', 'serif'], fontStyle: FontStyle.italic, fontSize: 18, color: colors.ink2, height: 1.5)
+            : context.text.bodyMedium?.copyWith(fontFamily: AppTokens.kaiFamily, fontFamilyFallback: AppTokens.kaiFallback, fontSize: 18, color: colors.ink2, height: 1.5)),
+        if (translation != null) ...[
+          const SizedBox(height: 3),
+          Text(translation!, textAlign: TextAlign.center, style: context.text.bodyMedium?.copyWith(fontFamily: AppTokens.kaiFamily, fontFamilyFallback: AppTokens.kaiFallback, fontSize: 16, color: colors.ink2, height: 1.5)),
+        ],
         const SizedBox(height: 4),
-        Text(source, textAlign: TextAlign.center, style: context.handwriting(context.text.bodySmall).copyWith(fontSize: 14, color: colors.muted, height: 1.6)),
+        Text(source, textAlign: TextAlign.center, style: context.text.bodySmall?.copyWith(fontFamily: AppTokens.kaiFamily, fontFamilyFallback: AppTokens.kaiFallback, fontSize: 14, color: colors.muted, height: 1.5)),
       ]),
     );
   }

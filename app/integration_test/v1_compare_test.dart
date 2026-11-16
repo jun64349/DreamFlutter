@@ -12,6 +12,7 @@ import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/setup_wizard.dart';
 import 'package:dreamflutter/ui/rich_blocks.dart';
 import 'package:dreamflutter/ui/message_widgets.dart' show WorkBlock;
+import 'package:dreamflutter/ui/context_usage_ring.dart';
 import 'package:dreamflutter/ui/web_surface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -233,7 +234,7 @@ void main() {
     final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: root.path), backend: demo.backend);
     final key = GlobalKey();
     final mode = dark ? 'dark' : 'light';
-    final shots = Directory(p.join(Directory.current.path, 'build', only.contains('review-') ? 't143-review' : 'v1_compare', mode))..createSync(recursive: true);
+    final shots = Directory(p.join(Directory.current.path, 'build', only.contains('polish-') ? 't143-polish' : only.contains('review-') ? 't143-review' : 'v1_compare', mode))..createSync(recursive: true);
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox());
       agent.dispose();
@@ -287,6 +288,77 @@ void main() {
     RichRenderer.configure(renderer.port);
     await tester.runAsync(agent.refreshSessions);
     await settle(8);
+    if (wanted.any((name) => name.startsWith('polish-'))) {
+      Future<void> theme(String id) async {
+        final painting = PaintingTheme.all.firstWhere((p) => p.id == id);
+        await agent.setPaintingTheme(painting);
+        await agent.setThemeMode(painting.isDark ? ThemeMode.dark : ThemeMode.light);
+        await settle();
+      }
+      for (final id in ['jiadie', 'caodie', 'youhua']) {
+        if (!wanted.contains('polish-home-$id')) continue;
+        await theme(id);
+        await shot('polish-home-$id');
+      }
+      if (wanted.contains('polish-butterfly-home')) {
+        await theme('youhua');
+        await tester.runAsync(() => agent.openButterfly());
+        await tester.runAsync(() => agent.butterfly!.newSession(forceNew: true));
+        await agent.butterfly!.setRunPanelOpen(false);
+        agent.showSection(AppSection.butterfly);
+        await shot('polish-butterfly-home');
+        agent.showSection(AppSection.chat);
+      }
+      if (wanted.any((name) => name.startsWith('polish-process-') || name.startsWith('polish-context-'))) {
+        await tester.runAsync(() => agent.openSession(demo.wbPath));
+        await agent.setRunPanelOpen(false);
+        await settle(8);
+        agent.transcript.items.whereType<AssistantItem>().first.parts.insert(0,
+          ThinkingPart('先核对文件和列名，再计算本周数据，保留原始资料以便复查。', durationMs: 5000));
+        await app();
+        tester.widget<CustomScrollView>(find.byKey(const ValueKey('conversation-list'))).controller!.jumpTo(0);
+        await settle();
+        await tester.tap(find.descendant(of: find.byType(WorkBlock).first, matching: find.byType(InkWell)).first);
+        await settle();
+        await tester.tap(find.text('思考 · 5 秒'));
+        await settle();
+        await tester.tap(find.descendant(of: find.byType(WorkBlock).first,
+          matching: find.textContaining('python scripts/summary.py')).first);
+        await settle();
+        for (final id in ['jiadie', 'youhua']) {
+          if (!wanted.contains('polish-process-$id')) continue;
+          await theme(id);
+          agent.active!.stats = const SessionStats(totalTokens: 59000, cost: .06, contextTokens: 59000, contextWindow: 128000, contextPercent: 46.09375);
+          await agent.setRunPanelOpen(true);
+          await agent.setRunPanelOpen(false);
+          await settle();
+          expect(tester.widget<ContextUsageRing>(find.byType(ContextUsageRing)).value, closeTo(.4609375, .0001));
+          await shot('polish-process-$id');
+        }
+        if (wanted.contains('polish-context-high')) {
+          await theme('youhua');
+          agent.active!.stats = const SessionStats(totalTokens: 117760, cost: .06, contextTokens: 117760, contextWindow: 128000, contextPercent: 92);
+          await app();
+          await tester.tap(find.byKey(const ValueKey('context-ring')));
+          await settle();
+          expect(agent.runPanelOpen, isTrue, reason: 'usage ring still opens the context panel');
+          await agent.setRunPanelOpen(false);
+          await shot('polish-context-high');
+        }
+      }
+      if (wanted.contains('polish-patrol')) {
+        await theme('jiadie');
+        agent.showSection(AppSection.schedules);
+        await settle();
+        await tester.tap(find.textContaining('巡检：').first);
+        await shot('polish-patrol');
+      }
+      if (filledNames.any(wanted.contains)) {
+        agent.showSection(AppSection.chat);
+        await tester.runAsync(() => agent.newSession(forceNew: true));
+        await settle();
+      }
+    }
     if (filledNames.any(wanted.contains)) {
       final appearance = agent.appearance.value;
       final input = find.byKey(const ValueKey('composer-input'));

@@ -13,6 +13,7 @@ import 'shell_widgets.dart';
 import 'composer.dart';
 import 'common.dart';
 import 'greetings.dart';
+import 'home_quote.dart';
 import 'markdown_view.dart' show FileLinks;
 import 'message_widgets.dart';
 import 'motion.dart';
@@ -242,7 +243,6 @@ class _EmptyState extends StatelessWidget {
     final now = DateTime.now();
     // Stable while this conversation is on screen, another line for the next one.
     final greeting = pickGreeting(now: now, seed: identityHashCode(agent.active) ^ now.day, butterfly: agent.sandbox);
-    final (line, source) = pickLiteraryLine(identityHashCode(agent.active));
     return Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 30, 20, 60),
@@ -257,7 +257,7 @@ class _EmptyState extends StatelessWidget {
                 // 原型 .brush：问候下面一笔横向的淡朱色晕（椭圆），不是一个点。
                 Container(width: 120, height: 10, decoration: BoxDecoration(borderRadius: const BorderRadius.all(Radius.elliptical(60, 5)), gradient: LinearGradient(colors: [context.colors.accentSoft.withValues(alpha: 0), context.colors.accentSoft, context.colors.accentSoft.withValues(alpha: 0)]))),
                 const SizedBox(height: 14),
-                ShellQuoteLine(line, source),
+                const HomeQuote(),
                 if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 24), const _FirstRunGuide()],
                 const SizedBox(height: 22),
                 Composer(dragging: dragging, home: true),
