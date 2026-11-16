@@ -111,7 +111,7 @@ class ShellCount extends StatelessWidget {
       child: Text(
         count,
         textAlign: TextAlign.center,
-        style: context.text.labelSmall?.copyWith(color: context.colors.seal.computeLuminance() > .179 ? Colors.black : Colors.white, fontSize: 12, fontFeatures: const [FontFeature.tabularFigures()]),
+        style: context.text.labelSmall?.copyWith(color: context.colors.seal.computeLuminance() > .179 ? Colors.black : Colors.white, fontSize: 12, fontFeatures: AppTokens.numberFeatures),
       ),
     ),
   );
@@ -405,7 +405,7 @@ class ShellQuoteLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 720, minHeight: 100),
+      constraints: const BoxConstraints(maxWidth: 720, minHeight: 120),
       child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
         Text(line, textAlign: TextAlign.center, style: englishOriginal
             ? context.text.bodyMedium?.copyWith(fontFamily: 'Georgia', fontFamilyFallback: const ['Times New Roman', 'serif'], fontStyle: FontStyle.italic, fontSize: 18, color: colors.ink2, height: 1.5)

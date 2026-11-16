@@ -156,8 +156,8 @@ class _SettingsPageState extends State<SettingsPage>{
       ]),
       _SettingsGroup('外观','brush',[
         const _Setting('明暗 浅色 深色 跟随系统',card:'明暗',SettingRow('明暗',desc:'跟随系统时，白天和夜里各用下面选的主题',child:ThemeModeControl())),
-        const _Setting('主题 白天 暖纸 蛱蝶 草蝶 羽化 神思 千蝶',card:'白天的主题',ThemePicker(brightness:Brightness.light)),
-        const _Setting('主题 夜里 暮色 墨夜 幽华 琉光 幻蝶 石青',card:'夜里的主题',ThemePicker(brightness:Brightness.dark)),
+        const _Setting('名作主题集 白天 暖纸 蛱蝶 草蝶 羽化 神思 千蝶',card:'名作主题集 · 白天',ThemePicker(brightness:Brightness.light)),
+        const _Setting('名作主题集 夜里 暮色 墨夜 幽华 琉光 幻蝶 石青',card:'名作主题集 · 夜里',ThemePicker(brightness:Brightness.dark)),
         const _Setting('纸 纹理 宣纸 棉纸 细颗粒 蝴蝶动起来',card:'纸',PaperSettings()),
       ],const []),
       _SettingsGroup('窗口与通知','window',[

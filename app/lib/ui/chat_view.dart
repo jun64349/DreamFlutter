@@ -257,7 +257,7 @@ class _EmptyState extends StatelessWidget {
                 // 原型 .brush：问候下面一笔横向的淡朱色晕（椭圆），不是一个点。
                 Container(width: 120, height: 10, decoration: BoxDecoration(borderRadius: const BorderRadius.all(Radius.elliptical(60, 5)), gradient: LinearGradient(colors: [context.colors.accentSoft.withValues(alpha: 0), context.colors.accentSoft, context.colors.accentSoft.withValues(alpha: 0)]))),
                 const SizedBox(height: 14),
-                const HomeQuote(),
+                HomeQuote(sessionToken: agent.active, sessionPath: agent.currentSessionPath, sessionId: agent.activeSessionId),
                 if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 24), const _FirstRunGuide()],
                 const SizedBox(height: 22),
                 Composer(dragging: dragging, home: true),

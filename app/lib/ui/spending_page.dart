@@ -85,7 +85,7 @@ class _SpendingPageState extends State<SpendingPage>{
         crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(name, style: context.text.bodySmall?.copyWith(fontSize: 12, height: 1.6, color: colors.muted)),
           FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(amount,
-            style: context.serif(context.text.headlineSmall).copyWith(fontSize: 24, fontWeight: FontWeight.w600, height: 1.6, fontFeatures: const [FontFeature.tabularFigures()]))),
+            style: context.serif(context.text.headlineSmall).copyWith(fontSize: 24, fontWeight: FontWeight.w600, height: 1.6, fontFeatures: AppTokens.numberFeatures))),
         ],
       ));
       return facts == null ? card : Tooltip(message: facts, child: card);

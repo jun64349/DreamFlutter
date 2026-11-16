@@ -83,7 +83,7 @@ class _AutoSaveFieldState extends State<AutoSaveField> {
         SizedBox(width:widget.number?(widget.unit==null?96:144):180,child:TextField(
           controller:_text,focusNode:_focus,textAlign:widget.number?TextAlign.right:TextAlign.left,
           keyboardType:keyboard,maxLength:widget.number?null:100,
-          style:TextStyle(fontSize:13,fontFeatures:widget.number?const [FontFeature.tabularFigures()]:null),
+          style:TextStyle(fontSize:13,fontFeatures:widget.number?AppTokens.numberFeatures:null),
           decoration:InputDecoration(
             isDense:true,contentPadding:const EdgeInsets.symmetric(horizontal:12,vertical:6),
             filled:true,fillColor:colors.sunk,border:border,enabledBorder:border,
@@ -323,7 +323,7 @@ class SettingMenu<T> extends StatelessWidget {
       builder: (context, menu, _) => TextButton(
         style: craftControlStyle(context, TextButton.styleFrom(
           foregroundColor:scheme.onSurface,backgroundColor:Theme.of(context).extension<AppColors>()?.sunk??scheme.surfaceContainerHighest,
-          textStyle:const TextStyle(fontSize:13,height:1.6,fontWeight:FontWeight.w400),minimumSize:Size(short?0:200,0),
+          textStyle:const TextStyle(fontFamily:AppTokens.fontFamily,fontFamilyFallback:AppTokens.fontFallback,fontSize:13,height:1.6,fontWeight:FontWeight.w400),minimumSize:Size(short?0:200,0),
           visualDensity:VisualDensity.standard,
           tapTargetSize:MaterialTapTargetSize.shrinkWrap,padding:const EdgeInsets.fromLTRB(12,6,10,6),
           shape:craftButtonShape(context.painting.craftGeometry, radius: 9),

@@ -197,6 +197,8 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   // 只拍几张：--dart-define=V1_ONLY=02-chat,04-plan（按名字开头匹配，逗号隔开）；拍齐就提前结束（用户 2026-11-16：别每次拍满）。
   const only = String.fromEnvironment('V1_ONLY');
+  const collectionPass = bool.fromEnvironment('V1_COLLECTION');
+  const numbersPass = bool.fromEnvironment('V1_NUMBERS');
   const craftThemes = ['jiadie', 'shensi'];
   const craftStates = ['empty', 'ready', 'running'];
   const craftScenes = ['home', 'chat', 'appearance'];
@@ -234,7 +236,7 @@ void main() {
     final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: root.path), backend: demo.backend);
     final key = GlobalKey();
     final mode = dark ? 'dark' : 'light';
-    final shots = Directory(p.join(Directory.current.path, 'build', only.contains('polish-') ? 't143-polish' : only.contains('review-') ? 't143-review' : 'v1_compare', mode))..createSync(recursive: true);
+    final shots = Directory(p.join(Directory.current.path, 'build', numbersPass ? 't143-numbers' : collectionPass ? 't143-collection' : only.contains('polish-') ? 't143-polish' : only.contains('review-') ? 't143-review' : 'v1_compare', mode))..createSync(recursive: true);
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox());
       agent.dispose();
@@ -257,7 +259,7 @@ void main() {
         final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
         final image = await boundary.toImage(pixelRatio: 1);
         final data = await image.toByteData(format: ui.ImageByteFormat.png);
-        final destination = name.startsWith('craft-scene-') || filledNames.contains(name)
+        final destination = !collectionPass && (name.startsWith('craft-scene-') || filledNames.contains(name))
             ? (Directory(p.join(Directory.current.path, 'build', 't143-review', 'light'))..createSync(recursive: true))
             : shots;
         File(p.join(destination.path, '$name.png')).writeAsBytesSync(data!.buffer.asUint8List(), flush: true);

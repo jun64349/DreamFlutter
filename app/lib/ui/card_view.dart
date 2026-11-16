@@ -29,7 +29,8 @@ Map<String, String> themeVarsOf(BuildContext context) {
   );
 }
 
-String themeCssOf(Map<String, String> vars) => ':root{${vars.entries.map((e) => '${e.key}:${e.value}').join(';')}}';
+String themeCssOf(Map<String, String> vars) => ':root{${vars.entries.map((e) => '${e.key}:${e.value}').join(';')}}'
+    '*{font-variant-numeric:lining-nums tabular-nums;font-feature-settings:"lnum" 1,"tnum" 1}';
 
 /// A card the agent showed, inside a reply: title bar with actions, the card below.
 class CardBlock extends StatefulWidget {
@@ -486,6 +487,7 @@ class _CardViewState extends State<CardView> {
       _surface = surface;
       _starting = false;
     });
+    if (_loaded) await surface.post({'type': 'df:theme', 'css': themeCssOf(_themeVars)});
   }
 
   Future<void> _stop() async {
@@ -523,6 +525,7 @@ class _CardViewState extends State<CardView> {
     switch (message['type']) {
       case 'shell:loaded':
         _loaded = true;
+        await _surface?.post({'type': 'df:theme', 'css': themeCssOf(_themeVars)});
         _scheduleCapture();
       case 'df:resize':
         final h = (message['height'] as num?)?.toDouble();

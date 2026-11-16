@@ -30,23 +30,26 @@ class AppTokens {
   /// Reading width of the conversation.
   static const contentMaxWidth = 720.0;
 
-  /// Interface text. Windows 11 ships Noto Sans SC / Noto Serif SC.
-  static const fontFamily = 'Noto Sans SC';
-  static const fontFallback = ['Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI'];
+  /// Georgia draws Latin letters; the bundled WenKai is the first Chinese fallback.
+  /// Keeping both in one stack also covers mixed Chinese and model names.
+  static const fontFamily = 'Georgia';
+  static const fontFallback = ['LXGW WenKai', 'KaiTi', 'STKaiti', 'Kaiti SC', 'SimKai', 'Times New Roman'];
 
-  /// Headings and the reply body.
-  static const serifFamily = 'Noto Serif SC';
-  static const serifFallback = ['Source Han Serif SC', 'Songti SC', 'SimSun', 'serif'];
+  /// Existing semantic names all use the same global face after D-31.
+  static const serifFamily = fontFamily;
+  static const serifFallback = fontFallback;
+  static const kaiFamily = fontFamily;
+  static const kaiFallback = fontFallback;
 
-  /// User and assistant conversation text. Bundled so it reads consistently on Windows.
-  static const kaiFamily = 'LXGW WenKai';
-  static const kaiFallback = ['KaiTi', 'STKaiti', 'Kaiti SC', 'SimKai', 'SimSun'];
+  // Georgia defaults to old-style figures. Use cap-height figures everywhere;
+  // request its tabular alternates for time, prices and other working numbers.
+  static const numberFeatures = [ui.FontFeature.liningFigures(), ui.FontFeature.tabularFigures()];
 
-  /// Process text keeps its existing sans or mono family, with a slanted shape.
+  /// Process text keeps the global or mono family, with a slanted shape.
   static const processFontStyle = FontStyle.italic;
 
   static const monoFamily = 'Cascadia Mono';
-  static const monoFallback = ['Consolas', 'Courier New', 'monospace'];
+  static const monoFallback = ['Consolas', 'Courier New', 'LXGW WenKai', 'KaiTi', 'STKaiti', 'monospace'];
 
   /// Letter spacing of small section labels (「今天」「步骤」).
   static const labelSpacing = 1.4;
@@ -60,7 +63,7 @@ class AppTokens {
   static const curve = Cubic(0.2, 0.7, 0.2, 1);
   static Duration motion(BuildContext context, Duration duration) =>
       MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
-  static const handwritingFamily = 'Ma Shan Zheng';
+  static const handwritingFamily = fontFamily;
 }
 
 /// Semantic colors not covered by [ColorScheme].
@@ -741,20 +744,33 @@ extension AppThemeContext on BuildContext {
   double get radius => painting.radius;
   double get radiusLg => painting.radiusLg;
 
-  /// [style] in the theme's heading and reply face (Song for Chinese).
+  /// [style] in the global Latin serif and bundled Chinese Kai stack.
   TextStyle serif(TextStyle? style) =>
-      (style ?? const TextStyle()).copyWith(fontFamily: painting.serifFamily, fontFamilyFallback: AppTokens.serifFallback,
+      (style ?? const TextStyle()).copyWith(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback,
+        fontFeatures: AppTokens.numberFeatures,
   );
 
   TextStyle handwriting(TextStyle? style) =>
       (style ?? const TextStyle()).copyWith(
         fontFamily: AppTokens.handwritingFamily,
-        fontFamilyFallback: AppTokens.serifFallback,
+        fontFamilyFallback: AppTokens.fontFallback,
+        fontFeatures: AppTokens.numberFeatures,
         fontWeight: FontWeight.w400,
       );
 
   /// A small spaced-out section label (「今天」「步骤」).
   TextStyle? get label => text.labelSmall?.copyWith(color: colors.muted, letterSpacing: painting.labelSpacing);
+}
+
+TextTheme _liningFigures(TextTheme text) {
+  TextStyle? figures(TextStyle? style) => style?.copyWith(fontFeatures: AppTokens.numberFeatures);
+  return text.copyWith(
+    displayLarge: figures(text.displayLarge), displayMedium: figures(text.displayMedium), displaySmall: figures(text.displaySmall),
+    headlineLarge: figures(text.headlineLarge), headlineMedium: figures(text.headlineMedium), headlineSmall: figures(text.headlineSmall),
+    titleLarge: figures(text.titleLarge), titleMedium: figures(text.titleMedium), titleSmall: figures(text.titleSmall),
+    bodyLarge: figures(text.bodyLarge), bodyMedium: figures(text.bodyMedium), bodySmall: figures(text.bodySmall),
+    labelLarge: figures(text.labelLarge), labelMedium: figures(text.labelMedium), labelSmall: figures(text.labelSmall),
+  );
 }
 
 /// The Material theme for [brightness], from [painting] (by default 「蛱蝶」
@@ -804,8 +820,8 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
     splashFactory: InkSparkle.splashFactory,
   );
   TextStyle? serif(TextStyle? s, {FontWeight weight = FontWeight.w600}) =>
-      s?.copyWith(fontFamily: t.serifFamily, fontFamilyFallback: AppTokens.serifFallback, fontWeight: weight, color: c.ink);
-  final text = base.textTheme.apply(bodyColor: c.ink, displayColor: c.ink);
+      s?.copyWith(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontWeight: weight, color: c.ink);
+  final text = _liningFigures(base.textTheme.apply(bodyColor: c.ink, displayColor: c.ink));
   final textTheme = text.copyWith(
     displayLarge: serif(text.displayLarge),
     displayMedium: serif(text.displayMedium),
@@ -824,6 +840,7 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
       _craftButtonStates(style, foreground: foreground, focus: foreground, duration: Duration.zero);
   return base.copyWith(
     textTheme: textTheme,
+    primaryTextTheme: _liningFigures(base.primaryTextTheme),
     dividerTheme: DividerThemeData(color: c.border, thickness: 0.5, space: 0.5),
     inputDecorationTheme: InputDecorationTheme(
       border: border,
@@ -836,7 +853,7 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
       fillColor: c.card,
       contentPadding: const EdgeInsets.symmetric(horizontal: AppTokens.pad, vertical: 10),
       isDense: true,
-      hintStyle: TextStyle(color: c.muted),
+      hintStyle: TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontFeatures: AppTokens.numberFeatures, color: c.muted),
     ),
     filledButtonTheme: FilledButtonThemeData(style: buttonStates(FilledButton.styleFrom(shape: buttonShape, elevation: 0), c.onAccent)),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -869,12 +886,12 @@ ThemeData buildTheme(Brightness brightness, {PaintingTheme? painting}) {
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 500),
       decoration: BoxDecoration(color: c.ink.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(t.radiusSm)),
-      textStyle: TextStyle(color: c.background, fontSize: 12),
+      textStyle: TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontFeatures: AppTokens.numberFeatures, color: c.background, fontSize: 12),
     ),
     // Notices follow the theme (a light bar on light themes), quiet and small (v0.3.1 test 1).
     snackBarTheme: SnackBarThemeData(
       backgroundColor: c.card,
-      contentTextStyle: TextStyle(color: c.ink, fontSize: 13),
+      contentTextStyle: TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontFeatures: AppTokens.numberFeatures, color: c.ink, fontSize: 13),
       actionTextColor: c.accent,
       elevation: 2,
       shape: surface,

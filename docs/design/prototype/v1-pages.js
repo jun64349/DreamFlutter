@@ -135,7 +135,7 @@ document.addEventListener('click',e=>{
  const t=e.target.closest('[data-a]');if(!t)return;
  const a=t.dataset.a,v=t.dataset.v;
  if(a==='close'){if(e.target.closest('[data-stop]')&&t.dataset.a==='close'&&t.classList.contains('scrim'))return;S.overlay=null;}
- else if(a==='go'){S.scene=v;S.overlay=null;if(v==='wizard')S.wz=0;}
+ else if(a==='go'){if(v==='home'&&t.matches('#side > .nav[data-v="home"]'))nextHomeQuoteSession();S.scene=v;S.overlay=null;if(v==='wizard')S.wz=0;}
  else if(a==='ov'){S.overlay=v;if(v==='settings'&&!S.setTab)S.setTab='通用';}
  else if(a==='space'){S.space=v;if(S.scene==='schedule'&&v==='wb')S.scene='home';}
  else if(a==='dark')S.dark=!S.dark;

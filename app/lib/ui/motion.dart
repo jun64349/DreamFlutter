@@ -229,7 +229,7 @@ class PressFeedback extends StatefulWidget {
 
 class _PressFeedbackState extends State<PressFeedback> with SingleTickerProviderStateMixin {
   late final _controller = AnimationController(vsync: this, duration: AppTokens.press);
-  late final _curve = CurvedAnimation(parent: _controller, curve: AppTokens.curve);
+  late final _curve = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic, reverseCurve: Curves.easeOutQuad);
 
   bool get _still => MediaQuery.disableAnimationsOf(context) || !TickerMode.valuesOf(context).enabled;
   void _down(PointerDownEvent event) { if (widget.enabled && !_still) _controller.forward(); }
@@ -239,6 +239,7 @@ class _PressFeedbackState extends State<PressFeedback> with SingleTickerProvider
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _controller.reverseDuration = Duration(milliseconds: context.painting.craftGeometry.name == 'curved' ? 140 : 110);
     if (_still) { _controller.stop(); _controller.value = 0; }
   }
 
@@ -248,6 +249,8 @@ class _PressFeedbackState extends State<PressFeedback> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     if (!widget.enabled || _still) return widget.child;
+    final theme = context.painting;
+    final pose = _pressPose(theme.id);
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: _down,
@@ -256,13 +259,71 @@ class _PressFeedbackState extends State<PressFeedback> with SingleTickerProvider
       child: AnimatedBuilder(
         animation: _curve,
         child: widget.child,
-        builder: (context, child) => Transform.translate(
-          offset: Offset(0, _curve.value),
-          child: Transform.scale(scale: 1 - .025 * _curve.value, alignment: Alignment.center, child: child),
-        ),
+        builder: (context, child) {
+          final amount = _curve.value;
+          return Transform.translate(
+            offset: Offset(pose.$1 * amount, pose.$2 * amount),
+            child: Transform.scale(
+              scaleX: 1 - pose.$3 * amount,
+              scaleY: 1 - pose.$4 * amount,
+              alignment: Alignment.center,
+              child: CustomPaint(
+                foregroundPainter: _CraftPressPainter(theme.id, context.colors.accent, amount),
+                child: child,
+              ),
+            ),
+          );
+        },
       ),
     );
   }
+}
+
+// A press leaves a brief material-specific mark; resting controls never loop.
+// (horizontal travel, vertical travel, horizontal compression, vertical compression)
+(double, double, double, double) _pressPose(String id) => switch (id) {
+  'yuhua' => (0, 1.8, .012, .012), // specimen pin seats vertically
+  'shiqing' => (.8, .8, .018, .018), // stone inlay seats diagonally
+  'liuguang' || 'huandie' => (0, .5, .012, .012), // glass changes light, barely moves
+  'caodie' || 'shensi' || 'qiandie' || 'youhua' => (1.1, .3, .018, .008),
+  _ => (0, 1.3, .025, .04), // seal pressed into paper
+};
+
+class _CraftPressPainter extends CustomPainter {
+  const _CraftPressPainter(this.id, this.color, this.amount);
+  final String id;
+  final Color color;
+  final double amount;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (amount <= 0 || size.width < 24 || size.height < 22) return;
+    final ink = Paint()..color = color.withValues(alpha: .65 * amount)
+      ..style = PaintingStyle.stroke..strokeWidth = 1.3..strokeCap = StrokeCap.round;
+    final x = size.width / 2, y = size.height - 3;
+    final span = (size.width * .2).clamp(4.0, 11.0) * amount;
+    switch (id) {
+      case 'yuhua':
+        canvas.drawLine(Offset(x - span, y), Offset(x + span, y), ink);
+        canvas.drawLine(Offset(x, y - 3), Offset(x, y + 1), ink);
+      case 'shiqing':
+        canvas.drawPath(Path()..moveTo(x - span, y - 2)..lineTo(x, y + 1)..lineTo(x + span, y - 2), ink);
+      case 'liuguang' || 'huandie':
+        for (var i = 0; i < 3; i++) {
+          final from = x - span + i * span * .75;
+          canvas.drawLine(Offset(from, y), Offset(from + span * .5, y), ink);
+        }
+      case 'caodie' || 'shensi' || 'qiandie' || 'youhua':
+        canvas.drawPath(Path()..moveTo(x - span, y - 2)..lineTo(x - span, y)..lineTo(x + span, y)..lineTo(x + span, y - 2), ink);
+      default:
+        canvas.drawPath(Path()..moveTo(x - span, y - 2)..quadraticBezierTo(x, y + 2, x + span, y - 2), ink);
+    }
+  }
+
+  @override
+  bool hitTest(Offset position) => false;
+  @override
+  bool shouldRepaint(_CraftPressPainter oldDelegate) => oldDelegate.id != id || oldDelegate.color != color || oldDelegate.amount != amount;
 }
 
 /// Shared switch timing, including a genuinely immediate reduced-motion pose.

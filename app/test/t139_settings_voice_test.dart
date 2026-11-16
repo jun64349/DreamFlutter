@@ -63,6 +63,7 @@ void main(){
     f.backend.useFixture('voice.keyStatus','configured');await t.tap(find.text('保存'));await settle(t);await t.pumpAndSettle();
     expect(f.backend.callsTo('voice.setKey').last,{'key':'T139_TEST_KEY'});expect(find.text('已填写'),findsOneWidget);expect(find.text('T139_TEST_KEY'),findsNothing);
     await t.tap(find.text('本机'));await settle(t);expect(f.backend.callsTo('settings.update').last,{'voiceMode':'local'});
+    await t.pump(const Duration(milliseconds:300)); // Let the closed key dialog dispose its field.
   });
   testWidgets('self-written skills adopt into current workspace and keep source mark',(t)async{
     final f=await mount(t,const ButterflySkills());expect(find.text('蝶君写的'),findsOneWidget);

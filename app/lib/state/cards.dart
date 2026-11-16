@@ -247,8 +247,10 @@ Map<String, String> cardThemeVars({
   '--border': border,
   '--accent': accent,
   '--chart': chart.join(','),
-  '--font-sans': "'Noto Sans SC','Microsoft YaHei UI',system-ui,sans-serif",
-  '--font-serif': "'Noto Serif SC','Source Han Serif SC','SimSun',serif",
+  // Web cards are served by Core; WebView cannot resolve Flutter's bundled font.
+  // Windows KaiTi is the local CJK fallback for their Georgia-led UI stack.
+  '--font-sans': "Georgia,KaiTi,STKaiti,'Kaiti SC',SimKai,serif",
+  '--font-serif': "Georgia,KaiTi,STKaiti,'Kaiti SC',SimKai,serif",
   '--color-scheme': dark ? 'dark' : 'light',
   // The reference placeholder layer reads these (placeholder-source.js).
   '--ink': fg,

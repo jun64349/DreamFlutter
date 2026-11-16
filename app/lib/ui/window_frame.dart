@@ -249,7 +249,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
                 style: TextButton.styleFrom(
                   foregroundColor: colors.ink, disabledForegroundColor: colors.muted, backgroundColor: colors.card,
                   padding: const EdgeInsets.symmetric(horizontal: 10), minimumSize: const Size(0, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  textStyle: const TextStyle(fontSize: 13),
+                  textStyle: const TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontSize: 13),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: colors.border.withValues(alpha: .6))),
                 ),
                 icon: const ProtoIcon('branch', size: 14),

@@ -343,7 +343,7 @@ void main() {
     await tester.runAsync(() async {
       final image = await boundary().toImage();
       final png = await image.toByteData(format: ui.ImageByteFormat.png);
-      File(p.join('build', 't143-review', 'craft-components.png'))
+      File(p.join('build', const bool.fromEnvironment('V1_COLLECTION') ? 't143-collection' : 't143-review', 'craft-components.png'))
         ..createSync(recursive: true)
         ..writeAsBytesSync(png!.buffer.asUint8List(), flush: true);
       image.dispose();

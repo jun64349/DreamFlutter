@@ -173,7 +173,7 @@ class _SchedulePageState extends State<SchedulePage> {
               padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
               decoration: BoxDecoration(color: s.selectedId == row['scheduleId'] ? colors.accentSoft.withValues(alpha: .45) : null, border: Border(top: BorderSide(color: colors.hairline))),
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SizedBox(width: 44, child: Text(scheduleTime(row['at']), style: small?.copyWith(fontSize: 13, height: 1.6, color: colors.muted, fontFeatures: const [FontFeature.tabularFigures()]))),
+                SizedBox(width: 44, child: Text(scheduleTime(row['at']), style: small?.copyWith(fontSize: 13, height: 1.6, color: colors.muted, fontFeatures: AppTokens.numberFeatures))),
                 const SizedBox(width: 10),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${schedule['name'] ?? ''}', style: context.text.bodyMedium?.copyWith(fontSize: 13, height: 1.6)),

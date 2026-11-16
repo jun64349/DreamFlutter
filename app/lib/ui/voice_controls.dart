@@ -16,7 +16,7 @@ class VoiceRecordingBar extends StatelessWidget {
       const SizedBox(width: 4),
       Expanded(child: SizedBox(height: 26, child: CustomPaint(painter: _VoiceWave(voice.level, voice.seconds, colors.seal)))),
       const SizedBox(width: 10),
-      Text('${voice.seconds ~/ 60}:${(voice.seconds % 60).toString().padLeft(2, '0')}', style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.seal, fontFeatures: const [FontFeature.tabularFigures()])),
+      Text('${voice.seconds ~/ 60}:${(voice.seconds % 60).toString().padLeft(2, '0')}', style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: colors.seal, fontFeatures: AppTokens.numberFeatures)),
       const SizedBox(width: 4),
       IconButton(tooltip: '取消录音', visualDensity: VisualDensity.compact, onPressed: voice.cancel, icon: Icon(Icons.close, size: 17, color: colors.ink2)),
       SizedBox.square(dimension: 30, child: IconButton.filled(

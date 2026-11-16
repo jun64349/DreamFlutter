@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
+import '../theme.dart';
 import '../state/agent_controller.dart';
 import 'agent_scope.dart';
 import 'settings_controls.dart' show SettingMenu;
@@ -76,7 +77,7 @@ class _LedgerTableState extends State<LedgerTable> {
     final source='${row['amount_source']}';
     return '${symbol(row['currency'])}${_amount(row['amount'] as num)}${source.contains('estimate')?'（估算）':''}';
   }
-  Widget _cell(String value, {double? width, bool oneLine = false, bool right = false}) => width == null ? Text(value) : SizedBox(width: width, child: oneLine ? Tooltip(message: value, child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: right ? TextAlign.right : null, style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]))) : SelectableText(value));
+  Widget _cell(String value, {double? width, bool oneLine = false, bool right = false}) => width == null ? Text(value) : SizedBox(width: width, child: oneLine ? Tooltip(message: value, child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: right ? TextAlign.right : null, style: const TextStyle(fontFeatures: AppTokens.numberFeatures))) : SelectableText(value));
   @override
   Widget build(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

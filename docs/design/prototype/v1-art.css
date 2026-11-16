@@ -241,11 +241,11 @@ input[type="range"]:active::-webkit-slider-thumb{transform:scale(1.16)}
 
 /* 2026-11-16: message type, theme quotation, and context usage. */
 @font-face{font-family:'LXGW WenKai';src:url('../../../app/assets/fonts/LXGWWenKai-Regular.ttf') format('truetype');font-display:swap}
-.u .b,.a .body,.composer textarea{font-family:'LXGW WenKai',var(--serif);font-style:normal}
+.u .b,.a .body,.composer textarea{font-family:var(--serif);font-style:normal}
 .a .body blockquote{font-style:inherit}
 .a.process .body{font-family:var(--sans);font-style:italic}
 .wk,.wk button,.wk .st,.wk .p,.wk .code,.wk .diff,.approve .diff{font-style:italic}
-.quote{min-height:100px;display:flex;flex-direction:column;justify-content:center;font-family:'LXGW WenKai',var(--serif);font-size:18px;line-height:1.5}
+.quote{min-height:120px;display:flex;flex-direction:column;justify-content:center;font-family:var(--serif);font-size:18px;line-height:1.5}
 .quote-en{font-family:Georgia,'Times New Roman',serif;font-style:italic}
 .quote-translation{display:block;font-size:16px;margin-top:3px}
 .quote cite{font-family:'LXGW WenKai',var(--serif);font-size:14px;line-height:1.5;margin-top:4px;font-style:normal}
@@ -263,3 +263,26 @@ input[type="range"]:active::-webkit-slider-thumb{transform:scale(1.16)}
 [data-theme="dark"] .craft-ornament.selection{opacity:.32}
 @media(prefers-reduced-motion:reduce){.context-ring{transition:none}}
 :root[data-motion="off"] .context-ring{transition:none}
+
+/* T-143 D-33: one press, different material response; no idle loop. */
+:root{--press-x:0px;--press-y:1.3px;--press-sx:.975;--press-sy:.96;--press-release:140ms}
+:is([data-art="caodie"],[data-art="shensi"],[data-art="qiandie"],[data-art="youhua"]){--press-x:1.1px;--press-y:.3px;--press-sx:.982;--press-sy:.992;--press-release:110ms}
+[data-art="yuhua"]{--press-y:1.8px;--press-sx:.988;--press-sy:.988;--press-release:110ms}
+[data-art="shiqing"]{--press-x:.8px;--press-y:.8px;--press-sx:.982;--press-sy:.982}
+:is([data-art="liuguang"],[data-art="huandie"]){--press-y:.5px;--press-sx:.988;--press-sy:.988;--press-release:110ms}
+:is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard){transition:transform var(--press-release) ease-out,background-color 140ms ease-out,border-color 140ms ease-out}
+:is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard):not(:disabled):active{transform:translate(var(--press-x),var(--press-y)) scale(var(--press-sx),var(--press-sy));transition-duration:100ms}
+@media(prefers-reduced-motion:reduce){:is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard):not(:disabled):active{transform:none}}
+:root[data-motion="off"] :is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard):not(:disabled):active{transform:none}
+/* The same short lower-edge marks as Flutter _CraftPressPainter. */
+:root{--press-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Cpath d='M1 3Q12 7 23 3' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E")}
+:is([data-art="caodie"],[data-art="shensi"],[data-art="qiandie"],[data-art="youhua"]){--press-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Cpath d='M1 3V5H23V3' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E")}
+[data-art="yuhua"]{--press-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Cpath d='M1 5H23M12 2V6' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E")}
+[data-art="shiqing"]{--press-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Cpath d='M1 3L12 6L23 3' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E")}
+:is([data-art="liuguang"],[data-art="huandie"]){--press-mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 8'%3E%3Cpath d='M1 5H6.5M9.25 5H14.75M17.5 5H23' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E")}
+:is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard):not(:disabled):active::after{content:""!important;position:absolute;inset:auto!important;left:50%!important;bottom:0!important;width:clamp(8px,40%,22px)!important;height:8px!important;transform:translateX(-50%)!important;opacity:.65!important;border:0!important;border-radius:0!important;background:var(--accent)!important;mask:var(--press-mark) center/100% 100% no-repeat;pointer-events:none}
+@media(prefers-reduced-motion:reduce){:is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard):not(:disabled):active::after{content:none!important}}
+:root[data-motion="off"] :is(.ib,.btn,.send,.pill,.chip,.nav,.conv,.seg button,.tcard):not(:disabled):active::after{content:none!important}
+
+/* D-35: aligned working figures; keep the existing typefaces. */
+*{font-variant-numeric:lining-nums tabular-nums;font-feature-settings:"lnum" 1,"tnum" 1}

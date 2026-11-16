@@ -143,13 +143,18 @@ function composer(o={}){
 /* ---------- home ---------- */
 function vHome(){
  const wb=S.space==='wb';
+ const quoteCulture=['warm','muse','jiadie','moye','shiqing'].includes(curTheme().id)?'zh':'en';
+ const quote=currentHomeQuote(quoteCulture);
+ const quoteHtml=quoteCulture==='zh'
+  ? `${esc(quote[0])}<cite>${esc(quote[1])}</cite>`
+  : `<span class="quote-en">${esc(quote[0])}</span><span class="quote-translation">${esc(quote[1])}</span><cite>${esc(quote[2])}</cite>`;
  const greet=wb?['晨安，小周','让念头，开始飞翔','今天也一起把事做完'][S.tip%3]:'交给我吧，你去忙别的';
  const ex=wb?['整理这个文件夹里的资料','帮我读懂这段代码','一起梳理今天的工作','对比这几份资料的差别','把这篇文章整理成摘要']:['每周一帮我整理上周的组会纪要','把这 30 篇文献统一成 GB/T 7714 格式','查一下三款温湿度传感器，列个对比表','把这份资料整理成摘要','明天下午三点提醒我交报告'];
  return {main:`<div class="top"><span class="sp"></span>${S.right?'':`<button class="ib" title="详情" data-a="right">${ic('panel')}</button>`}</div>
  <div class="scroll"><div class="home"><div class="wash"></div><div class="artmotif">${motif(curTheme().id)}</div>
   <div class="home-mark">${bf(104,'home-breathe')}</div>
   <div class="greet inkgreet">${greet}</div><div class="brush"></div>
-  <div class="quote">${['warm','muse','jiadie','moye','shiqing'].includes(curTheme().id)?'至人无己，神人无功，圣人无名。<cite>《庄子·逍遥游》</cite>':'<span class="quote-en">We are such stuff as dreams are made on.</span><span class="quote-translation">我们也是梦织成的。</span><cite>莎士比亚《暴风雨》第四幕第一场</cite>'}</div>
+  <div class="quote">${quoteHtml}</div>
   ${composer({ph:wb?undefined:'交代一件事，或者只是聊聊'})}
   <div class="chips">${ex.map(e=>`<button class="chip" data-a="fill" data-v="${esc(e)}">${e}</button>`).join('')}</div>
  </div></div>`,right:null};

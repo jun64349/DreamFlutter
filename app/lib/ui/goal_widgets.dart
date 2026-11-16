@@ -294,7 +294,7 @@ class GoalQuestions extends StatelessWidget {
         Row(children: [
           Icon(Icons.info_outline, size: 16, color: colors.accent), const SizedBox(width: 8),
           Expanded(child: Text(title, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w500))),
-          if (remaining != null && recommended != null) Text('${remaining ~/ 60}:${(remaining % 60).toString().padLeft(2, '0')} 后按「${clean(recommended).split(' — ').first}」继续', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted, fontFeatures: const [FontFeature.tabularFigures()])),
+          if (remaining != null && recommended != null) Text('${remaining ~/ 60}:${(remaining % 60).toString().padLeft(2, '0')} 后按「${clean(recommended).split(' — ').first}」继续', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted, fontFeatures: AppTokens.numberFeatures)),
         ]),
         if (options.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [for (final o in options) option(o)]))),
         Padding(padding: const EdgeInsets.only(top: 8), child: Row(children: [

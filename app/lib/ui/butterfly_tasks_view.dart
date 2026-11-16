@@ -41,7 +41,7 @@ class ButterflyTasksHome extends StatelessWidget {
             const SizedBox(height: 16),
             Container(width: 120, height: 10, decoration: BoxDecoration(borderRadius: const BorderRadius.all(Radius.elliptical(60, 5)), gradient: LinearGradient(colors: [context.colors.accentSoft.withValues(alpha: 0), context.colors.accentSoft, context.colors.accentSoft.withValues(alpha: 0)]))),
             const SizedBox(height: 14),
-            const HomeQuote(),
+            HomeQuote(sessionToken: tasks.worker?.active, sessionPath: tasks.worker?.currentSessionPath, sessionId: tasks.worker?.activeSessionId),
             const SizedBox(height: 22),
             const Composer(home: true),
             const SizedBox(height: 14),

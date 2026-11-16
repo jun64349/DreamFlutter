@@ -62,7 +62,12 @@ void main() {
     );
     expect(captured.painting, PaintingTheme.yuhua);
     expect(captured.radius, 2);
-    expect(captured.serif(null).fontFamily, 'Sitka Heading');
+    expect(captured.serif(null).fontFamily, AppTokens.fontFamily);
+    expect(captured.serif(null).fontFamilyFallback?.first, 'LXGW WenKai');
+    expect(captured.handwriting(null).fontFamily, AppTokens.fontFamily);
+    expect(captured.text.bodyMedium?.fontFamily, AppTokens.fontFamily);
+    expect(captured.text.headlineSmall?.fontFamily, AppTokens.fontFamily);
+    expect(Theme.of(captured).tooltipTheme.textStyle?.fontFamily, AppTokens.fontFamily);
     expect(captured.colors.accent, PaintingTheme.yuhua.colors.accent);
     expect(find.text('Tab. LVIII'), findsOneWidget);
 

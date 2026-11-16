@@ -153,7 +153,7 @@ class _DonutChartState extends State<DonutChart> {
               const SizedBox(width: 8),
               if (total > 0) Text(
                 '${(widget.values[i] * 100 / total).round()}%',
-                style: context.text.bodySmall?.copyWith(fontSize: 12.5, height: 1.6, color: colors.muted, fontFeatures: const [FontFeature.tabularFigures()]),
+                style: context.text.bodySmall?.copyWith(fontSize: 12.5, height: 1.6, color: colors.muted, fontFeatures: AppTokens.numberFeatures),
               ),
             ]),
           ),

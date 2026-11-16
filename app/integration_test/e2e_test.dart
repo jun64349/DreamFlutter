@@ -208,20 +208,20 @@ void main() {
     final saved=asJsonMap(await h.rpc('memory.save',{'content':'实验周报每周三发','scope':'workspace','cwd':h.workspace,'kind':'background'}));final item=asJsonMap(saved['item']);
     await h.rpc('memory.save',{'content':'偏好简短回答','scope':'global','kind':'background'});
     await h.tap(tester,nav('记忆'));await h.wait(tester,()=>find.byKey(ValueKey('memory-content-${item['id']}')).evaluate().isNotEmpty);
-    for(final group in ['关于你','关于这个项目','蝶君自己的']){expect(find.text(group),findsOneWidget);}
+    for(final group in ['关于你','项目','蝶君自己记的']){expect(find.widgetWithText(ChoiceChip,group),findsOneWidget);}
     final input=find.byKey(ValueKey('memory-content-${item['id']}'));
-    await tester.enterText(input,'实验周报每周五发');await h.tap(tester,find.text('记下的事'));
+    await tester.enterText(input,'实验周报每周五发');await h.tap(tester,find.text('梦君记'));
     await h.wait(tester,()=>tester.widget<TextField>(input).controller!.text=='实验周报每周五发');
     expect(asJsonMap(asJsonMap(await h.rpc('memory.item',{'id':item['id']}))['item'])['content'],'实验周报每周五发');
     final row=find.ancestor(of:input,matching:find.byType(MemoryEditableEntry));
-    await h.tap(tester,find.descendant(of:row,matching:find.byIcon(Icons.delete_outline)));
+    await h.tap(tester,find.descendant(of:row,matching:find.byTooltip('删除记忆')));
     await h.tap(tester,find.text('撤销').last);await h.wait(tester,()=>input.evaluate().isNotEmpty);
     await h.tap(tester,find.text('最近'));await h.wait(tester,()=>find.textContaining('实验周报').evaluate().isNotEmpty);
     await h.tap(tester,nav('工作台'));
     await h.script([{'tools':[tool('memory_update',{'id':item['id'],'content':'实验周报每周四发','explicit':true})]},{'text':'已改为每周四发实验周报。'}]);await h.send(tester,'这条不对，我的实验周报每周四发。');
     await h.hoverAnswer(tester);await h.wait(tester,()=>find.text('已更新记忆').evaluate().isNotEmpty);
     final receipts=(await h.rpc('memory.corrections',{'sessionId':h.agent.activeSessionId}) as List).cast<Map>();expect(receipts.single['status'],'applied');
-    final receiptRow=find.ancestor(of:find.text('已更新记忆'),matching:find.byType(Row)).first;
+    final receiptRow=find.ancestor(of:find.text('已更新记忆'),matching:find.byType(Wrap)).first;
     await h.tap(tester,find.descendant(of:receiptRow,matching:find.text('撤销')));
     expect(asJsonMap(asJsonMap(await h.rpc('memory.item',{'id':item['id']}))['item'])['content'],'实验周报每周五发');
   });
@@ -229,10 +229,12 @@ void main() {
   scenario('4.12','蝶园合并技能、服务测试与工具开关、链接待确认及新对话草稿',(tester,h) async {
     final seeded=asJsonMap(await h.rpc('test.library'));
     await h.tap(tester,nav('技能'));await h.wait(tester,()=>find.text('实验周报').evaluate().isNotEmpty);
-    expect(find.text('任务模板'),findsNothing);expect(find.text('MCP 服务'),findsNothing);expect(find.text('可用'),findsNothing);expect(find.text('已停用'),findsNothing);
+    for(final oldTab in ['任务模板','MCP 服务','可用','已停用']){expect(find.widgetWithText(TextButton,oldTab),findsNothing);}
+    await h.tap(tester,find.widgetWithText(TextButton,'连接的服务'));
     final list=find.descendant(of:find.byType(GardenPage),matching:find.byType(Scrollable)).first;
-    await tester.scrollUntilVisible(find.text('lab-notes'),220,scrollable:list);
-    await h.tap(tester,find.text('lab-notes').first);await h.tap(tester,find.text('测试连接'));
+    Finder listItem(String name)=>find.descendant(of:list,matching:find.text(name));
+    await tester.scrollUntilVisible(listItem('lab-notes'),220,scrollable:list);
+    await h.tap(tester,listItem('lab-notes'));await h.tap(tester,find.text('测试连接'));
     await h.wait(tester,()=>find.text('连接成功').evaluate().isNotEmpty);expect(find.text('read_notes'),findsOneWidget);
     await h.tap(tester,find.text('read_notes'));
     final servers=asJsonMap(await h.rpc('mcp.list',{'cwd':h.workspace}))['servers'] as List;expect((((servers.single as Map)['tools'] as List).single as Map)['enabled'],false);
@@ -251,7 +253,7 @@ void main() {
     await h.tap(tester,find.text('新建'));await h.tap(tester,find.text('从链接导入'));
     await tester.enterText(find.byWidgetPredicate((w)=>w is TextField&&w.decoration?.labelText=='链接'),seeded['url'] as String);await h.tap(tester,find.widgetWithText(FilledButton,'导入'));
     await h.wait(tester,()=>find.byType(AlertDialog).evaluate().isEmpty);
-    await tester.scrollUntilVisible(find.text('link-check'),-220,scrollable:list);await h.tap(tester,find.text('link-check').first);
+    await tester.scrollUntilVisible(listItem('link-check'),-220,scrollable:list);await h.tap(tester,listItem('link-check'));
     expect(find.text('去等你处理'),findsOneWidget);expect(find.text('采用'),findsNothing);expect(find.text('等你确认'),findsWidgets);
     final imported=(await h.rpc('skills.list',{'cwd':h.workspace}) as List).cast<Map>().firstWhere((row)=>row['name']=='link-check');expect(imported['enabled'],false);expect(imported['trust'],'untrusted');
     await h.rpc('skills.import',{'folder':seeded['folder']});

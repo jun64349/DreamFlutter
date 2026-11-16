@@ -119,6 +119,8 @@ void main() {
     final vars = cardThemeVars(fg: '#111111', muted: '#222222', bg: '#333333', surface: '#444444', border: '#555555', accent: '#666666', chart: ['#777777', '#888888'], dark: false);
     expect(themeCssOf(vars), startsWith(':root{--fg:#111111;'));
     expect(vars['--chart'], '#777777,#888888');
+    expect(vars['--font-sans'], startsWith('Georgia,KaiTi'));
+    expect(vars['--font-serif'], vars['--font-sans']);
     expect(AppTokens.radius, greaterThan(0));
   });
 }

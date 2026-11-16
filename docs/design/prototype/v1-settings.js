@@ -26,8 +26,8 @@ function sBody(t){
   const tc=x=>{const v=x.v||{};const bg=v.bg||(x.dark?'#26221E':'#F7F3EB'),ink=v.ink||(x.dark?'#F0E5D6':'#392F2A'),ac=v.accent||(x.dark?'#E6A17A':'#A54C28');const cur=x.dark?S.night:S.day;
    return `<div class="tcard ${cur===x.id?'on':''}" style="background:${bg};color:${ink}" data-art="${x.id}" data-a="theme" data-v="${x.id}"><i class="tmotif">${motif(x.id)}</i><b>${x.name}${x.isNew?' <span style="font:500 10px var(--sans);color:'+ac+'">新</span>':''}</b><span style="color:${ac}">${x.work}</span></div>`;};
   return `${sh('明暗')}${card(row('明暗',seg(['浅色','深色','跟随系统'],S.dark?'深色':'浅色','mode'),{d:'跟随系统时，白天和夜里各用下面选的主题'}))}
-  ${sh('白天的主题','<small>点一下马上换</small>')}<div class="tgrid">${TH.filter(x=>!x.dark).map(tc).join('')}</div>
-  ${sh('夜里的主题')}<div class="tgrid">${TH.filter(x=>x.dark).map(tc).join('')}</div>
+  ${sh('名作主题集 · 白天')}<div class="tgrid">${TH.filter(x=>!x.dark).map(tc).join('')}</div>
+  ${sh('名作主题集 · 夜里')}<div class="tgrid">${TH.filter(x=>x.dark).map(tc).join('')}</div>
   ${sh('纸')}${card(`<div class="prev">昔者庄周梦为胡蝶，栩栩然胡蝶也。</div>${row('纸质纹理',seg(['关','宣纸','棉纸','细颗粒'],'宣纸'),{d:'给背景和卡片加一点纸的质感'})}${row('纹理强度','<input type="range" min="0" max="10" value="5" style="width:180px;accent-color:var(--accent)">',{cls:'sub'})}${row('蝴蝶动起来',tg(S.motion,'motion'),{d:'等回复时扇翅、呼吸。关掉后装饰和蝴蝶都静止'})}`)}`;}
  case '窗口与通知':return `${sh('窗口')}${card(`${row('关窗口时',seg(['缩到托盘','退出'],'缩到托盘'),{d:'缩到托盘时，蝶君的事继续做'})}${row('开机启动',tg(false))}${row('只开一个窗口',tg(true),{d:'再次双击图标时，把已有窗口调到前面'})}`)}
   ${sh('通知')}${card(`${row('系统通知',tg(true))}${row('蝶君做完了',tg(true),{cls:'sub'})}${row('蝶君卡住、等你决定',tg(true),{cls:'sub'})}${row('工作台要你批准',tg(true),{cls:'sub'})}${row('工作台回复完了',sel('窗口不在前面时','short'),{cls:'sub'})}`)}`;

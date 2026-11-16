@@ -97,7 +97,7 @@ class SettingsHeadLink extends StatelessWidget {
         minimumSize: const Size(0, 24),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         visualDensity: VisualDensity.compact,
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
+        textStyle: const TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontSize: 13, fontWeight: FontWeight.w400),
       ),
       icon: const ProtoIcon('plus', size: 13),
       label: Text(label),
