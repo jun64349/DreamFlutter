@@ -1,13 +1,15 @@
 # DreamFlutter 开发交接
 
-**2026-11-16：0.12.1+16 本地收尾获授权，停在真实验证之前（当前状态）**
+**2026-11-16：0.12.1+16 本地收尾完成，停在真实验证之前（当前状态）**
 
 - 用户试用后的七项修正已完成：150% 右键定位、数值档位与自定义、外观默认值、工作台与蝶君分开通知、页内新增渠道与模型组、数据安全顺序及折叠、舒适字号缩放基准。定向验证通过，细节见 [试用反馈修正](releases/v0.12-试用反馈修正.md)；11 张原生窗口图入口 `app/build/trial-feedback/index.html`。不重复已完成的全量检查。
-- 用户已授权本地提交、打包、记录进度和交接。目标版本 **0.12.1+16**，计划产物 `dist/v0.12.1/DreamFlutter` 与 zip；最终提交哈希、构建及包体核验结果待本轮收尾回填，不能预先写成已完成。旧 0.12.0+15 包及 53b2204 是前版记录。不推送、不打标签、不切分支。
+- 0.12.1+16 已完成本地提交和打包。代码提交 `55c4d49`；便携目录 `dist/v0.12.1/DreamFlutter`，压缩包 `dist/v0.12.1/DreamFlutter-0.12.1-windows-x64.zip`（1,128,156,049 字节，约 1.05 GiB）。19,598 个文件逐项大小及 CRC 校验通过；SHA-256：`F3B7F4CED6CD0FD68879C1D17A697DF3F56E3B240D1B101E5B0A3192FEE5A710`。包内 RELEASE.json 记录代码提交，校验文件在 zip 旁边。Release 启动界面与正常关闭复核通过，退出码 0，新包路径下无残留进程。未推送、未打标签、未切分支；真实 API 验证保持暂停，等用户恢复并提供指定测试配置和预算。
 - 用户最新顺序：先修本批 → 提前通知并接用户提供的 API 做真实完整任务验证 → 安装升级 → 性能包体 → 降低上手门槛 → 1.0 和朋友内测。不得把离线/模拟测试当成真实 API 验收，不使用既有私人渠道密钥。
 - 用户此前明确「做到真实验证环节前就可以停下，过两天再进行开发」，这项停点仍有效。下次从 [真实任务验证计划](releases/v0.13-真实任务验证计划.md) 接上，等用户恢复并提供本轮指定的 API 配置及预算；不提前调用真实 API、不自动继续安装升级。下一主题集仍只有调研样稿。
 
 **下一窗口可直接复制的开工提示**
+
+本轮代码提交为 `55c4d49`（47 个文件）；包内 RELEASE.json 使用该完整提交号。最终归档和文档回执提交另记在本页收尾结果中。`app/build/trial-feedback/` 和 `app/build/trial-release/` 是本机证据，不随 Git；清理 build 前先转存。工作树保留的 7 个无关研究文件不属于本版，不要顺手提交或删除：`docs/design/memory-kb-notes.md`、`docs/research/agent-memory-large-corpus.md`、`docs/research/agent-memory-large-corpus-research-prompt.md`，以及 `docs/design/research/` 下 T-143 的组件生图 prompt/第二稿文本/第一稿图/第二稿图。
 
 ```text
 在 E:\claude\DreamFlutter 接手。依次读 docs/NEW-AGENT-START.md、AGENTS.md、docs/HANDOFF.md 顶部、docs/dev-guide.md、docs/releases/v0.12-试用反馈修正.md、docs/releases/v0.13-真实任务验证计划.md，并核对最新提交及 dist/v0.12.1/DreamFlutter 与 zip 的实际结果。0.12 试用反馈七项修正已完成并通过定向验证，11 张原生图见 app/build/trial-feedback/index.html。下一步是真实完整任务验证，但用户要求先停在这一环节前：等用户明确恢复并提供指定 API 配置与预算，不使用既有私人渠道，不提前发真实请求。真实 API、安装升级、性能包体和首次上手门槛均未验收；不要重复已完成的全量检查。下一主题集只有样稿。未经新授权不推送、不打标签、不切分支。
