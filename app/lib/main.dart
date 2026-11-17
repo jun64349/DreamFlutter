@@ -15,6 +15,7 @@ import 'state/installation.dart';
 import 'theme.dart';
 import 'ui/agent_scope.dart';
 import 'ui/home_page.dart';
+import 'ui/notes.dart';
 import 'ui/web_surface.dart';
 import 'ui/window_frame.dart';
 import 'ui/zoom.dart';
@@ -109,7 +110,8 @@ class DreamFlutterApp extends StatelessWidget {
             themeMode: appearance.themeMode,
             themeAnimationDuration: MediaQuery.maybeDisableAnimationsOf(context) == true ? Duration.zero : AppTokens.medium, themeAnimationCurve: AppTokens.curve,
             builder: (context, child) {
-              final app = AppZoom(controller: controller, zoom: appearance.zoom, textScale: appearance.textScale, child: child!);
+              // Notes (「已复制」「已保存」…) sit above every page and route, zoomed with the interface.
+              final app = AppZoom(controller: controller, zoom: appearance.zoom, textScale: appearance.textScale, child: withNoteLayer(context, child));
               // The title bar stays the same size when the interface is zoomed, and is on every page;
               // its own overlay holds its menus and tooltips (it is above the navigator).
               return MediaQuery(

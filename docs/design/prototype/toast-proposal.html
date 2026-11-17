@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>提示条样稿</title>
+<style>
+/* Tokens copied from v1-redesign.html: 暖纸 (day) / 暮色 (night). */
+:root{
+--bg:#F7F3EB;--side:#F1EBE1;--card:#FDFBF7;--sunk:rgba(57,47,42,.045);--hover:rgba(57,47,42,.06);
+--ink:#392F2A;--ink2:#5A4E45;--muted:#8A7F75;--line:#E4DCD0;--line2:rgba(57,47,42,.07);
+--accent:#A54C28;--on-accent:#FDFBF7;--accent-soft:rgba(165,76,40,.10);
+--ok:#546C5D;--ochre:#B5793F;--seal:#A8332A;
+--shadow:0 12px 40px rgba(57,47,42,.14),0 2px 6px rgba(57,47,42,.06);
+--r:14px;--r-sm:8px;
+--art:Georgia,"LXGW WenKai",KaiTi,serif;
+}
+:root[data-theme="dark"]{
+--bg:#26221E;--side:#211E1B;--card:#2F2924;--sunk:rgba(240,229,214,.05);--hover:rgba(240,229,214,.07);
+--ink:#F0E5D6;--ink2:#D6C8B6;--muted:#A89A8A;--line:#463D34;--line2:rgba(240,229,214,.07);
+--accent:#E6A17A;--on-accent:#26221E;--accent-soft:rgba(230,161,122,.14);
+--ok:#9EAF92;--ochre:#D9A066;--seal:#E07A6C;
+--shadow:0 12px 40px rgba(0,0,0,.45);color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--art);font-variant-numeric:lining-nums tabular-nums}
+button{font:inherit;color:inherit}
+
+/* ---------- control bar (not part of the design) ---------- */
+.ctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--side);font-size:13px}
+.ctl b{font-weight:normal;color:var(--muted);margin-right:4px}
+.ctl button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 12px;cursor:pointer}
+.ctl button:hover{background:var(--hover)}
+.ctl .sp{flex:1}
+
+/* ---------- a window, laid out like v1-redesign ---------- */
+.win{display:grid;grid-template-columns:264px 1fr;height:640px;margin:16px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg);transition:width .2s}
+.win.narrow{width:760px;grid-template-columns:1fr}
+.win.narrow .side{display:none}
+.side{background:var(--side);border-right:1px solid var(--line2);padding:16px 14px;font-size:14px;color:var(--ink2)}
+.side .brand{font-size:19px;color:var(--accent);margin-bottom:18px}
+.side .row{padding:7px 8px;border-radius:8px}
+.side .row.on{background:var(--accent-soft);color:var(--ink)}
+.main{position:relative;display:flex;flex-direction:column;min-width:0}
+.top{height:44px;display:flex;align-items:center;padding:0 18px;font-size:13.5px;color:var(--ink2);border-bottom:1px solid transparent}
+.chat{flex:1;overflow:hidden;padding:22px 0}
+.lane{max-width:720px;margin:0 auto;padding:0 24px}
+.q{margin-left:auto;width:max-content;max-width:70%;background:var(--sunk);border-radius:14px;padding:9px 14px;font-size:14.5px}
+.a{margin-top:18px;font-size:15px;line-height:1.75}
+.facts{font-size:12.5px;color:var(--muted);margin-top:6px}
+.composer{max-width:720px;margin:0 auto 18px;width:calc(100% - 48px);background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px 10px;box-shadow:0 2px 10px rgba(57,47,42,.05)}
+.composer .ph{color:var(--muted);font-size:14.5px;height:44px}
+.composer .tools{display:flex;gap:14px;font-size:12.5px;color:var(--ink2);align-items:center}
+.composer .tools .sp{flex:1}
+.composer .send{width:28px;height:28px;border-radius:50%;background:var(--sunk);display:grid;place-items:center}
+
+/* ---------- the proposal: one note style for every short notice ---------- */
+.notes{position:absolute;top:52px;left:0;right:0;display:flex;justify-content:center;pointer-events:none;z-index:5;padding:0 24px}
+.note{pointer-events:auto;display:inline-flex;align-items:center;gap:10px;max-width:min(520px,100%);
+  background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);
+  padding:8px 14px 8px 12px;font-size:13.5px;line-height:1.55;color:var(--ink);
+  animation:in .16s ease-out both}
+.note.out{animation:out .14s ease-in both}
+@keyframes in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@keyframes out{to{opacity:0;transform:translateY(-4px)}}
+@media (prefers-reduced-motion:reduce){.note,.note.out{animation-duration:1ms}}
+/* The state is a dot, not a word: done = ok, info = muted, failed = seal. */
+.note .dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.note.info .dot{background:var(--muted)}
+.note.fail{border-color:color-mix(in srgb,var(--seal) 45%,var(--line))}
+.note.fail .dot{background:var(--seal)}
+.note .txt{min-width:0;overflow-wrap:anywhere}
+.note .act{flex:none;border:0;background:none;color:var(--accent);cursor:pointer;padding:2px 2px;font-size:13.5px}
+.note .act:hover{text-decoration:underline;text-underline-offset:3px}
+.note .x{flex:none;border:0;background:none;color:var(--muted);cursor:pointer;width:20px;height:20px;border-radius:6px;line-height:1}
+.note .x:hover{background:var(--hover);color:var(--ink)}
+
+/* ---------- notes under the window (not part of the design) ---------- */
+.spec{margin:0 16px 24px;max-width:900px;font-size:13.5px;line-height:1.8;color:var(--ink2)}
+.spec h2{font-size:16px;color:var(--ink);font-weight:normal;margin:18px 0 6px}
+.spec table{border-collapse:collapse;width:100%}
+.spec td,.spec th{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top;font-weight:normal}
+.spec th{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="ctl">
+  <b>触发</b>
+  <button data-demo="copied">已复制</button>
+  <button data-demo="saved">已保存到…</button>
+  <button data-demo="trash">已移到回收站（可撤销）</button>
+  <button data-demo="delivered">蝶君交付（后台推送）</button>
+  <button data-demo="switched">换到按量付费</button>
+  <button data-demo="fail">保存失败</button>
+  <button data-demo="long">很长的一句</button>
+  <span class="sp"></span>
+  <button id="narrow">760 宽</button>
+  <button id="theme">日 / 夜</button>
+</div>
+
+<div class="win" id="win">
+  <aside class="side">
+    <div class="brand">DreamFlutter</div>
+    <div class="row">＋ 新对话</div><div class="row">等你处理</div><div class="row">记忆</div><div class="row">技能</div>
+    <div style="height:14px"></div>
+    <div class="row on">帮我看看实验结果。<div style="font-size:12px;color:var(--muted)">11:24 · DeepSeek V4.1 Flash</div></div>
+  </aside>
+  <section class="main">
+    <div class="top">帮我看看实验结果。 · workspace · 记忆开</div>
+    <div class="notes" id="notes" aria-live="polite"></div>
+    <div class="chat"><div class="lane">
+      <div class="q">帮我看看实验结果。</div>
+      <div class="a">三组实验结果一致，第二组建议复测。</div>
+      <div class="facts">DeepSeek V4.1 Flash · 118 token/秒 · 3.2 秒 · 11:24</div>
+    </div></div>
+    <div class="composer"><div class="ph">说点什么…</div>
+      <div class="tools"><span>附件</span><span>无痕</span><span style="color:var(--accent)">直接做</span><span class="sp"></span><span>DeepSeek V4.1 Flash · OpenCode Go</span><span class="send">↑</span></div>
+    </div>
+  </section>
+</div>
+
+<div class="spec">
+  <h2>规则</h2>
+  <table>
+    <tr><th>项</th><th>定法</th></tr>
+    <tr><td>位置</td><td>对话区（右侧主栏）顶部居中，顶栏下方 8px；不盖侧栏，不盖输入框。窄窗口时同样在主栏顶部。</td></tr>
+    <tr><td>样子</td><td>纸色卡片、细边、圆角 10、和浮层同一种阴影；楷体 13.5。左边一个小圆点表示状态：完成（青绿）、消息（灰）、失败（印泥红）。不加图标，不加标题。</td></tr>
+    <tr><td>宽度</td><td>跟着文字走，最宽 520；超过才折行，按整句折，不会出现单个字掉到下一行。</td></tr>
+    <tr><td>操作</td><td>能撤销或能去看的，右边一个强调色文字按钮（撤销 / 查看 / 打开文件夹），只放一个。</td></tr>
+    <tr><td>停留</td><td>「已复制」这类 1.6 秒；一般 3 秒；带操作的 6 秒；失败的不自动消失，带 × 关闭，文字可选中复制。鼠标停在上面时不消失。</td></tr>
+    <tr><td>多条</td><td>新的一条直接替换旧的，不排队、不叠放。</td></tr>
+    <tr><td>动效</td><td>淡入并下移 6px，0.16 秒；系统设了「减少动画」时不动。</td></tr>
+    <tr><td>不用它的</td><td>改动就在点击处看得见的（开关、原地编辑），不弹提示；对话里的「已更新记忆」仍是回复下的小字回执。</td></tr>
+  </table>
+</div>
+
+<script>
+const DEMOS={
+  copied:{text:'已复制',ms:1600},
+  saved:{text:'已保存到 D:\\报告\\实验周报.docx',act:'打开文件夹',ms:6000},
+  trash:{text:'已移到回收站',act:'撤销',ms:6000},
+  delivered:{text:'蝶君 · 定时任务完成：本周实验周报',act:'查看',ms:6000,kind:'info'},
+  switched:{text:'订阅用完了，已转到按量付费的「DeepSeek 官方」',ms:3000,kind:'info'},
+  fail:{text:'保存失败：磁盘空间不足，请清理后再试',kind:'fail'},
+  long:{text:'技能草稿已生成：「实验周报整理」会读取本周的实验记录、核对三组数据并生成 Word 周报，到「等你处理」里确认后启用',act:'查看',ms:6000,kind:'info'},
+};
+const box=document.getElementById('notes');let timer=null;
+function close(el){if(!el||!el.isConnected)return;el.classList.add('out');setTimeout(()=>el.remove(),150)}
+function show({text,act,ms,kind}){
+  clearTimeout(timer);box.querySelectorAll('.note').forEach(n=>n.remove());
+  const el=document.createElement('div');el.className='note'+(kind?' '+kind:'');el.setAttribute('role',kind==='fail'?'alert':'status');
+  el.innerHTML=`<span class="dot"></span><span class="txt"></span>`;el.querySelector('.txt').textContent=text;
+  if(act){const b=document.createElement('button');b.className='act';b.textContent=act;b.onclick=()=>close(el);el.append(b)}
+  if(kind==='fail'){const x=document.createElement('button');x.className='x';x.title='关闭';x.textContent='×';x.onclick=()=>close(el);el.append(x)}
+  box.append(el);
+  const arm=()=>{if(ms)timer=setTimeout(()=>close(el),ms)};
+  el.onmouseenter=()=>clearTimeout(timer);el.onmouseleave=arm;arm();
+}
+document.querySelectorAll('[data-demo]').forEach(b=>b.onclick=()=>show(DEMOS[b.dataset.demo]));
+document.getElementById('theme').onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'};
+document.getElementById('narrow').onclick=()=>document.getElementById('win').classList.toggle('narrow');
+// For screenshots: ?demo=delivered&theme=dark&narrow=1&hold=1 shows one note and keeps it.
+const q=new URLSearchParams(location.search);
+if(q.get('theme'))document.documentElement.dataset.theme=q.get('theme');
+if(q.get('narrow'))document.getElementById('win').classList.add('narrow');
+if(q.get('demo')){const d={...DEMOS[q.get('demo')]};if(q.get('hold'))d.ms=0;show(d)}
+</script>
+</body>
+</html>

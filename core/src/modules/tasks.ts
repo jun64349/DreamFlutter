@@ -448,6 +448,11 @@ export class TasksModule implements CoreModule {
 		this.update(taskId, { status: "no_change" });
 	}
 
+	/** Marks the task of a schedule run as not done, with the reason (v0.13: refused tools). */
+	markFailed(taskId: string, error: string): void {
+		this.update(taskId, { status: "failed", error });
+	}
+
 	// ---- run limits (F6) ---------------------------------------------------------------
 
 	private checkLimits(slot: Slot, run: Run): void {

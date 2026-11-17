@@ -1,4 +1,5 @@
 import 'package:dreamflutter/state/garden.dart';
+import 'package:dreamflutter/ui/notes.dart';
 import 'dart:async' show Completer;
 import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
@@ -17,7 +18,7 @@ void main() {
     fixture=(await tester.runAsync(T89Fixture.create))!;
     if(!services) fixture.servers.clear();
     await tester.binding.setSurfaceSize(const Size(1040,800));
-    await tester.pumpWidget(AgentScope(controller:fixture.agent, child:MaterialApp(theme:buildTheme(Brightness.light), home:const Scaffold(body:GardenPage()))));
+    await tester.pumpWidget(AgentScope(controller:fixture.agent, child:MaterialApp(theme:buildTheme(Brightness.light), builder:withNoteLayer, home:const Scaffold(body:GardenPage()))));
     await waitGarden(tester);
     addTearDown(() async { await tester.pumpWidget(const SizedBox()); await tester.runAsync(fixture.dispose); });
   }

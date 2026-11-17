@@ -25,6 +25,7 @@ import 'settings_restore.dart';
 import 'overlay_panel.dart';
 import 'proto_icon.dart';
 import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
+import 'notes.dart';
 
 /// One setting: the words search matches, the card it sits in, and the widget.
 class _Setting { const _Setting(this.words,this.child,{this.card,this.trailing,this.cardDesc}); final String words;final Widget child;
@@ -487,7 +488,7 @@ class ModelSettingMenu extends StatelessWidget {
   final String label;final String? selected;final Future<void> Function(String?) onChanged;final Map<String,String> extra;final String inheritLabel;
 
   Future<void> _choose(BuildContext context,String? value)async{
-    try{await onChanged(value);}catch(e){if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('未保存：${SessionRuntime.describeError(e)}')));}
+    try{await onChanged(value);}catch(e){if(context.mounted)showNote('未保存：${SessionRuntime.describeError(e)}', kind: NoteKind.fail);}
   }
 
   /// 0.8.3: model groups first, then each channel's common models under its name; 「更多模型…」 for the rest.

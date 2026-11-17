@@ -8,6 +8,7 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart' show showsOnScreen;
+import 'notes.dart';
 
 /// The title strip has no Navigator. Actions are handled inside the owning chat.
 class ConversationActionHost extends StatefulWidget {
@@ -44,14 +45,14 @@ class _ConversationActionHostState extends State<ConversationActionHost> {
           final path = agent.currentSessionPath;
           if (path != null) {
             await agent.setArchived(path, true);
-            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已归档，在「设置 › 归档/回收」里')));
+            if (mounted) showNote('已归档，在「设置 › 归档/回收」里');
           }
         case 'delete':
           if (agent.active?.incognito == true) { await agent.newSession(); }
           else if (agent.currentSessionPath case final path?) { if (mounted) await deleteConversation(context, agent, path); }
       }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(SessionRuntime.describeError(error))));
+      if (mounted) showNote(SessionRuntime.describeError(error), kind: NoteKind.fail);
     } finally { _busy = false; }
   }
   @override
@@ -67,12 +68,7 @@ Future<void> exportConversation(BuildContext context, AgentController agent, Str
   if (location == null) return;
   final saved = await agent.exportSession(path, 'markdown', location.path);
   if (saved == null || !context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    persist: false,
-    duration: const Duration(seconds: 5),
-    content: Text('已导出：$saved'),
-    action: SnackBarAction(label: '打开所在文件夹', onPressed: () => agent.revealFile(saved)),
-  ));
+  showNote('已导出：$saved', action: '打开所在文件夹', onAction: () => agent.revealFile(saved));
 }
 
 /// Deleting a conversation asks first (0.8.1 R.6): it goes to the recycle bin and can be restored there for 30 days.
@@ -88,7 +84,7 @@ Future<void> deleteConversation(BuildContext context, AgentController agent, Str
   ));
   if (sure != true || !context.mounted) return;
   if (!await agent.deleteSession(path) || !context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已移到回收站')));
+  showNote('已移到回收站');
 }
 
 Future<void> showConversationRecycleBin(BuildContext context) {

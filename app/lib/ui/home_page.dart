@@ -21,6 +21,7 @@ import 'shell_widgets.dart';
 import 'schedule_page.dart';
 import 'spending_page.dart';
 import 'keys.dart';
+import 'notes.dart';
 import '../state/goal_conversation.dart';
 
 class HomePage extends StatefulWidget {
@@ -71,20 +72,9 @@ class _HomePageState extends State<HomePage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final agent = AgentScope.read(context);
+    // The controller's messages come as notes at the top of the conversation column (user 2026-11-17).
     _toasts ??= agent.toasts.listen((message) {
-      if (!mounted) return;
-      // At the top, centred and only as wide as the message needs (v0.3.1 test 1).
-      final size = MediaQuery.sizeOf(context);
-      final width = (message.length * 13.0 + 48.0).clamp(200.0, 560.0);
-      final side = ((size.width - width) / 2).clamp(16.0, double.infinity);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message, textAlign: TextAlign.center),
-          behavior: SnackBarBehavior.floating,
-          dismissDirection: DismissDirection.up,
-          margin: EdgeInsets.fromLTRB(side, 12, side, (size.height - 120).clamp(12.0, double.infinity)),
-        ),
-      );
+      if (mounted) showNote(message, kind: noteKindOf(message));
     });
   }
 
@@ -150,7 +140,7 @@ class _HomePageState extends State<HomePage> {
           body: ShellOverlaySidebar(width: sidebarWidth, child: Stack(fit: StackFit.expand, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (!narrow && !_collapsed) Sidebar(onCollapse: () => setState(() => _collapsed = true)),
-            Expanded(child: pages),
+            Expanded(child: KeyedSubtree(key: noteAnchorKey, child: pages)),
           ]),
           if (agent.section == AppSection.settings) Positioned.fill(child: SettingsOverlay(onClose: close)),
           if (agent.section == AppSection.memory) Positioned.fill(child: MemoryOverlay(onClose: close)),

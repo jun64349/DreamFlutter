@@ -16,6 +16,7 @@ import 'details_panel_widgets.dart';
 import 'home_quote.dart';
 import 'proto_icon.dart';
 import 'shell_widgets.dart';
+import 'notes.dart';
 
 /// 蝶君's empty page (0.8.3): the greeting and a few things to hand over. Its conversations are in the
 /// sidebar; what needs you is in 「等你处理」, so there are no task cards or state pills here.
@@ -104,9 +105,7 @@ class ButterflyDeliveryFile extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('文件暂时打不开：${SessionRuntime.describeError(e)}')),
-        );
+        showNote('文件暂时打不开：${SessionRuntime.describeError(e)}', kind: NoteKind.fail);
       }
     }
   }
@@ -235,9 +234,7 @@ class ButterflySchedule extends StatelessWidget {
                   );
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(SessionRuntime.describeError(e))),
-                    );
+                    showNote(SessionRuntime.describeError(e), kind: NoteKind.fail);
                   }
                 }
               },
@@ -252,12 +249,10 @@ class ButterflySchedule extends StatelessWidget {
                 if (confirmed != true) return;
                 try {
                   await tasks.changeSchedule(schedule['id'] as String, null);
-                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已删除')));
+                  if (context.mounted) showNote('已删除');
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(SessionRuntime.describeError(e))),
-                    );
+                    showNote(SessionRuntime.describeError(e), kind: NoteKind.fail);
                   }
                 }
               },

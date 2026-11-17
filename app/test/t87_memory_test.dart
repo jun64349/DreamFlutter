@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:dreamflutter/theme.dart';
+import 'package:dreamflutter/ui/notes.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/memory_page.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +31,7 @@ void main() {
         controller: fixture.agent,
         child: MaterialApp(
           theme: buildTheme(Brightness.light),
+          builder: withNoteLayer,
           home: const Scaffold(body: MemoryPage()),
         ),
       ),

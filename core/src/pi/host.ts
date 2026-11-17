@@ -5,6 +5,7 @@ import {
 	createCodemodeExtension,
 	createMcpExtension,
 	createToolSearchExtension,
+	DefaultResourceLoader,
 	hasTrustRequiringProjectResources,
 	ProjectTrustStore,
 	SessionManager,
@@ -13,6 +14,7 @@ import {
 	type CreateAgentSessionRuntimeFactory,
 	type ExtensionFactory,
 	type InlineExtension,
+	type Skill,
 } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
 import { join } from "node:path";
@@ -232,7 +234,25 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		const securityContext = () => ({ requestId, ...config.securityContext?.(slot), slotId: slot.slotId });
 		const security = config.security?.scope(cwd, target.unattended === true, securityContext);
 		if (security) security.sandboxed = sandboxed;
+		// Same filter as the session's own loader: trusted, enabled skills only.
+		const skillsOverride = <T extends { skills: Skill[] }>(base: T): T => { const filtered = mergeBuiltinSkills(dropSharedAgentSkills(base), config.library); return { ...filtered, skills: filtered.skills.filter((skill) => config.library?.fileAllowed("skill", skill.filePath) !== false) }; };
+		// v0.13 (real-task check): a conversation opened before a skill was approved or enabled
+		// could not load it. When the library changed since this session loaded, read the list again.
+		// Set once the session's loader has read its skills (loading itself records built-ins).
+		let loadedRevision: number | undefined;
+		let fresh: { revision: number; skills: Skill[] } | undefined;
+		const skillsNow = async (): Promise<Skill[]> => {
+			const revision = config.library?.revision ?? 0;
+			if (!services || loadedRevision === undefined || revision === loadedRevision) return services?.resourceLoader.getSkills().skills ?? [];
+			if (fresh?.revision !== revision) {
+				const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager, noExtensions: true, noPromptTemplates: true, noThemes: true, skillsOverride } as never);
+				await loader.reload();
+				fresh = { revision, skills: loader.getSkills().skills };
+			}
+			return fresh.skills;
+		};
 		const harness = harnessExtension({
+			skills: skillsNow,
 			webTools: config.webTools?.(),
 			webContext: () => ({ ...securityContext(), sessionId: sessionManager.getSessionId() }),
 			security,
@@ -278,10 +298,11 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 				: undefined,
 			resourceLoaderOptions: {
 				extensionFactories: [...(config.library ? [config.library.extension(sandboxed, () => ({ skills: services?.resourceLoader.getSkills().skills ?? [], prompts: services?.resourceLoader.getPrompts().prompts ?? [] }), () => `${slot.slotId}:${securityContext().runId ?? requestId}`)] : []), ...(security ? [security.extension()] : []), ...builtIns, sourceHarness, ...config.extensions({ ...slot, sideConversation: side, sandboxed }, mode)],
-				skillsOverride: (base) => { const filtered = mergeBuiltinSkills(dropSharedAgentSkills(base), config.library); return { ...filtered, skills: filtered.skills.filter((skill) => config.library?.fileAllowed("skill", skill.filePath) !== false) }; },
+				skillsOverride: skillsOverride as never,
 				promptsOverride: (base) => ({ ...base, prompts: base.prompts.filter((prompt) => config.library?.fileAllowed("template", prompt.filePath) !== false) }),
 			},
 		});
+		loadedRevision = config.library?.revision ?? 0;
 		const requestContext = () => ({ ...config.ledgerContext?.(slot), sessionId: sessionManager.getSessionId(), workspace: cwd });
 		config.ledger?.()?.bindSession(sessionManager.getSessionId(), requestContext);
 		config.ledger?.()?.install(services.modelRuntime, requestContext);

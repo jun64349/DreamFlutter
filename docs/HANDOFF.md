@@ -1,5 +1,13 @@
 # DreamFlutter 开发交接
 
+**2026-11-17：0.13 真实任务验证完成一轮（当前状态）**
+
+- 用户恢复开发，指定本机测试版的 OpenCode Go 渠道、整轮上限 USD 0.50。新增 `core/scripts/v013-live-core.ts`（隔离 Core＋复制渠道＋临时 WSL＋预算闸门）和 `app/integration_test/v013_live_test.dart`（真窗口九个场景）。四轮共 48 次请求，闸门估算 USD 0.0523。
+- 结果：首轮技能、日程未过（产品问题）。用户要求修的三项已修：批准前已开的对话用不了新技能；蝶君日程被提示词误导成只读；工具被拦也记完成。回归测试 `core/test/v013-fixes.test.ts`，真实复验后**九项全部通过**，五轮合计 USD 0.0595。详情见 [真实任务验证回执](releases/v0.13-真实任务验证回执.md)；剩余 4 条小问题（相对时间、时令日历列宽、工作台自称蝶君、控制台中文乱码）待用户定。
+- **平台默认记忆**（用户 2026-11-17）：新数据目录第一次启动写入 10 条全局「背景」记忆（平台简介、工作台/审批/蝶君/日程/记忆功能、内置工具、内置技能、MCP、模型），工作台和蝶君都可见，可改可删，删了不补；已用过记忆的数据目录不写。内容在 `core/src/memory/platform-defaults.ts`，开关是 `buildCore` 的 `platformMemory`（main.ts 开，测试默认关），测试 `core/test/platform-memory.test.ts`。在记忆页会归在「关于你」组（全局背景都在那里）。
+- **短提示统一为「便笺」**（用户 2026-11-17 看过现状截图和样稿 `docs/design/prototype/toast-proposal.html` 后同意）：对话区顶部居中、宽度跟文字、小圆点表状态、最多一个操作、失败不自动消失；规则写进 `v1-redesign-spec.md` 6.1。实现 `app/lib/ui/notes.dart`（`showNote` / `withNoteLayer`），原 46 处 SnackBar 与控制器顶部提示全部改用它，`lib/` 里已无 SnackBar。测试：新增 `test/notes_test.dart` 6 项；受影响组件测试只在挂载处加 `builder: withNoteLayer`（t86/t87/t89，含 t86 守护文件，行为断言未改）；`memory_v05_test` 3.4 改动前就失败；离线端到端 10 项通过；实窗图 `app/build/toast_shots/`（旧样子在 `toast_shots_before/`），截图测试 `integration_test/toast_look_test.dart`。
+- 改动均未提交。改动前就失败的 7 项后台测试（T102、T106×2、T99、T73、重放完成、T120）原样保留，未改期望。下一步：用户决定是否提交、剩余小问题；之后进安装升级。不推送、不打标签、不切分支。
+
 **2026-11-16：0.12.1+16 本地收尾完成，停在真实验证之前（当前状态）**
 
 - 用户试用后的七项修正已完成：150% 右键定位、数值档位与自定义、外观默认值、工作台与蝶君分开通知、页内新增渠道与模型组、数据安全顺序及折叠、舒适字号缩放基准。定向验证通过，细节见 [试用反馈修正](releases/v0.12-试用反馈修正.md)；11 张原生窗口图入口 `app/build/trial-feedback/index.html`。不重复已完成的全量检查。

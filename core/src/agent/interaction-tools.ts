@@ -227,7 +227,7 @@ export function exitPlanModeTool(state: HarnessState, planModeChanged: (on: bool
 	};
 }
 
-export function skillTool(skills: () => Skill[], state?: HarnessState): ToolDefinition {
+export function skillTool(skills: () => Skill[] | Promise<Skill[]>, state?: HarnessState): ToolDefinition {
 	return {
 		name: "skill",
 		label: "技能",
@@ -241,7 +241,7 @@ export function skillTool(skills: () => Skill[], state?: HarnessState): ToolDefi
 		} as never,
 		async execute(_id, params: { name: string }) {
 			const nameDiagnostics = skillNameErrors(params.name);
-			const skill = skills().find((s) => s.name === params.name);
+			const skill = (await skills()).find((s) => s.name === params.name);
 			if (!skill) throw new Error(`skill "${params.name}" is unknown or no longer available${nameDiagnostics.length ? `: ${nameDiagnostics.join("; ")}` : ""}`);
 			if (skill.disableModelInvocation) throw new Error(`skill "${params.name}" is not available for model invocation`);
 			await state?.security?.authorize(skill.filePath, "skill");

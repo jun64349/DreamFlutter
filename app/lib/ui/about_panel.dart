@@ -10,6 +10,7 @@ import 'agent_scope.dart';
 import 'settings_controls.dart' show SettingRow, V1Toggle;
 import 'settings_layout.dart' show SettingsCard;
 import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
+import 'notes.dart';
 
 class AboutPanel extends StatefulWidget {
   const AboutPanel({super.key, this.details = false, this.startupOnly = false});
@@ -80,7 +81,7 @@ class _AboutPanelState extends State<AboutPanel> {
               final text = asJsonMap(await _agent!.backend.call('updates.licenseText', {'id': item['id']}));
               if (!context.mounted) return;
               await showDialog<void>(context: context, builder: (context) => AlertDialog(title: Text('${item['name']}'), content: SizedBox(width: 650, height: 500, child: SingleChildScrollView(child: SelectableText('${text['text'] ?? ''}'))), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))]));
-            } catch (error) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(SessionRuntime.describeError(error)))); }
+            } catch (error) { if (context.mounted) showNote(SessionRuntime.describeError(error), kind: NoteKind.fail); }
           });
         })),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],

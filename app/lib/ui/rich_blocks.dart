@@ -11,6 +11,7 @@ import '../theme.dart';
 import 'card_view.dart' show themeCssOf, themeVarsOf;
 import 'markdown_view.dart' show CodeBlock;
 import 'web_surface.dart';
+import 'notes.dart';
 
 /// Code block languages the window draws instead of printing (plan §C4).
 const richLanguages = {'mermaid', 'chart', 'svg'};
@@ -189,7 +190,7 @@ class _RichBlockState extends State<RichBlock> {
     } else {
       await File(path.toLowerCase().endsWith('.png') ? path : '$path.png').writeAsBytes(result.png);
     }
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已保存到 $path')));
+    if (mounted) showNote('已保存到 $path');
   }
 
   @override
@@ -233,7 +234,7 @@ class _RichBlockState extends State<RichBlock> {
                     tooltip: '复制图片',
                     onPressed: () async {
                       await Pasteboard.writeImage(result.png);
-                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制图片'), duration: Duration(seconds: 1)));
+                      if (context.mounted) showNote('已复制图片', brief: true);
                     },
                   ),
                   _ToolButton(
@@ -241,7 +242,7 @@ class _RichBlockState extends State<RichBlock> {
                     tooltip: '复制源代码',
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: widget.source));
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制源代码'), duration: Duration(seconds: 1)));
+                      showNote('已复制源代码', brief: true);
                     },
                   ),
                   _ToolButton(icon: Icons.save_alt, tooltip: '另存为…', onPressed: _save),

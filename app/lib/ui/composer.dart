@@ -29,6 +29,7 @@ import 'run_summary.dart' show mentionOf;
 import 'dashboard_page.dart' show formatCost;
 import '../state/voice_input.dart';
 import 'voice_controls.dart';
+import 'notes.dart';
 
 /// Message input. Enter sends, Shift+Enter inserts a newline; while an IME
 /// composition is active Enter is left to the IME. During a run, sending
@@ -303,7 +304,7 @@ class _ComposerState extends State<Composer> {
 
   void _tooLarge(List<String> names) {
     if (names.isEmpty || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('图片超过 8MB，未添加：${names.join('、')}')));
+    showNote('图片超过 8MB，未添加：${names.join('、')}', kind: NoteKind.fail);
   }
 
   Future<void> _pickImages() async {
@@ -372,11 +373,11 @@ class _ComposerState extends State<Composer> {
           _addMention(Mention(kind: Directory(local).existsSync() ? MentionKind.folder : MentionKind.file, title: p.posix.basename(path), path: path));
         }
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能复制给蝶君：${SessionRuntime.describeError(e)}')));
+        if (mounted) showNote('没能复制给蝶君：${SessionRuntime.describeError(e)}', kind: NoteKind.fail);
       }
     }
     if (failed.isNotEmpty && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能转成文字，已添加文件路径：${failed.join('、')}')));
+      showNote('没能转成文字，已添加文件路径：${failed.join('、')}', kind: NoteKind.info);
     }
     if (!mounted) return;
     setState(() {});
@@ -393,7 +394,7 @@ class _ComposerState extends State<Composer> {
       final image = await Pasteboard.image;
       if (image == null || !mounted) return;
       if (!(AgentScope.read(context).model?.supportsImages ?? true)) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('当前模型不支持图片，没有附上剪贴板里的图片。')));
+        showNote('当前模型不支持图片，没有附上剪贴板里的图片。', kind: NoteKind.fail);
         return;
       }
       final added = _addImage('粘贴的图片.png', image, 'image/png');

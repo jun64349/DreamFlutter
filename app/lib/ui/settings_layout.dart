@@ -12,6 +12,7 @@ import 'proto_icon.dart';
 import 'craft_surface.dart';
 import 'painting_background.dart';
 import 'shell_widgets.dart' show ShellButton, ShellColors;
+import 'notes.dart';
 
 /// How wide the settings content gets (0.8.2, user test: on a wide window the
 /// label sat at the left edge and its value at the right, too far apart to
@@ -221,9 +222,9 @@ class ArchivedConversations extends StatelessWidget {
   static Future<void> _run(BuildContext context, Future<void> Function() action, String done) async {
     try {
       await action();
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(done)));
+      if (context.mounted) showNote(done);
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(SessionRuntime.describeError(e))));
+      if (context.mounted) showNote(SessionRuntime.describeError(e), kind: NoteKind.fail);
     }
   }
 }
@@ -264,7 +265,7 @@ class _RecycledConversationsState extends State<RecycledConversations> {
       await _agent.backend.call('sessions.restore', {'batchId': id});
       await _agent.refreshSessions();
       await _load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已恢复到对话列表')));
+      if (mounted) showNote('已恢复到对话列表');
     } catch (error) { if (mounted) setState(() => _error = SessionRuntime.describeError(error)); }
     finally { if (mounted) setState(() => _restoring = null); }
   }

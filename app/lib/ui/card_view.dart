@@ -11,6 +11,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
 import 'web_surface.dart';
+import 'notes.dart';
 
 String _hex(Color c) => '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
 
@@ -212,8 +213,7 @@ class CardActions extends StatelessWidget {
 
   Future<void> _act(BuildContext context, String action) async {
     final agent = AgentScope.read(context);
-    final messenger = ScaffoldMessenger.of(context);
-    void snack(String text) => messenger.showSnackBar(SnackBar(content: Text(text)));
+    void snack(String text) => showNote(text, kind: noteKindOf(text) == NoteKind.fail ? NoteKind.fail : NoteKind.done);
     try {
       switch (action) {
         case 'pin':
@@ -245,7 +245,6 @@ class CardActions extends StatelessWidget {
 /// Export (Showcard §6.3, §6.8: tell the user the data goes along).
 Future<void> exportCard(BuildContext context, CardInfo card) async {
   final agent = AgentScope.read(context);
-  final messenger = ScaffoldMessenger.of(context);
   final theme = themeVarsOf(context);
   final ok = await confirmAction(
     context,
@@ -261,7 +260,7 @@ Future<void> exportCard(BuildContext context, CardInfo card) async {
   );
   if (location == null) return;
   final result = asJsonMap(await agent.backend.call('cards.export', {'id': card.id, 'path': location.path, 'theme': theme}));
-  messenger.showSnackBar(SnackBar(content: Text('已导出到 ${result['path']}')));
+  showNote('已导出到 ${result['path']}');
 }
 
 /// Remembered permissions of a card, each revocable (§3.3), and what it declares.

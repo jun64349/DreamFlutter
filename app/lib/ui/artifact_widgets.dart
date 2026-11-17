@@ -9,6 +9,7 @@ import '../state/work_models.dart' show OutboxFile;
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
+import 'notes.dart';
 
 const _imageExtensions = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'};
 const _textExtensions = {
@@ -248,14 +249,13 @@ class OutboxTile extends StatelessWidget {
   final VoidCallback? onChanged;
 
   Future<void> _save(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
     final location = await getSaveLocation(suggestedName: p.posix.basename(file.name), confirmButtonText: '保存到这里');
     if (location == null) return;
     try {
       await File(file.path).copy(location.path);
-      messenger.showSnackBar(SnackBar(content: Text('已保存到 ${location.path}'), behavior: SnackBarBehavior.floating, width: 520));
+      showNote('已保存到 ${location.path}');
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('保存失败：$e'), behavior: SnackBarBehavior.floating, width: 520));
+      showNote('保存失败：$e', kind: NoteKind.fail);
     }
   }
 
@@ -264,7 +264,7 @@ class OutboxTile extends StatelessWidget {
     try {
       text = await File(file.path).readAsString();
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('读不了这个文件：$e')));
+      if (context.mounted) showNote('读不了这个文件：$e', kind: NoteKind.fail);
       return;
     }
     if (!context.mounted) return;
@@ -274,7 +274,7 @@ class OutboxTile extends StatelessWidget {
       await File(file.path).writeAsString(changed);
       onChanged?.call();
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败：$e')));
+      if (context.mounted) showNote('保存失败：$e', kind: NoteKind.fail);
     }
   }
 

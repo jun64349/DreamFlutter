@@ -36,7 +36,7 @@ export interface TestCore {
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 /** Fresh core on temp dirs, with a scripted faux model as the only model. */
-export async function startTestCore(existingDir?: string, options: { gatewayTransport?: Transport; sandbox?: SandboxOptions; legacyData?: LegacyData; webSearch?: import("../src/web/deepseek.ts").DeepSeekWebOptions; patrolClock?: PatrolClock; personaClock?: () => number; selfwork?: SelfworkOptions } = {}): Promise<TestCore> {
+export async function startTestCore(existingDir?: string, options: { gatewayTransport?: Transport; platformMemory?: boolean; sandbox?: SandboxOptions; legacyData?: LegacyData; webSearch?: import("../src/web/deepseek.ts").DeepSeekWebOptions; patrolClock?: PatrolClock; personaClock?: () => number; selfwork?: SelfworkOptions } = {}): Promise<TestCore> {
 	const dir = existingDir ?? mkdtempSync(join(tmpdir(), "df-core-"));
 	const workspace = join(dir, "workspace");
 	const agentDir = join(dir, "agent");
@@ -73,6 +73,7 @@ export async function startTestCore(existingDir?: string, options: { gatewayTran
 		patrolClock: options.patrolClock,
 		personaClock: options.personaClock,
 		selfwork: options.selfwork,
+		platformMemory: options.platformMemory,
 	});
 	core.settings.update({ defaultModel: "faux/faux-1", autoTitle: false, memoryAutoExtract: false });
 	await core.start();

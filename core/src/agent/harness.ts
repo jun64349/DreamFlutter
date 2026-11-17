@@ -10,6 +10,7 @@ import {
 	type ExtensionFactory,
 	type ResourceLoader,
 	type SessionManager,
+	type Skill,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { fetchPage, requirePublicHost } from "../modules/web.ts";
@@ -140,6 +141,11 @@ export interface HarnessOptions {
 	agentDir: string;
 	/** The session's resource loader (skills, AGENTS.md files), once it exists. */
 	resources: () => ResourceLoader | undefined;
+	/**
+	 * The skills the session may use now. Defaults to the loader's list from session start;
+	 * the host passes a source that picks up skills approved or enabled since (v0.13).
+	 */
+	skills?: () => Promise<Skill[]>;
 	/** One model call outside the session (compaction summaries). */
 	complete: (model: Model<never>, context: Context, options: { maxTokens: number; signal?: AbortSignal }) => Promise<AssistantMessage>;
 	/** Whether the core's automatic compaction setting is on. */
@@ -270,6 +276,7 @@ function withBashJobs(tool: ToolDefinition, shell: SandboxShell, distro: string,
 /** The DreamFlutter extension that turns a Pi session into one of the dsh-style agent modes. */
 export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 	return (pi: ExtensionAPI) => {
+		const currentSkills = async (): Promise<Skill[]> => options.skills ? await options.skills() : options.resources()?.getSkills().skills ?? [];
 		const mode = options.mode;
 		const now = options.now ?? Date.now;
 		const sandbox = mode === "standard" ? options.sandbox : undefined;
@@ -329,7 +336,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 						readTool(state),
 						readImageTool(state, imageRoute),
 						renderHtmlTool(pi, state, options.security?.workspace, sandbox),
-						skillTool(() => options.resources()?.getSkills().skills ?? [], state),
+						skillTool(currentSkills, state),
 						todoTool(state, (todos) => {
 							pi.appendEntry(TODO_ENTRY, { todos });
 							notifyState();
@@ -427,8 +434,8 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				if (previous === first || previous === replacement) return undefined;
 				return contextMessage(CONTEXT_MESSAGE.instructions, previous === undefined ? first : replacement);
 			});
-			pi.on("before_agent_start", (_event, ctx) => {
-				const skills = (options.resources()?.getSkills().skills ?? []).filter((s) => !s.disableModelInvocation);
+			pi.on("before_agent_start", async (_event, ctx) => {
+				const skills = (await currentSkills()).filter((s) => !s.disableModelInvocation);
 				const entries = skills.map((s) => ({ name: s.name, description: s.description }));
 				const branch = branchOf(ctx);
 				const previous = lastContextText(branch, CONTEXT_MESSAGE.skills);

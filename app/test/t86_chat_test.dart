@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dreamflutter/main.dart';
+import 'package:dreamflutter/ui/notes.dart';
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:dreamflutter/state/conversation_git.dart';
 import 'package:dreamflutter/state/preferences.dart';
@@ -58,7 +59,7 @@ void main() {
     await tester.pumpAndSettle();
   }
   Future<void> mount(WidgetTester tester, Widget child, {AgentController? owner}) async {
-    await tester.pumpWidget(AgentScope(controller: owner ?? agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: Scaffold(body: child))));
+    await tester.pumpWidget(AgentScope(controller: owner ?? agent, child: MaterialApp(theme: buildTheme(Brightness.light), builder: withNoteLayer, home: Scaffold(body: child))));
     await tester.pumpAndSettle();
   }
   tearDown(() { ConversationGitAdapters.resolve = null; agent.dispose(); root.deleteSync(recursive: true); });

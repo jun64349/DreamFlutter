@@ -102,6 +102,10 @@
   - 记忆系统的整体重做在 v0.5，见 [memory-design.md](memory-design.md) 末尾「v0.3.2 实测问题」。
 - 测试里要关掉自动标题和自动提取记忆（harness 已关），否则会抢走假模型预设的回复。
 - 假模型错误信息里带 "rate limited" 会触发 Pi 的自动重试。
+- 平台默认记忆只在 `buildCore({ platformMemory: true })`（main.ts）时写入；测试默认关，需要时 `startTestCore(dir, { platformMemory: true })`。（v0.13）
+- 定时运行里被策略拦下的工具会让这次运行记为失败、不重试；新增「按设计改道」的拦截（像显式写记忆变候选）要在 `toolPolicy` 里排除，否则会误判没做成。（v0.13）
+- 已开会话的技能列表按 `LibraryRegistry.revision` 刷新；改技能信任/启用一律走 `library.write`，别直接改表。（v0.13）
+- 窗口集成测试里 `tester.runAsync` 会吞掉异常、返回 null：调后台要在里面 try/catch 再在外面抛出，否则失败的调用看起来像成功（v0.13 真实验证踩过）。
 - Pi 模板没有裸写的 `${1}`，要写 `${1:-}`。
 
 ## 三、开发环境和工具

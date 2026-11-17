@@ -70,6 +70,8 @@ export interface CoreOptions {
 	personaClock?: () => number;
 	/** Test hooks for autonomous work and its sandbox trial. */
 	selfwork?: SelfworkOptions;
+	/** Write the platform's starting memory into a data folder that has never had any (the app sets it; tests leave it off). */
+	platformMemory?: boolean;
 	/** v0.3.1's data folders, to move into this one on its first start (main.ts gives them only for the default data folder). */
 	legacyData?: import("./backup/backup.ts").LegacyData;
 }

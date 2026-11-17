@@ -26,6 +26,7 @@ import 'conversation_cards.dart';
 import 'conversation_memory.dart';
 import 'workspace_path.dart';
 import 'goal_widgets.dart' show GoalScheduleNotice;
+import 'notes.dart';
 
 // ---------------------------------------------------------------------------
 // Rows: a question, or the whole reply to it
@@ -212,7 +213,7 @@ class _UserBubbleState extends State<_UserBubble> {
                         tooltip: '复制',
                         onTap: () {
                           Clipboard.setData(ClipboardData(text: question));
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
+                          showNote('已复制', brief: true);
                         },
                       ),
                       if (branch != null) ...[
@@ -707,7 +708,7 @@ class _ReplyFrameState extends State<_ReplyFrame> {
               children: [
                 _FactButton(icon: 'copy', tooltip: '复制', onTap: info.text.isEmpty ? null : () {
                   Clipboard.setData(ClipboardData(text: info.text));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
+                  showNote('已复制', brief: true);
                 }),
                 _FactButton(icon: 'refresh', tooltip: '重新生成', onTap: canRegenerate ? () => agent.regenerate(question!) : null),
                 _FactButton(icon: 'branch', tooltip: '从这里重来', onTap: busy ? null : () => agent.forkAfterReply(info.nextQuestion)),

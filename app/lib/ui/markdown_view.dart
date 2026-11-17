@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../theme.dart';
 import 'rich_blocks.dart';
+import 'notes.dart';
 
 /// A reply's Markdown in the reading style: Song body text with generous
 /// leading, serif headings, ruled tables, and code blocks with highlighting
@@ -421,7 +422,7 @@ class _CodeBlockState extends State<CodeBlock> {
                       visualDensity: VisualDensity.compact,
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: widget.code));
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制代码'), duration: Duration(seconds: 1)));
+                        showNote('已复制代码', brief: true);
                       },
                       icon: const Icon(Icons.copy_outlined),
                     ),

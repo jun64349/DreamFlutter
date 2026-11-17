@@ -24,6 +24,7 @@ import 'workspace_path.dart';
 import 'git_file_diff.dart';
 import 'goal_widgets.dart' show GoalJobs, GoalScope;
 import 'proto_icon.dart';
+import 'notes.dart';
 
 List<ToolRun> _conversationTools(AgentController agent) {
   final transcript = agent.transcript;
@@ -145,9 +146,9 @@ class _RunPanelState extends State<RunPanel> {
     if (location == null || SessionStore.samePath(location.path, path)) return;
     try {
       await File(path).copy(location.path);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已另存为 ${location.path}')));
+      if (mounted) showNote('已另存为 ${location.path}');
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('没能另存：${SessionRuntime.describeError(error)}')));
+      if (mounted) showNote('没能另存：${SessionRuntime.describeError(error)}', kind: NoteKind.fail);
     }
   }
 
@@ -176,7 +177,7 @@ class _RunPanelState extends State<RunPanel> {
       case 'save': await _saveAs(path);
       case 'copy':
         await Clipboard.setData(ClipboardData(text: path));
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制路径')));
+        if (mounted) showNote('已复制路径', brief: true);
     }
   }
 

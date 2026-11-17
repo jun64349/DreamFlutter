@@ -126,6 +126,7 @@ const core = buildCore({
 	legacyData: resolve(paths.dataDir).toLowerCase() === resolve(defaultDataDir()).toLowerCase() && !args["agent-dir"] ? { dataDir: legacyDataDir(), agentDir: legacyAgentDir() } : undefined,
 	log,
 	notifier: new WindowsNotifier(log),
+	platformMemory: true,
 });
 startingCore = core;
 if (migration) remapMovedDatabase(core, migration);

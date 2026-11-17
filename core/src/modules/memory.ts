@@ -14,6 +14,7 @@ import { resultText, sentences } from "../memory/lifecycle.ts";
 import { boundarySignal, NEW_TASK_CONFIDENCE, saysNewTask, type TaskView, TaskViews } from "../memory/tasks.ts";
 import { scanMemoryText } from "../memory/safety.ts";
 import { activateMigratedReview, migrateV02, migrationDone, splitBlock } from "../memory/migrate.ts";
+import { seedPlatformDefaults } from "../memory/platform-defaults.ts";
 import { allowedScopes, homeScope, type ScopeSet, visibleIn, Workspaces } from "../memory/scopes.ts";
 import { memoryBudget, planSnapshot, SHARES, type SnapshotPlan } from "../memory/snapshot.ts";
 import { MemoryStore } from "../memory/store.ts";
@@ -185,7 +186,16 @@ export class MemoryModule implements CoreModule {
 		this.register();
 	}
 
+	/** Set by buildCore: write the platform's starting memory into a fresh data folder. */
+	seedPlatformDefaults = false;
+
 	start(): void {
+		if (this.seedPlatformDefaults) {
+			try {
+				const added = seedPlatformDefaults(this.db, this.store);
+				if (added) this.core.log.info(`memory: wrote ${added} platform default item(s) into a fresh data folder`);
+			} catch (error) { this.core.log.warn("memory: could not write the platform defaults", error); }
+		}
 		this.checkSpace();
 		this.spaceTimer = setInterval(() => this.checkSpace(), 30_000);
 		this.spaceTimer.unref();

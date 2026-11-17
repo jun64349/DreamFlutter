@@ -15,6 +15,7 @@ import 'overlay_panel.dart';
 import 'proto_icon.dart';
 import 'settings_page.dart';
 import 'shell_widgets.dart';
+import 'notes.dart';
 
 class MemoryOverlay extends StatelessWidget {
   const MemoryOverlay({super.key, required this.onClose});
@@ -106,9 +107,7 @@ class _MemoryPageState extends State<MemoryPage> {
 
   void _error(Object e) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('没有完成：${SessionRuntime.describeError(e)}')),
-      );
+      showNote('没有完成：${SessionRuntime.describeError(e)}', kind: NoteKind.fail);
     }
   }
 
@@ -116,23 +115,13 @@ class _MemoryPageState extends State<MemoryPage> {
     try {
       final batch = await _model.remove(item);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          persist: false,
-          duration: const Duration(seconds: 5),
-          content: const Text('已删除'),
-          action: SnackBarAction(
-            label: '撤销',
-            onPressed: () async {
+      showNote('已删除', action: '撤销', onAction: () async {
               try {
                 await _model.undo(batch);
               } catch (e) {
                 _error(e);
               }
-            },
-          ),
-        ),
-      );
+            });
     } catch (e) {
       _error(e);
     }

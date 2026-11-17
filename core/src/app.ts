@@ -44,7 +44,9 @@ export function buildCore(options: CoreOptions): Core {
 	llm.extendRuntime = (runtime) => gateway.installRuntime(runtime);
 	core.use(gateway);
 	core.use(new AutoTitle(core, llm));
-	core.use(new MemoryModule(core, llm));
+	const memory = new MemoryModule(core, llm);
+	memory.seedPlatformDefaults = options.platformMemory === true;
+	core.use(memory);
 	core.use(new ContextModule(core, llm));
 	core.use(new SkillsModule(core, llm));
 	const tasks = new TasksModule(core);

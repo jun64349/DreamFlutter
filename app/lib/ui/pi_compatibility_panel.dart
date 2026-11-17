@@ -11,6 +11,7 @@ import 'providers_page.dart';
 import 'settings_controls.dart' show SettingRow;
 import 'settings_layout.dart' show V1Inset;
 import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
+import 'notes.dart';
 
 /// Migration state and the same app-owned configuration used by the Pi CLI.
 class PiCompatibilityPanel extends StatefulWidget {
@@ -222,7 +223,7 @@ class _PiOAuthDialogState extends State<PiOAuthDialog> {
           padding: const EdgeInsets.only(top: 10),
           child: Wrap(spacing: 4, children: [
             TextButton.icon(onPressed: () => _open(url), icon: const Icon(Icons.open_in_new, size: 16), label: const Text('重新打开登录页')),
-            TextButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: url)); if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('已复制登录链接'))); }, icon: const Icon(Icons.copy, size: 16), label: const Text('复制链接')),
+            TextButton.icon(onPressed: () async { await Clipboard.setData(ClipboardData(text: url)); if (context.mounted) showNote('已复制登录链接', brief: true); }, icon: const Icon(Icons.copy, size: 16), label: const Text('复制链接')),
           ]),
         ),
         if (canLogin && running && prompt['type'] == 'select') Wrap(children: [for (final option in jsonRows(prompt['options'])) TextButton(onPressed: _busy ? null : () => _call('piMigration.oauthAnswer', {'id': state?['id'], 'value': option['id']}), child: Text('${option['label']}'))]),

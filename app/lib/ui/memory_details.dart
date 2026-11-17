@@ -11,6 +11,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'common.dart';
 import 'proto_icon.dart';
+import 'notes.dart';
 
 /// Shared inline editor: leaving the field saves through the versioned API.
 class MemoryEditableEntry extends StatefulWidget {
@@ -267,13 +268,7 @@ class MemoryEditableEntryState extends State<MemoryEditableEntry> {
                               );
                             } catch (e) {
                               if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '这段对话暂时打不开：${SessionRuntime.describeError(e)}',
-                                    ),
-                                  ),
-                                );
+                                showNote('这段对话暂时打不开：${SessionRuntime.describeError(e)}', kind: NoteKind.fail);
                               }
                             }
                           },

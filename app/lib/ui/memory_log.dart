@@ -10,6 +10,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'settings_layout.dart' show CardSurface;
 import 'motion.dart';
+import 'notes.dart';
 
 class MemoryLog extends StatefulWidget {
   const MemoryLog({super.key});
@@ -104,8 +105,7 @@ class _MemoryLogState extends State<MemoryLog> {
       checkMemoryChange(memoryMap(await _agent.backend.call(method, params)));
       await _load();
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('已撤销')));
+        showNote('已撤销');
       }
     } catch (e) {
       if (mounted) {

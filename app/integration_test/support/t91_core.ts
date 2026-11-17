@@ -61,6 +61,8 @@ t.core.register('test.modelGroup',async()=>{
   await t.core.call('gateway.saveGroup',{id:'pool',name:'主力',entries:[{channel:a,model:'pool-model',priority:0},{channel:b,model:'pool-model',priority:1}]});
   return {a,b};
 });
+// A pushed event exactly as the core sends it (toast screenshots).
+t.core.register('test.broadcast',(p)=>{t.core.broadcast(p.message as any);return {ok:true};});
 t.core.register('test.shutdown',()=>{setTimeout(()=>void close(),50);return {ok:true};});
 process.stdin.resume();process.stdin.on('end',()=>void close());process.on('SIGTERM',()=>void close());
 process.stdout.write(JSON.stringify({port:server.port,token:'t91-isolated',workspace:t.workspace,other,home:t.core.paths.butterflyDir,sessions:t.sessionDir,root:t.dir})+'\n');

@@ -456,6 +456,8 @@ export class SchedulerModule implements CoreModule {
 	private ticking: Promise<void> | undefined;
 	/** Slot → schedule run executing in it. */
 	private readonly active = new Map<string, string>();
+	/** Tools the policy refused during each active run (run id → tool names). */
+	private readonly denied = new Map<string, Set<string>>();
 	/** Schedules whose run is being started (before its session is open). */
 	private readonly starting = new Set<string>();
 	readonly clock: () => number;
@@ -967,7 +969,9 @@ export class SchedulerModule implements CoreModule {
 		} else {
 			lines.push(`没有人在旁边看着，不要提问，按最合理的方式完成。需要下次参考的信息可以用 ${stateTool} 工具保存。`);
 		}
-		if (!schedule.allowedTools?.length) lines.push("这个定时任务只允许使用只读工具（读取、查找、抓取网页等）。");
+		// 蝶君's runs stay inside its sandbox, where it may do anything (v0.13); host runs stay read-only.
+		if (schedule.owner !== "butterfly" && !schedule.allowedTools?.length)
+			lines.push("这个定时任务只放行只读工具（读取、查找、抓取网页等）。需要写入或运行命令时照常调用：没放行的调用会被拦下，这次运行记为没做成，由用户决定是否放行。");
 		return lines.join("\n");
 	}
 
@@ -1118,14 +1122,22 @@ export class SchedulerModule implements CoreModule {
 		const reply = [...messages].reverse().find((m) => m.role === "assistant");
 		const result = reply ? textOf(reply.content).slice(0, 2000) : null;
 		const limited = run.taskId ? this.db.get("SELECT 1 FROM notices WHERE task_id = ? AND status = 'pending'", run.taskId) : undefined;
+		const denied = [...(this.denied.get(runId) ?? [])];
+		this.denied.delete(runId);
 		let status: ScheduleRunStatus;
 		if (limited) status = "needs_input";
 		else if (run.status === "failed") status = "failed";
+		else if (denied.length) status = "failed";
 		else if (run.status === "done") status = schedule?.kind === "monitor" && result && NO_CHANGE.test(result) ? "no_change" : "done";
 		else status = "interrupted";
 
 		const fresh = this.getRun(runId)!;
-		if (status === "failed" && schedule && !fresh.externalEffects && fresh.attempt < MAX_ATTEMPTS) {
+		if (denied.length && run.status !== "failed") {
+			// The same permissions would refuse a retry too: stop and say which tools it needed.
+			const error = `需要的工具没有放行：${denied.join("、")}`;
+			this.finishRun(runId, "failed", { result, error, cost: fresh.cost + run.cost, note: "这次没做成：可在日程里放行这些工具后再做一次" });
+			if (run.taskId) this.tasks.markFailed(run.taskId, error);
+		} else if (status === "failed" && schedule && !fresh.externalEffects && fresh.attempt < MAX_ATTEMPTS) {
 			// Nothing happened outside yet: safe to try again later.
 			this.updateRun(runId, {
 				status: "waiting",
@@ -1230,7 +1242,14 @@ export class SchedulerModule implements CoreModule {
 		const allowed = schedule?.allowedTools ?? [];
 		// Older schedules name the shell "bash" or "powershell"; the agent modes call it "pwsh".
 		const shellAllowed = SHELL_TOOLS.has(tool) && allowed.some((t) => SHELL_TOOLS.has(t));
-		return allowed.includes(tool) || shellAllowed ? "allow" : "deny";
+		if (allowed.includes(tool) || shellAllowed) return "allow";
+		// An explicit memory write is turned into a proposal by design: not a missing permission.
+		if (tool.startsWith("memory_")) return "deny";
+		// Objective evidence the run could not do what it was asked (v0.13): never reported as done.
+		const denied = this.denied.get(runId) ?? new Set<string>();
+		denied.add(tool);
+		this.denied.set(runId, denied);
+		return "deny";
 	}
 
 	extensions(slot: { slotId: string }): ExtensionFactory[] {

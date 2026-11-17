@@ -59,6 +59,8 @@ export class LibraryRegistry {
 	private audit: SecurityAudit;
 	private changed?: () => void;
 	private userMcpFile?: string;
+	/** Bumped on every policy write: open sessions compare it to reload their skill list (v0.13). */
+	revision = 0;
 	constructor(db: Db, audit: SecurityAudit, changed?: () => void, userMcpFile?: string) { this.db = db; this.audit = audit; this.changed = changed; this.userMcpFile = userMcpFile; }
 	private key(kind: EntryKind, key: string): string {
 		if (kind === "skill") return builtinSkillKey(key) ?? key;
@@ -89,6 +91,7 @@ export class LibraryRegistry {
 			source_url=excluded.source_url,trusted=excluded.trusted,enabled=excluded.enabled,butterfly_allowed=excluded.butterfly_allowed,fingerprint=excluded.fingerprint,
 			identity_conflict=CASE WHEN excluded.trusted=1 THEN NULL ELSE library_entries.identity_conflict END`,
 			kind, key, next.sourceKind, next.sourceUrl, Number(next.trust === "trusted"), Number(next.enabled), Number(next.butterflyAllowed), fingerprint === undefined ? old?.fingerprint ?? null : fingerprint);
+		this.revision++;
 		if (!old || previous.sourceKind !== next.sourceKind || previous.sourceUrl !== next.sourceUrl || previous.trust !== next.trust || previous.butterflyAllowed !== next.butterflyAllowed) {
 			this.audit.record("library", `${kind}:${key}`, next.trust, `来源=${next.sourceKind}; 出处=${next.sourceUrl ?? "未提供"}; 蝶君=${next.butterflyAllowed ? "允许" : "禁止"}`);
 		}

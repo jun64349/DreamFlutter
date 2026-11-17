@@ -14,6 +14,7 @@ import 'motion.dart';
 import 'overlay_panel.dart';
 import 'proto_icon.dart';
 import 'shell_widgets.dart';
+import 'notes.dart';
 
 class GardenPage extends StatefulWidget {
   const GardenPage({super.key,this.additionalSkills,this.onClose});
@@ -54,7 +55,7 @@ class _GardenPageState extends State<GardenPage> {
       final token = await _garden.remove(entry);
       if (!mounted) return;
       setState(() => _detailOpen = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(persist: false, duration: const Duration(seconds: 5), content: const Text('已删除'), action: SnackBarAction(label: '撤销', onPressed: () => _act(() => _garden.undoRemove(token)))));
+      showNote('已删除', action: '撤销', onAction: () => _act(() => _garden.undoRemove(token)));
     });
     if (mounted) setState(() { _removing = false; _removingKey = null; });
   }

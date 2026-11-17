@@ -5,6 +5,7 @@ import '../state/preferences.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'proto_icon.dart';
+import 'notes.dart';
 
 /// 原型 .pill：高 26、圆角 8、内边距 4/9、图标 14 与字间距 5、字 12.5；平时 ink2 无底，开着时强调色字 + accentSoft 底。
 /// [warn]：「直接做」用警告色提醒。
@@ -63,7 +64,7 @@ class AskBeforeActingToggle extends StatelessWidget {
         onPressed: agent.isReady ? () async {
           await agent.setApprovalMode(on ? ApprovalMode.off : ApprovalMode.changes);
           if (!context.mounted) return;
-          ScaffoldMessenger.of(context)..hideCurrentSnackBar()..showSnackBar(SnackBar(content: Text(on ? '改文件、跑命令不再先问你' : '改文件、跑命令前会先问你')));
+          showNote(on ? '改文件、跑命令不再先问你' : '改文件、跑命令前会先问你', kind: NoteKind.info);
         } : null,
         icon: ProtoIcon(on ? 'shield' : 'spark', size: 14),
         label: Text(on ? '先问我' : '直接做', style: const TextStyle(fontSize: 12.5)),

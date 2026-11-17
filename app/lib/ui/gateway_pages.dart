@@ -13,6 +13,7 @@ import 'settings_controls.dart';
 import 'settings_layout.dart';
 import 'proto_icon.dart';
 import 'shell_widgets.dart' show ShellButton;
+import 'notes.dart';
 
 class ChannelManagementPage extends StatelessWidget {
   const ChannelManagementPage({super.key});
@@ -404,7 +405,7 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
         _refreshKeys();
         _saved = _fingerprint();
       });
-      if (!quiet) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
+      if (!quiet) showNote('已保存');
       return true;
     } catch (e) {
       if (mounted) setState(() => _message = '没有保存：${SessionRuntime.describeError(e)}');

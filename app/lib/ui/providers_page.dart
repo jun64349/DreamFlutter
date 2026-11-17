@@ -5,6 +5,7 @@ import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
 import 'gateway_pages.dart' show ChannelManagementPage;
+import 'notes.dart';
 
 /// One model of a provider, as the core reports it.
 class ModelEntry {
@@ -161,10 +162,10 @@ class _ProvidersPageState extends State<ProvidersPage> {
     try {
       await action();
       _changed = true;
-      if (done != null && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(done)));
+      if (done != null && mounted) showNote(done);
       await _load();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(SessionRuntime.describeError(e))));
+      if (mounted) showNote(SessionRuntime.describeError(e), kind: NoteKind.fail);
     }
   }
 

@@ -11,6 +11,7 @@ import 'gateway_pages.dart' show ChannelTestResult, channelTestResult, describeC
 import 'settings_controls.dart';
 import 'settings_layout.dart';
 import 'proto_icon.dart';
+import 'notes.dart';
 
 /// Model groups (0.8.3, docs/design/model-groups.md): a queue of channel models used as one model;
 /// when the first cannot take a request the next one does. 设置 › 模型 has a card listing them
@@ -45,7 +46,7 @@ class GroupList extends StatelessWidget {
       await agent.backend.call('gateway.reorderGroups', {'ids': ids});
       await agent.refreshGateway(models: true);
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(SessionRuntime.describeError(e))));
+      if (context.mounted) showNote(SessionRuntime.describeError(e), kind: NoteKind.fail);
     }
   }
 
@@ -253,7 +254,7 @@ class GroupEditorPageState extends State<GroupEditorPage> {
       await _agent.refreshGateway(models: true);
       if (!mounted) return true;
       setState(() { _id = result['id'] as String? ?? _id; _saved = _fingerprint(); });
-      if (!quiet) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
+      if (!quiet) showNote('已保存');
       return true;
     } catch (e) {
       if (mounted) setState(() => _message = '没有保存：${SessionRuntime.describeError(e)}');
@@ -615,7 +616,7 @@ class _CommonModelsDialogState extends State<CommonModelsDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _busy = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(SessionRuntime.describeError(e))));
+        showNote(SessionRuntime.describeError(e), kind: NoteKind.fail);
       }
     }
   }
