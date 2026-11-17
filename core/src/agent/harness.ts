@@ -36,7 +36,7 @@ import {
 } from "./dsh-text.ts";
 import { MEMORY_MESSAGE_TYPE } from "../memory/types.ts";
 import { type Candidate, candidateProblem, chooseCut, type CompactionHooks, compactionCycle, estimateAll, fingerprint, messagesBefore, prefixFingerprint } from "./background-compaction.ts";
-import { RICH_OUTPUT_GUIDANCE, SANDBOX_ENVIRONMENT } from "./host-text.ts";
+import { RICH_OUTPUT_GUIDANCE, SANDBOX_ENVIRONMENT, WORKBENCH_IDENTITY } from "./host-text.ts";
 import { editTool, readImageTool, readTool, workingDirectoryTool, writeTool } from "./fs-tools.ts";
 import { askUserTool, exitPlanModeTool, skillTool, todoTool } from "./interaction-tools.ts";
 import { linuxSourceEnvironment, SandboxShell, sandboxBashTool } from "./sandbox-shell.ts";
@@ -403,6 +403,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				active.has("web_search") ? WEB_SEARCH_GUIDANCE : "",
 				active.has("show_card") ? RICH_OUTPUT_GUIDANCE : "",
 				// The workbench: shipped tools, and .dreamflutter with the workspace notes (read fresh every run).
+				sandbox ? "" : WORKBENCH_IDENTITY,
 				sandbox ? SANDBOX_ENVIRONMENT : workspaceGuidance(prepareWorkspace(cwd).notes),
 				options.butterflyStyle?.() ?? "",
 			];

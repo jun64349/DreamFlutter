@@ -156,7 +156,7 @@ void main() {
         await send('请读取 samples/north.csv 和 samples/south.csv，写一个 Node.js 脚本 scripts/summary.mjs：计算每个区域三个月的订单总数和收入总额（收入保留两位小数），以及两个区域的合计，并打印出来。用 node 运行它，再把结果写成 report.md（包含一个 Markdown 表格）。最后告诉我两区域合计收入是多少。',seconds:420);
         final script=File(p.join(workspace,'scripts','summary.mjs')), report=File(p.join(workspace,'report.md'));
         ProcessResult? rerun;
-        if(script.existsSync())rerun=await tester.runAsync(()=>Process.run('node',[script.path],workingDirectory:workspace));
+        if(script.existsSync())rerun=await tester.runAsync(()=>Process.run('node',[script.path],workingDirectory:workspace,stdoutEncoding:utf8,stderrEncoding:utf8));
         final reportText=report.existsSync()?plain(report.readAsStringSync()):'';
         final rerunText=plain('${rerun?.stdout??''}');
         final expected=['49036.50','44131.00','93167.50','383','349','732'];

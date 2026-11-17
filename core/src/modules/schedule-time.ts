@@ -72,10 +72,39 @@ function onceText(year: number, month: number, day: number, hour: number, minute
 	return `${date} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+/** 3, 12, 两, 十五, 二十: the counts people write before 分钟 / 小时. */
+function count(raw: string): number {
+	if (/^\d+$/.test(raw)) return Number(raw);
+	const digits = "零一二三四五六七八九";
+	const digit = (c: string | undefined) => c === undefined || c === "" ? 1 : c === "两" ? 2 : digits.indexOf(c);
+	const match = /^([一二两三四五六七八九])?(十)?([一二三四五六七八九])?$/.exec(raw);
+	if (!raw || !match) return NaN;
+	if (!match[2]) return match[3] ? NaN : digit(match[1]);
+	const value = digit(match[1]) * 10 + (match[3] ? digit(match[3]) : 0);
+	return match[1] === "两" ? NaN : value;
+}
+
+/** 「30 分钟后」「2 小时后」「半小时后」「一个半小时后」「1小时20分钟后」: a one-off that far from now, rounded up to the minute. */
+function relative(text: string): number | null {
+	const match = /^(?:(\d+|[一二两三四五六七八九十]+)\s*个?\s*(半)?\s*(?:小时|钟头)|(半)\s*个?\s*(?:小时|钟头))?\s*(?:(\d+|[一二两三四五六七八九十]+)\s*分(?:钟)?)?\s*(?:以?后|之后)$/.exec(text.replace(/\s+/g, ""));
+	if (!match || (!match[1] && !match[3] && !match[4])) return null;
+	const hours = match[3] ? 0.5 : match[1] ? count(match[1]) + (match[2] ? 0.5 : 0) : 0;
+	const minutes = match[4] ? count(match[4]) : 0;
+	const ms = Math.round((hours * 60 + minutes) * 60_000);
+	if (!Number.isFinite(ms) || ms < 60_000 || ms > 366 * 86_400_000) return invalid();
+	return ms;
+}
+
 export function parseScheduleTime(value: unknown, timezone?: unknown, current = Date.now()): { trigger: Trigger; text: string } {
 	if (typeof value !== "string" || !value.trim()) return invalid();
 	const text = value.trim().replace(/\s+/g, " ");
 	const zone = timezoneOf(timezone);
+	const after = relative(text);
+	if (after !== null) {
+		const at = Math.ceil((current + after) / 60_000) * 60_000;
+		const p = parts(at, zone);
+		return { trigger: { type: "once", at, timezone: zone }, text: onceText(p.year, p.month, p.day, p.hour, p.minute, zone, current) };
+	}
 	let match: RegExpExecArray | null;
 	match = /^每\s*(\d+)\s*(小时|分钟)$/.exec(text);
 	if (match) {
