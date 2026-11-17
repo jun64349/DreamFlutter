@@ -1,13 +1,22 @@
 # DreamFlutter 开发交接
 
-> **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前：0.13.1 修复 + 完整安装升级验证已做完，等用户验收（未提交）。**
+> **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前：第 0–2 步完成并已提交（`6a81832`），下一步第 3 步「性能与包体」。**
 
-**2026-11-17 晚：完整安装与升级验证完成（当前状态）**
 
-- 真实环境（Claude 终端面板启动，不受 Claude 应用文件重定向影响）走通：全新安装、向导、造数据、程序内卸载保留数据、重装找回、自动升级 0.13.1→0.13.2-test.1、失败回滚、彻底卸载。发现并修好 6 个缺陷 A–F/I（向导跳过模型、守护进程被 Velopack 结束、升级中断重开卡死、重装不提示找回、找回被拒、Velopack 挪不动 current、等待超时误回滚），详见 [安装升级验证回执](releases/v0.13.1-安装升级验证回执.md)。待定：G 开始菜单空文件夹残留、H 新装搬入本机旧数据。
-- 版本号已改 0.13.1+18（app/pubspec.yaml）。安装包在 dist/v0.13.1-install/（含 build-all.ps1），工具在 %LOCALAPPDATA%Tempdf-v0131-velopack-tools，0.13.0 代码 worktree 在 E:claudeDreamFlutter-v0130。驱动脚本 scripts/v0131-install/。全部未提交。测试安装已卸载；%LOCALAPPDATA%DreamFlutter.preserved-data 是测试留下的保留数据。
+**下一窗口从这里开始**
 
-**2026-11-17：0.13.1 修完真实验证剩余 4 条，等用户验收（当前状态）**
+1. 路线第 3 步「性能与包体」：量体积并瘦身、启动速度、安装流程（选安装目录、选数据位置）。基准见 [roadmap 页首★节](roadmap.md)「当前进度」。
+2. 开工前先问用户 G、H 两项怎么处理（回执「待处理」节）；不要自己定。
+3. **安装类验证一律在 Claude 终端面板（run_in_terminal）里启动**，不要从 Bash/PowerShell 工具直接装或启动安装版：Claude 应用是 MSIX，从它直接启动的程序写 AppData 会被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`，结果不算数。点击向导可用 `scripts/v0131-install/window.ps1`（模拟鼠标，作用在真实桌面）；分阶段驱动用 `scripts/v0131-install/drive.mjs`（也要在终端面板里跑）。
+4. 打安装包：`dist/v0.13.1-install/build-all.ps1`（改里面的版本列表），工具在 `%LOCALAPPDATA%\Temp\df-v0131-velopack-tools`（.NET 8 + vpk 1.2.161）和 `%LOCALAPPDATA%\Temp\df-t131-velopack-sdk`；临时目录被清理就按计划文档重下。每个包约 7 分钟，只有升级前的版本里的守护进程修复才对升级生效。
+5. 推送、打标签、合并 main 仍需用户逐次同意。说话一律中文，包括中途进度和收尾小结。
+
+**2026-11-17 晚：完整安装与升级验证完成，用户验收并提交 `6a81832`（当前状态）**
+
+- 真实环境（Claude 终端面板启动，不受 Claude 应用文件重定向影响）走通：全新安装、向导、造数据、程序内卸载保留数据、重装找回、自动升级 0.13.1→0.13.2-test.1、失败回滚、彻底卸载。发现并修好 7 个缺陷 A–F、I（向导跳过模型、守护进程被 Velopack 结束、升级中断重开卡死、重装不提示找回、找回被拒、Velopack 挪不动 current、等待超时误回滚），详见 [安装升级验证回执](releases/v0.13.1-安装升级验证回执.md)。待定：G 开始菜单空文件夹残留、H 新装搬入本机旧数据。
+- 版本号已改 0.13.1+18（app/pubspec.yaml）。安装包在 dist/v0.13.1-install/（含 build-all.ps1），工具在 `%LOCALAPPDATA%\Temp\df-v0131-velopack-tools`，0.13.0 代码 worktree 在 `E:\claude\DreamFlutter-v0130`（版本号改动不提交）。驱动脚本 `scripts/v0131-install/`。已本地提交 `6a81832`，未推送、未打标签。测试安装已卸载；`%LOCALAPPDATA%\DreamFlutter.preserved-data` 是测试留下的保留数据。工作树里 7 个研究文件仍不属于本版，不要顺手提交。
+
+**2026-11-17：0.13.1 修完真实验证剩余 4 条（已验收提交 `2fcea7f`，历史）**
 
 - 第 4 条「N 分钟后」已修（`core/src/modules/schedule-time.ts` 相对时间）；第 6 条工作台自称蝶君已修（工作台会话加 `WORKBENCH_IDENTITY`，蝶君会话不带）；第 7 条乱码是验证测试 `Process.run` 按 GBK 解码，已改测试按 UTF-8 读，产品 pwsh 复核正常；第 5 条日历选中整列加宽是 T-143 用户要的交互，**用户定保持现状**。详见[回执末节](releases/v0.13-真实任务验证回执.md)。
 - 测试：新增 `core/test/v0131-fixes.test.ts` 2 项；连同 schedule-time-t140、agent-modes、web-search、api-contract/b-goals、v013-fixes 共 43 项通过；`v013_live_test.dart` 定向分析零问题。未调真实模型。
