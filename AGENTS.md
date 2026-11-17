@@ -2,6 +2,13 @@
 
 开工前先读 [docs/NEW-AGENT-START.md](docs/NEW-AGENT-START.md)（接手须知：用户、规矩、方向、环境）、[docs/HANDOFF.md](docs/HANDOFF.md) 最上面的当前状态和 [docs/dev-guide.md](docs/dev-guide.md)。界面以 [docs/design/v1-redesign-spec.md](docs/design/v1-redesign-spec.md) 和原型 [docs/design/prototype/v1-redesign.html](docs/design/prototype/v1-redesign.html) 为准（2026-11-14 用户要求整体 UI 重做；概念、流程、用词仍看 [docs/design/interaction-design.md](docs/design/interaction-design.md)）。跟用户说话一律用平实的中文。
 
+## 到 1.0 的最后路线（用户 2026-11-17 定，必须照做）
+
+0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [docs/roadmap.md 页首★节](docs/roadmap.md)。
+
+- **按这条路线逐步做，不要另起规划、不要改顺序、不要插入新阶段或新功能。** 和其他文档冲突时以它为准；没写到的细节先问用户。
+- 每一步做完交用户验收再进下一步；推送、打标签、合并 main 每次都要用户明确同意。
+
 ## 已定型的操作和体验（v0.8.3 起，用户 2026-11-11 定）
 
 - **现在的操作逻辑和体验已经不错，不要动。** 清单和守着它们的测试在 [docs/design/settled-0.8.3.md](docs/design/settled-0.8.3.md)。新功能装进现有位置，不改这些地方的交互、布局和用词；只有用户明确要求改某一条时才动。
