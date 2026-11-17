@@ -34,7 +34,9 @@ const helper = (args, timeout = 180000) => new Promise((done, reject) => execFil
 function installedVersion() {
   try { return JSON.parse(readFileSync(join(config.appRoot, 'build-info.json'), 'utf8')).version; } catch { return null; }
 }
-async function waitUpdater(seconds = 180) {
+// Velopack finishes by deleting the old program it moved aside: about 3 minutes for the 2.7 GB package (0.13.1 install
+// verification), so 180 s rolled back an update that had in fact succeeded.
+async function waitUpdater(seconds = 900) {
   let clear = 0;
   for (let i = 0; i < seconds * 2; i++) {
     if (!(await helper(['updaters', config.installRoot]))) { if (++clear === 2) return; } else clear = 0;
@@ -51,7 +53,7 @@ function startCore(recover = false) {
   const node = join(config.appRoot, 'runtime', 'node.exe');
   const entry = join(config.appRoot, 'core', 'src', recover ? 'update/recover-entry.ts' : 'main.ts');
   const args = recover ? [entry, process.argv[2]] : [entry, '--data-dir', config.dataRoot, '--agent-dir', config.agentDir, '--session-dir', config.sessionsDir];
-  const child = spawn(node, ['--disable-warning=ExperimentalWarning', ...args], { detached: true, windowsHide: true, stdio: 'ignore', env: { ...process.env, DREAMFLUTTER_DATA: config.dataRoot } });
+  const child = spawn(node, ['--disable-warning=ExperimentalWarning', ...args], { cwd: config.appRoot, detached: true, windowsHide: true, stdio: 'ignore', env: { ...process.env, DREAMFLUTTER_DATA: config.dataRoot } });
   child.on('error', () => {}); return child;
 }
 async function hello(info, validate, inspect = false) {

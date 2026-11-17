@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { UpdateError, type ReleaseAsset } from "./release.ts";
@@ -18,6 +19,12 @@ export async function makeFeed(directory: string, path: string, asset: ReleaseAs
   const legacyHash = createHash("sha1"); for await (const chunk of createReadStream(path)) legacyHash.update(chunk);
   await writeFile(join(directory, "releases.win-x64.json"), JSON.stringify({ Assets: [{ PackageId: "DreamFlutter", Version: version, Type: "Full", FileName: asset.name, SHA1: legacyHash.digest("hex").toUpperCase(), SHA256: asset.sha256.toUpperCase(), Size: asset.size }] }), { mode: 0o600 });
 }
+/**
+ * Where the update guardian's programs run from: outside the install root. Velopack's apply ends every process whose
+ * program lies under the install root (force_stop_package), and the installed data folder is inside it, so a guardian
+ * started from data/updates/runs was killed mid-update and the new version never started (0.13.1 install verification).
+ */
+export function guardianExecDir(id: string): string { return join(tmpdir(), "dreamflutter-update", id); }
 export async function prepareGuardian(appRoot: string, guardDir: string): Promise<{ node: string; script: string; helper: string }> {
   await mkdir(join(guardDir, "node_modules"), { recursive: true });
   // All executable bytes originate in the currently installed, already-running application.
@@ -32,6 +39,7 @@ export async function prepareGuardian(appRoot: string, guardDir: string): Promis
   return { node, script, helper };
 }
 export function launchGuardian(node: string, script: string, config: string): number {
-  const child = spawn(node, [script, config], { detached: true, windowsHide: true, stdio: "ignore", env: process.env });
+  // Its own folder as working directory: a process whose working directory is inside current/ stops Velopack from moving it aside (access denied).
+  const child = spawn(node, [script, config], { cwd: dirname(node), detached: true, windowsHide: true, stdio: "ignore", env: process.env });
   child.unref(); if (!child.pid) throw new UpdateError("updater_failed", "无法启动更新守护进程。"); return child.pid;
 }

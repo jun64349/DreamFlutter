@@ -19,8 +19,57 @@ const baselineFlags = new Set([
 ]);
 const baselineSettings: Record<string, string> = { smallTaskModel: "null", largeTaskModel: "null", modelOverrides: "{}" };
 const transientRoot = new Set(["core.lock", "core.json", "core-startup.json", "storage-locations.json"]);
+/**
+ * What a new installation writes on its first start, before the person does anything (0.13.1 install verification:
+ * these made every fresh 0.13 install look used, so a reinstall never offered the preserved data): the window's
+ * preferences, the automatic update check, built-in skill registrations and their audit rows, the platform default
+ * memories (one untouched platform_defaults batch), memory tidy flags, and an automatic Pi migration with its backup.
+ */
+const firstStartFiles = [["window", "prefs.json"], ["updates", "check-cache.json"]];
+const piMigrationFiles = ["auth.json", "models.json", "models-store.json"];
+function firstStartRows(core: Core): Set<string> {
+	const allowed = new Set<string>();
+	const has = (table: string) => !!core.db.get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", table);
+	if (has("library_entries") && !core.db.get("SELECT 1 FROM library_entries WHERE source_kind<>'builtin' OR usage_count<>0 LIMIT 1")) allowed.add("library_entries");
+	if (has("security_audit") && !core.db.get("SELECT 1 FROM security_audit WHERE kind<>'library' OR object NOT LIKE 'skill:builtin:%' LIMIT 1")) allowed.add("security_audit");
+	if (has("memory_batches") && has("memory_ops") && has("memory_items") && has("memory_versions")) {
+		const batches = core.db.all<{ id: string; kind: string; undone_at: number | null }>("SELECT id,kind,undone_at FROM memory_batches");
+		const platform = batches.length === 1 && batches[0]!.kind === "platform_defaults" && batches[0]!.undone_at === null;
+		const ops = core.db.all<{ batch_id: string; kind: string; item_id: string; after_version: number | null }>("SELECT batch_id,kind,item_id,after_version FROM memory_ops");
+		const items = core.db.all<{ id: string; version: number }>("SELECT id,version FROM memory_items");
+		const added = new Map(ops.map(op => [op.item_id, op.after_version]));
+		const untouched = platform && ops.every(op => op.batch_id === batches[0]!.id && op.kind === "add") && items.length === ops.length &&
+			items.every(item => added.get(item.id) === item.version) &&
+			core.db.all<{ item_id: string }>("SELECT item_id FROM memory_versions").every(row => added.has(row.item_id)) &&
+			core.db.get<{ n: number }>("SELECT count(*) n FROM memory_versions")!.n === items.length;
+		if (untouched || !batches.length && !ops.length && !items.length) for (const table of ["memory_batches", "memory_ops", "memory_items", "memory_versions"]) allowed.add(table);
+	}
+	return allowed;
+}
+function piMigrated(core: Core): boolean {
+	try {
+		const row = core.db.get<{ value: string }>("SELECT value FROM pi_channel_migration");
+		return !!row && JSON.parse(row.value).status === "done";
+	} catch { return false; }
+}
 const sourceOnlyRoot = new Set([...transientRoot].filter(name => name !== "storage-locations.json").concat([keepMarker, preservedReceipt]));
-const pendingRecords = ["restore-switch.json", "restore-old", "storage-move.json", "updates"];
+const pendingRecords = ["restore-switch.json", "restore-old", "storage-move.json"];
+/**
+ * An update that has not finished: its journal is in an open phase, or a guardian's run folder is left.
+ * A finished journal, the update history and the automatic check cache are ordinary data: anyone who ever
+ * updated in the app has them (0.13.1 install verification: they blocked every restore).
+ */
+function unfinishedUpdate(root: string): boolean {
+	const updates = join(root, "updates");
+	if (!lstatSync(updates, { throwIfNoEntry: false })) return false;
+	const journal = join(updates, "journal.json");
+	if (lstatSync(journal, { throwIfNoEntry: false })) {
+		try { if (!["verified", "accepted", "rolled-back", "cancelled"].includes(JSON.parse(readFileSync(journal, "utf8")).phase)) return true; }
+		catch { return true; }
+	}
+	const runs = join(updates, "runs");
+	return !!lstatSync(runs, { throwIfNoEntry: false }) && readdirSync(runs).length > 0;
+}
 const same = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
 const conflict = () => new RpcError("conflict", "当前安装已有数据，不能覆盖。保留的数据仍在原处。");
 
@@ -76,9 +125,15 @@ export function freshInstallation(core: Core, staging?: string): boolean {
 			core.sessionDir !== undefined && !same(core.sessionDir, locations.sessions)) return false;
 		const configFile = join(locations.configuration, "settings.json");
 		const logFiles = [join(locations.logs, "core.log"), join(locations.logs, "core.log.1")];
+		const migrated = piMigrated(core);
 		let fresh = true;
 		files(root, file => {
 			if (same(dirname(file), root) && transientRoot.has(basename(file))) return;
+			if (firstStartFiles.some(parts => same(file, join(root, ...parts)))) return;
+			// Pi creates an empty credential file on its first start.
+			if (same(file, join(locations.configuration, "auth.json")) && readFileSync(file, "utf8").trim() === "{}") return;
+			if (migrated && (piMigrationFiles.some(name => same(file, join(locations.configuration, name))) ||
+				isInside(join(root, "backups"), file) && /^pi-migration-/.test(basename(dirname(file))))) return;
 			if (["", "-wal", "-shm"].some(suffix => same(file, core.paths.dbFile + suffix)) || logFiles.some(log => same(file, log))) return;
 			if (same(file, configFile)) {
 				const settings = JSON.parse(readFileSync(file, "utf8"));
@@ -89,12 +144,14 @@ export function freshInstallation(core: Core, staging?: string): boolean {
 			fresh = false;
 		}, staging);
 		if (!fresh) return false;
+		const automatic = firstStartRows(core);
 		for (const table of userTables(core.db)) {
+			if (automatic.has(table) || table === "pi_channel_migration" && migrated) continue;
 			if (table === "settings") {
 				if (core.db.all<{ key: string; value: string }>("SELECT key,value FROM settings")
 					.some(row => !Object.hasOwn(baselineSettings, row.key) || baselineSettings[row.key] !== row.value)) return false;
 			} else if (table === "app_flags") {
-				if (core.db.all<{ key: string }>("SELECT key FROM app_flags").some(row => !baselineFlags.has(row.key))) return false;
+				if (core.db.all<{ key: string }>("SELECT key FROM app_flags").some(row => !baselineFlags.has(row.key) && !row.key.startsWith("memory_tidy_l1:"))) return false;
 			} else if (table === "ledger_price_rules") {
 				if (core.db.all<{ version: string; definition: string }>("SELECT version,definition FROM ledger_price_rules")
 					.some(row => !PRICE_RULES.some(rule => rule.version === row.version && JSON.stringify(rule) === row.definition))) return false;
@@ -115,7 +172,7 @@ export async function stagePreservedData(core: Core, root: string, requested: st
 	// The restart resolves database and Pi paths before applying the switch.
 	// A different database/agent layout requires a separate migration workflow.
 	const config = readLocationConfig(candidate.path);
-	if (pendingRecords.some(name => lstatSync(join(candidate.path, name), { throwIfNoEntry: false }))) {
+	if (pendingRecords.some(name => lstatSync(join(candidate.path, name), { throwIfNoEntry: false })) || unfinishedUpdate(candidate.path)) {
 		throw new RpcError("bad_config", "保留数据含有更新或切换记录，请先核对原数据。");
 	}
 	for (const key of ["database", "configuration", "sessions"] as const) {

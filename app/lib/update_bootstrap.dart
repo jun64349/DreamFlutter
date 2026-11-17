@@ -6,6 +6,13 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 import 'package:window_manager/window_manager.dart';
 
+/// Whether the update guardian with [pid] is still running (Windows: tasklist; elsewhere a signal-0 style probe is not available, so assume it is).
+bool guardianAlive(Object? pid) {
+  if (pid is! int || pid <= 0) return false;
+  if (!Platform.isWindows) return true;
+  try { return '${Process.runSync('tasklist', ['/FI', 'PID eq $pid', '/NH', '/FO', 'CSV']).stdout}'.contains('"$pid"'); } catch (_) { return true; }
+}
+
 /// No preferences, user sessions or editable UI are opened before update validation.
 Future<bool> bootstrapUpdate(String dataDir, String appVersion, Future<void> Function() continueStartup) async {
   final file = File(p.join(dataDir, 'updates', 'journal.json'));
@@ -24,12 +31,18 @@ Future<bool> bootstrapUpdate(String dataDir, String appVersion, Future<void> Fun
   runApp(const MaterialApp(home: Scaffold(body: Center(child: Padding(padding: EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 20), Text('正在更新并验证数据，请稍候…')]))))));
   unawaited(() async {
     CoreClient? client;
-    var uiReady = false;
+    var uiReady = false, recoveryStarted = false;
     try {
       for (var attempt = 0; attempt < 900; attempt++) {
         journal = read();
         if ({'verified', 'accepted', 'rolled-back', 'cancelled'}.contains(journal['phase'])) { await client?.close(); await continueStartup(); return; }
         if (journal['phase'] == 'manual-recovery') throw StateError('自动恢复未能完成。数据和备份已保留，请检查后台日志。');
+        // The program is already the new version but nobody is finishing the update (the guardian was stopped):
+        // start the background once; its startup restarts the guardian (recoverUpdateStartup) and exits.
+        if (!recoveryStarted && attempt >= 25 && journal['phase'] == 'applying' && journal['to'] == appVersion && !guardianAlive(journal['guardPid'])) {
+          recoveryStarted = true;
+          unawaited(CoreLocator.ensureRunning(searchRoots: [p.dirname(Platform.resolvedExecutable), Directory.current.path], dataDir: dataDir).then((c) => c.close()).catchError((_) {}));
+        }
         if (!uiReady && journal['phase'] == 'validating' && journal['to'] == appVersion) {
           client ??= await CoreLocator.ensureRunning(searchRoots: [p.dirname(Platform.resolvedExecutable), Directory.current.path], dataDir: dataDir);
           await WidgetsBinding.instance.endOfFrame;

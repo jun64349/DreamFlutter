@@ -10,7 +10,7 @@ import { inspectBackup } from "../backup/restore.ts";
 import { Archive } from "../backup/archive.ts";
 import { MemoryModule } from "../modules/memory.ts";
 import { APP_ROOT } from "../paths.ts";
-import { bridgeCall, launchGuardian, makeFeed, prepareGuardian } from "./bridge.ts";
+import { bridgeCall, guardianExecDir, launchGuardian, makeFeed, prepareGuardian } from "./bridge.ts";
 import { buildInfo, installation, piVersion, type BuildInfo } from "./installation.ts";
 import { compareVersions, LATEST_RELEASE, limitedText, localSource, parseRelease, request, UpdateError, type Release } from "./release.ts";
 import { downloadPackage, recheckPackage, type PackageSignature } from "./download.ts";
@@ -152,6 +152,7 @@ export class UpdateModule implements CoreModule {
         if (existsSync(log)) await cp(log, join(history, `${journal.id}.log`));
         await rm(expected, { recursive: true, force: true });
       }
+      await rm(guardianExecDir(journal.id), { recursive: true, force: true });
       const download = dirname(resolve(journal.targetPackage)), downloads = resolve(this.core.paths.dataDir, "updates", "downloads") + sep;
       if (download.toLowerCase().startsWith(downloads.toLowerCase()) && existsSync(download) && realpathSync(download).toLowerCase() === download.toLowerCase()) await rm(download, { recursive: true, force: true });
       this.store.mutate(current => { if (!current) throw Error("Missing stage"); return current.id === journal.id ? { ...current, cleaned: true } : current; }); if (this.cleanupTimer) clearInterval(this.cleanupTimer);
@@ -237,7 +238,7 @@ export class UpdateModule implements CoreModule {
       const verified = await inspectBackup(backup.path, { paths: core.paths, agentDir: core.agentDir, sessionsDir: core.sessionDir ?? join(core.agentDir, "sessions"), appVersion: CORE_VERSION }); verified.archive.close();
       const newFeed = join(guardDir, "new-feed"), oldFeed = join(guardDir, "old-feed"), sdkCache = join(guardDir, "sdk-cache");
       await makeFeed(newFeed, downloaded.path, downloaded.release.asset, downloaded.release.version); await makeFeed(oldFeed, oldPath, old.asset, old.version); await mkdir(sdkCache, { recursive: true });
-      const guard = await (this.options.prepareGuard ?? prepareGuardian)(this.appRoot, guardDir), nonce = randomUUID();
+      const guard = await (this.options.prepareGuard ?? prepareGuardian)(this.appRoot, guardianExecDir(id)), nonce = randomUUID();
       const journal = this.store.mutate(() => ({ id, phase: "prepared", at: this.clock(), from: this.build.version, to: downloaded.release.version, installRoot: installed.root, appRoot: this.appRoot, dataRoot: core.paths.dataDir,
         agentDir: core.agentDir, sessionsDir: core.sessionDir ?? join(core.agentDir, "sessions"), databaseFile: core.paths.dbFile, backup: backup.path, targetPackage: downloaded.path, oldPackage: oldPath, asset: downloaded.release.asset,
         guardDir, windowPid, corePid: process.pid, nonce, acceptedWrites: false, attemptedRollback: false, memoryWasPaused: previousPaused })); this.hasJournal = true;

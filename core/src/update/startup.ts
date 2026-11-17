@@ -1,15 +1,15 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { JournalStore, pendingValidation } from "./state.ts";
 import { buildInfo } from "./installation.ts";
-import { launchGuardian } from "./bridge.ts";
+import { guardianExecDir, launchGuardian, prepareGuardian } from "./bridge.ts";
 import { UpdateError } from "./release.ts";
 import type { CorePaths } from "../paths.ts";
 import { APP_ROOT } from "../paths.ts";
 import { execFile } from "node:child_process";
 
-export interface StartupOptions { appRoot?: string; version?: string; alive?: (pid?: number) => boolean; launch?: typeof launchGuardian; }
+export interface StartupOptions { appRoot?: string; version?: string; alive?: (pid?: number) => boolean; launch?: typeof launchGuardian; prepare?: typeof prepareGuardian; }
 export async function recoverUpdateStartup(paths: CorePaths, options: StartupOptions = {}): Promise<"continue" | "guardian-active"> {
   const store = new JournalStore(paths.dataDir), journal = store.read(); if (!journal) return "continue";
   const current = options.version ?? buildInfo().version;
@@ -34,7 +34,11 @@ export async function recoverUpdateStartup(paths: CorePaths, options: StartupOpt
     if (resolve(journal.guardDir).toLowerCase() !== resolve(expected).toLowerCase()) throw new UpdateError("recovery_required", "更新恢复路径不匹配，已保留现场。");
     const config = join(expected, "guard-config.json"); if (!existsSync(config)) throw new UpdateError("recovery_required", "更新守护记录缺失，已保留现场和备份。");
     const data = JSON.parse(await readFile(config, "utf8")); if (data.id !== journal.id || data.nonce !== journal.nonce) throw new UpdateError("recovery_required", "更新守护记录不匹配。");
-    const guardPid = (options.launch ?? launchGuardian)(join(expected, "node.exe"), join(expected, "guardian.mjs"), config); store.patch({ guardPid });
+    // The guardian runs outside the install root (guardianExecDir); temp cleanup may have removed it, so copy it again from this app.
+    const execDir = guardianExecDir(journal.id);
+    const guard = existsSync(join(execDir, "node.exe")) && existsSync(join(execDir, "guardian.mjs")) && existsSync(data.helper ?? "") ? { node: join(execDir, "node.exe"), script: join(execDir, "guardian.mjs"), helper: data.helper } : await (options.prepare ?? prepareGuardian)(options.appRoot ?? APP_ROOT, execDir);
+    if (guard.helper !== data.helper) await writeFile(config, JSON.stringify({ ...data, helper: guard.helper }), { mode: 0o600 });
+    const guardPid = (options.launch ?? launchGuardian)(guard.node, guard.script, config); store.patch({ guardPid });
     return "guardian-active";
   }
   if (pendingValidation(journal) && current !== journal.to) throw new UpdateError("recovery_required", "当前程序版本与更新阶段不匹配，已保留现场和备份。");

@@ -216,7 +216,7 @@ class _SetupWizardState extends State<SetupWizard>{
     if(clearWorkspace)_workspace.clear();
     if(_step<5){if(_step==3&&_testedFingerprint!=_currentFingerprint)return;setState((){_step++;_error=null;});return;}
     setState((){_busy=true;_error=null;});
-    try{await a.backend.call('setup.complete',{'dataRoot':widget.status['dataRoot'],'userName':_name.text.trim(),'channelId':_channel,'models':_models,'defaultWorkspace':_workspace.text.trim().isEmpty?null:_workspace.text.trim(),'sandbox':_sandbox},const Duration(minutes:5));await a.updateCoreSettings({});if(_workspace.text.trim().isNotEmpty)await a.setWorkspace(_workspace.text.trim());await a.finishOnboarding();if(mounted)widget.onComplete();}catch(e){if(mounted)setState(()=>_error='还没完成：${SessionRuntime.describeError(e)}');}finally{if(mounted)setState(()=>_busy=false);}
+    try{await a.backend.call('setup.complete',{'dataRoot':widget.status['dataRoot'],'userName':_name.text.trim(),'channelId':_channel,if(_models.isNotEmpty)'models':_models,'defaultWorkspace':_workspace.text.trim().isEmpty?null:_workspace.text.trim(),'sandbox':_sandbox},const Duration(minutes:5));await a.updateCoreSettings({});if(_workspace.text.trim().isNotEmpty)await a.setWorkspace(_workspace.text.trim());await a.finishOnboarding();if(mounted)widget.onComplete();}catch(e){if(mounted)setState(()=>_error='还没完成：${SessionRuntime.describeError(e)}');}finally{if(mounted)setState(()=>_busy=false);}
   }
   @override void dispose(){_keyDebounce?.cancel();for(final c in [_name,_workspace,_key,_url,_customModel]){c.dispose();}_keyFocus.dispose();super.dispose();}
   @override Widget build(BuildContext context){
