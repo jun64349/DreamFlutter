@@ -5,6 +5,9 @@ import { SecretStore } from "../secrets.ts";
 import { BailianProvider } from "./bailian.ts";
 import { correctHotwords, memoryHotwords } from "./hotwords.ts";
 import { LocalProvider } from "./local.ts";
+import { VoiceModel } from "./model.ts";
+import { join } from "node:path";
+import { APP_ROOT } from "../../paths.ts";
 import { noAudio, voiceFailed, type VoiceProvider, type VoiceStream } from "./provider.ts";
 
 export type VoiceEvent =
@@ -34,6 +37,7 @@ function punctuation(text: string): string {
 export class VoiceModule implements CoreModule {
 	private active?: Active;
 	private readonly local: LocalProvider;
+	readonly model: VoiceModel;
 	private readonly providers: ReadonlyMap<string, VoiceProvider>;
 	private readonly secrets: SecretStore;
 	private readonly core: Core;
@@ -42,7 +46,9 @@ export class VoiceModule implements CoreModule {
 	constructor(core: Core, providers?: ReadonlyMap<string, VoiceProvider>) {
 		this.core = core;
 		this.secrets = new SecretStore(core.paths.dataDir);
-		this.local = new LocalProvider(() => core.settings.get().voiceIdleMinutes);
+		const bundled = join(APP_ROOT, "core/bin/voice");
+		this.model = new VoiceModel(bundled, join(core.paths.cacheDir, "voice-model"), status => core.broadcast({ event: "voice.model", ...status }));
+		this.local = new LocalProvider(() => core.settings.get().voiceIdleMinutes, () => this.model.directory() ?? bundled);
 		this.providers = providers ?? new Map<string, VoiceProvider>([
 			["local", this.local],
 			["bailian", new BailianProvider(async () => {
@@ -54,6 +60,12 @@ export class VoiceModule implements CoreModule {
 		core.register("voice.chunk", (p, c) => this.chunk(this.window(c), p.sessionId, decode(p.pcm)));
 		core.register("voice.end", (p, c) => this.end(this.window(c), p.sessionId));
 		core.register("voice.cancel", (p, c) => this.cancel(this.window(c), p.sessionId));
+		core.register("voice.modelStatus", () => this.model.status());
+		core.register("voice.downloadModel", (_, c) => {
+			this.window(c);
+			void this.model.download().catch(() => {});
+			return this.model.status();
+		});
 		core.register("voice.keyStatus", (_, c) => {
 			this.window(c);
 			return { configured: existsSync(this.secrets.fileFor("voice-bailian")) };
@@ -89,6 +101,11 @@ export class VoiceModule implements CoreModule {
 		const settings = this.core.settings.get();
 		const provider = this.providers.get(settings.voiceMode === "local" ? "local" : settings.voiceCloudProvider);
 		if (!provider) throw new RpcError("unavailable", "所选语音识别服务不可用。");
+		// First local use without the model: fetch it now (it is not shipped since 0.13.1 step 3).
+		if (provider === this.local && !this.model.directory()) {
+			void this.model.download().catch(() => {});
+			throw new RpcError("model_downloading", "第一次用本机语音输入，正在下载识别模型（约 230 MB），下好后再点一次。进度在设置 › 语音。");
+		}
 		const hotwords = memoryHotwords(this.core, workspaceId);
 		const active: Active = { id: randomUUID(), owner, abort: new AbortController(), busy: true, received: false };
 		this.active = active;
@@ -201,6 +218,7 @@ export class VoiceModule implements CoreModule {
 		this.stopped = true;
 		if (this.active) this.release(this.active);
 		this.local.dispose();
+		this.model.dispose();
 	}
 }
 

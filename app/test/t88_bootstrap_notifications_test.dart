@@ -18,16 +18,6 @@ void main(){
     await t.pumpWidget(DreamFlutterApp(controller:f.agent,home:SetupWizard(status:{'dataRoot':f.root.path},initialStep:1,onComplete:(){})));await t.pumpAndSettle();expect(find.text(f.root.path),findsOneWidget);expect(find.text('选别的文件夹…'),findsNothing);
     expect(Installation.hasData(root),isFalse);File('$root/core.db').writeAsStringSync('fixture');expect(Installation.hasData(root),isTrue);
   });
-  test('a moved pre-0.3.2 data folder is not reopened by a fresh package',(){
-    final base=Directory.systemTemp.createTempSync('df_root_');addTearDown(()=>base.deleteSync(recursive:true));
-    final standard='${base.path}/package-data',legacy='${base.path}/appdata';
-    Directory(legacy).createSync();File('$legacy/core.db').writeAsStringSync('old');
-    expect(Installation.chooseRoot(standard,legacy),legacy); // never moved: still used
-    File('$legacy/${Installation.movedMarker}').writeAsStringSync('moved');
-    expect(Installation.chooseRoot(standard,legacy),standard); // moved: fresh start, first-run wizard
-    Directory(standard).createSync();File('$standard/core.db').writeAsStringSync('new');
-    expect(Installation.chooseRoot(standard,legacy),standard);
-  });
   testWidgets('four native notifications are deduplicated and click retains target and owner',(t)async{
     final calls=<MethodCall>[];const channel=MethodChannel('local_notifier');
     t.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,(call)async{calls.add(call);return call.method=='setup'?true:null;});

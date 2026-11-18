@@ -3,7 +3,7 @@ import { join, resolve, dirname, relative, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inventory, mib } from './package-footprint.mjs';
 
-const RULE_VERSION = 'windows-x64-runtime-audit-2026-11-07-v1';
+const RULE_VERSION = 'windows-x64-runtime-audit-2026-11-18-v2';
 const reviewed = new Set(JSON.parse(readFileSync(new URL('./package-trim-policy.json', import.meta.url), 'utf8')).reviewedPackages);
 const reasons = {
   declarations: 'Third-party TypeScript declarations: conditional types/typings or declaration siblings; Node executes retained JavaScript and native strip-types removes type-only imports. Pi SDK declarations/docs/examples remain for its public authoring workflow.',
@@ -11,6 +11,7 @@ const reasons = {
   buildMetadata: 'TypeScript incremental build state in already compiled npm libraries; no production tsc build or runtime entry reads it.',
   otherClipboardPlatforms: 'pi-tui native loader selects process.platform/process.arch; this package is Windows x64. Retain its win32-x64 helper, all licenses, and every WASI .so.',
   unusedLibraryDocs: 'undici API prose and ws/yauzl/yazl README/changelog are not loaded by their audited runtime entrypoints; keep Pi self-help docs/examples, release notes, licenses and diagnostics.',
+  pythonLibraryTests: 'Bundled self-test suites of pandas/numpy/matplotlib/mpl_toolkits (their tests/ folders) and the IDLE/turtle demos of the standard library: only pytest or an interactive desktop loads them; numpy.testing, pandas.testing and matplotlib.testing stay.',
   pdfAlternativeMinified: 'pdfjs-dist 4.10.38 duplicate minified worker/sandbox/image-decoder variants: application loads legacy/build/pdf.mjs and its unminified worker; retained full modules serve identical required PDF functionality.',
 };
 const legal = path => /(?:^|\/)(?:licen[cs]e[^/]*|copying[^/]*|copyright[^/]*|notice[^/]*|unlicense[^/]*|third[-_]?party[^/]*)(?:\/|$)/i.test(path);
@@ -33,9 +34,12 @@ function targetMatches(pattern, file) {
   const escaped = pattern.replace(/^\.\//, '').split('*').map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
   return new RegExp(`^${escaped}$`).test(file);
 }
+// 0.13.1 step 3 (2026-11-18): about 25 MB of test suites nothing in the app runs.
+const PYTHON_TESTS = /^core\/python\/cpython-[^/]+\/Lib\/(?:site-packages\/(?:pandas|numpy|matplotlib|mpl_toolkits)\/(?:[^/]+\/)*tests\/|idlelib\/|turtledemo\/)/;
 export function plan(root) {
   root = safeRoot(root); const files = inventory(root), packages = new Map(), candidates = [];
   for (const file of files) {
+    if (file.path.startsWith('core/python/') && !legal(file.path) && PYTHON_TESTS.test(file.path)) { candidates.push({ ...file, package: 'python', version: 'bundled', rule: 'pythonLibraryTests' }); continue; }
     if (!file.path.startsWith('core/node_modules/') || legal(file.path)) continue;
     const offset = file.path.lastIndexOf('/node_modules/') + '/node_modules/'.length, tail = file.path.slice(offset), segments = tail.split('/'), width = segments[0].startsWith('@') ? 2 : 1;
     const packagePath = file.path.slice(0, offset) + segments.slice(0, width).join('/'), name = segments.slice(0, width).join('/'), within = segments.slice(width).join('/');
@@ -59,13 +63,14 @@ export function plan(root) {
   for (const file of candidates) { const row = classes[file.rule] ??= { reason: reasons[file.rule], bytes: 0, files: 0 }; row.bytes += file.bytes; row.files++; }
   for (const row of Object.values(classes)) row.mib = mib(row.bytes);
   return { ruleVersion: RULE_VERSION, root, beforeBytes: files.reduce((n,f)=>n+f.bytes,0), beforeFiles: files.length, savedBytes: candidates.reduce((n,f)=>n+f.bytes,0), classes, candidates,
-    preserved: ['all core source/assets and selected JavaScript entrypoints/source maps; only audited unused PDF alternative modules are removed', 'Pi SDK docs/examples/public declarations', 'all licenses and diagnostic information', 'all Python/uv/rg/fd/Node binaries', 'sandbox image and offline provisioning', 'canvas platform binary and QuickJS WASI .so extensions'] };
+    preserved: ['all core source/assets and selected JavaScript entrypoints/source maps; only audited unused PDF alternative modules are removed', 'Pi SDK docs/examples/public declarations', 'all licenses and diagnostic information', 'all Python/uv/rg/fd/Node binaries and every Python module the app imports (only library self-tests and IDLE/turtle demos go)', 'sandbox image and offline provisioning', 'canvas platform binary and QuickJS WASI .so extensions'] };
 }
 export function trim(root, evidence) {
   const report = plan(root);
   for (const file of report.candidates) {
     const path = resolve(report.root, file.path), within = relative(report.root, path);
-    if (within.startsWith('..') || !within.startsWith(`core${process.platform === 'win32' ? '\\' : '/'}node_modules`) || legal(file.path)) throw Error('Trim escaped the audited production dependency subtree');
+    const sep = process.platform === 'win32' ? '\\' : '/';
+    if (within.startsWith('..') || !(within.startsWith(`core${sep}node_modules`) || file.rule === 'pythonLibraryTests' && within.startsWith(`core${sep}python${sep}`)) || legal(file.path)) throw Error('Trim escaped the audited production dependency subtree');
     unlinkSync(path); // Files only; no recursive deletion or junction traversal.
   }
   const after = inventory(report.root); report.afterBytes = after.reduce((n,f)=>n+f.bytes,0); report.afterFiles = after.length; report.applied = true;

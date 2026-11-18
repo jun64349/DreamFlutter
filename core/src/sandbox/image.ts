@@ -91,6 +91,26 @@ export function bundledImage(): string | undefined {
 	return existsSync(path) && existsSync(infoPath(path)) ? path : undefined;
 }
 
+/**
+ * 0.13.1 step 3 (user 2026-11-18): packages ship only the image's description; the
+ * image (about 650 MB) is an attachment of the repository's GitHub Release
+ * `sandbox-image-<first 12 of its SHA-256>` and is downloaded on first set-up.
+ */
+export const IMAGE_RELEASE_REPOSITORY = "jun64349/DreamFlutter";
+export function imageReleaseTag(info: Pick<ImageInfo, "sha256">): string {
+	return `sandbox-image-${info.sha256.slice(0, 12)}`;
+}
+export function imageSources(info: Pick<ImageInfo, "sha256" | "file">): string[] {
+	return [`https://github.com/${IMAGE_RELEASE_REPOSITORY}/releases/download/${imageReleaseTag(info)}/${info.file}`];
+}
+
+/** The shipped description of an image that is not shipped itself (path of its .json). */
+export function shippedImageInfo(): string | undefined {
+	if (process.env.DREAMFLUTTER_SANDBOX_IMAGE) return undefined;
+	const path = infoPath(fileURLToPath(new URL(`../../sandbox-image/${IMAGE_FILE}`, import.meta.url)));
+	return existsSync(path) ? path : undefined;
+}
+
 export function infoPath(image: string): string {
 	return image.replace(/\.tar\.gz$/, ".json");
 }

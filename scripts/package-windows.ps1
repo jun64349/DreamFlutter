@@ -112,15 +112,21 @@ robocopy $python.FullName "$target\core\python\$($python.Name)" /E /XJ /NFL /NDL
 if ($LASTEXITCODE -ge 8) { throw "copying Python failed" }
 node (Join-Path $PSScriptRoot 'prepare-bundled-runtime.mjs') --offline --target $target --cache $BundledCache
 if ($LASTEXITCODE -ne 0) { throw 'Installing pinned MinGit and Python office libraries failed' }
+# 0.13.1 step 3 (user 2026-11-18): the SenseVoice model (228 MB) is downloaded on first local use
+# (core/src/modules/voice/model.ts); tokens, VAD and the license still ship.
+Remove-Item -LiteralPath "$target\core\bin\voice\model.int8.onnx" -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath "$target\core\bin\voice\model.int8.onnx") { throw 'The voice model must not ship in the package' }
 
-# 3b. 蝶君's sandbox image (Debian with the tools), so setting the sandbox up needs no download.
+# 3b. 蝶君's sandbox image (Debian with the tools): its description ships, the image is downloaded on first set-up.
 $image = "$root\core\sandbox-image\dreamflutter-sandbox.tar.gz"
 if (-not $NoSandboxImage) {
     if (-not (Test-Path $image) -or -not (Test-Path "$root\core\sandbox-image\dreamflutter-sandbox.json")) {
         throw "$image is missing: build it first (cd core; node --disable-warning=ExperimentalWarning scripts\build-sandbox-image.ts), or pass -NoSandboxImage."
     }
     New-Item -ItemType Directory -Force "$target\core\sandbox-image" | Out-Null
-    foreach ($item in "dreamflutter-sandbox.tar.gz", "dreamflutter-sandbox.json", "dreamflutter-sandbox.packages.txt", "office-layer.json") {
+    # 0.13.1 step 3 (user 2026-11-18): only the description ships; the image itself is downloaded on first
+    # set-up from the GitHub Release sandbox-image-<first 12 of its SHA-256> (core/src/sandbox/image.ts).
+    foreach ($item in "dreamflutter-sandbox.json", "dreamflutter-sandbox.packages.txt", "office-layer.json") {
         Copy-Item "$root\core\sandbox-image\$item" "$target\core\sandbox-image"
     }
 }
@@ -147,7 +153,7 @@ desktop_drop (vendored in packages/desktop_drop): Apache-2.0, MixinNetwork/flutt
 if (-not $NoSandboxImage) {
     @"
 
-The sandbox image (core\sandbox-image\dreamflutter-sandbox.tar.gz) is a Debian 13 system built from
+The sandbox image (downloaded on first set-up as dreamflutter-sandbox.tar.gz) is a Debian 13 system built from
 unmodified Debian packages (https://www.debian.org). Each package keeps its own license, found inside
 the image under /usr/share/doc/<package>/copyright. The packages and exact versions are listed in
 licenses\Debian-packages.txt; their source code is available from Debian at those versions
@@ -165,7 +171,6 @@ DreamFlutter $version（Windows x64 免安装版）
 启动：双击 app\dreamflutter.exe。
 已包含 Node.js、rg / fd、uv、MinGit、便携 Python 与 Word/Excel/PPT/PDF/数据和图表库，以及蝶君的沙箱镜像；本地 Git 和这些办公库无需联网安装。
 所有数据都在这个文件夹下的 data\ 里（会话、记忆、模型配置、技能、设置、蝶君的沙箱），整个文件夹拷走就带走了数据。
-第一次启动时会自动把 v0.3.1 及以前放在 %APPDATA%\DreamFlutter 和 %USERPROFILE%\.pi\agent 里的数据复制过来（原处不删）。
 升级：先从托盘「退出并停止后台」，再用新版本的文件覆盖这里（data\ 不要删）。
 "@ | Set-Content -Encoding utf8 "$target\使用说明.txt"
 
@@ -183,12 +188,10 @@ if ($UpdatePackage) {
     @"
 DreamFlutter $version（Windows x64 可更新免安装版，测试版未签名）
 从解压后的根目录 DreamFlutter.exe 启动；current 是可替换的程序目录，数据位于根目录 data，不在 current 内。
-已包含 Node.js、rg/fd、uv、MinGit、便携 Python 办公和图表库，以及离线沙箱镜像。通过设置的“关于”检查、下载、校验并确认安装。
+已包含 Node.js、rg/fd、uv、MinGit、便携 Python 办公和图表库。蝶君的沙箱镜像在第一次建沙箱时下载，本机语音模型在第一次用语音输入时下载，下好后离线可用。通过设置的“关于”检查、下载、校验并确认安装。
 安装前等待现有任务结束并自动备份，启动验证失败时由 Velopack 回到旧程序，并用更新前备份恢复数据。
 新版本已经接受用户写入后，不再自动恢复旧备份。请保留更新记录与诊断，按提示处理。
-安装版（Setup.exe）默认装到 %LOCALAPPDATA%\DreamFlutter，数据也在那里。C 盘空间紧张时，在 PowerShell 里运行
-  .\DreamFlutter-win-x64-Setup.exe --installto E:\DreamFlutter
-换成你想要的位置即可，数据会放在那个位置的 data 里；也可以直接用免安装版。
+安装版请运行 DreamFlutter-Installer.exe：先选安装位置（默认 %LOCALAPPDATA%\DreamFlutter），数据位置在第一次启动的向导里选；也可以直接用免安装版。
 "@ | Set-Content -LiteralPath (Join-Path $target '使用说明.txt') -Encoding utf8
     $env:DOTNET_CLI_HOME = Join-Path $VelopackToolsDir 'dotnet-home'
     $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
@@ -199,8 +202,13 @@ DreamFlutter $version（Windows x64 可更新免安装版，测试版未签名�
             throw "Velopack uninstall hook payload missing: $hookFile"
         }
     }
-    & (Join-Path $VelopackToolsDir 'dotnet/dotnet.exe') (Join-Path $VelopackToolsDir 'vpk/tools/net8.0/any/vpk.dll') pack --packId DreamFlutter --packVersion $version --channel win-x64 --runtime win-x64 --packDir $target --mainExe 'app/dreamflutter.exe' --delta None --outputDir $releases
+    & (Join-Path $VelopackToolsDir 'dotnet/dotnet.exe') (Join-Path $VelopackToolsDir 'vpk/tools/net8.0/any/vpk.dll') pack --packId DreamFlutter --packVersion $version --channel win-x64 --runtime win-x64 --packDir $target --mainExe 'app/dreamflutter.exe' --delta None --splashImage (Join-Path $root 'tools/installer/splash.png') --icon (Join-Path $root 'app/windows/runner/resources/app_icon.ico') --outputDir $releases
     if ($LASTEXITCODE -ne 0) { throw 'Velopack packaging failed' }
+    # 0.13.1 step 3 (user 2026-11-18): the installer people download asks where to install first,
+    # then runs Velopack's Setup.exe --installto (tools/installer).
+    $velopackSetup = Join-Path $releases 'DreamFlutter-win-x64-Setup.exe'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\installer\build.ps1') -Setup $velopackSetup -Out (Join-Path $releases 'DreamFlutter-Installer.exe')
+    if ($LASTEXITCODE -ne 0) { throw 'Building the installer front failed' }
     Write-Host "Update package and self-updating portable output: $releases"
 }
 # Robocopy uses 1 for a successful copy; do not leak that as the script's exit code.

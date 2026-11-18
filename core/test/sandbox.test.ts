@@ -1,14 +1,32 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildScript, DEBIAN_MIRRORS, fileSha256, IMAGE_FILE, IMAGE_PACKAGES, infoPath, verifyImage, WSL_CONF } from "../src/sandbox/image.ts";
-import { AGENT_UID, bootScript, CHECK_SCRIPT, MIRRORS, newestBase, parseSelfTest, SELF_TEST_SCRIPT, type WslRunner } from "../src/sandbox/sandbox.ts";
+import { AGENT_UID, bootScript, CHECK_SCRIPT, MIRRORS, newestBase, parseSelfTest, SELF_TEST_SCRIPT, unregisterSandbox, type WslRunner } from "../src/sandbox/sandbox.ts";
 import { startTestCore } from "./harness.ts";
 
 /** Pure parts of 蝶君's sandbox; scripts/live-sandbox.ts runs the real thing on WSL. */
 describe("sandbox (v0.3 3.3)", () => {
+	it("unregistering removes WSL's empty Start Menu folder, never a full or unrelated one (0.13.1 G)", async () => {
+		const programs = mkdtempSync(join(tmpdir(), "df-startmenu-"));
+		try {
+			for (const name of ["DreamFlutterSandbox-aa", "DreamFlutterSandbox-bb", "DreamFlutterSandbox-cc"]) mkdirSync(join(programs, name));
+			writeFileSync(join(programs, "DreamFlutterSandbox-bb", "keep.lnk"), "x");
+			const ok: WslRunner = async () => ({ code: 0, stdout: "", stderr: "" });
+			const failed: WslRunner = async () => ({ code: 1, stdout: "", stderr: "" });
+			await unregisterSandbox(ok, "DreamFlutterSandbox-aa", 1000, programs);
+			await unregisterSandbox(ok, "DreamFlutterSandbox-bb", 1000, programs);
+			await unregisterSandbox(failed, "DreamFlutterSandbox-cc", 1000, programs);
+			await unregisterSandbox(ok, "..", 1000, programs);
+			await unregisterSandbox(ok, "DreamFlutterSandbox-missing", 1000, programs);
+			assert.equal(existsSync(join(programs, "DreamFlutterSandbox-aa")), false);
+			assert.equal(existsSync(join(programs, "DreamFlutterSandbox-bb", "keep.lnk")), true);
+			assert.equal(existsSync(join(programs, "DreamFlutterSandbox-cc")), true);
+			assert.equal(existsSync(programs), true);
+		} finally { rmSync(programs, { recursive: true, force: true }); }
+	});
 	it("picks the newest Ubuntu Base for amd64 from the checksums", () => {
 		const sums = [
 			"6bc2cde3930ad088b3bb46fa45279e96d25bc3810f209850ecbe4722711874f9 *ubuntu-base-24.04.3-base-amd64.tar.gz",

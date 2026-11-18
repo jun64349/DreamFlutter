@@ -10,17 +10,9 @@ class Installation {
     final explicit = Platform.environment['DREAMFLUTTER_DATA'];
     if (explicit != null && explicit.isNotEmpty) return explicit;
     try { final root = (jsonDecode(pointer.readAsStringSync()) as Map)['dataRoot']; if (root is String && p.isAbsolute(root)) return root; } catch (_) {}
-    return chooseRoot(CoreLocator.defaultDataDir(), CoreLocator.legacyDataDir());
+    // Never the pre-0.3.2 %APPDATA%\DreamFlutter data (user 2026-11-18): a new install starts at the wizard.
+    return CoreLocator.defaultDataDir();
   }
-  /// The software's own data folder first; the pre-0.3.2 %APPDATA%\DreamFlutter only when it still
-  /// holds data that was never moved. The backup module leaves 「已搬到新位置.txt」 (MOVED_MARKER in
-  /// core/src/backup/backup.ts) in it after moving, and its leftover core.db must not be reopened:
-  /// a fresh package would otherwise start on years-old data instead of the first-run wizard.
-  static String chooseRoot(String standard, String legacy) {
-    if (hasData(standard)) return standard;
-    return hasData(legacy) && !File(p.join(legacy, movedMarker)).existsSync() ? legacy : standard;
-  }
-  static const movedMarker = '已搬到新位置.txt';
   static bool hasData(String root) => [
     'core.db', 'storage-locations.json', p.join('application-data','database','core.db'), p.join('window','prefs.json'), 'pi',
   ].any((name) => FileSystemEntity.typeSync(p.join(root,name)) != FileSystemEntityType.notFound);

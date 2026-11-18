@@ -11,6 +11,10 @@ class AgentScope extends InheritedNotifier<AgentController> {
   static AgentController of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AgentScope>()!.notifier!;
 
+  /// The controller, or null before there is one (a new installation's first screen, FreshApp).
+  static AgentController? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AgentScope>()?.notifier;
+
   /// Reads the controller without subscribing to rebuilds (for callbacks).
   static AgentController read(BuildContext context) =>
       context.getInheritedWidgetOfExactType<AgentScope>()!.notifier!;

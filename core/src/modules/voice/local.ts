@@ -13,11 +13,12 @@ export class LocalProvider implements VoiceProvider {
 	private idle?: NodeJS.Timeout;
 	private nextId = 0;
 	private readonly idleMinutes: () => number;
-	private readonly directory: string;
+	private readonly directory: () => string;
 
-	constructor(idleMinutes: () => number, directory = join(APP_ROOT, "core/bin/voice")) {
+	/** [directory] is asked at each worker start: the downloaded model may arrive while the app runs. */
+	constructor(idleMinutes: () => number, directory: string | (() => string) = join(APP_ROOT, "core/bin/voice")) {
 		this.idleMinutes = idleMinutes;
-		this.directory = directory;
+		this.directory = typeof directory === "string" ? () => directory : directory;
 	}
 
 	dispose(): void {
@@ -32,7 +33,7 @@ export class LocalProvider implements VoiceProvider {
 		if (input.signal.aborted) throw cancelled();
 		if (!this.child) {
 			const worker = fileURLToPath(new URL("./worker.ts", import.meta.url));
-			const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", worker, this.directory], {
+			const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", worker, this.directory()], {
 				serialization: "advanced",
 				stdio: ["ignore", "ignore", "ignore", "ipc"], windowsHide: true,
 			});

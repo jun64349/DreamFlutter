@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -6,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'desktop_shell.dart';
 import 'state/agent_controller.dart';
@@ -45,18 +45,18 @@ Future<void> startApplication(List<String> args) async {
   // Everything the window keeps goes to the app's data folder too (v0.3.2), next to the core's.
   final dataDir = Installation.dataRoot();
   if (!Installation.hasData(dataDir)) {
-    runApp(MaterialApp(title:'DreamFlutter',debugShowCheckedModeBanner:false,theme:buildTheme(Brightness.light),darkTheme:buildTheme(Brightness.dark),home:FreshInstallation(initialRoot:dataDir,launch:(root)=>launchApplication(args,root,initialStep:2))));
+    // Our own title strip from the first screen on, like the app after it (DesktopShell does the same later).
+    await windowManager.ensureInitialized();
+    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+    runApp(FreshApp(home:FreshInstallation(initialRoot:dataDir,launch:(root)=>launchApplication(args,root,initialStep:2))));
     return;
   }
   await launchApplication(args,dataDir);
 }
 
 Future<void> launchApplication(List<String> args,String dataDir,{int initialStep=0}) async {
-  final appData = Platform.environment['APPDATA'];
-  SharedPreferencesStorePlatform.instance = await FilePreferencesStore.open(
-    p.join(dataDir, 'window', 'prefs.json'),
-    legacy: appData == null ? null : p.join(appData, 'com.dreamflutter', 'dreamflutter', 'shared_preferences.json'),
-  );
+  // The pre-0.3.2 %APPDATA%\com.dreamflutter preferences are not imported (user 2026-11-18).
+  SharedPreferencesStorePlatform.instance = await FilePreferencesStore.open(p.join(dataDir, 'window', 'prefs.json'));
   WebSurfaces.userDataFolder = p.join(dataDir, 'webview2');
   final controller = AgentController(preferences: await Preferences.load(),backend:CoreBackend(dataDir:dataDir),sessionStore:SessionStore(sessionsDir:SessionStore.defaultSessionsDir(dataDir)));
   final navigatorKey = GlobalKey<NavigatorState>();
@@ -77,6 +77,33 @@ Future<void> launchApplication(List<String> args,String dataDir,{int initialStep
   runApp(DreamFlutterApp(controller: controller,setupVisible:setupVisible, ownTitleBar: true, navigatorKey: navigatorKey,home:SetupGate(dataRoot:dataDir,initialStep:initialStep,onSetupVisible:(visible)=>setupVisible.value=visible)));
   // Connect after the first frame, so the UI can answer a trust prompt.
   WidgetsBinding.instance.addPostFrameCallback((_) => controller.init());
+}
+
+/// The first screen of a new installation, before there is a data folder (and so no preferences or
+/// core): the same frame as [DreamFlutterApp] with its defaults (theme, zoom, text size, title strip),
+/// so the screen and the wizard after it look alike (0.13.1 step 3).
+class FreshApp extends StatelessWidget {
+  const FreshApp({super.key, required this.home, this.ownTitleBar = true});
+  final Widget home;
+  final bool ownTitleBar;
+
+  @override
+  Widget build(BuildContext context) {
+    AppTitleBar.realWindow = ownTitleBar;
+    return MaterialApp(
+      title: 'DreamFlutter',
+      debugShowCheckedModeBanner: false,
+      theme: buildTheme(Brightness.light, painting: PaintingTheme.byId(null, Brightness.light)),
+      darkTheme: buildTheme(Brightness.dark, painting: PaintingTheme.byId(null, Brightness.dark)),
+      themeMode: ThemeMode.system,
+      // Like DreamFlutterApp: the title strip is above the navigator, so it brings its own overlay (tooltips).
+      builder: (context, child) => Overlay.wrap(child: Column(children: [
+        AppTitleBar(windowButtons: ownTitleBar, brandOnly: true),
+        Expanded(child: AppZoom(zoom: Preferences.defaultZoom, textScale: Preferences.defaultTextScale, child: child!)),
+      ])),
+      home: home,
+    );
+  }
 }
 
 class DreamFlutterApp extends StatelessWidget {

@@ -18,9 +18,10 @@ import 'settings_controls.dart' show SettingRow, V1Seg, V1Toggle;
 /// dialogs and menus) like a browser: Ctrl + wheel or Ctrl + plus / minus / 0
 /// anywhere in the window. The app is laid out at size / zoom and painted scaled up by zoom.
 class AppZoom extends StatefulWidget {
-  const AppZoom({super.key, required this.controller, required this.zoom, required this.textScale, required this.child});
+  const AppZoom({super.key, this.controller, required this.zoom, required this.textScale, required this.child});
 
-  final AgentController controller;
+  /// Ctrl +/-/0 and Ctrl + wheel change its zoom; none before a data folder exists (the first-run screen).
+  final AgentController? controller;
   final double zoom;
   final double textScale;
   final Widget child;
@@ -68,7 +69,7 @@ class _AppZoomState extends State<AppZoom> {
       _ => null,
     };
     if (step == null) return false;
-    widget.controller.stepZoom(step);
+    widget.controller?.stepZoom(step);
     return true;
   }
 
@@ -81,7 +82,7 @@ class _AppZoomState extends State<AppZoom> {
     final now = DateTime.now();
     if (now.difference(_lastWheelStep) < const Duration(milliseconds: 90)) return;
     _lastWheelStep = now;
-    widget.controller.stepZoom(event.scrollDelta.dy < 0 ? 1 : -1);
+    widget.controller?.stepZoom(event.scrollDelta.dy < 0 ? 1 : -1);
   }
 
   @override

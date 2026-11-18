@@ -74,6 +74,37 @@
 - **事件**：每路至多一次，发送后没有新的识别事件。下一次识别需要重新开始。
 - **开放范围**：将来可开放给模块。
 
+## voice.modelStatus
+
+- **用途**：本机识别模型（SenseVoice，约 230 MB）是否就绪。0.13.1 起不再随包附带，第一次用本机识别时下载到缓存目录 `voice-model`，之后离线可用。
+- **调用方**：窗口。
+- **参数**：无。
+- **返回**：`{ state: "ready" | "absent" | "downloading" | "failed", received: number, total: number, error: string | null }`。
+- **错误**：无。
+- **事件**：见 `voice.model`。
+- **开放范围**：仅内部。
+
+## voice.downloadModel
+
+- **用途**：开始（或加入正在进行的）模型下载。依次试 hf-mirror、Hugging Face，支持续传，下完核对大小和 SHA-256，不符就丢弃。本机模式下没有模型时调用 `voice.start` 也会自动开始下载，并返回错误 `model_downloading`。
+- **调用方**：窗口。
+- **参数**：无。
+- **返回**：同 `voice.modelStatus`。
+- **错误**：`forbidden` 无窗口连接。
+- **事件**：见 `voice.model`。
+- **开放范围**：仅内部。
+
+## voice.model
+<!-- api:event -->
+
+- **用途**：推送本机识别模型下载进度。
+- **调用方**：窗口。
+- **参数**：无。
+- **返回**：事件必有 `event: "voice.model"`，其余字段同 `voice.modelStatus` 的返回值。
+- **错误**：失败时 `state: "failed"`，`error` 是给用户看的原因。
+- **事件**：下载中约每 0.5 秒一次，结束（成功或失败）时再发一次。
+- **开放范围**：仅内部。
+
 ## voice.keyStatus
 
 - **用途**：检查是否已存百炼语音 Key。

@@ -27,7 +27,7 @@ void main(){
     final f=(await t.runAsync(T87Fixture.create))!;
     f.backend.settings=(V012Fixtures.read('settings.get.t139') as Map).cast<String,dynamic>();
     f.agent.coreSettings={...f.backend.settings};f.backend.handlers['settings.get']=(_)=>f.backend.settings;
-    for(final m in ['persona.presets','selfwork.longGoals.list','selfwork.history','selfwork.longGoals.save','selfwork.longGoals.delete','selfwork.skills.list','selfwork.skills.adopt','voice.keyStatus','voice.setKey','uninstall.preservedData']){f.backend.useFixture(m);}
+    for(final m in ['persona.presets','selfwork.longGoals.list','selfwork.history','selfwork.longGoals.save','selfwork.longGoals.delete','selfwork.skills.list','selfwork.skills.adopt','voice.keyStatus','voice.modelStatus','voice.downloadModel','voice.setKey','uninstall.preservedData']){f.backend.useFixture(m);}
     addTearDown(()async{await t.pumpWidget(const SizedBox());await t.runAsync(f.dispose);});
     await t.binding.setSurfaceSize(const Size(1200,1000));
     await t.pumpWidget(AgentScope(controller:f.agent,child:MaterialApp(theme:buildTheme(Brightness.light),home:Scaffold(body:child is SetupWizard?child:SingleChildScrollView(child:child)))));await settle(t);return f;
@@ -64,6 +64,19 @@ void main(){
     expect(f.backend.callsTo('voice.setKey').last,{'key':'T139_TEST_KEY'});expect(find.text('已填写'),findsOneWidget);expect(find.text('T139_TEST_KEY'),findsNothing);
     await t.tap(find.text('本机'));await settle(t);expect(f.backend.callsTo('settings.update').last,{'voiceMode':'local'});
     await t.pump(const Duration(milliseconds:300)); // Let the closed key dialog dispose its field.
+  });
+  testWidgets('local voice model downloads from settings and follows progress events (0.13.1 step 3)',(t)async{
+    final f=await mount(t,const VoiceSettings());
+    expect(find.text('本机模型'),findsOneWidget);
+    await t.tap(find.text('下载 · 约 230 MB'));await settle(t);
+    expect(f.backend.callsTo('voice.downloadModel'),hasLength(1));expect(find.text('下载中 0%'),findsOneWidget);
+    f.backend.push({'event':'voice.model','state':'downloading','received':119616921,'total':239233841,'error':null});await settle(t);
+    expect(find.text('下载中 50%'),findsOneWidget);
+    f.backend.push({'event':'voice.model','state':'failed','received':119616920,'total':239233841,'error':'语音模型下载失败'});await settle(t);
+    expect(find.text('重新下载'),findsOneWidget);expect(find.text('语音模型下载失败'),findsOneWidget);
+    f.backend.push({'event':'voice.model','state':'ready','received':239233841,'total':239233841,'error':null});await settle(t);
+    expect(find.text('已就绪'),findsOneWidget);
+    await t.tap(find.text('云端'));await settle(t);expect(find.text('本机模型'),findsNothing);
   });
   testWidgets('self-written skills adopt into current workspace and keep source mark',(t)async{
     final f=await mount(t,const ButterflySkills());expect(find.text('蝶君写的'),findsOneWidget);

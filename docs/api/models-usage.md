@@ -53,7 +53,7 @@
 ## gateway.platforms
 <!-- api:method -->
 
-- **用途** 列出渠道平台预设和内置模型。
+- **用途** 列出渠道平台预设和内置模型。只含我们自己定的几家（DeepSeek、智谱 GLM、Kimi Code、MiniMax、Kimi 开放平台、OpenCode Go、OpenAI/Anthropic 兼容中转）；0.13.1 起不再列 Pi 内置的服务商，已用它们建的渠道照常解析。
 - **调用方** 窗口，工作台和蝶君共用。
 - **参数** 无。
 - **返回** `({ modelDetails: DescribedModel[]; id: string; name: string; kind: ChannelKind; endpoints: { api: ChannelApi; baseUrl: string; }[]; quota?: QuotaSource; windows?: ("5h" | "week" | "month")[]; sharedEndpoints?: boolean; models?: string[]; modelsUrl?: string; catalog?: string; compat?: Record<string, unknown>; } | (Platform & { modelDetails: Record<string, unknown>[]; }))[]`。

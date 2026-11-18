@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:pi_rpc/pi_rpc.dart' show SessionStore;
 
 import '../state/agent_controller.dart';
+import '../state/preferences.dart';
 import '../theme.dart';
 import 'butterfly_motion.dart';
 import 'agent_scope.dart';
@@ -147,21 +148,23 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
 
   /// The setup pages and pushed full pages: the mark and name, the window buttons.
   Widget _brand(BuildContext context) {
-    final agent = AgentScope.of(context);
+    // No controller yet on a new installation's first screen (FreshApp): the defaults it will start with.
+    final agent = AgentScope.maybeOf(context);
     final colors = context.colors;
     final brightness = Theme.of(context).brightness;
     // Setup: the brand heads a sidebar-wide column (prototype). A pushed page: just the brand.
     final screen = MediaQuery.sizeOf(context).width;
-    final zoom = agent.zoom;
+    final zoom = agent?.zoom ?? Preferences.defaultZoom;
     final besideSidebar = widget.brandOnly && screen / zoom >= 760;
-    final sideWidth = agent.sidebarWidth.clamp(180.0, screen / zoom * 0.36) * zoom;
+    final sideWidth = (agent?.sidebarWidth ?? Preferences.sidebarWidths.initial).clamp(180.0, screen / zoom * 0.36) * zoom;
     final brand = _drag(
       Padding(
         padding: const EdgeInsets.only(left: 16, right: 12),
         child: Row(
           mainAxisSize: besideSidebar ? MainAxisSize.max : MainAxisSize.min,
           children: [
-            ListenableBuilder(listenable: agent, builder: (context, _) => ButterflyAvatar(size: 26, activity: butterflyActivity(agent))),
+            if (agent == null) const ButterflyAvatar(size: 26, activity: ButterflyActivity.idle)
+            else ListenableBuilder(listenable: agent, builder: (context, _) => ButterflyAvatar(size: 26, activity: butterflyActivity(agent))),
             const SizedBox(width: 10),
             Flexible(child: Text('DreamFlutter', maxLines: 1, softWrap: false, overflow: TextOverflow.fade, style: context.serif(context.text.titleSmall).copyWith(fontSize: 17, fontWeight: FontWeight.w700, color: colors.ink))),
             const SizedBox(width: 6),

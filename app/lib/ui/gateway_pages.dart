@@ -334,13 +334,6 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
     });
   }
 
-  Future<void> _choosePi(GatewayPlatform platform) async {
-    final chosen = await showDialog<List<String>>(context: context, builder: (_) => PickModelsDialog(ids: platform.models, existing: const {}));
-    if (chosen == null || chosen.isEmpty || !mounted) return;
-    _choose(platform);
-    setState(() { _models.clear(); _models.addAll(platform.modelDetails.where((m) => chosen.contains(m['id'])).map(ModelEntry.fromJson)); });
-  }
-
   void _setApi(String api) {
     setState(() {
       _api = api;
@@ -527,13 +520,6 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
                       ],
                     ),
                   ),
-                  SettingRow('更多服务商', child: SettingMenu<String>(
-                    value: _platform?.startsWith('pi-builtin:') == true ? _platform! : '',
-                    label: _platform?.startsWith('pi-builtin:') == true ? null : '选择…',
-                    choices: {'': '选择…', for (final p in _platforms.where((p) => p.id.startsWith('pi-builtin:'))) p.id: p.name},
-                    enabled: !_busy,
-                    onSelected: (id) { final p = _platforms.where((p) => p.id == id).firstOrNull; if (p != null) _choosePi(p); },
-                  )),
                 ]),
                 SettingsCard(title: '连接', children: [
                   Padding(padding: const EdgeInsets.only(top: 12, bottom: 8), child: _field(_name, '渠道名称')),

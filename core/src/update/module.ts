@@ -11,7 +11,7 @@ import { Archive } from "../backup/archive.ts";
 import { MemoryModule } from "../modules/memory.ts";
 import { APP_ROOT } from "../paths.ts";
 import { bridgeCall, guardianExecDir, launchGuardian, makeFeed, prepareGuardian } from "./bridge.ts";
-import { buildInfo, installation, piVersion, type BuildInfo } from "./installation.ts";
+import { buildInfo, dropLeftoverPackages, installation, piVersion, type BuildInfo } from "./installation.ts";
 import { compareVersions, LATEST_RELEASE, limitedText, localSource, parseRelease, request, UpdateError, type Release } from "./release.ts";
 import { downloadPackage, recheckPackage, type PackageSignature } from "./download.ts";
 import { JournalStore, pendingValidation } from "./state.ts";
@@ -127,6 +127,9 @@ export class UpdateModule implements CoreModule {
     if (journal?.phase === "rolled-back") { this.core.settings.update({ memoryPaused: journal.memoryWasPaused }); this.message = "已恢复旧版本和更新前备份。"; }
     if (pendingValidation(journal)) this.core.maintenance = "正在验证版本更新";
     if (journal && !journal.cleaned) { this.cleanupTimer = setInterval(() => void this.maintainJournal(), 5000); this.cleanupTimer.unref(); }
+    // Not during an update in progress; a few seconds after start (it never slows the window down, and a
+    // first-run core may only live seconds before the wizard restarts it).
+    if (this.installed && (!journal || journal.cleaned && !pendingValidation(journal))) { const root = this.installed.root; const leftover = setTimeout(() => { const freed = dropLeftoverPackages(root); if (freed) this.core.log.info(`removed Velopack's leftover full package (${Math.round(freed / 1_048_576)} MB)`); }, 3_000); leftover.unref(); }
     if (this.installed) { this.timer = setInterval(() => { if (this.core.settings.get().autoCheckUpdates && !this.preparation && this.state !== "downloading") void this.check(false); }, 60 * 60 * 1000); this.timer.unref(); this.initialTimer = setTimeout(() => { if (this.core.settings.get().autoCheckUpdates) void this.check(false); }, 2000); this.initialTimer.unref(); }
   }
   async stop(): Promise<void> { this.stopping = true; if (this.timer) clearInterval(this.timer); if (this.initialTimer) clearTimeout(this.initialTimer); if (this.cleanupTimer) clearInterval(this.cleanupTimer); this.controller?.abort(); this.checkController?.abort(); await Promise.allSettled([this.preparation, this.checking]); }

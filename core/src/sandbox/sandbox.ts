@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
-import { buildImage, bundledImage, IMAGE_FILE, verifyImage } from "./image.ts";
+import { buildImage, bundledImage, IMAGE_FILE, imageSources, infoPath, shippedImageInfo, verifyImage, type ImageInfo } from "./image.ts";
+import { downloadVerified, type Fetch } from "../net/resumable.ts";
 import { storageLocations } from "../storage/locations.ts";
 
 /**
@@ -79,8 +80,24 @@ export interface WslResult {
 export type WslRunner = (args: string[], options?: { input?: string | Buffer; timeoutMs?: number }) => Promise<WslResult>;
 
 /** Shared WSL operation. Callers decide how to handle an unsuccessful result. */
-export function unregisterSandbox(wsl: WslRunner, distro: string, timeoutMs = 60_000): Promise<WslResult> {
-	return wsl(["--unregister", distro], { timeoutMs });
+export async function unregisterSandbox(wsl: WslRunner, distro: string, timeoutMs = 60_000,
+	startMenuPrograms = wsl === runWsl ? defaultStartMenuPrograms() : undefined): Promise<WslResult> {
+	const result = await wsl(["--unregister", distro], { timeoutMs });
+	if (result.code === 0 && startMenuPrograms) removeEmptyStartMenuFolder(startMenuPrograms, distro);
+	return result;
+}
+
+function defaultStartMenuPrograms(): string | undefined {
+	return process.env.APPDATA ? join(process.env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs") : undefined;
+}
+
+/**
+ * WSL makes a Start Menu folder named after the distro and leaves it behind on
+ * --unregister. Removed only when empty: rmdir refuses a folder with anything in it.
+ */
+export function removeEmptyStartMenuFolder(startMenuPrograms: string, distro: string): void {
+	if (!/^[A-Za-z0-9._-]+$/.test(distro)) return;
+	try { rmdirSync(join(startMenuPrograms, distro)); } catch { /* missing or not empty: leave it */ }
 }
 
 export const runWsl: WslRunner = (args, options = {}) =>
@@ -215,6 +232,10 @@ export interface SandboxOptions {
 	mirrors?: Mirror[];
 	/** The sandbox image; null = none shipped (build it). Default: the one shipped with the app. */
 	image?: string | null;
+	/** The shipped description (.json) of an image to download first; null = none. Default: shippedImageInfo(). */
+	remoteImage?: string | null;
+	/** For tests: replaces fetch for the image download. */
+	fetchImpl?: Fetch;
 }
 
 /**
@@ -246,6 +267,8 @@ export class Sandbox implements CoreModule {
 	private mirror: string | null = null;
 	private provisioning: Promise<void> | null = null;
 	private booted = false;
+	private readonly remoteImage: string | undefined;
+	private readonly fetchImpl: Fetch | undefined;
 
 	constructor(core: Core, options: SandboxOptions = {}) {
 		this.core = core;
@@ -254,6 +277,8 @@ export class Sandbox implements CoreModule {
 		this.wsl = options.wsl ?? runWsl;
 		this.mirrors = options.mirrors ?? MIRRORS;
 		this.image = options.image === undefined ? bundledImage() : (options.image ?? undefined);
+		this.remoteImage = options.remoteImage === undefined ? (this.image ? undefined : shippedImageInfo()) : (options.remoteImage ?? undefined);
+		this.fetchImpl = options.fetchImpl;
 		core.sandboxProvider = () => (existsSync(this.cleanPath) ? { distro: this.distro, ready: () => this.prepare(), online: () => this.core.settings.get().sandboxOnline } : undefined);
 		core.register("sandbox.status", () => this.status());
 		core.register("sandbox.provision", () => {
@@ -348,6 +373,7 @@ export class Sandbox implements CoreModule {
 		this.state = "provisioning";
 		this.error = null;
 		let built: string | undefined;
+		let downloaded: string | undefined;
 		try {
 			this.setStep("检查 WSL");
 			if (!(await this.wslAvailable())) throw new Error("没有找到 WSL 2。请先安装 WSL（设置 › 蝶君沙箱里有步骤）。");
@@ -358,12 +384,22 @@ export class Sandbox implements CoreModule {
 			await mkdir(this.dir, { recursive: true });
 			writeFileSync(join(this.dir, DISTRO_FILE), this.distro, "utf8");
 
-			// The image shipped with the app; without one (a development checkout), build it here.
+			// The image shipped with the app, else downloaded (0.13.1 step 3); without either, or when the
+			// download fails, build it here from domestic mirrors.
 			let image = this.image;
+			this.mirror = image ? "随应用附带" : null;
+			if (!image && this.remoteImage) {
+				try {
+					image = await this.downloadImage(this.remoteImage);
+					downloaded = image;
+					this.mirror = "从 GitHub 下载";
+				} catch (error) {
+					this.core.log.warn("sandbox: image download failed, building it here instead", error);
+				}
+			}
 			if (image) {
 				this.setStep("检查沙箱镜像");
 				await verifyImage(image);
-				this.mirror = "随应用附带";
 			} else {
 				built = join(this.dir, IMAGE_FILE);
 				this.mirror = "在线构建";
@@ -385,6 +421,8 @@ export class Sandbox implements CoreModule {
 			this.booted = false;
 			this.state = "ready";
 			this.setStep(null);
+			// Like a built one, a downloaded image is only needed for the import; a failed set-up keeps it for the next try.
+			if (downloaded) await rm(join(this.dir, "download"), { recursive: true, force: true }).catch(() => {});
 		} catch (error) {
 			this.state = "error";
 			this.error = error instanceof Error ? error.message : String(error);
@@ -395,6 +433,26 @@ export class Sandbox implements CoreModule {
 			if (built) await rm(built, { force: true }).catch(() => {});
 			await rm(join(this.dir, "build"), { recursive: true, force: true }).catch(() => {});
 		}
+	}
+
+	/** Downloads the image [infoFile] describes into <dir>/download, resuming an earlier try; returns its path. */
+	private async downloadImage(infoFile: string): Promise<string> {
+		const info = JSON.parse(await readFile(infoFile, "utf8")) as ImageInfo;
+		const folder = join(this.dir, "download");
+		await mkdir(folder, { recursive: true });
+		const image = join(folder, info.file);
+		await copyFile(infoFile, infoPath(image));
+		if (existsSync(image) && (await stat(image)).size === info.bytes) return image; // verified again before import
+		const mb = (n: number) => Math.round(n / 1_048_576);
+		let last = -1;
+		await downloadVerified({ bytes: info.bytes, sha256: info.sha256, sources: imageSources(info) }, image, {
+			fetchImpl: this.fetchImpl,
+			onProgress: (received, total) => {
+				const percent = Math.floor((received * 100) / total);
+				if (percent !== last) { last = percent; this.setStep(`下载沙箱镜像（${mb(received)} / ${mb(total)} MB）`, received / total); }
+			},
+		});
+		return image;
 	}
 
 	/** Prepares a started sandbox: shared mounts gone, the agent's network rules in place, no drive mounted. */

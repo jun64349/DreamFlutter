@@ -32,3 +32,4 @@ core/python/
 
 # Raw test-run evidence (model transcripts, databases, logs); conclusions live in docs/
 core/test-evidence/
+tools/installer/build/

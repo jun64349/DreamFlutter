@@ -1,5 +1,5 @@
 {
-  "ruleVersion": "windows-x64-runtime-audit-2026-11-07-v1",
+  "ruleVersion": "windows-x64-runtime-audit-2026-11-18-v2",
   "reviewedPackages": [
     "@anthropic-ai/sdk@0.129.0",
     "@aws-sdk/client-bedrock-runtime@3.1127.0",

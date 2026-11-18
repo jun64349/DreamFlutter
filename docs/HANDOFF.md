@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接
 
-> **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前：第 0–2 步完成并已提交（`6a81832`），下一步第 3 步「性能与包体」。**
+> **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前：第 0–2 步完成并已提交（`6a81832`）；第 3 步「性能与包体」进行中（2026-11-18，未提交，见下）。**
 
 
 **下一窗口从这里开始**
@@ -10,6 +10,20 @@
 3. **安装类验证一律在 Claude 终端面板（run_in_terminal）里启动**，不要从 Bash/PowerShell 工具直接装或启动安装版：Claude 应用是 MSIX，从它直接启动的程序写 AppData 会被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`，结果不算数。点击向导可用 `scripts/v0131-install/window.ps1`（模拟鼠标，作用在真实桌面）；分阶段驱动用 `scripts/v0131-install/drive.mjs`（也要在终端面板里跑）。
 4. 打安装包：`dist/v0.13.1-install/build-all.ps1`（改里面的版本列表），工具在 `%LOCALAPPDATA%\Temp\df-v0131-velopack-tools`（.NET 8 + vpk 1.2.161）和 `%LOCALAPPDATA%\Temp\df-t131-velopack-sdk`；临时目录被清理就按计划文档重下。每个包约 7 分钟，只有升级前的版本里的守护进程修复才对升级生效。
 5. 推送、打标签、合并 main 仍需用户逐次同意。说话一律中文，包括中途进度和收尾小结。
+
+**2026-11-18 下午：第 3 步做完，等用户验收（均未提交）**
+
+- 用户实装 test.6 并建好沙箱：安装包 259 MB、安装后 661 MB、后台启动约 320 ms、整包自动删除、镜像下载约 12 分钟。前后对照见 [性能与包体回执](releases/v0.13.2-性能与包体回执.md)。测试包打法：`dist/v0.13.2-step3/build.ps1`（改版本号）。待定：沙箱干净快照是否改为只留镜像。
+
+**2026-11-18：第 3 步过程记录**
+
+- G、H 用户已定并改完：G 注销沙箱后删开始菜单同名空文件夹（`core/src/sandbox/sandbox.ts` `unregisterSandbox`）；H 删掉 v0.3.1 旧数据迁移触发、旧窗口偏好导入、数据根回落（`core/src/main.ts`、`app/lib/main.dart`、`app/lib/state/installation.dart`）。
+- 包体基准（0.13.1 程序目录 1.56 GB）：沙箱镜像 653 MB、语音模型 228 MB、Windows Python 209 MB、Node 依赖 175 MB、Git 92 MB、node.exe 83 MB、窗口 72 MB；安装后另有 Velopack 留在 `<安装根>\packages` 的整包约 1.06 GB。
+- 已改：语音模型第一次用本机识别时下载（`core/src/modules/voice/model.ts`，hf-mirror → Hugging Face，续传 + SHA-256；设置 › 语音「本机模型」行显示进度；接口 `voice.modelStatus` / `voice.downloadModel` / 事件 `voice.model`）；沙箱镜像只随包带说明，第一次建沙箱从仓库 GitHub Release `sandbox-image-ff0303e27cc8` 下载，失败回落现场构建（`core/src/sandbox/image.ts`、`sandbox.ts`，共用下载器 `core/src/net/resumable.ts`）；安装版启动 30 秒后删 `packages` 里的整包（`core/src/update/installation.ts` `dropLeftoverPackages`；我们的更新程序用自己的包缓存，不读它）；打包裁剪加 Python 库自带测试（约 25 MB，`scripts/package-trim.mjs`）；`scripts/package-windows.ps1` 不再放语音模型和镜像本体。
+- 用户 2026-11-18 再定：镜像由 Claude 装 gh 后上传（用户登录，传前再问）；增量更新先不做，用瘦身后的整包；做一个小安装器，双击先选安装目录再调 Setup.exe --installto，数据位置仍在首启向导里选。
+- 2026-11-18 午：用户试装 test.3（装到 D:DreamFlutter，914 MB，其中 packages 整包 251 MB 待启动后删）后要求：渠道清单去掉 Pi 那串（已做，原属第 4 步）；首屏与向导外观统一（已做：首屏改用 `FreshApp`，同样的自绘标题栏、默认缩放 1.1、字号 1.25；窗口标题改大写 DreamFlutter）；Velopack 安装进度换主题启动图（`tools/installer/splash.png`，`make-splash.ps1` 生成）。安装器前端在 `tools/installer/`（原生 Win32 + GDI+，`build.ps1` 编译并拼接 Setup.exe）。Velopack 工具已挪到 `E:developack-tools`、`E:developack-sdk`（临时目录里的被清理过）；gh 在 `E:devgh`，用 `GH_CONFIG_DIR=E:devghconfig`。
+- 原待定：镜像先上传到 GitHub Release（需用户同意；本机没装 gh）；增量更新怎么办（更新程序是自写的，做增量要另留一份基础包）；安装目录选择的做法。之后打测试包、在终端面板实装量前后数据。
+- 测试：新增 `voice-model-download`、`sandbox-image-download`、`update-leftover-package`、`sandbox.test.ts`「Start Menu」，窗口 `t139` 加一条；相关后台测试（语音、沙箱、卸载、备份、更新、接口清单/契约）和窗口 t88、t139 通过。全量测试未跑。
 
 **2026-11-17 晚：完整安装与升级验证完成，用户验收并提交 `6a81832`（当前状态）**
 

@@ -7,8 +7,7 @@ import { buildCore } from "./app.ts";
 import { acquireLock, newToken, readInfo, releaseLock, removeInfo, writeInfo } from "./instance.ts";
 import { Logger } from "./log.ts";
 import { WindowsNotifier } from "./notify.ts";
-import { corePaths, defaultAgentDir, defaultDataDir, legacyAgentDir, legacyDataDir } from "./paths.ts";
-import { resolve } from "node:path";
+import { corePaths, defaultAgentDir } from "./paths.ts";
 import { configurePiNetworking } from "./pi/http.ts";
 import { startServer } from "./server.ts";
 import { CORE_VERSION } from "./core.ts";
@@ -122,8 +121,7 @@ const core = buildCore({
 	paths,
 	agentDir,
 	sessionDir,
-	// v0.3.1 kept everything under %APPDATA% and ~/.pi/agent: the default data folder takes it over once.
-	legacyData: resolve(paths.dataDir).toLowerCase() === resolve(defaultDataDir()).toLowerCase() && !args["agent-dir"] ? { dataDir: legacyDataDir(), agentDir: legacyAgentDir() } : undefined,
+	// Since 0.13.1 nothing is moved from the v0.3.1 folders (%APPDATA%\DreamFlutter, ~/.pi/agent): a new install starts at the wizard (user 2026-11-18).
 	log,
 	notifier: new WindowsNotifier(log),
 	platformMemory: true,

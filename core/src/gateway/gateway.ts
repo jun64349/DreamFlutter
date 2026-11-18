@@ -1012,8 +1012,10 @@ export class Gateway implements CoreModule {
 	private register(): void {
 		const core = this.core;
 		// Suggested models come with what the catalog knows (limits, prices, thinking levels).
+		// Only our own list (user 2026-11-17): Pi's built-in providers are no longer offered for new
+		// channels; channels already made from them still resolve through piPresets().
 		core.register("gateway.platforms", () =>
-			[...PLATFORMS.map((p) => ({ ...p, modelDetails: (p.models ?? []).map((id) => mapOr(catalogModel(p.catalog, id), describeCatalogModel, { id, name: id })) })), ...piPresets()],
+			PLATFORMS.map((p) => ({ ...p, modelDetails: (p.models ?? []).map((id) => mapOr(catalogModel(p.catalog, id), describeCatalogModel, { id, name: id })) })),
 		);
 		core.register("gateway.channels", () => this.channels());
 		core.register("gateway.setCommonModels", (params) => {
