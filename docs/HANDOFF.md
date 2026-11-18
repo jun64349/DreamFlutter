@@ -19,10 +19,10 @@
 
 **下一窗口从这里开始**
 
-1. 路线第 3 步「性能与包体」：量体积并瘦身、启动速度、安装流程（选安装目录、选数据位置）。基准见 [roadmap 页首★节](roadmap.md)「当前进度」。
-2. 开工前先问用户 G、H 两项怎么处理（回执「待处理」节）；不要自己定。
+1. 路线第 6 步「preview 阶段朋友内测」：开工前先问用户内测名字、中转站、每人额度、反馈方式、托管版边界，不要自己定。课本第 2 课 DeepSeek 网站 4 张截图等用户提供（密钥打码），放进 `app/assets/guide/images/02-ds-*.jpg`。
+2. 出下一个预览版：pubspec 版本改 `1.0.0-preview.N+…`，照 `dist/v1.0.0-preview.1/build.ps1` 改版本号打包；发布页**设为最新发布、不标预发布**（程序内更新只读 GitHub releases/latest），附 `DreamFlutter-Installer.exe`、`DreamFlutter-<版本>-win-x64-full.nupkg`、`SHA256SUMS`。用户上传速度约 0.3 MB/s，540 MB 约 26 分钟，gh 传完前发布页是草稿。
 3. **安装类验证一律在 Claude 终端面板（run_in_terminal）里启动**，不要从 Bash/PowerShell 工具直接装或启动安装版：Claude 应用是 MSIX，从它直接启动的程序写 AppData 会被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`，结果不算数。点击向导可用 `scripts/v0131-install/window.ps1`（模拟鼠标，作用在真实桌面）；分阶段驱动用 `scripts/v0131-install/drive.mjs`（也要在终端面板里跑）。
-4. 打安装包：`dist/v0.13.1-install/build-all.ps1`（改里面的版本列表），工具在 `%LOCALAPPDATA%\Temp\df-v0131-velopack-tools`（.NET 8 + vpk 1.2.161）和 `%LOCALAPPDATA%\Temp\df-t131-velopack-sdk`；临时目录被清理就按计划文档重下。每个包约 7 分钟，只有升级前的版本里的守护进程修复才对升级生效。
+4. 打包工具在 `E:\dev\velopack-tools`（.NET 8 + vpk 1.2.161）和 `E:\dev\velopack-sdk`；gh 在 `E:\dev\gh`，用时设 `GH_CONFIG_DIR=E:\dev\gh\config`。每个包约 7 分钟。用户要求一批改动做完、自测后只打一个测试包，别为小改连出多个包。
 5. 推送、打标签、合并 main 仍需用户逐次同意。说话一律中文，包括中途进度和收尾小结。
 
 **2026-11-18 第 4 步进行中**：沙箱一键安装写了一半（`core/src/sandbox/wsl-install.ts` 已写，尚未接进 `sandbox.ts`、界面和测试，未提交）；用户随后要求入门教学面向 agent 零基础用户做「手把手、完整详细」的保姆级教学，先出几套方案（原型 `docs/design/prototype/onboarding-options.html`）给用户选，选定前不实装引导部分。用户 2026-11-18 选定入门方案四「课本＋跟着做」（原型 `docs/design/prototype/onboarding-options.html`）：十课共用大纲；必修 5 课在真界面里跟着做（压暗 + 小卡片 + 程序检测完成），每张卡片可打开课本对应页；十课全部有程序内图文课本（设置 › 关于旁），仓库里放带截图的完整版；侧栏加「入门」进度卡，学完或点「不用了」后消失（用户同意动这一处）。先出逐课逐步的文字和画面给用户看，再实装；可分两批：先课本，再跟着做。逐课细化见 docs/design/prototype/onboarding-detail.html；用户已定：第 2 课用 DeepSeek，练习文件夹放数据目录，第 5 课用「查资料写报告」，首页三个示例换成零基础的（只填进输入框）。第一批已做（未提交）：十课课本在 app/assets/guide（docs/guide/README.md 指过去，截图清单在 images/），程序内 设置 › 关于与更新 › 使用说明（lib/ui/guide_page.dart，go:settings/… 与 go:section/… 链接跳转），首页示例已换，测试 app/test/guide_page_test.dart。
