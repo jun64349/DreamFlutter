@@ -36,7 +36,7 @@ void main() {
     }
   });
 
-  testWidgets('the guide opens on a lesson, switches lessons and shows image placeholders', (t) async {
+  testWidgets('the guide opens on a lesson, switches lessons and shows its pictures, with placeholders for missing ones', (t) async {
     final f = (await t.runAsync(T87Fixture.create))!;
     addTearDown(() async { await t.pumpWidget(const SizedBox()); await t.runAsync(f.dispose); });
     await t.binding.setSurfaceSize(const Size(1200, 900));
@@ -45,6 +45,12 @@ void main() {
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
     await t.pumpAndSettle();
     expect(find.textContaining('第 3 课　第一次对话'), findsOneWidget);
+    expect(find.byType(Image), findsWidgets, reason: 'lesson 3 has its screenshots');
+    expect(find.textContaining('截图待补'), findsNothing);
+    // Lesson 2: the DeepSeek website pictures are still to be taken (images/截图清单.md).
+    await t.tap(find.text('2  接上一个模型'));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await t.pumpAndSettle();
     expect(find.textContaining('截图待补'), findsWidgets);
     await t.tap(find.text('5  认识蝶君'));
     await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));

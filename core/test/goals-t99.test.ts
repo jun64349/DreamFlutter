@@ -12,7 +12,7 @@ import { startTestCore, type TestCore } from "./harness.ts";
 type Detail = ReturnType<GoalScheduler["detail"]>;
 let t: TestCore;
 beforeEach(async () => {
-	t = await startTestCore();
+	t = await startTestCore(); /* Workbench system notifications are off by default since 0.12.1 (user trial feedback); these tests cover them. */ t.core.settings.update({ workbenchNotifications: true });
 	const resolve = t.core.resolveModel;
 	t.core.resolveModel = model => ({ ...resolve(model), cost: { input: 0.5, output: 1, cacheRead: 0.1, cacheWrite: 0.5 } });
 });

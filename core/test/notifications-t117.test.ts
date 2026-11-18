@@ -19,7 +19,7 @@ let t: TestCore;
 let at: number;
 beforeEach(async () => {
 	at = Date.now();
-	t = await startTestCore(undefined, { personaClock: () => at });
+	t = await startTestCore(undefined, { personaClock: () => at }); /* Workbench system notifications are off by default since 0.12.1 (user trial feedback); these tests cover them. */ t.core.settings.update({ workbenchNotifications: true });
 	t.core.settings.update({ patrolQuietEnabled: false });
 });
 afterEach(async () => { await t.cleanup(); });

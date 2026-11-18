@@ -243,9 +243,13 @@ class _EmptyState extends StatelessWidget {
     final now = DateTime.now();
     // Stable while this conversation is on screen, another line for the next one.
     final greeting = pickGreeting(now: now, seed: identityHashCode(agent.active) ^ now.day, butterfly: agent.sandbox);
-    return Center(
+    // A short window (150% on a laptop): the quote and its brush stroke step aside so the input
+    // box stays in view without scrolling (guard composer_layout_test).
+    return LayoutBuilder(builder: (context, constraints) {
+      final short = constraints.maxHeight < 620;
+      return Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 30, 20, 60),
+          padding: EdgeInsets.fromLTRB(20, short ? 12 : 30, 20, short ? 16 : 60),
           child: FadeSlideIn(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -253,13 +257,15 @@ class _EmptyState extends StatelessWidget {
                 const HomeButterflyMark(),
                 const SizedBox(height: 14),
                 ConstrainedBox(constraints: const BoxConstraints(maxWidth: 640), child: ShellGreeting(greeting)),
+                if (!short) ...[
                 const SizedBox(height: 16),
                 // 原型 .brush：问候下面一笔横向的淡朱色晕（椭圆），不是一个点。
                 Container(width: 120, height: 10, decoration: BoxDecoration(borderRadius: const BorderRadius.all(Radius.elliptical(60, 5)), gradient: LinearGradient(colors: [context.colors.accentSoft.withValues(alpha: 0), context.colors.accentSoft, context.colors.accentSoft.withValues(alpha: 0)]))),
                 const SizedBox(height: 14),
                 HomeQuote(sessionToken: agent.active, sessionPath: agent.currentSessionPath, sessionId: agent.activeSessionId),
+                ],
                 if (!agent.onboarded && !agent.sandbox) ...[const SizedBox(height: 24), const _FirstRunGuide()],
-                const SizedBox(height: 22),
+                SizedBox(height: short ? 16 : 22),
                 Composer(dragging: dragging, home: true),
                 const SizedBox(height: 14),
                 ConstrainedBox(constraints: const BoxConstraints(maxWidth: homeContentMaxWidth), child: Wrap(
@@ -279,7 +285,8 @@ class _EmptyState extends StatelessWidget {
             ),
           ),
         ),
-    );
+      );
+    });
   }
 }
 

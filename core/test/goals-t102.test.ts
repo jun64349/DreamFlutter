@@ -12,7 +12,7 @@ import { settledCount, startTestCore, type TestCore } from "./harness.ts";
 
 type Detail = ReturnType<GoalScheduler["detail"]>;
 let t: TestCore;
-beforeEach(async () => { t = await startTestCore(); t.core.settings.update({ approvalMode: "off" }); });
+beforeEach(async () => { t = await startTestCore(); /* Workbench system notifications are off by default since 0.12.1 (user trial feedback); these tests cover them. */ t.core.settings.update({ workbenchNotifications: true }); t.core.settings.update({ approvalMode: "off" }); });
 afterEach(async () => { await t.cleanup(); });
 const goals = () => t.core.module(GoalsModule)!;
 const get = (id: string) => goals().scheduler.detail(id);

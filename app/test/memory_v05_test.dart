@@ -4,6 +4,7 @@ import 'package:dreamflutter/ui/memory_details.dart';
 import 'package:dreamflutter/ui/memory_chat_controls.dart';
 import 'package:dreamflutter/ui/settings_page.dart';
 import 'package:dreamflutter/ui/side_chat_view.dart';
+import 'package:dreamflutter/ui/settings_controls.dart' show SettingMenu;
 import 'package:dreamflutter/state/agent_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -139,9 +140,12 @@ void main() {
     await settleV05(tester);
     expect(h.backend.settings['memoryWriteFrequency'], 'low');
     await tester.enterText(find.widgetWithText(TextField,'搜索设置'),'每天整理预算');await settleV05(tester);
-    final budget = find.descendant(of: find.byKey(const ValueKey('memoryDailyBudgetUsd')), matching: find.byType(TextField));
-    await tester.enterText(budget, '0');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    // 0.12.1: numbers are picked from suggested values (custom still possible); zero is a real 0, not 不限.
+    final budget = find.byKey(const ValueKey('memoryDailyBudgetUsd'));
+    await tester.tap(find.descendant(of: budget, matching: find.byType(SettingMenu<String>)));
+    await settleV05(tester);
+    expect(find.text('不限'), findsNothing);
+    await tester.tap(find.text('0 美元').last);
     await settleV05(tester);
     expect(h.backend.settings['memoryDailyBudgetUsd'], 0);
   });

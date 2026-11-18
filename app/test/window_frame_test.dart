@@ -34,6 +34,8 @@ void main() {
       'workspace': thesis.path,
       'recentWorkspaces': [thesis.path, other.path],
       'onboarded': true,
+      // Pixel positions below are at 100%; the default became 110% in 0.12.1 (user trial feedback).
+      'zoom': 1.0,
       ...prefs,
     });
     backend = FakeBackend();

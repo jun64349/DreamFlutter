@@ -19,7 +19,7 @@ import { startTestCore, type TestCore } from "./harness.ts";
 type Receipt = { key: string; state: string; reason: string | null; category: NoticeCategory; item_id: string | null };
 type Metrics = { quietSuppressed: number; duplicateSuppressed: number; sentByCategory: Record<NoticeCategory, number> };
 let t: TestCore;
-beforeEach(async () => { t = await startTestCore(); mode("on"); });
+beforeEach(async () => { t = await startTestCore(); /* Workbench system notifications are off by default since 0.12.1 (user trial feedback); these tests cover them. */ t.core.settings.update({ workbenchNotifications: true }); mode("on"); });
 afterEach(async () => { await t.cleanup(); });
 
 function mode(value: "on" | "off" | "quiet"): void {

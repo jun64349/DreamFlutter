@@ -16,7 +16,8 @@ const composerChipLabel = '$composerModelName · layout-test';
 Future<({AgentController agent, FakeBackend backend, GlobalKey capture})> startComposerLayout(WidgetTester tester) async {
   await tester.binding.setSurfaceSize(const Size(1000, 800));
   final directory = Directory.systemTemp.createTempSync('df_composer_layout_');
-  SharedPreferences.setMockInitialValues({'workspace': directory.path, 'onboarded': true, 'zoom': 1.5});
+  // Text at 100%: the default became 125% in 0.12.1 (user trial feedback); the widths below are at 100%.
+  SharedPreferences.setMockInitialValues({'workspace': directory.path, 'onboarded': true, 'zoom': 1.5, 'textScale': 1.0});
   final backend = FakeBackend();
   backend.onLaunch = (pi) {
     final model = <String, dynamic>{'id': 'layout-model', 'name': composerModelName, 'provider': 'layout-test', 'reasoning': true, 'input': ['text', 'image'], 'contextWindow': 200000, 'maxTokens': 4096};

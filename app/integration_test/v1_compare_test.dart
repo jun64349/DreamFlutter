@@ -14,6 +14,8 @@ import 'package:dreamflutter/ui/rich_blocks.dart';
 import 'package:dreamflutter/ui/message_widgets.dart' show WorkBlock;
 import 'package:dreamflutter/ui/context_usage_ring.dart';
 import 'package:dreamflutter/ui/web_surface.dart';
+import 'package:dreamflutter/ui/onboarding_tour.dart' show TourAnchor;
+import 'package:dreamflutter/ui/sidebar.dart' show SidebarWorkspaceButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -200,6 +202,7 @@ void main() {
   const only = String.fromEnvironment('V1_ONLY');
   const collectionPass = bool.fromEnvironment('V1_COLLECTION');
   const numbersPass = bool.fromEnvironment('V1_NUMBERS');
+  const guidePass = bool.fromEnvironment('V1_GUIDE');
   const craftThemes = ['jiadie', 'shensi'];
   const craftStates = ['empty', 'ready', 'running'];
   const craftScenes = ['home', 'chat', 'appearance'];
@@ -291,6 +294,167 @@ void main() {
     RichRenderer.configure(renderer.port);
     await tester.runAsync(agent.refreshSessions);
     await settle(8);
+    // 课本截图（路线第 5 步，app/assets/guide/images/截图清单.md）：--dart-define=V1_GUIDE=true。
+    // 每张图旁边写一份 .boxes.json（要红框的位置），scripts/guide/draw-boxes.py 再画框。
+    if (guidePass) {
+      final images = Directory(p.join(Directory.current.path, 'assets', 'guide', 'images'))..createSync(recursive: true);
+      Future<void> guideShot(String name, List<Finder> marks) async {
+        await settle();
+        final error = tester.takeException();
+        if (error != null) throw StateError('$name: $error');
+        final boxes = <List<double>>[];
+        for (final (i, mark) in marks.indexed) {
+          try {
+            final r = tester.getRect(mark.first);
+            boxes.add([r.left, r.top, r.right, r.bottom]);
+          } catch (_) {
+            debugPrint('GUIDE $name: mark $i not found');
+          }
+        }
+        // Local paths carry the Windows user name: blurred (scripts/guide/draw-boxes.py).
+        final blur = <List<double>>[];
+        for (final element in find.byType(RichText).evaluate()) {
+          final text = (element.widget as RichText).text.toPlainText();
+          if (!RegExp(r'[A-Za-z]:\\').hasMatch(text)) continue;
+          final box = element.renderObject;
+          if (box is! RenderBox || !box.hasSize || !box.attached) continue;
+          final r = box.localToGlobal(Offset.zero) & box.size;
+          blur.add([r.left, r.top, r.right, r.bottom]);
+        }
+        await tester.runAsync(() async {
+          final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+          final image = await boundary.toImage(pixelRatio: 1);
+          final data = await image.toByteData(format: ui.ImageByteFormat.png);
+          File(p.join(images.path, '$name.png')).writeAsBytesSync(data!.buffer.asUint8List(), flush: true);
+          File(p.join(images.path, '$name.boxes.json')).writeAsStringSync(jsonEncode({'boxes': boxes, 'blur': blur}));
+          image.dispose();
+        });
+      }
+      Finder button(Finder label) => find.ancestor(of: label, matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
+      Finder anchor(String id) => find.byWidgetPredicate((w) => w is TourAnchor && w.id == id);
+      // The 「入门」card would sit in every picture: the guide is read after it, or instead of it.
+      agent.tour.close();
+      await tester.runAsync(agent.newSession);
+      await agent.setRunPanelOpen(false);
+      agent.showSection(AppSection.chat);
+      await settle(6);
+      await guideShot('01-switch', [anchor('place-switch')]);
+      await guideShot('02-gear', [anchor('settings-gear')]);
+      await guideShot('03-new-chat', [anchor('nav-new')]);
+      await guideShot('03-composer', [find.byKey(const ValueKey('composer-body')), find.text('帮我写一张请假条')]);
+
+      agent.openSettings('模型');
+      await settle(6);
+      await tester.ensureVisible(anchor('gateway-add'));
+      await settle();
+      await guideShot('02-add-channel', [anchor('gateway-add')]);
+      await tester.tap(find.descendant(of: anchor('gateway-add'), matching: find.text('添加渠道')));
+      await settle(6);
+      final secret = find.byWidgetPredicate((w) => w is TextField && (w.decoration?.labelText?.startsWith('密钥') ?? false));
+      if (secret.evaluate().isNotEmpty) {
+        await tester.enterText(secret.first, 'sk-••••••••••••••••••••');
+        await tester.ensureVisible(secret.first);
+      }
+      await settle();
+      await guideShot('02-paste-key', [secret, find.widgetWithText(FilledButton, '保存')]);
+
+      demo.backend.handlers['sandbox.status'] = (_) => {'state': 'absent', 'online': true, 'distro': 'DreamFlutterSandbox'};
+      agent.sandboxStatus.value = {'state': 'absent', 'online': true};
+      agent.openSettings('蝶君');
+      await settle(6);
+      if (find.text('不保存').evaluate().isNotEmpty) {
+        await tester.tap(find.text('不保存'));
+        await settle(6);
+        agent.openSettings('蝶君');
+        await settle(6);
+      }
+      final build = find.text('建立沙箱');
+      // 0.12 put 性格/主动/长期目标/规则/日程 above the sandbox card (sandbox_panel_test does the same).
+      await tester.dragFrom(const Offset(900, 500), const Offset(0, -4000));
+      await settle();
+      if (build.evaluate().isNotEmpty) await tester.ensureVisible(build.first);
+      await settle();
+      await guideShot('05-sandbox', [button(build)]);
+      demo.backend.handlers['sandbox.status'] = (_) => {'state': 'ready', 'online': true, 'distro': 'DreamFlutterSandbox'};
+      agent.sandboxStatus.value = {'state': 'ready', 'online': true};
+
+      agent.showSection(AppSection.chat);
+      await tester.runAsync(() => agent.openSession(demo.wbPath));
+      await agent.setRunPanelOpen(false);
+      await settle(8);
+      final list = tester.widget<CustomScrollView>(find.byKey(const ValueKey('conversation-list')).last);
+      list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
+      await settle();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      final replies = find.byWidgetPredicate((w) => w.runtimeType.toString() == '_ReplyFrame');
+      final copy = find.byTooltip('复制');
+      if (replies.evaluate().isNotEmpty) await mouse.moveTo(tester.getCenter(replies.last));
+      await settle();
+      await guideShot('03-reply-actions', [copy.last, find.byTooltip('重新生成').last]);
+      await mouse.removePointer();
+
+      final practice = Directory(p.join(demo.root.path, '练习'))..createSync(recursive: true);
+      final current = agent.workspace;
+      await agent.setWorkspace(practice.path);
+      await agent.setWorkspace(current);
+      await settle();
+      await tester.tap(find.byType(SidebarWorkspaceButton));
+      await settle(6);
+      await guideShot('04-workspace-menu', [find.text('练习').last, find.textContaining('打开文件夹').last]);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle();
+
+      final pi = demo.backend.pis.firstWhere((pi) => pi.slotId == agent.active?.slotId);
+      pi.emit({'type': 'extension_ui_request', 'id': 'guide-write', 'method': 'select',
+        'title': 'Agent 请求执行操作\n\n写入文件：汇总.xlsx\n(按月份汇总的销售表)', 'options': ['允许', '本会话内总是允许「write」', '拒绝']});
+      await settle(6);
+      final card = find.byKey(const ValueKey('approval-guide-write'));
+      if (card.evaluate().isNotEmpty) await tester.ensureVisible(card);
+      await settle();
+      await guideShot('04-approval', [find.descendant(of: card, matching: find.widgetWithText(FilledButton, '允许'))]);
+      if (card.evaluate().isNotEmpty) await tester.tap(find.descendant(of: card, matching: find.widgetWithText(FilledButton, '允许')));
+      pi.finishRun();
+      await settle(6);
+
+      await tester.runAsync(() => agent.openSession(demo.wbPath));
+      await agent.setRunPanelOpen(true);
+      await settle(8);
+      await guideShot('04-files-panel', [find.text('文件').last]);
+      // README 首页用的两张干净图（不画框），scripts/guide/draw-boxes.py 之后挪到 docs/design/assets。
+      final conversation = find.byKey(const ValueKey('conversation-list'));
+      if (conversation.evaluate().isNotEmpty) tester.widget<CustomScrollView>(conversation.last).controller?.jumpTo(0);
+      await guideShot('readme-workbench', const []);
+      await agent.setRunPanelOpen(false);
+
+      await tester.runAsync(() => agent.openButterfly());
+      await tester.runAsync(() => agent.butterfly!.openSession(demo.goalPath));
+      agent.showSection(AppSection.butterfly);
+      await agent.butterfly!.setRunPanelOpen(true);
+      await settle(8);
+      await guideShot('05-butterfly-working', [find.byKey(const ValueKey('plan-header'))]);
+      await guideShot('readme-butterfly', const []);
+      await agent.butterfly!.setRunPanelOpen(false);
+
+      agent.showSection(AppSection.tasks);
+      await settle(6);
+      final accept = find.text('收下');
+      if (accept.evaluate().isNotEmpty) { await tester.ensureVisible(accept.first); await settle(); }
+      await guideShot('05-review', [button(find.text('打开看看')).last, button(accept).first]);
+      agent.showSection(AppSection.memory);
+      await settle(6);
+      await guideShot('06-memory', [find.textContaining('回复简练'), find.textContaining('添加')]);
+      agent.showSection(AppSection.schedules);
+      await settle(6);
+      await guideShot('07-schedule', [find.textContaining('组会纪要')]);
+      agent.showSection(AppSection.library);
+      await settle(6);
+      await guideShot('08-skills', [find.textContaining('规格书要点提取')]);
+      agent.showSection(AppSection.spending);
+      await settle(6);
+      await guideShot('09-spending', [find.text('金额'), find.text('次数')]);
+      throw const _AllShot();
+    }
     if(wanted.any((name)=>name.startsWith('trial-'))){
       if(wanted.contains('trial-home'))await shot('trial-home');
       for(final (name,category) in [
