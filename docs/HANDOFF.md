@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接
 
-> **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前：第 0–3 步完成并已提交（第 3 步 `2cdf749`）；第 4 步「降低上手门槛」用户试 test.8 验收通过（2026-11-18 晚），待提交；下一步第 5 步 1.0 preview。**
+> **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前：第 0–3 步完成并已提交（第 3 步 `2cdf749`）；第 4 步「降低上手门槛」用户试 test.8 验收通过，本地提交 `77fed1c`（未推送）；下一步第 5 步 1.0 preview。**
 
 
 **下一窗口从这里开始**
@@ -13,7 +13,7 @@
 
 **2026-11-18 第 4 步进行中**：沙箱一键安装写了一半（`core/src/sandbox/wsl-install.ts` 已写，尚未接进 `sandbox.ts`、界面和测试，未提交）；用户随后要求入门教学面向 agent 零基础用户做「手把手、完整详细」的保姆级教学，先出几套方案（原型 `docs/design/prototype/onboarding-options.html`）给用户选，选定前不实装引导部分。用户 2026-11-18 选定入门方案四「课本＋跟着做」（原型 `docs/design/prototype/onboarding-options.html`）：十课共用大纲；必修 5 课在真界面里跟着做（压暗 + 小卡片 + 程序检测完成），每张卡片可打开课本对应页；十课全部有程序内图文课本（设置 › 关于旁），仓库里放带截图的完整版；侧栏加「入门」进度卡，学完或点「不用了」后消失（用户同意动这一处）。先出逐课逐步的文字和画面给用户看，再实装；可分两批：先课本，再跟着做。逐课细化见 docs/design/prototype/onboarding-detail.html；用户已定：第 2 课用 DeepSeek，练习文件夹放数据目录，第 5 课用「查资料写报告」，首页三个示例换成零基础的（只填进输入框）。第一批已做（未提交）：十课课本在 app/assets/guide（docs/guide/README.md 指过去，截图清单在 images/），程序内 设置 › 关于与更新 › 使用说明（lib/ui/guide_page.dart，go:settings/… 与 go:section/… 链接跳转），首页示例已换，测试 app/test/guide_page_test.dart。
 
-**2026-11-18 晚：第 4 步做完，用户试 test.8 验收通过（提交待用户同意）**
+**2026-11-18 晚：第 4 步做完，用户试 test.8 验收通过（本地提交 `77fed1c`，未推送）**
 
 - 沙箱一键安装：`core/src/sandbox/wsl-install.ts`（查虚拟化 → 系统自带安装 → 官方 MSI 核签名 → 开 VirtualMachinePlatform）接进 `sandbox.ts`：新状态 `restart-needed`、接口 `sandbox.restartComputer`、RunOnce 重启后自动打开程序并接着建（`after-restart.json`）。界面 `app/lib/ui/sandbox_panel.dart`：没有 WSL 也只一个「建立沙箱」，失败后才出手动命令；重启有「现在重启 / 稍后」。测试 `core/test/wsl-install.test.ts`、`app/test/sandbox_panel_test.dart`。
 - 跟着做五课：课程定义和进度 `app/lib/state/onboarding.dart`（进度存偏好 `tour.*`），引导层与侧栏进度卡 `app/lib/ui/onboarding_tour.dart`（`TourAnchor` 标点位置，四块遮罩只留亮处可点，卡片可开课本对应页），`main.dart` 套在整个窗口外。完成检测靠状态（切页、发消息、回复完、沙箱就绪）和程序报的信号（copied / approved / accepted / channel-editor / practice）。第 4 课练习材料 `app/assets/practice/`（乱销售表、三篇短文、一张图），点「用练习文件夹」复制到 `<数据目录>\练习` 并切过去。测试 `app/test/onboarding_tour_test.dart`。
