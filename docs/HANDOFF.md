@@ -7,7 +7,8 @@
 
 - 用户验收预览包后同意提交推送：提交 `bf7389e`，main 从 0.8.3 快进，标签 `v1.0.0-preview.1`，main、标签、v0.12-frontend 已推送。
 - 发布页：用户改定为**正式发布（latest）、标题写预览版**，不标预发布——程序内更新只认 GitHub「最新发布」，标预发布的话以后 preview.2 朋友们收不到自动更新。附件：`DreamFlutter-Installer.exe`、`DreamFlutter-1.0.0-preview.1-win-x64-full.nupkg`（程序内更新用）、`SHA256SUMS`。以后每个预览版都照此发。
-- 课本第 2 课 DeepSeek 网站 4 张截图仍缺，等用户提供（密钥打码）。
+- 课本第 2 课 DeepSeek 网站上的几步改为只用文字说明，不配截图（用户 2026-11-18：不难，不用教）。
+- **2026-11-18 收尾：工作目录清理**（用户逐项确认）：删了 Flutter 编译测试缓存（`app/.dart_tool/flutter_build` 35 GB、`app/build` 3.5 GB，下次编译自动重建）、%TEMP% 里 113 个 df_ 测试残留、旧 worktree `E:\claude\DreamFlutter-v0130`、`%LOCALAPPDATA%\DreamFlutter.preserved-data`（11-17 安装测试残留）、dist 里 test.8 与 0.12.0 / 0.12.1 / 0.8.3 便携包；E 盘可用从约 100 GB 到 146 GB。保留：`dist/v1.0.0-preview.1`、仓库外 `E:\claude\HanaAgent-UI-Audit`、`E:\claude\DreamFlutter-Onboarding-Audit`。没动：D 盘安装版、`E:\DreamFlutter测试版`、3 个 WSL 沙箱。一直没提交的 7 个研究文件按用户意思提交进仓库。
 
 **第 5 步过程记录**
 
@@ -19,7 +20,7 @@
 
 **下一窗口从这里开始**
 
-1. 路线第 6 步「preview 阶段朋友内测」：开工前先问用户内测名字、中转站、每人额度、反馈方式、托管版边界，不要自己定。课本第 2 课 DeepSeek 网站 4 张截图等用户提供（密钥打码），放进 `app/assets/guide/images/02-ds-*.jpg`。
+1. 路线第 6 步「preview 阶段朋友内测」**由用户安排的另一个 Agent 接手**（用户 2026-11-18）。接手时开工前先问用户内测名字、中转站、每人额度、反馈方式、托管版边界，不要自己定。
 2. 出下一个预览版：pubspec 版本改 `1.0.0-preview.N+…`，照 `dist/v1.0.0-preview.1/build.ps1` 改版本号打包；发布页**设为最新发布、不标预发布**（程序内更新只读 GitHub releases/latest），附 `DreamFlutter-Installer.exe`、`DreamFlutter-<版本>-win-x64-full.nupkg`、`SHA256SUMS`。用户上传速度约 0.3 MB/s，540 MB 约 26 分钟，gh 传完前发布页是草稿。
 3. **安装类验证一律在 Claude 终端面板（run_in_terminal）里启动**，不要从 Bash/PowerShell 工具直接装或启动安装版：Claude 应用是 MSIX，从它直接启动的程序写 AppData 会被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`，结果不算数。点击向导可用 `scripts/v0131-install/window.ps1`（模拟鼠标，作用在真实桌面）；分阶段驱动用 `scripts/v0131-install/drive.mjs`（也要在终端面板里跑）。
 4. 打包工具在 `E:\dev\velopack-tools`（.NET 8 + vpk 1.2.161）和 `E:\dev\velopack-sdk`；gh 在 `E:\dev\gh`，用时设 `GH_CONFIG_DIR=E:\dev\gh\config`。每个包约 7 分钟。用户要求一批改动做完、自测后只打一个测试包，别为小改连出多个包。

@@ -63,7 +63,7 @@ final tourLessons = <TourLesson>[
     const TourStep('先弄懂两个词', '「模型」是帮你思考的 AI，「密钥」是你在模型公司的账号凭证，像一把钥匙。我们用 DeepSeek 举例：便宜，国内能直接用。'),
     TourStep('打开设置', '点左下角的齿轮。', anchor: 'settings-gear', done: (c) => c.agent.section == AppSection.settings),
     TourStep('添加渠道', '点左边的「模型」，再在「渠道」那块点「添加渠道」。', anchor: 'gateway-add|settings-nav-模型', done: (c) => c.signals.contains('channel-editor')),
-    const TourStep('拿密钥', '服务商选「DeepSeek」，点「去 DeepSeek 拿密钥 ↗」。网站上的注册、充值、建密钥几步，点下面的「看图文说明」一张图一张图跟着做。'),
+    const TourStep('拿密钥', '服务商选「DeepSeek」，点「去 DeepSeek 拿密钥 ↗」。在网站上注册、充值、建一个密钥，步骤在下面的「看图文说明」里。'),
     TourStep('粘贴并保存', '把复制的密钥粘贴到「密钥」框里，看到「连接成功」后点「保存」。', done: (c) => modelConnected(c.agent)),
   ]),
   TourLesson('第一次对话', 2, [
