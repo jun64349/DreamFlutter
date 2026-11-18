@@ -119,16 +119,44 @@ class _SandboxPanelState extends State<SandboxPanel> {
     if (status == null) {
       children.add(Text(_error ?? '正在查看沙箱状态…', style: muted));
     } else if (state == 'no-wsl') {
+      // One-click sandbox (route step 4, user 2026-11-18): setting up installs WSL itself.
       children.addAll([
-        Text('这台电脑还没有 WSL。蝶君的沙箱建在 WSL 2 上（Windows 自带的轻量虚拟机），需要先装一次：', style: context.text.bodyMedium),
+        Text('蝶君在自己的沙箱里干活：一个独立的 Linux 系统，看不到你的文件。这台电脑还没有它需要的 WSL（Windows 自带的轻量虚拟机），建立时会一起装上。', style: context.text.bodyMedium),
+        if (status['error'] != null) ...[
+          const SizedBox(height: AppTokens.gap),
+          Text('${status['error']}', style: context.text.bodySmall?.copyWith(color: colors.danger)),
+        ],
         const SizedBox(height: AppTokens.gap),
-        Text('1. 开始菜单搜「PowerShell」，右键「以管理员身份运行」\n2. 运行下面这条命令，按提示重启\n3. 回到这里点「刷新」', style: context.text.bodyMedium),
-        const SizedBox(height: AppTokens.gap),
-        _CommandBox(command: 'wsl --install --no-distribution'),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: _busy != null ? null : () => _do('建立沙箱', 'sandbox.provision'),
+            icon: const Icon(Icons.add_box_outlined, size: 18),
+            label: const Text('建立沙箱'),
+          ),
+        ),
         const SizedBox(height: 6),
-        Text('如果报错 REGDB_E_CLASSNOTREG，到 github.com/microsoft/WSL/releases 下载最新的 x64 .msi 安装包，双击安装。', style: muted),
+        Text('会弹出 Windows 的管理员确认，点「是」；装完多数电脑要重启一次，重启后程序会自己打开，接着建好。', style: muted),
+        if (status['error'] != null) ...[
+          const SizedBox(height: AppTokens.gap),
+          Text('也可以自己装：以管理员身份打开 PowerShell，运行下面这条命令，按提示重启。', style: muted),
+          const SizedBox(height: 6),
+          _CommandBox(command: 'wsl --install --no-distribution'),
+        ],
+      ]);
+    } else if (state == 'restart-needed') {
+      children.addAll([
+        Text('WSL 装好了，重启电脑后才能用。重启后程序会自己打开，接着把沙箱建好。', style: context.text.bodyMedium),
         const SizedBox(height: AppTokens.gap),
-        Align(alignment: Alignment.centerLeft, child: OutlinedButton(onPressed: _load, child: const Text('刷新'))),
+        Wrap(spacing: 8, children: [
+          FilledButton(
+            onPressed: _busy != null ? null : () async {
+              if (await _confirm('现在重启电脑？', '先保存好其他程序里没存的东西。电脑会在 5 秒后重启。', '现在重启')) await _do('重启', 'sandbox.restartComputer');
+            },
+            child: const Text('现在重启'),
+          ),
+          OutlinedButton(onPressed: _load, child: const Text('稍后')),
+        ]),
       ]);
     } else if (state == 'provisioning') {
       final progress = (status['progress'] as num?)?.toDouble();
@@ -138,7 +166,7 @@ class _SandboxPanelState extends State<SandboxPanel> {
         LinearProgressIndicator(value: progress),
         const SizedBox(height: 6),
         Text(
-          bundled ? '用应用自带的系统镜像建立，不用联网，一般 1–2 分钟。' : '这个版本没有附带系统镜像，要在线组装 Debian 并安装工具，大约 10–20 分钟。可以先去做别的，好了会在这里显示。',
+          bundled ? '用应用自带的系统镜像建立，不用联网，一般 1–2 分钟。' : '第一次要下载约 650 MB 的系统镜像，网速一般约 10 分钟。可以先去做别的，好了会在这里显示。',
           style: muted,
         ),
       ]);
@@ -161,8 +189,8 @@ class _SandboxPanelState extends State<SandboxPanel> {
         const SizedBox(height: 6),
         Text(
           bundled
-              ? '用应用自带的 Debian 系统镜像建立，已经装好 Python、pandas、matplotlib、git 等工具，不用联网，一般 1–2 分钟，占用约 1.5 GB 磁盘。'
-              : '这个版本没有附带系统镜像：会从国内镜像站在线组装 Debian 并安装 Python、pandas、git 等工具，大约 10–20 分钟，占用约 1.5 GB 磁盘。',
+              ? '用应用自带的 Debian 系统镜像建立，已经装好 Python、pandas、matplotlib、git 等工具，不用联网，一般 1–2 分钟，建好后占用约 4 GB 磁盘。'
+              : '第一次会下载约 650 MB 的系统镜像（已经装好 Python、pandas、matplotlib、git 等工具），网速一般约 10 分钟，之后不用再下；建好后占用约 4 GB 磁盘。',
           style: muted,
         ),
       ]);

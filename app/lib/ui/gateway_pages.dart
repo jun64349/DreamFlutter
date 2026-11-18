@@ -263,6 +263,8 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
   @override
   void initState() {
     super.initState();
+    // 「入门」lesson 2 waits for this page.
+    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) AgentScope.read(context).tourSignal('channel-editor'); });
     for (final c in [_name, _baseUrl, _lowBalance, _topUp]) {
       c.addListener(_changed);
     }

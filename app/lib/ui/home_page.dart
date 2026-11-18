@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../state/agent_controller.dart';
 import 'agent_scope.dart';
+import 'onboarding_tour.dart' show TourAnchor;
 import 'butterfly_page.dart';
 import 'chat_view.dart';
 import 'extension_dialogs.dart';
@@ -126,7 +127,7 @@ class _HomePageState extends State<HomePage> {
               captionInset: captionInset,
               headerBuilder: (panelVisible) => header(AppSection.butterfly, panelVisible: panelVisible),
             )) : const SizedBox(),
-            _visited.contains(AppSection.tasks) ? pageWithHeader(AppSection.tasks, const AttentionPage()) : const SizedBox(),
+            _visited.contains(AppSection.tasks) ? pageWithHeader(AppSection.tasks, const TourAnchor('attention-page', child: AttentionPage())) : const SizedBox(),
             const SizedBox(),
             const SizedBox(),
             const SizedBox(),

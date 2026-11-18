@@ -21,6 +21,7 @@ import 'ui/window_frame.dart';
 import 'ui/zoom.dart';
 import 'ui/close_window_dialog.dart';
 import 'ui/setup_wizard.dart';
+import 'ui/onboarding_tour.dart';
 import 'update_bootstrap.dart';
 
 /// Shown in the settings page.
@@ -154,7 +155,8 @@ class DreamFlutterApp extends StatelessWidget {
                       if (setup) return AppTitleBar(windowButtons: ownTitleBar, brandOnly: true);
                       return depth > 1 ? AppTitleBar(windowButtons: ownTitleBar) : const SizedBox.shrink();
                     }),
-                    Expanded(child: app),
+                    // 「入门 5 课」over the whole window (route step 4).
+                    Expanded(child: TourLayer(agent: controller.main, navigator: navigatorKey, child: app)),
                   ],
                 ),
                 ),

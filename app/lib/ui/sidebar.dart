@@ -20,6 +20,7 @@ import 'artifact_widgets.dart';
 import 'package:window_manager/window_manager.dart' show DragToMoveArea;
 import 'window_frame.dart';
 import 'shell_widgets.dart';
+import 'onboarding_tour.dart';
 
 /// The one sidebar of the window (0.4, design option 3): 工作台 / 蝶君 at the
 /// top with new conversation, search and tasks; the conversations of the
@@ -104,21 +105,21 @@ class _SidebarState extends State<Sidebar> {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                  child: _PlaceSwitch(
+                  child: TourAnchor('place-switch', child: _PlaceSwitch(
                     butterfly: onButterfly,
                     workbench: !onButterfly,
                     onWorkbench: () => agent.showSection(AppSection.chat),
                     onButterfly: () => agent.openButterfly(),
                     butterflyBusy: (agent.butterfly?.backgroundRunning ?? 0) + ((agent.butterfly?.isRunning ?? false) ? 1 : 0) > 0 && !onButterfly,
                     workbenchBusy: agent.backgroundRunning > 0 && section != AppSection.chat,
-                  ),
+                  )),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _NavRow(
+                      TourAnchor('nav-new', child: _NavRow(
                         icon: 'plus',
                         label: '新对话',
                         onTap: usable && lists != null
@@ -128,14 +129,14 @@ class _SidebarState extends State<Sidebar> {
                                 if (onButterfly) agent.butterflyTab.value = ButterflyTab.talk;
                               }
                             : null,
-                      ),
-                      _NavRow(
+                      )),
+                      TourAnchor('nav-attention', child: _NavRow(
                         icon: 'inbox',
                         label: '等你处理',
                         selected: section == AppSection.tasks,
                         badge: shellPendingCount(agent) == 0 ? null : '${shellPendingCount(agent)}',
                         onTap: () => agent.showSection(AppSection.tasks),
-                      ),
+                      )),
                       if (onButterfly) _NavRow(icon: 'cal', label: '日程', selected: section == AppSection.schedules, onTap: () => agent.showSection(AppSection.schedules)),
                       // 原型：记忆、技能右边是淡色「新 N」，不是红色角标（红色只给「等你处理」）。
                       _NavRow(icon: 'memory', label: '记忆', selected: section == AppSection.memory, count: agent.pendingMemories == 0 ? null : '新 ${agent.pendingMemories}', onTap: () => agent.showSection(AppSection.memory)),
@@ -157,6 +158,7 @@ class _SidebarState extends State<Sidebar> {
                           ),
                   ),
                 ),
+                const TourProgressCard(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 10, 10),
                   child: Row(children: [
@@ -169,7 +171,7 @@ class _SidebarState extends State<Sidebar> {
                     Expanded(child: Text(name.isEmpty ? '你' : name, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.text.bodyMedium?.copyWith(fontSize: 13, color: colors.ink))),
                     _SideIconButton(icon: 'coin', tooltip: '花费', selected: section == AppSection.spending, onPressed: () { agent.showSection(AppSection.spending); closeShellDrawer(context); }),
                     const SizedBox(width: 4),
-                    _SideIconButton(icon: 'gear', tooltip: '设置', selected: section == AppSection.settings, onPressed: () { agent.showSection(AppSection.settings); closeShellDrawer(context); }),
+                    TourAnchor('settings-gear', child: _SideIconButton(icon: 'gear', tooltip: '设置', selected: section == AppSection.settings, onPressed: () { agent.showSection(AppSection.settings); closeShellDrawer(context); })),
                   ]),
                 ),
               ],
@@ -317,13 +319,13 @@ class _PlaceSwitch extends StatelessWidget {
             onWorkbench,
           ),
           const SizedBox(width: 2),
-          half(
+          TourAnchor('place-butterfly', child: half(
             '蝶君',
             const ButterflyMark(size: 15),
             butterfly,
             butterflyBusy,
             onButterfly,
-          ),
+          )),
         ],
       ),
     );
@@ -461,7 +463,7 @@ class _SidebarWorkspaceButtonState extends State<SidebarWorkspaceButton>{
       ],
     );
     final itemStyle = MenuItemButton.styleFrom(minimumSize: const Size(320, 48), padding: const EdgeInsets.symmetric(horizontal: 10));
-    return MenuAnchor(
+    return TourAnchor('workspace', child: MenuAnchor(
       controller: workspaceMenu,
       onOpen:loadCounts,
       alignmentOffset: const Offset(0, 6),
@@ -518,7 +520,7 @@ class _SidebarWorkspaceButtonState extends State<SidebarWorkspaceButton>{
           ),
         )),
       ),
-    );
+    ));
   }
 }
 

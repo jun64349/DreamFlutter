@@ -6,6 +6,10 @@ import { join } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
 import { buildImage, bundledImage, IMAGE_FILE, imageSources, infoPath, shippedImageInfo, verifyImage, type ImageInfo } from "./image.ts";
 import { downloadVerified, type Fetch } from "../net/resumable.ts";
+import { installWsl, windowsDeps, WslInstallError, type WslInstallDeps } from "./wsl-install.ts";
+import { APP_ROOT } from "../paths.ts";
+import { spawn as spawnProcess } from "node:child_process";
+import { dirname } from "node:path";
 import { storageLocations } from "../storage/locations.ts";
 
 /**
@@ -53,7 +57,8 @@ export const MIRRORS: Mirror[] = [
 	{ id: "ubuntu", name: "Ubuntu 官方", image: `https://cdimage.ubuntu.com/ubuntu-base/releases/${BASE_RELEASE}/release/`, apt: "http://archive.ubuntu.com/ubuntu/" },
 ];
 
-export type SandboxState = "no-wsl" | "absent" | "provisioning" | "ready" | "error";
+/** restart-needed: WSL was just installed and works after the computer restarts (route step 4). */
+export type SandboxState = "no-wsl" | "restart-needed" | "absent" | "provisioning" | "ready" | "error";
 
 export interface SandboxStatus {
 	state: SandboxState;
@@ -236,7 +241,15 @@ export interface SandboxOptions {
 	remoteImage?: string | null;
 	/** For tests: replaces fetch for the image download. */
 	fetchImpl?: Fetch;
+	/**
+	 * Installs WSL when it is missing (one-click sandbox, user 2026-11-18); null = never (tell the user instead).
+	 * Default: the real Windows runners, only when wsl is the real one too.
+	 */
+	wslInstall?: (Pick<WslInstallDeps, "elevate" | "powershell"> & { fetchImpl?: Fetch; relaunchAfterRestart(): Promise<void>; restart(): void }) | null;
 }
+
+/** In the sandbox folder while WSL waits for a restart: the next start carries on setting up. */
+export const AFTER_RESTART = "after-restart.json";
 
 /**
  * The WSL name of the sandbox kept in [dir]. WSL names are machine-wide while
@@ -269,6 +282,7 @@ export class Sandbox implements CoreModule {
 	private booted = false;
 	private readonly remoteImage: string | undefined;
 	private readonly fetchImpl: Fetch | undefined;
+	private readonly wslInstall: SandboxOptions["wslInstall"];
 
 	constructor(core: Core, options: SandboxOptions = {}) {
 		this.core = core;
@@ -279,6 +293,7 @@ export class Sandbox implements CoreModule {
 		this.image = options.image === undefined ? bundledImage() : (options.image ?? undefined);
 		this.remoteImage = options.remoteImage === undefined ? (this.image ? undefined : shippedImageInfo()) : (options.remoteImage ?? undefined);
 		this.fetchImpl = options.fetchImpl;
+		this.wslInstall = options.wslInstall === undefined ? (options.wsl ? null : realWslInstall()) : options.wslInstall;
 		core.sandboxProvider = () => (existsSync(this.cleanPath) ? { distro: this.distro, ready: () => this.prepare(), online: () => this.core.settings.get().sandboxOnline } : undefined);
 		core.register("sandbox.status", () => this.status());
 		core.register("sandbox.provision", () => {
@@ -295,10 +310,26 @@ export class Sandbox implements CoreModule {
 			if (this.booted) await this.boot();
 			return this.status();
 		});
+		core.register("sandbox.restartComputer", () => {
+			if (!existsSync(this.afterRestartPath) || !this.wslInstall) throw new Error("现在不需要重启");
+			this.wslInstall.restart();
+			return { restarting: true };
+		});
 		core.register("sandbox.remove", async () => {
 			await this.remove();
 			return this.status();
 		});
+	}
+
+	/** After the restart WSL needed: carry on setting the sandbox up. */
+	async start(): Promise<void> {
+		if (!existsSync(this.afterRestartPath) || !(await this.wslAvailable())) return;
+		await rm(this.afterRestartPath, { force: true });
+		void this.provision().catch(() => {});
+	}
+
+	private get afterRestartPath(): string {
+		return join(this.dir, AFTER_RESTART);
 	}
 
 	/** The core is quitting: stop the sandbox so its VM memory is freed (other distros are left alone). */
@@ -340,7 +371,7 @@ export class Sandbox implements CoreModule {
 	async status(): Promise<SandboxStatus> {
 		let state = this.state;
 		if (state !== "provisioning") {
-			if (!(await this.wslAvailable())) state = "no-wsl";
+			if (!(await this.wslAvailable())) state = existsSync(this.afterRestartPath) ? "restart-needed" : "no-wsl";
 			else if ((await this.registered()) && existsSync(this.cleanPath)) state = this.state === "error" ? "error" : "ready";
 			else state = this.state === "error" ? "error" : "absent";
 		}
@@ -376,7 +407,23 @@ export class Sandbox implements CoreModule {
 		let downloaded: string | undefined;
 		try {
 			this.setStep("检查 WSL");
-			if (!(await this.wslAvailable())) throw new Error("没有找到 WSL 2。请先安装 WSL（设置 › 蝶君沙箱里有步骤）。");
+			if (!(await this.wslAvailable())) {
+				if (!this.wslInstall) throw new Error("没有找到 WSL 2。请先安装 WSL（设置 › 蝶君沙箱里有步骤）。");
+				let outcome;
+				try {
+					outcome = await installWsl({ ...this.wslInstall, wslAvailable: () => this.wslAvailable(), onStep: (step, progress) => this.setStep(step, progress ?? null) });
+				} catch (error) {
+					throw new Error(error instanceof WslInstallError ? error.message : `安装 WSL 时出错：${error instanceof Error ? error.message : String(error)}`);
+				}
+				if (outcome === "restart") {
+					await mkdir(this.dir, { recursive: true });
+					writeFileSync(this.afterRestartPath, JSON.stringify({ at: Date.now() }), "utf8");
+					await this.wslInstall.relaunchAfterRestart().catch((error) => this.core.log.warn("sandbox: could not register the start after restart", error));
+					this.state = "absent";
+					this.setStep(null);
+					return;
+				}
+			}
 			if (await this.registered()) {
 				this.setStep("移除旧的沙箱");
 				await this.wsl(["--unregister", this.distro], { timeoutMs: 60_000 });
@@ -639,4 +686,26 @@ echo RESTORE_OK`;
 		if (items.length === 0) throw new Error(`自检没有结果：${result.stderr.trim()}`);
 		return items;
 	}
+}
+
+/** The real one-click WSL runners: PowerShell, a RunOnce entry that opens the app after the restart, shutdown /r. */
+function realWslInstall(): NonNullable<SandboxOptions["wslInstall"]> {
+	const run = (file: string, args: string[]) => new Promise<number | null>((resolve) => {
+		const child = spawnProcess(file, args, { windowsHide: true, stdio: "ignore" });
+		child.on("error", () => resolve(null));
+		child.on("close", resolve);
+	});
+	return {
+		...windowsDeps(),
+		async relaunchAfterRestart() {
+			// An installed copy (Velopack: <root>/current holds sq.version) starts through <root>/DreamFlutter.exe.
+			const installed = existsSync(join(APP_ROOT, "sq.version")) && existsSync(join(dirname(APP_ROOT), "Update.exe"));
+			const exe = installed ? join(dirname(APP_ROOT), "DreamFlutter.exe") : join(APP_ROOT, "app", "dreamflutter.exe");
+			const code = await run("reg.exe", ["add", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce`, "/v", "DreamFlutterSandbox", "/t", "REG_SZ", "/d", `"${exe}"`, "/f"]);
+			if (code !== 0) throw new Error(`reg.exe exited ${code}`);
+		},
+		restart() {
+			void run("shutdown.exe", ["/r", "/t", "5", "/c", "DreamFlutter：重启后会自动接着建蝶君的沙箱。"]);
+		},
+	};
 }

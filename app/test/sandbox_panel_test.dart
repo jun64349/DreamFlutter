@@ -54,10 +54,36 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('without WSL it explains how to install it', (tester) async {
+  // Route step 4 (user 2026-11-18): one-click sandbox. Setting up installs WSL itself; the manual
+  // command only shows after that failed.
+  testWidgets('without WSL one button sets it all up; the manual command only after a failure', (tester) async {
     status = {'state': 'no-wsl', 'online': true, 'distro': 'DreamFlutterSandbox'};
     await openPanel(tester);
+    expect(find.text('wsl --install --no-distribution'), findsNothing);
+    backend.handlers['sandbox.provision'] = (_) => status;
+    await tester.ensureVisible(find.text('建立沙箱'));
+    await tester.tap(find.text('建立沙箱'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+    await tester.pumpAndSettle();
+    expect(backend.callsTo('sandbox.provision'), hasLength(1));
+    agent.sandboxStatus.value = {'state': 'no-wsl', 'online': true, 'error': '需要你在 Windows 的管理员确认里点「是」才能安装 WSL。'};
+    await tester.pump();
+    expect(find.textContaining('管理员确认里点「是」'), findsOneWidget);
     expect(find.text('wsl --install --no-distribution'), findsOneWidget);
+  });
+
+  testWidgets('after WSL is installed it offers to restart now or later', (tester) async {
+    status = {'state': 'restart-needed', 'online': true, 'distro': 'DreamFlutterSandbox'};
+    await openPanel(tester);
+    expect(find.textContaining('重启电脑后才能用'), findsOneWidget);
+    backend.handlers['sandbox.restartComputer'] = (_) => {'restarting': true};
+    await tester.ensureVisible(find.text('现在重启'));
+    await tester.tap(find.text('现在重启'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '现在重启').last);
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+    await tester.pumpAndSettle();
+    expect(backend.callsTo('sandbox.restartComputer'), hasLength(1));
   });
 
   testWidgets('a ready sandbox can be tested and taken offline', (tester) async {

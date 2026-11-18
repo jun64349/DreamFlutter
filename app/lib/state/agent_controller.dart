@@ -18,6 +18,7 @@ import 'gateway_models.dart';
 import 'garden_deletions.dart';
 import '../theme.dart';
 import 'work_models.dart';
+import 'onboarding.dart';
 
 export 'backend.dart' show AgentBackend, CoreBackend, asJsonMap;
 export 'session_runtime.dart' show ClientLauncher, ConnectionStatus, SessionRuntime;
@@ -240,6 +241,11 @@ class AgentController extends ChangeNotifier {
 
   /// 蝶君's sandbox as the core last reported it (sandbox.changed), while it is being set up or changed.
   final sandboxStatus = ValueNotifier<Json?>(null);
+
+  /// 「入门 5 课」(route step 4). Only the main window controller's is used.
+  late final OnboardingTour tour = OnboardingTour(preferences);
+  /// A moment the beginner's lessons watch for ('copied', 'approved', 'accepted', …).
+  void tourSignal(String name) => main.tour.signal(name, main);
 
   /// The backup or restore job the core is running or ran last (backup.job), for Settings › 数据与迁移.
   final backupJob = ValueNotifier<Json?>(null);
@@ -1956,7 +1962,7 @@ class AgentController extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) { reportConversationPresence(); notifyListeners(); }
+    if (!_disposed) { reportConversationPresence(); notifyListeners(); if (!main._disposed && main.tour.showing) main.tour.check(main); }
   }
 
   static String _key(String path) => Platform.isWindows ? p.normalize(path).toLowerCase() : p.normalize(path);

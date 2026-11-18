@@ -394,6 +394,7 @@ class _AttentionRowState extends State<_AttentionRow> {
   }
   Future<void> act(String action) async {
     final item = widget.item;
+    if (item['kind'] == 'goal_acceptance' && action == 'accept') widget.agent.tourSignal('accepted');
     if (action == 'open') { await openAttentionTarget(widget.agent,asJsonMap(item['target']),asJsonMap(item['origin'])); return; }
     if (item['kind'] == 'goal_acceptance' && action == 'reject' || item['kind'] == 'goal_proposal' && action == 'edit') {
       final editing = action == 'edit', draft = asJsonMap(asJsonMap(item['data'])['draft']);

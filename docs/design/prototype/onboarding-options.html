@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>入门方案对比</title>
+<style>
+:root{--paper:#F3ECDD;--card:#FAF6EC;--sidebar:#EFE7D5;--rail:#E9DFCA;--ink:#2B2620;--ink2:#4A4238;--muted:#6B6052;--accent:#3F6E5E;--accentSoft:rgba(63,110,94,.12);--seal:#A8332A;--ochre:#9A5B32;--line:rgba(74,58,36,.16);--sunk:#EDE4D1}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.7 "Microsoft YaHei UI","PingFang SC",system-ui,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+h1{font:600 28px/1.3 Georgia,"Songti SC","SimSun",serif;margin:0 0 6px}
+h2{font:600 21px/1.4 Georgia,"Songti SC","SimSun",serif;margin:0 0 4px}
+h3{font-size:16px;margin:18px 0 6px}
+.lead{color:var(--muted);margin:0 0 22px}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 22px;position:sticky;top:0;background:var(--paper);padding:10px 0;z-index:5;border-bottom:1px solid var(--line)}
+.tab{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 14px;cursor:pointer;font:inherit;color:var(--ink)}
+.tab.on{background:var(--accent);color:#FBF8F1;border-color:var(--accent)}
+.panel{display:none}.panel.on{display:block}
+.grid{display:grid;grid-template-columns:1.25fr 1fr;gap:22px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;background:var(--accentSoft);color:var(--accent);margin-right:6px}
+.tag.warn{background:rgba(154,91,50,.12);color:var(--ochre)}
+ul.tight{margin:6px 0;padding-left:20px}ul.tight li{margin:2px 0}
+.pros li::marker{color:var(--accent)}.cons li::marker{color:var(--seal)}
+/* mock window */
+.win{background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(43,38,32,.12);position:relative;font-size:13px}
+.bar{height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--rail);border-bottom:1px solid var(--line);font:600 13px Georgia,serif}
+.bar i{font-style:normal;color:var(--muted);font:12px "Microsoft YaHei UI"}
+.body{display:grid;grid-template-columns:150px 1fr;min-height:330px}
+.side{background:var(--sidebar);border-right:1px solid var(--line);padding:10px 8px;display:flex;flex-direction:column;gap:4px}
+.side .it{padding:5px 8px;border-radius:7px;color:var(--ink2)}.side .it.on{background:var(--accentSoft);color:var(--accent)}
+.main{position:relative;padding:14px 16px;display:flex;flex-direction:column}
+.msgs{flex:1}
+.bub{max-width:82%;padding:8px 12px;border-radius:12px;margin:6px 0;background:var(--card);border:1px solid var(--line)}
+.bub.me{margin-left:auto;background:#E6DBC4;border:none}
+.composer{margin-top:auto;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:9px 12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.composer .send{margin-left:auto;width:26px;height:26px;border-radius:8px;background:var(--accent)}
+.dim{position:absolute;inset:0;background:rgba(43,38,32,.42);pointer-events:none}
+.hole{position:absolute;border-radius:12px;box-shadow:0 0 0 9999px rgba(43,38,32,.42);outline:2px solid #F3C76B}
+.coach{position:absolute;background:#FFFDF7;border:1px solid var(--line);border-radius:12px;padding:10px 12px;width:230px;box-shadow:0 8px 24px rgba(0,0,0,.18);font-size:12.5px;line-height:1.6}
+.coach b{display:block;font-size:13px;margin-bottom:2px}
+.coach .row{display:flex;justify-content:space-between;align-items:center;margin-top:8px;color:var(--muted);font-size:12px}
+.btn{display:inline-block;background:var(--accent);color:#FBF8F1;border-radius:8px;padding:3px 10px;font-size:12px}
+.btn.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line)}
+.prog{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:auto;font-size:12px}
+.meter{height:5px;background:var(--sunk);border-radius:9px;margin:5px 0}.meter span{display:block;height:100%;border-radius:9px;background:var(--accent)}
+.book{display:grid;grid-template-columns:170px 1fr;min-height:330px}
+.toc{background:var(--sidebar);border-right:1px solid var(--line);padding:10px;font-size:12.5px}
+.toc div{padding:3px 6px;border-radius:6px;color:var(--ink2)}.toc .on{background:var(--accentSoft);color:var(--accent)}.toc .done::before{content:"✓ ";color:var(--accent)}
+.page{padding:14px 18px}
+.shot{border:1px dashed var(--muted);border-radius:10px;height:92px;display:flex;align-items:center;justify-content:center;color:var(--muted);background:repeating-linear-gradient(45deg,var(--card),var(--card) 8px,var(--sunk) 8px,var(--sunk) 16px);margin:8px 0}
+.step{display:flex;gap:10px;margin:8px 0}.step .n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;text-align:center;font-size:12px;line-height:22px}
+table{width:100%;border-collapse:collapse;font-size:14px;background:var(--card);border-radius:12px;overflow:hidden}
+th,td{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}
+th{background:var(--rail);font-weight:600}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:3px;background:var(--accent)}.dot.o{background:transparent;border:1.5px solid var(--accent)}
+.pick{border:2px solid var(--accent)}
+.note{color:var(--muted);font-size:13px}
+.lesson{display:grid;grid-template-columns:44px 1fr;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.lesson:last-child{border-bottom:none}
+.lesson .no{font:600 20px Georgia,serif;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>保姆级入门：四套方案</h1>
+<p class="lead">面向从没用过 Agent 的人。四套方案教的是同一份课程（见「课程大纲」），区别在于<b>怎么教</b>：在真界面里带着做、看图文课本、让蝶君一对一讲，或者前两种混着用。都只放进程序已有的位置，不另起页面结构。</p>
+
+<div class="tabs" role="tablist">
+  <button class="tab on" data-p="outline">课程大纲（四套共用）</button>
+  <button class="tab" data-p="a">方案一 · 跟着做</button>
+  <button class="tab" data-p="b">方案二 · 图文课本</button>
+  <button class="tab" data-p="c">方案三 · 蝶君当老师</button>
+  <button class="tab" data-p="d">方案四 · 课本＋跟着做（推荐）</button>
+  <button class="tab" data-p="cmp">对比</button>
+</div>
+
+<!-- 大纲 -->
+<section class="panel on" id="outline">
+<div class="grid">
+<div class="card">
+<h2>十课，从「Agent 是什么」到「出问题怎么办」</h2>
+<p class="note">每课都有：这课学会什么、一步一步怎么做、做完怎么确认对了、常见卡点。前五课是必修，一个下午能走完；后五课用到再学。</p>
+<div class="lesson"><div class="no">1</div><div><b>Agent 是什么</b>：和聊天机器人有什么不同（它会动手：读写文件、跑命令、上网查），DreamFlutter 里工作台和蝶君各管什么。<span class="tag">必修</span><span class="tag">3 分钟</span></div></div>
+<div class="lesson"><div class="no">2</div><div><b>接上一个模型</b>：什么是「模型」和「密钥」；以 DeepSeek 为例注册、充值 10 元、复制密钥、粘贴、看到「连接成功」。<span class="tag">必修</span><span class="tag">10 分钟</span></div></div>
+<div class="lesson"><div class="no">3</div><div><b>第一次对话</b>：打字、发送、停止、复制回复、重新回答；用两句话让它写一封请假条。<span class="tag">必修</span><span class="tag">5 分钟</span></div></div>
+<div class="lesson"><div class="no">4</div><div><b>让它动手干活</b>：选一个工作区文件夹（程序自带一份练习材料），让它把一张乱的 Excel 整理好；认识「批准」弹窗，看它改了哪些文件。<span class="tag">必修</span><span class="tag">10 分钟</span></div></div>
+<div class="lesson"><div class="no">5</div><div><b>认识蝶君</b>：沙箱是什么、为什么安全；一键建沙箱；交给蝶君一个查资料写报告的任务，看它在旁边自己做完。<span class="tag">必修</span><span class="tag">15 分钟（含建沙箱）</span></div></div>
+<div class="lesson"><div class="no">6</div><div><b>它记住了什么</b>：记忆在哪看，怎么改、怎么删，怎么让它别记某件事。<span class="tag warn">进阶</span></div></div>
+<div class="lesson"><div class="no">7</div><div><b>定时和长期目标</b>：每天早上自动整理新闻；给蝶君一个长期目标。<span class="tag warn">进阶</span></div></div>
+<div class="lesson"><div class="no">8</div><div><b>技能和模板</b>：装一个技能、存一个常用说法。<span class="tag warn">进阶</span></div></div>
+<div class="lesson"><div class="no">9</div><div><b>钱花在哪</b>：看花费、设上限、换便宜的模型干小活。<span class="tag warn">进阶</span></div></div>
+<div class="lesson"><div class="no">10</div><div><b>出问题怎么办</b>：常见报错逐条对照（密钥不对、余额不足、网络、沙箱没建好），怎么重试、怎么导出诊断给我们。<span class="tag warn">进阶</span></div></div>
+</div>
+<div class="card">
+<h2>四套都要的底子</h2>
+<ul class="tight">
+<li><b>练习材料随包带</b>：一个「练习」文件夹（乱的 Excel、几篇文章、一张图片），第 4、5 课直接用，不用自己找文件。</li>
+<li><b>每一步都能确认</b>：程序能检测到的步骤（连上模型、发出第一条消息、批准过一次、沙箱建好……）自动打勾；用户不用自己判断「我做对了吗」。</li>
+<li><b>随时能退出、能回来</b>：关掉不丢进度，下次从停下的地方继续；在设置 › 关于旁的「使用说明」里能重学任何一课。</li>
+<li><b>不花冤枉钱</b>：教学文字本身是写死的，不调用模型；只有「让它写请假条」这类真正的练习会花几分钱，课上会提前说。</li>
+<li><b>仓库里有完整版</b>：同一份课程放在 GitHub 仓库，带真实截图，给想先看再装的人。</li>
+</ul>
+<p class="note">注：第 2 课按托管版以外的开放版写；托管版（不用自己配模型）到 preview 阶段再定，到时第 2 课换成一句话。</p>
+</div>
+</div>
+</section>
+
+<!-- 方案一 -->
+<section class="panel" id="a">
+<div class="grid">
+<div>
+<div class="win">
+  <div class="bar">🦋 DreamFlutter <i>梦蝶</i></div>
+  <div class="body">
+    <div class="side">
+      <div class="it on">工作台</div><div class="it">蝶君</div><div class="it">记忆</div><div class="it">日程</div>
+      <div class="prog"><b>入门课</b> · 第 3 / 5 课<div class="meter"><span style="width:52%"></span></div>第一次对话</div>
+    </div>
+    <div class="main">
+      <div class="msgs"></div>
+      <div class="composer" id="a-composer">在这里输入…<span class="send"></span></div>
+    </div>
+  </div>
+  <div class="hole" style="left:166px;right:14px;bottom:12px;height:46px"></div>
+  <div class="coach" style="left:300px;bottom:74px">
+    <b>第 3 课 · 第 1 步：跟它说句话</b>
+    在下面这个框里打字，比如：<br>「帮我写一张明天请假一天的请假条，理由是去医院复查」<br>然后按 <b>Enter</b> 发送。
+    <div class="row"><span>做完会自动进入下一步</span><span class="btn ghost">先退出</span></div>
+  </div>
+</div>
+<p class="note">真界面上压暗其余部分，只亮出这一步要点的地方；旁边一张小卡片用大白话说「点哪里、输什么」。用户真的做了，程序检测到，才进下一步。</p>
+</div>
+<div class="card">
+<h2>方案一 · 跟着做</h2>
+<p>第一次进主界面就开始，像游戏新手关：每课拆成 3–6 小步，每步只做一件事。侧栏底部一张「入门课」进度卡，点它能接着学。</p>
+<h3>好处</h3><ul class="tight pros"><li>学得最牢：每一步都是自己亲手做的。</li><li>不会迷路：永远只看到下一步要点哪。</li><li>完成与否程序知道，可以确定性地打勾。</li></ul>
+<h3>代价</h3><ul class="tight cons"><li>工作量最大：每一步都要绑到真实按钮上，界面改了要跟着改。</li><li>有一定打扰：压暗遮罩会挡住其他操作（随时能退出）。</li><li>要动已定型的首页布局（侧栏加进度卡），需你点头。</li><li>想回头查某个细节时不方便，没有「课本」可翻。</li></ul>
+</div>
+</div>
+</section>
+
+<!-- 方案二 -->
+<section class="panel" id="b">
+<div class="grid">
+<div>
+<div class="win">
+  <div class="bar">🦋 DreamFlutter <i>使用说明</i></div>
+  <div class="book">
+    <div class="toc">
+      <div class="done">1 Agent 是什么</div><div class="done">2 接上一个模型</div><div class="on">3 第一次对话</div><div>4 让它动手干活</div><div>5 认识蝶君</div><div style="margin-top:8px;color:var(--muted)">进阶</div><div>6 它记住了什么</div><div>7 定时和长期目标</div><div>…</div>
+    </div>
+    <div class="page">
+      <h2 style="font-size:18px">第 3 课　第一次对话</h2>
+      <div class="note">学会：发消息、停止、复制、重新回答 · 约 5 分钟</div>
+      <div class="step"><span class="n">1</span><div>点左边的<b>工作台</b>，最下面有一个输入框。<span class="btn" style="margin-left:6px">带我去这里</span></div></div>
+      <div class="shot">截图：工作台输入框，红框标出</div>
+      <div class="step"><span class="n">2</span><div>输入「帮我写一张明天请假一天的请假条」，按 Enter。</div></div>
+      <div class="step"><span class="n">3</span><div>回复写完后，鼠标移到回复上，点<b>复制</b>……</div></div>
+    </div>
+  </div>
+</div>
+<p class="note">「带我去这里」会切到对应页面，并让那个按钮闪两下；看完点「回到说明」继续。</p>
+</div>
+<div class="card">
+<h2>方案二 · 图文课本</h2>
+<p>程序里一本随包的使用说明（设置 › 关于旁），十课按顺序排，每步一张真实截图加一句大白话，关键步骤有「带我去这里」。第一次进主界面时只弹一次：「要不要从第 1 课开始看？」</p>
+<h3>好处</h3><ul class="tight pros"><li>最完整：每一步都有图，随时翻回来查。</li><li>不打扰：不想看就不看，界面上不多任何东西。</li><li>和仓库里的完整版是同一份内容，维护一份。</li><li>工作量中等，几乎不碰已定型的界面。</li></ul>
+<h3>代价</h3><ul class="tight cons"><li>要靠用户自己读、自己切过去做，零基础的人容易读着读着就不读了。</li><li>做没做对，课本不知道（可以在页内打勾，但不是自动确认）。</li><li>截图要随界面更新。</li></ul>
+</div>
+</div>
+</section>
+
+<!-- 方案三 -->
+<section class="panel" id="c">
+<div class="grid">
+<div>
+<div class="win">
+  <div class="bar">🦋 DreamFlutter <i>梦蝶</i></div>
+  <div class="body">
+    <div class="side"><div class="it">工作台</div><div class="it on">蝶君</div><div class="it">记忆</div><div class="it">日程</div></div>
+    <div class="main">
+      <div class="msgs">
+        <div class="bub">你好，我是蝶君。接下来我带你把 DreamFlutter 用起来，一共五课，每课几分钟。<br>第 3 课：我们先去<b>工作台</b>跟我的同事说句话。<span class="btn" style="margin-left:4px">带我去</span></div>
+        <div class="bub me">好了，它写完了</div>
+        <div class="bub">看到了 ✓ 你已经发出第一条消息。下一步：鼠标移到它的回复上，找一个「复制」按钮……<div style="margin-top:6px"><span class="btn ghost">这个按钮在哪？</span> <span class="btn ghost">跳过这课</span></div></div>
+      </div>
+      <div class="composer">问蝶君任何「怎么用」的问题…<span class="send"></span></div>
+    </div>
+  </div>
+</div>
+<p class="note">讲课的话是写死的脚本，不花模型的钱；用户做完程序检测到，蝶君自动说下一步。课外随口问「这个按钮干嘛的」才会用到模型。</p>
+</div>
+<div class="card">
+<h2>方案三 · 蝶君当老师</h2>
+<p>让程序里的助手本人一对一地教：在蝶君的对话里一课一课讲，配「带我去」按钮跳到要操作的地方；做完它会察觉并夸一句，然后讲下一步。</p>
+<h3>好处</h3><ul class="tight pros"><li>最亲切，像有人坐在旁边教，符合蝶君「真助手」的设定。</li><li>随时能问，问的也是在学怎么用它。</li><li>不压暗界面，打扰比方案一小。</li></ul>
+<h3>代价</h3><ul class="tight cons"><li>蝶君自己要等第 5 课建好沙箱才算真正上岗，前四课由它「代课」有点别扭。</li><li>课外提问会花钱，而且模型可能答错按钮位置（要给它一份准确的界面说明）。</li><li>蝶君对话里会混进教学记录，要能清掉。</li><li>工作量与方案一接近。</li></ul>
+</div>
+</div>
+</section>
+
+<!-- 方案四 -->
+<section class="panel" id="d">
+<div class="grid">
+<div>
+<div class="win">
+  <div class="bar">🦋 DreamFlutter <i>梦蝶</i></div>
+  <div class="body">
+    <div class="side">
+      <div class="it on">工作台</div><div class="it">蝶君</div><div class="it">记忆</div><div class="it">日程</div>
+      <div class="prog"><b>入门 5 课</b> · 2 / 5<div class="meter"><span style="width:40%"></span></div>下一课：第一次对话<br><span style="color:var(--accent)">继续 ›</span>　<span style="color:var(--muted)">使用说明</span></div>
+    </div>
+    <div class="main">
+      <div class="msgs"></div>
+      <div class="composer">在这里输入…<span class="send"></span></div>
+    </div>
+  </div>
+  <div class="hole" style="left:166px;right:14px;bottom:12px;height:46px"></div>
+  <div class="coach" style="left:300px;bottom:74px">
+    <b>第 3 课 · 1 / 4　跟它说句话</b>
+    在这个框里打字，比如「帮我写一张明天请假一天的请假条」，按 Enter 发送。
+    <div class="row"><span class="btn ghost">看图文说明</span><span class="btn ghost">先退出</span></div>
+  </div>
+</div>
+<p class="note">必修 5 课用方案一的「跟着做」带一遍；每张小卡片上都能「看图文说明」打开方案二的那一页。进阶 5 课只放在课本里，用到再看。</p>
+</div>
+<div class="card pick">
+<h2>方案四 · 课本＋跟着做（推荐）</h2>
+<p>两样一起：<b>必修五课跟着做</b>，保证零基础的人第一个下午就真的用起来；<b>十课全部有图文课本</b>，在程序里随时翻、仓库里也有。全部学完或点「不用了」后，侧栏进度卡自动消失，界面回到现在的样子。</p>
+<h3>为什么推荐</h3><ul class="tight pros"><li>零基础的人最怕的是「不知道下一步点哪」，跟着做直接解决；学完以后需要的是「能查」，课本解决。</li><li>课本内容同时用作仓库里的完整教程，一份内容两处用。</li><li>只在必修阶段压暗界面，之后完全不打扰。</li></ul>
+<h3>代价</h3><ul class="tight cons"><li>工作量最大（方案一 + 方案二），但可以先出课本、再做跟着做，分两批交。</li><li>同样要在侧栏放进度卡（学完消失），需你点头。</li></ul>
+</div>
+</div>
+</section>
+
+<!-- 对比 -->
+<section class="panel" id="cmp">
+<table>
+<tr><th></th><th>方案一 跟着做</th><th>方案二 图文课本</th><th>方案三 蝶君当老师</th><th>方案四 课本＋跟着做</th></tr>
+<tr><td>零基础学会的把握</td><td><span class="dot"></span><span class="dot"></span><span class="dot"></span></td><td><span class="dot"></span><span class="dot o"></span><span class="dot o"></span></td><td><span class="dot"></span><span class="dot"></span><span class="dot o"></span></td><td><span class="dot"></span><span class="dot"></span><span class="dot"></span></td></tr>
+<tr><td>学完后能查</td><td>弱</td><td>强</td><td>中（翻聊天记录）</td><td>强</td></tr>
+<tr><td>对界面的打扰</td><td>必修阶段压暗</td><td>几乎没有</td><td>小（在蝶君对话里）</td><td>只在必修阶段压暗</td></tr>
+<tr><td>是否花模型的钱</td><td>只有练习</td><td>只有练习</td><td>练习＋课外提问</td><td>只有练习</td></tr>
+<tr><td>离线可学</td><td>可以</td><td>可以</td><td>讲课可以，提问不行</td><td>可以</td></tr>
+<tr><td>动已定型的地方</td><td>侧栏加进度卡</td><td>不动（说明放设置 › 关于旁）</td><td>蝶君对话加教学消息</td><td>侧栏加进度卡（学完消失）</td></tr>
+<tr><td>工作量（粗估）</td><td>大</td><td>中</td><td>大</td><td>最大，可分两批：先课本、再跟着做</td></tr>
+</table>
+<p class="note" style="margin-top:14px">四套都包含：随包练习材料、能自动确认的步骤打勾、进度可中断可续、仓库完整版。选定后我再把选中的那套细化到每一课每一步的文字和画面，给你看完再做。</p>
+</section>
+</div>
+<script>
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id===t.dataset.p));}));
+</script>
+</body>
+</html>

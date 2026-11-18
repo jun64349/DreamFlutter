@@ -1,6 +1,6 @@
 # DreamFlutter 开发交接
 
-> **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前：第 0–2 步完成并已提交（`6a81832`）；第 3 步「性能与包体」完成并本地提交（`2cdf749`），下一步第 4 步「降低上手门槛」。**
+> **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前：第 0–3 步完成并已提交（第 3 步 `2cdf749`）；第 4 步「降低上手门槛」用户试 test.8 验收通过（2026-11-18 晚），待提交；下一步第 5 步 1.0 preview。**
 
 
 **下一窗口从这里开始**
@@ -10,6 +10,21 @@
 3. **安装类验证一律在 Claude 终端面板（run_in_terminal）里启动**，不要从 Bash/PowerShell 工具直接装或启动安装版：Claude 应用是 MSIX，从它直接启动的程序写 AppData 会被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`，结果不算数。点击向导可用 `scripts/v0131-install/window.ps1`（模拟鼠标，作用在真实桌面）；分阶段驱动用 `scripts/v0131-install/drive.mjs`（也要在终端面板里跑）。
 4. 打安装包：`dist/v0.13.1-install/build-all.ps1`（改里面的版本列表），工具在 `%LOCALAPPDATA%\Temp\df-v0131-velopack-tools`（.NET 8 + vpk 1.2.161）和 `%LOCALAPPDATA%\Temp\df-t131-velopack-sdk`；临时目录被清理就按计划文档重下。每个包约 7 分钟，只有升级前的版本里的守护进程修复才对升级生效。
 5. 推送、打标签、合并 main 仍需用户逐次同意。说话一律中文，包括中途进度和收尾小结。
+
+**2026-11-18 第 4 步进行中**：沙箱一键安装写了一半（`core/src/sandbox/wsl-install.ts` 已写，尚未接进 `sandbox.ts`、界面和测试，未提交）；用户随后要求入门教学面向 agent 零基础用户做「手把手、完整详细」的保姆级教学，先出几套方案（原型 `docs/design/prototype/onboarding-options.html`）给用户选，选定前不实装引导部分。用户 2026-11-18 选定入门方案四「课本＋跟着做」（原型 `docs/design/prototype/onboarding-options.html`）：十课共用大纲；必修 5 课在真界面里跟着做（压暗 + 小卡片 + 程序检测完成），每张卡片可打开课本对应页；十课全部有程序内图文课本（设置 › 关于旁），仓库里放带截图的完整版；侧栏加「入门」进度卡，学完或点「不用了」后消失（用户同意动这一处）。先出逐课逐步的文字和画面给用户看，再实装；可分两批：先课本，再跟着做。逐课细化见 docs/design/prototype/onboarding-detail.html；用户已定：第 2 课用 DeepSeek，练习文件夹放数据目录，第 5 课用「查资料写报告」，首页三个示例换成零基础的（只填进输入框）。第一批已做（未提交）：十课课本在 app/assets/guide（docs/guide/README.md 指过去，截图清单在 images/），程序内 设置 › 关于与更新 › 使用说明（lib/ui/guide_page.dart，go:settings/… 与 go:section/… 链接跳转），首页示例已换，测试 app/test/guide_page_test.dart。
+
+**2026-11-18 晚：第 4 步做完，用户试 test.8 验收通过（提交待用户同意）**
+
+- 沙箱一键安装：`core/src/sandbox/wsl-install.ts`（查虚拟化 → 系统自带安装 → 官方 MSI 核签名 → 开 VirtualMachinePlatform）接进 `sandbox.ts`：新状态 `restart-needed`、接口 `sandbox.restartComputer`、RunOnce 重启后自动打开程序并接着建（`after-restart.json`）。界面 `app/lib/ui/sandbox_panel.dart`：没有 WSL 也只一个「建立沙箱」，失败后才出手动命令；重启有「现在重启 / 稍后」。测试 `core/test/wsl-install.test.ts`、`app/test/sandbox_panel_test.dart`。
+- 跟着做五课：课程定义和进度 `app/lib/state/onboarding.dart`（进度存偏好 `tour.*`），引导层与侧栏进度卡 `app/lib/ui/onboarding_tour.dart`（`TourAnchor` 标点位置，四块遮罩只留亮处可点，卡片可开课本对应页），`main.dart` 套在整个窗口外。完成检测靠状态（切页、发消息、回复完、沙箱就绪）和程序报的信号（copied / approved / accepted / channel-editor / practice）。第 4 课练习材料 `app/assets/practice/`（乱销售表、三篇短文、一张图），点「用练习文件夹」复制到 `<数据目录>\练习` 并切过去。测试 `app/test/onboarding_tour_test.dart`。
+- 引导层细节：同一位置可在多页同时存在（工作台与蝶君页都常驻），亮哪个看 TickerMode 和 IndexedStack 当前页；`anchor` 可写「a|b」取第一个在屏上的（第 2 课 3 步先亮「模型」，进去后亮「添加渠道」；第 5 课 5 步进了「等你处理」就亮整页）；新亮处自动滚进视野；遮罩一张图挖洞，四块透明块挡点击。实窗截图测试 `app/integration_test/onboarding_look_test.dart`（图在 `app/build/onboarding_shots`，亮暗各 15 张）。
+- 自测（2026-11-18）：窗口全量 387 过，5 条失败在上次提交 `5bcc947` 上原样就失败（composer_layout 150%、memory_v05 3.4、window_frame 三条尺寸），不是这轮引起；后台全量 1044 条，9 条失败（goals-t102/t106/t99、longtask-goals、notifications-t117/t120、slots），换回旧 `sandbox.ts` 也照样失败，同样不是这轮引起，待另查。
+- 测试包：`dist/v0.13.2-step4/build.ps1`，版本 0.13.2-test.8。
+- 还没做：课本 21 张截图（清单 `app/assets/guide/images/截图清单.md`，1.0 preview 前补）。
+
+**2026-11-18 第 4 步开工，用户定**
+
+- ①沙箱一键安装——没有 WSL 时点「建立沙箱」→ 管理员确认 → 先 `wsl --install --no-distribution`，失败改用微软 WSL GitHub 发布页的官方 MSI（核对签名）→ 提示重启（现在 / 稍后）→ 重启后程序自动打开并接着建沙箱；BIOS 未开虚拟化只给一句说明。②使用说明与入门指南两边都要：程序内（设置 › 关于旁）放精简版，随包离线可看；仓库里放带截图的完整版。③引导做到「图标按钮悬停简介 + 工作台和蝶君空白页的示例（点一下填进输入框，不自动发送）」，不做强制导览。托管版相关仍留到 preview 阶段。
 
 **2026-11-18 下午：第 3 步做完，用户验收，本地提交 `2cdf749`（未推送）。下一步：路线第 4 步「降低上手门槛」（服务商清单已提前做；待定：沙箱干净快照瘦身）**
 

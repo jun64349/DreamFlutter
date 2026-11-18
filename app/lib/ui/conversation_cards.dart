@@ -165,7 +165,7 @@ class ConversationApprovalCard extends StatelessWidget {
         const SizedBox(height: 12),
         if (answer != null) Text(answer!, style: context.text.bodySmall?.copyWith(color: answer == '已拒绝' ? context.colors.muted : context.colors.accent))
         else Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          FilledButton(onPressed: request.options.contains('允许') ? () => onAnswer('允许') : null, child: const Text('允许')),
+          FilledButton(onPressed: request.options.contains('允许') ? () { AgentScope.read(context).tourSignal('approved'); onAnswer('允许'); } : null, child: const Text('允许')),
           OutlinedButton(onPressed: request.options.contains('拒绝') ? () => onAnswer('拒绝') : null, child: const Text('拒绝')),
           if (always != null) TextButton(onPressed: () => onAnswer(always), child: const Text('这个对话里都允许这类操作')),
         ]),

@@ -44,6 +44,9 @@ flutter:
     - assets/paper_noise.png
     - assets/fonts/OFL-MaShanZheng.txt
     - assets/fonts/OFL-LXGWWenKai.txt
+    - assets/guide/
+    - assets/guide/images/
+    - assets/practice/
   fonts:
     - family: LXGW WenKai
       fonts:

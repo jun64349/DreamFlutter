@@ -13,6 +13,7 @@ import 'butterfly_motion.dart';
 import 'agent_scope.dart';
 import 'proto_icon.dart';
 import 'sidebar.dart' show sidebarGoalStatuses;
+import 'onboarding_tour.dart';
 
 /// The workspace menu of the title bar; the sidebar's switch button and
 /// Ctrl+O open the same menu (0.4: where to switch workspaces must be obvious).
@@ -265,13 +266,13 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
               builder: (context, _) {
                 final incognito = talking.active?.incognito ?? false;
                 final open = talking.runPanelOpen && !incognito;
-                return IconButton(
+                return TourAnchor('details-toggle', child: IconButton(
                   tooltip: incognito ? '无痕对话没有详情' : (open ? '收起详情' : (onButterfly ? '详情：任务进度' : '详情：这个对话')),
                   isSelected: open,
                   onPressed: incognito ? null : () => talking.setRunPanelOpen(!open),
                   style: IconButton.styleFrom(foregroundColor: open ? colors.accent : colors.ink2, backgroundColor: open ? colors.accentSoft : null, minimumSize: const Size(30, 30), fixedSize: const Size(30, 30), padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                   icon: const ProtoIcon('panel'),
-                );
+                ));
               },
             ),
           SizedBox(width: 6 + widget.captionInset),

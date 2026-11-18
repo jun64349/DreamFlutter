@@ -6,6 +6,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'proto_icon.dart';
 import 'notes.dart';
+import 'onboarding_tour.dart';
 
 /// 原型 .pill：高 26、圆角 8、内边距 4/9、图标 14 与字间距 5、字 12.5；平时 ink2 无底，开着时强调色字 + accentSoft 底。
 /// [warn]：「直接做」用警告色提醒。
@@ -58,7 +59,7 @@ class AskBeforeActingToggle extends StatelessWidget {
     final on = agent.approvalMode != ApprovalMode.off;
     return Semantics(
       label: '操作前问我', toggled: on,
-      child: TextButton.icon(
+      child: TourAnchor('ask-first', child: TextButton.icon(
         key: const ValueKey('ask-before-acting'),
         style: composerPillStyle(context, on: on, warn: !on),
         onPressed: agent.isReady ? () async {
@@ -68,7 +69,7 @@ class AskBeforeActingToggle extends StatelessWidget {
         } : null,
         icon: ProtoIcon(on ? 'shield' : 'spark', size: 14),
         label: Text(on ? '先问我' : '直接做', style: const TextStyle(fontSize: 12.5)),
-      ),
+      )),
     );
   }
 }

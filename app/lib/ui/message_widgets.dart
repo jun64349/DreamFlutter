@@ -709,6 +709,7 @@ class _ReplyFrameState extends State<_ReplyFrame> {
                 _FactButton(icon: 'copy', tooltip: '复制', onTap: info.text.isEmpty ? null : () {
                   Clipboard.setData(ClipboardData(text: info.text));
                   showNote('已复制', brief: true);
+                  agent.tourSignal('copied');
                 }),
                 _FactButton(icon: 'refresh', tooltip: '重新生成', onTap: canRegenerate ? () => agent.regenerate(question!) : null),
                 _FactButton(icon: 'branch', tooltip: '从这里重来', onTap: busy ? null : () => agent.forkAfterReply(info.nextQuestion)),

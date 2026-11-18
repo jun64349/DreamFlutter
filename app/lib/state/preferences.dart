@@ -165,4 +165,18 @@ class Preferences {
   Future<void> setSidebarWidth(double value) => _prefs.setDouble('sidebarWidth', value);
   double get panelWidth => (_prefs.getDouble('panelWidth') ?? panelWidths.initial).clamp(panelWidths.min, panelWidths.max);
   Future<void> setPanelWidth(double value) => _prefs.setDouble('panelWidth', value);
+
+  /// 「入门 5 课」progress (state/onboarding.dart, route step 4).
+  ({int lesson, int step, bool closed, bool waitingForReport}) get tour => (
+    lesson: _prefs.getInt('tour.lesson') ?? 0,
+    step: _prefs.getInt('tour.step') ?? 0,
+    closed: _prefs.getBool('tour.closed') ?? false,
+    waitingForReport: _prefs.getBool('tour.waitingForReport') ?? false,
+  );
+  Future<void> setTour({required int lesson, required int step, required bool closed, required bool waitingForReport}) async {
+    await _prefs.setInt('tour.lesson', lesson);
+    await _prefs.setInt('tour.step', step);
+    await _prefs.setBool('tour.closed', closed);
+    await _prefs.setBool('tour.waitingForReport', waitingForReport);
+  }
 }

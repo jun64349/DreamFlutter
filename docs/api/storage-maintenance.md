@@ -218,6 +218,18 @@
 - **开放范围** 仅内部。
 - **源码** [sandbox/sandbox.ts:259](../../core/src/sandbox/sandbox.ts#L259)
 
+## sandbox.restartComputer
+<!-- api:method -->
+
+- **用途** 一键沙箱（2026-11-18）：`sandbox.provision` 发现没有 WSL 时会请求管理员权限代装（先 `wsl --install --no-distribution`，失败改用微软官方 MSI，核对哈希和签名）。多数电脑装完要重启，此时 `SandboxStatus.state` 为 `restart-needed`，程序已登记重启后自动打开（RunOnce），重启后的第一次启动自动接着建沙箱。本方法在用户点「现在重启」时 5 秒后重启电脑。
+- **调用方** 窗口。
+- **参数** 无。
+- **返回** `{ restarting: true }`。
+- **错误** 不在等重启状态时按通用 `internal` 返回。
+- **事件** 无。
+- **开放范围** 仅内部。
+- **源码** [sandbox/sandbox.ts](../../core/src/sandbox/sandbox.ts)、[sandbox/wsl-install.ts](../../core/src/sandbox/wsl-install.ts)
+
 ## sandbox.remove
 <!-- api:method -->
 

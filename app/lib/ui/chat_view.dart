@@ -270,7 +270,8 @@ class _EmptyState extends StatelessWidget {
                     for (final prompt
                         in agent.sandbox
                             ? const ['每周一帮我整理上周的周报', '把这份资料整理成摘要', '帮我检查这个项目', '对比这几份资料的差别', '梳理下一步要做的事']
-                            : const ['整理这个文件夹里的资料', '帮我读懂这段代码', '一起梳理今天的工作', '对比这几份资料的差别', '把这篇文章整理成摘要'])
+                            // Starters someone new to agents can try at once (user 2026-11-18, route step 4).
+                            : const ['帮我写一张请假条', '把这张表整理一下', '帮我查点资料'])
                       ShellExample(prompt, onPressed: () => agent.insertIntoComposer(prompt)),
                   ],
                 )),

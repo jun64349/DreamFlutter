@@ -30,6 +30,7 @@ import 'dashboard_page.dart' show formatCost;
 import '../state/voice_input.dart';
 import 'voice_controls.dart';
 import 'notes.dart';
+import 'onboarding_tour.dart';
 
 /// Message input. Enter sends, Shift+Enter inserts a newline; while an IME
 /// composition is active Enter is left to the IME. During a run, sending
@@ -460,7 +461,7 @@ class _ComposerState extends State<Composer> {
       _ => context.painting.isDark ? .14 : .10,
     };
 
-    return Center(
+    return TourAnchor('composer', child: Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: widget.home ? homeContentMaxWidth : AppTokens.contentMaxWidth + 48),
         child: Padding(
@@ -604,7 +605,7 @@ class _ComposerState extends State<Composer> {
                         ),
                         icon: ProtoIcon(showStop ? 'stop' : 'send', size: showStop ? 14 : 16, color: showStop ? colors.seal : (canSend ? colors.onAccent : colors.muted)),
                       );
-                      final send = PressFeedback(
+                      final send = TourAnchor('send', child: PressFeedback(
                         enabled: showStop || canSend,
                         child: SizedBox.square(
                           dimension: 34,
@@ -614,7 +615,7 @@ class _ComposerState extends State<Composer> {
                             child: sendButton,
                           ),
                         ),
-                      );
+                      ));
                       // Keep unusually long model/provider names readable on
                       // the home page after the user narrowed it to 900px.
                       final labelMeasure = TextPainter(
@@ -660,7 +661,7 @@ class _ComposerState extends State<Composer> {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 

@@ -26,6 +26,8 @@ import 'overlay_panel.dart';
 import 'proto_icon.dart';
 import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
 import 'notes.dart';
+import 'guide_page.dart';
+import 'onboarding_tour.dart';
 
 /// One setting: the words search matches, the card it sits in, and the widget.
 class _Setting { const _Setting(this.words,this.child,{this.card,this.trailing,this.cardDesc}); final String words;final Widget child;
@@ -138,7 +140,7 @@ class SettingsPageState extends State<SettingsPage>{
         _Setting('看图模型 图片',card:'用哪个模型',model('看图','visionModel',desc:'对话模型看不了图时用它')),
         _Setting('默认思考深度',card:'用哪个模型',SettingsSeg<String>('思考深度',value:a.defaultThinkingLevel??'',options:const [('','自动'),('low','低'),('medium','中'),('high','高'),('xhigh','很高'),('max','最高')],save:(v)=>save('defaultThinking',v.isEmpty?null:v))),
         _Setting('模型组 自动切换 按顺序 订阅',card:'模型组',Column(children:[const GroupList(),if(_groupOpen)GroupEditorPage(key:_groupEditor,inline:true,onSaved:()=>_saved(true))]),trailing:SettingsHeadLink(_groupOpen?'收起':'新建模型组',onPressed:()=>_toggleEditor(true)),cardDesc:'排在前面的用不了，自动换下一个'),
-        _Setting('渠道 服务商 密钥 连接 添加',card:'渠道',Column(children:[const ChannelList(),if(_channelOpen)ChannelEditorPage(key:_channelEditor,inline:true,onSaved:()=>_saved(false))]),trailing:SettingsHeadLink(_channelOpen?'收起':'添加渠道',onPressed:()=>_toggleEditor(false))),
+        _Setting('渠道 服务商 密钥 连接 添加',card:'渠道',Column(children:[const ChannelList(),if(_channelOpen)ChannelEditorPage(key:_channelEditor,inline:true,onSaved:()=>_saved(false))]),trailing:TourAnchor('gateway-add',child:SettingsHeadLink(_channelOpen?'收起':'添加渠道',onPressed:()=>_toggleEditor(false)))),
       ],[
         _Setting('标题 小任务',override('起标题时使用','title')),
         _Setting('记忆整理 模型',override('记忆整理时使用','memory')),
@@ -230,6 +232,7 @@ class SettingsPageState extends State<SettingsPage>{
         const _Setting('回收站 删除 恢复',card:'回收站',RecycledConversations(),cardDesc:'删掉的对话在这里留 30 天'),
       ],const []),
       _SettingsGroup('关于与更新','info',[
+        const _Setting('使用说明 入门 教程 帮助 新手',card:'使用说明',GuideEntry()),
         const _Setting('版本 更新 检查 诊断 反馈 许可证',AboutPanel()),
       ],const []),
       _SettingsGroup('开发者选项','code',[
@@ -310,7 +313,7 @@ class SettingsPageState extends State<SettingsPage>{
       for(final (i,g) in groups.indexed) ...[
         if(i==0||headings[g.name]!=headings[groups[i-1].name])
           Padding(padding:const EdgeInsets.fromLTRB(10,12,10,4),child:Text(headings[g.name]!,style:TextStyle(fontSize:11.5,fontWeight:FontWeight.w600,color:colors.muted))),
-        _NavItem(key:ValueKey('settings-nav-${g.name}'),icon:g.icon,label:g.name,selected:q.isEmpty&&g.name==current.name,onTap:()=>choose(g.name)),
+        TourAnchor('settings-nav-${g.name}',child:_NavItem(key:ValueKey('settings-nav-${g.name}'),icon:g.icon,label:g.name,selected:q.isEmpty&&g.name==current.name,onTap:()=>choose(g.name))),
       ],
     ]);
     return LayoutBuilder(builder:(context,c){
