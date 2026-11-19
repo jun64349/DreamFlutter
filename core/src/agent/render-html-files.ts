@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { Core, CoreModule } from "../core.ts";
 import { GoalsModule } from "../modules/goals.ts";
@@ -9,7 +9,7 @@ import { TasksModule } from "../modules/tasks.ts";
 import { canonicalPath, pathKey } from "../security/paths.ts";
 import { pythonCleanupLogBySession } from "./python-kernel.ts";
 import { htmlFilesBySession, htmlGoalBySession, htmlLogBySession } from "./render-html.ts";
-import { sandboxEnv } from "./state.ts";
+import { resolveSandboxEnv } from "./state.ts";
 
 export class RenderHtmlFilesModule implements CoreModule {
 	readonly forSubagents = true;
@@ -45,10 +45,11 @@ export class RenderHtmlFilesModule implements CoreModule {
 					const taskId = slot.currentRun?.taskId ?? slot.taskId;
 					const scope = slot.sandboxed ? taskId ?? sessionId : sessionId;
 					if (!/^[\w-]+$/.test(scope)) return;
-					const distro = slot.sandboxed ? this.core.sandboxProvider?.()?.distro : undefined;
-					if (slot.sandboxed && !distro) return;
-					const sandboxDir = distro ? "/workspace/outbox/" + scope : undefined;
-					const dir = distro ? sandboxEnv(distro).local(sandboxDir!) : join(this.core.paths.dataDir, "artifacts", scope);
+					const provider = slot.sandboxed ? this.core.sandboxProvider?.() : undefined;
+					if (slot.sandboxed && !provider) return;
+					const sandboxRoot = provider ? (provider.workspaceDir ?? "/workspace").replaceAll("\\", "/") : undefined;
+					const sandboxDir = provider && sandboxRoot ? posix.join(sandboxRoot, "outbox", scope) : undefined;
+					const dir = provider && sandboxDir ? resolveSandboxEnv(provider).local(sandboxDir) : join(this.core.paths.dataDir, "artifacts", scope);
 					return async (png, signal) => {
 						await checkDir(dir);
 						signal.throwIfAborted();

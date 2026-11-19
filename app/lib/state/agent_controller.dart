@@ -1023,16 +1023,22 @@ class AgentController extends ChangeNotifier {
   Future<void> openFile(String path) async {
     try {
       // ShellExecute (no command shell: a name like a&calc&.txt stays a file name).
-      if (!await launchUrl(Uri.file(path, windows: true))) _toast('无法打开文件：$path');
+      if (!await launchUrl(Uri.file(path, windows: Platform.isWindows))) _toast('无法打开文件：$path');
     } catch (e) {
       _toast('无法打开文件：$e');
     }
   }
 
-  /// Shows a file selected in Windows Explorer.
+  /// Shows a file selected in Finder / Windows Explorer.
   Future<void> revealFile(String path) async {
     try {
-      await Process.start('explorer', ['/select,', path]);
+      if (Platform.isMacOS) {
+        await Process.start('open', ['-R', path]);
+      } else if (Platform.isWindows) {
+        await Process.start('explorer', ['/select,', path]);
+      } else {
+        await Process.start('xdg-open', [p.dirname(path)]);
+      }
     } catch (e) {
       _toast('无法打开文件夹：$e');
     }
@@ -1464,10 +1470,11 @@ class AgentController extends ChangeNotifier {
     await refreshSessions();
   }
 
-  /// Opens a folder in Windows Explorer.
+  /// Opens a folder in Finder / Windows Explorer.
   Future<void> revealInExplorer(String path) async {
     try {
-      await Process.start(Platform.isWindows ? 'explorer' : 'xdg-open', [path]);
+      final exe = Platform.isMacOS ? 'open' : (Platform.isWindows ? 'explorer' : 'xdg-open');
+      await Process.start(exe, [path]);
     } catch (e) {
       _toast('无法打开文件夹：$e');
     }
@@ -1585,7 +1592,7 @@ class AgentController extends ChangeNotifier {
   void dropFiles(List<String> paths) {
     if (paths.isEmpty) {
       // The drop plugin turns paths, virtual files and bitmaps into files; anything else arrives empty.
-      _toast('这个程序拖出的内容读不到。可以在那边复制图片，再在输入框里按 Ctrl+V 粘贴；或先把它保存成文件再拖进来。');
+      _toast('这个程序拖出的内容读不到。可以在那边复制图片，再在输入框里按 ${Platform.isMacOS ? 'Cmd+V' : 'Ctrl+V'} 粘贴；或先把它保存成文件再拖进来。');
       return;
     }
     _drops.add([for (final path in paths) _keepDrop(path)]);

@@ -25,9 +25,28 @@ class Installation {
     await next.rename(pointer.path);
   }
   static Future<int?> freeBytes(String path) async {
-    if (!Platform.isWindows) return null;
-    final root = p.rootPrefix(p.absolute(path)).replaceAll("'", "''");
-    final result = await Process.run('powershell.exe',['-NoProfile','-NonInteractive','-Command',"([System.IO.DriveInfo]::new('$root')).AvailableFreeSpace"]);
-    return result.exitCode == 0 ? int.tryParse('${result.stdout}'.trim()) : null;
+    if (Platform.isWindows) {
+      final root = p.rootPrefix(p.absolute(path)).replaceAll("'", "''");
+      final result = await Process.run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "([System.IO.DriveInfo]::new('$root')).AvailableFreeSpace"]);
+      return result.exitCode == 0 ? int.tryParse('${result.stdout}'.trim()) : null;
+    }
+    if (Platform.isMacOS) {
+      var probe = Directory(p.absolute(path));
+      while (!probe.existsSync()) {
+        final parent = probe.parent;
+        if (parent.path == probe.path) break;
+        probe = parent;
+      }
+      if (!probe.existsSync()) return null;
+      final result = await Process.run('df', ['-k', probe.path]);
+      if (result.exitCode != 0) return null;
+      final lines = '${result.stdout}'.trim().split('\n');
+      if (lines.length < 2) return null;
+      final cols = lines.last.trim().split(RegExp(r'\s+'));
+      if (cols.length < 4) return null;
+      final availKb = int.tryParse(cols[3]);
+      return availKb != null ? availKb * 1024 : null;
+    }
+    return null;
   }
 }

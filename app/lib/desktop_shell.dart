@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -25,12 +26,15 @@ class DesktopShell with WindowListener, TrayListener {
     await windowManager.ensureInitialized();
     // Our own title strip (ui/title_strip.dart) replaces the white system one;
     // the window keeps its resize edges and snapping.
-    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: Platform.isMacOS);
     await windowManager.setPreventClose(true);
     windowManager.addListener(this);
     controller.closeWindowForUninstall = () => _quit(stopCore: false, updating: true);
-    await trayManager.setIcon('assets/tray_icon.ico');
-    await trayManager.setToolTip('DreamFlutter（后台运行中）');
+    await trayManager.setIcon(
+      Platform.isMacOS ? 'assets/tray_icon_macos.png' : 'assets/tray_icon.ico',
+      isTemplate: Platform.isMacOS,
+    );
+    if (!Platform.isMacOS) await trayManager.setToolTip('DreamFlutter（后台运行中）');
     await trayManager.setContextMenu(
       Menu(
         items: [
@@ -111,7 +115,7 @@ class DesktopShell with WindowListener, TrayListener {
   }
 
   @override
-  void onTrayIconMouseDown() => unawaited(_show());
+  void onTrayIconMouseDown() => unawaited(Platform.isMacOS ? trayManager.popUpContextMenu() : _show());
 
   @override
   void onTrayIconRightMouseDown() => unawaited(trayManager.popUpContextMenu());

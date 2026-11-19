@@ -147,6 +147,15 @@ export function samePath(a: string | null | undefined, b: string | null | undefi
 	return resolve(a).toLowerCase() === resolve(b).toLowerCase();
 }
 
+export interface SandboxHandle {
+	kind?: "wsl" | "seatbelt";
+	distro: string;
+	workspaceDir?: string;
+	seatbelt?: import("./sandbox/seatbelt.ts").SeatbeltConfig;
+	ready: () => Promise<void>;
+	online: () => boolean;
+}
+
 /**
  * Composition root of the background service: session slots, connected
  * clients, persisted dialogs, run history and the method table the WebSocket
@@ -334,7 +343,7 @@ export class Core {
 	}
 
 	/** Set by the sandbox module once 蝶君's sandbox is set up. */
-	sandboxProvider: (() => { distro: string; ready: () => Promise<void>; online: () => boolean } | undefined) | undefined;
+	sandboxProvider: (() => SandboxHandle | undefined) | undefined;
 
 	declareBackup(part: BackupPart): void {
 		this.backupParts.push(part);

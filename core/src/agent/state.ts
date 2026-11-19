@@ -1,6 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { isAbsolute, posix, resolve } from "node:path";
+import type { SandboxHandle } from "../core.ts";
+import { seatbeltSandboxEnv } from "../sandbox/seatbelt.ts";
 import type { SecurityFileAccess } from "../security/service.ts";
 
 /** A file version as dsh's observation policy compares it. */
@@ -53,6 +55,12 @@ export function sandboxEnv(distro: string): ExecEnv {
 				env: { ...process.env, WSL_UTF8: "1" },
 			}),
 	};
+}
+
+/** Resolves the active ExecEnv for either a Windows WSL sandbox or macOS Seatbelt sandbox. */
+export function resolveSandboxEnv(sandbox?: Pick<SandboxHandle, "distro" | "seatbelt">): ExecEnv {
+	if (sandbox?.seatbelt) return seatbeltSandboxEnv(sandbox.seatbelt);
+	return sandboxEnv(sandbox?.distro ?? "");
 }
 
 export class HarnessState {

@@ -59,12 +59,15 @@ describe("workspace environment", () => {
 	});
 
 	it("tells the agent where its own files go, with the notes and the tools", () => {
+		const s = process.platform === "win32" ? "\\\\" : "/";
 		const text = workspaceGuidance("运行：python make.py", ["The app provides rg, fd, uv on PATH for your commands."]);
 		assert.match(text, /^# Workspace environment/);
 		assert.match(text, /rg, fd, uv on PATH/);
-		assert.match(text, /\.dreamflutter\\venv/);
-		assert.match(text, /uv venv \.dreamflutter\\venv/);
-		assert.match(text, /## \.dreamflutter\\workspace\.md\n运行：python make\.py/);
+		assert.match(text, new RegExp(`\\.dreamflutter${s}venv`));
+		assert.match(text, new RegExp(`uv venv \\.dreamflutter${s}venv`));
+		assert.match(text, new RegExp(`## \\.dreamflutter${s}workspace\\.md\\n运行：python make\\.py`));
+		const macText = workspaceGuidance("运行：python3 make.py", [], "darwin");
+		assert.match(macText, /\.dreamflutter\/venv/);
 		const long = workspaceGuidance("x".repeat(10_000), []);
 		assert.match(long, /cut here; read the file for the rest/);
 		assert.ok(long.length < 8_000);

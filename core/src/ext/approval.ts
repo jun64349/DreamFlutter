@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { ALLOW, APPROVAL_TITLE, DENY, alwaysAllowLabel, workspaceAllowLabel } from "../pi/dialogs.ts";
 import type { ApprovalMode } from "../settings.ts";
-import { safeLiteralCommand, wasSecurityApproved } from "../security/command.ts";
+import { safeLiteralCommand, safePosixLiteralCommand, wasSecurityApproved } from "../security/command.ts";
 import { redact } from "../security/redaction.ts";
 import { GIT_READ_TOOLS } from "../git/service.ts";
 
@@ -31,15 +31,16 @@ export const READ_ONLY_TOOLS = new Set([
 /** Shell tools: whether a call only reads depends on its command. */
 export const SHELL_TOOLS = new Set(["pwsh", "bash", "powershell"]);
 
-/** Only the reviewed PowerShell literal grammar is eligible for automatic approval. */
-export function isReadOnlyCommand(command: string): boolean {
+/** Only the reviewed PowerShell (or non-Windows POSIX bash) literal grammar is eligible for automatic approval. */
+export function isReadOnlyCommand(command: string, tool?: string, platform: NodeJS.Platform = process.platform): boolean {
+	if (tool === "bash") return platform !== "win32" && safePosixLiteralCommand(command);
 	return safeLiteralCommand(command);
 }
 
 /** Whether a tool call cannot change anything (approval mode "changes" lets it run). */
-export function isReadOnlyCall(tool: string, input: Record<string, unknown>): boolean {
+export function isReadOnlyCall(tool: string, input: Record<string, unknown>, platform: NodeJS.Platform = process.platform): boolean {
 	if (READ_ONLY_TOOLS.has(tool)) return true;
-	return SHELL_TOOLS.has(tool) && typeof input.command === "string" && isReadOnlyCommand(input.command);
+	return SHELL_TOOLS.has(tool) && typeof input.command === "string" && isReadOnlyCommand(input.command, tool, platform);
 }
 
 export interface ApprovalPolicy {

@@ -122,10 +122,12 @@ class ArtifactInfo {
   final DateTime? updatedAt;
 }
 
-/// Whether [path] is a file in a WSL distro (蝶君's sandbox) rather than on this machine.
+/// Whether [path] is a file in 蝶君's sandbox (WSL or macOS Seatbelt) rather than on the host workspace.
 bool isSandboxPath(String path) {
   final lower = path.toLowerCase();
-  return lower.startsWith(r'\\wsl.localhost\') || lower.startsWith(r'\\wsl$\');
+  if (lower.startsWith(r'\\wsl.localhost\') || lower.startsWith(r'\\wsl$\')) return true;
+  final normalized = lower.replaceAll('\\', '/');
+  return normalized.contains('/dreamflutter/sandbox/') || normalized.contains('/sandbox/workspace/');
 }
 
 /// A file 蝶君 delivered: in its sandbox's /workspace/outbox, opened from here through \\wsl.localhost.

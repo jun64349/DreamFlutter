@@ -36,14 +36,15 @@ import {
 } from "./dsh-text.ts";
 import { MEMORY_MESSAGE_TYPE } from "../memory/types.ts";
 import { type Candidate, candidateProblem, chooseCut, type CompactionHooks, compactionCycle, estimateAll, fingerprint, messagesBefore, prefixFingerprint } from "./background-compaction.ts";
-import { RICH_OUTPUT_GUIDANCE, SANDBOX_ENVIRONMENT, WORKBENCH_IDENTITY } from "./host-text.ts";
+import type { SandboxHandle } from "../core.ts";
+import { RICH_OUTPUT_GUIDANCE, SANDBOX_ENVIRONMENT, sandboxEnvironmentText, WORKBENCH_IDENTITY } from "./host-text.ts";
 import { editTool, readImageTool, readTool, workingDirectoryTool, writeTool } from "./fs-tools.ts";
 import { askUserTool, exitPlanModeTool, skillTool, todoTool } from "./interaction-tools.ts";
 import { linuxSourceEnvironment, SandboxShell, sandboxBashTool } from "./sandbox-shell.ts";
 import { globTool, grepTool, ripgrepPath } from "./search-tools.ts";
-import { JobRegistry, jobTools, PersistentShell, persistentPwshTool, pwshTool, shellJobsBySession, startBashJob } from "./shell.ts";
+import { JobRegistry, jobTools, PersistentShell, persistentPwshTool, persistentShellTool, posixShellTool, pwshTool, shellJobsBySession, startBashJob } from "./shell.ts";
 import { currentToolEnvironment } from "./tool-environment.ts";
-import { HarnessState, sandboxEnv, type TodoItem } from "./state.ts";
+import { HarnessState, resolveSandboxEnv, sandboxEnv, type TodoItem } from "./state.ts";
 import { prepareWorkspace, workspaceGuidance } from "./toolchain.ts";
 import type { SecurityScope } from "../security/service.ts";
 import { redactValue } from "../security/redaction.ts";
@@ -88,13 +89,15 @@ export const CONTEXT_MESSAGE = {
 	checkpoint: "df.checkpoint",
 } as const;
 
+export const HOST_SHELL_TOOL = process.platform === "win32" ? "pwsh" : "bash";
+
 /** Tools each mode declares, in dsh's tool order (code-unit order of names). */
-export const MINIMAL_TOOLS = ["pwsh", "read_image", "working_directory"];
+export const MINIMAL_TOOLS = [HOST_SHELL_TOOL, "read_image", "working_directory"];
 /** Where a sandbox session starts (the agent's home in 蝶君's sandbox). */
 export const SANDBOX_HOME = "/workspace";
 
 /** A sandbox session runs Bash and Python, with read-only access to managed job output. */
-export const SANDBOX_TOOLS = () => [...STANDARD_TOOLS.filter((t) => t !== "pwsh" && t !== "job_list" && t !== "job_kill"), "bash", "python"];
+export const SANDBOX_TOOLS = () => [...STANDARD_TOOLS.filter((t) => t !== HOST_SHELL_TOOL && t !== "job_list" && t !== "job_kill"), "bash", "python"];
 
 export const STANDARD_TOOLS = [
 	"ask_user_question",
@@ -106,7 +109,7 @@ export const STANDARD_TOOLS = [
 	"job_kill",
 	"job_list",
 	"job_output",
-	"pwsh",
+	HOST_SHELL_TOOL,
 	"read",
 	"read_image",
 	"render_html",
@@ -160,7 +163,7 @@ export interface HarnessOptions {
 	/** A session the core runs on its own (scheduled): a finished background job never starts a new turn there. */
 	unattended?: boolean;
 	/** Run the tools in 蝶君's sandbox (standard mode): [ready] boots it before the first command. */
-	sandbox?: { distro: string; ready: () => Promise<void>; online: () => boolean };
+	sandbox?: SandboxHandle;
 	/** Filled in with the harness's handles for the host. */
 	control?: HarnessControl;
 	/** Test hook: the clock. */
@@ -244,9 +247,10 @@ function webFetchTool(sandbox?: HarnessOptions["sandbox"], web?: WebTools, conte
 	};
 }
 
-function withBashJobs(tool: ToolDefinition, shell: SandboxShell, distro: string, jobs: JobRegistry,
+function withBashJobs(tool: ToolDefinition, shell: SandboxShell, sandbox: SandboxHandle, jobs: JobRegistry,
 	sources: ReturnType<typeof currentToolEnvironment>): ToolDefinition {
 	const parameters = tool.parameters as unknown as { properties: Record<string, unknown> };
+	const sandboxRoot = sandbox.workspaceDir ?? SANDBOX_HOME;
 	return {
 		...tool,
 		description: tool.description + "\n* Set run_in_background for a managed job in a fresh bash at the current directory.",
@@ -264,9 +268,9 @@ function withBashJobs(tool: ToolDefinition, shell: SandboxShell, distro: string,
 			const cwd = (await shell.run("command pwd -P", signal)).trimEnd();
 			signal?.throwIfAborted();
 			if (!cwd.startsWith("/") || /[\r\n]/.test(cwd)) throw new Error("无法确定后台作业的沙箱目录");
-			const environment = await sources?.provider.sandbox(distro, cwd, SANDBOX_HOME, command);
+			const environment = await sources?.provider.sandbox(sandbox.distro, cwd, sandboxRoot, command);
 			signal?.throwIfAborted();
-			const job = await startBashJob(jobs, distro, command, environment ? linuxSourceEnvironment(environment) : "",
+			const job = await startBashJob(jobs, sandbox, command, environment ? linuxSourceEnvironment(environment) : "",
 				{ cwd, label: description?.trim() || command, service: service === true });
 			return { content: [{ type: "text", text: "started background job " + job.id }], details: { jobId: job.id } };
 		},
@@ -280,18 +284,21 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 		const mode = options.mode;
 		const now = options.now ?? Date.now;
 		const sandbox = mode === "standard" ? options.sandbox : undefined;
-		const state = sandbox ? new HarnessState(SANDBOX_HOME, sandboxEnv(sandbox.distro)) : new HarnessState(process.cwd());
+		const state = sandbox ? new HarnessState(sandbox.workspaceDir ?? SANDBOX_HOME, resolveSandboxEnv(sandbox)) : new HarnessState(process.cwd());
 		const jobs = protectJobOutput(new JobRegistry(), () => options.security?.service.audit.record("redaction", "shell-output", "masked", "命令输出在缓存前遮盖", options.security.context()));
 		const shell = new PersistentShell(() => state.cwd);
 		state.security = options.security;
 		options.security?.bindCwd(() => state.cwd);
 		if (options.security && mode === "minimal") options.security.commandCwd = async () => {
-			const output = await shell.run("(Get-Location).ProviderPath", undefined);
+			const probe = process.platform === "win32" ? "(Get-Location).ProviderPath" : "pwd";
+			const output = await shell.run(probe, undefined);
 			const path = output.split(/\r?\n/)[0]?.trim();
-			if (!path) throw new Error("无法确定持久 PowerShell 当前目录，拒绝执行命令");
+			if (!path) {
+				throw new Error(process.platform === "win32" ? "无法确定持久 PowerShell 当前目录，拒绝执行命令" : "无法确定持久终端当前目录，拒绝执行命令");
+			}
 			return path;
 		};
-		const sandboxShell = sandbox ? new SandboxShell(sandbox.distro, sandbox.ready) : undefined;
+		const sandboxShell = sandbox ? new SandboxShell(sandbox.distro, sandbox.ready, sandbox.seatbelt) : undefined;
 		const backgroundSources = currentToolEnvironment();
 		let currentModel: Model<never> | undefined;
 		let running = false;
@@ -319,7 +326,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 
 		const tools: ToolDefinition[] =
 			mode === "minimal"
-				? [persistentPwshTool(shell), readImageTool(state, imageRoute), workingDirectoryTool(state, persistCwd)]
+				? [persistentShellTool(shell), readImageTool(state, imageRoute), workingDirectoryTool(state, persistCwd)]
 				: [
 						askUserTool(() => options.askTimeoutMs?.() ?? 0),
 						editTool(state),
@@ -330,9 +337,9 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 						...gitTools(state, sandbox),
 						globTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
 						grepTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
-						...(sandboxShell && sandbox ? [withBashJobs(sandboxBashTool(sandboxShell), sandboxShell, sandbox.distro, jobs, backgroundSources),
+						...(sandboxShell && sandbox ? [withBashJobs(sandboxBashTool(sandboxShell), sandboxShell, sandbox, jobs, backgroundSources),
 							...jobTools(jobs).filter(tool => tool.name === "job_output"), pythonTool(pi, state, sandbox, jobs)]
-							: [...jobTools(jobs).sort((a, b) => (a.name < b.name ? -1 : 1)), pwshTool(state, jobs)]),
+							: [...jobTools(jobs).sort((a, b) => (a.name < b.name ? -1 : 1)), process.platform === "win32" ? pwshTool(state, jobs) : posixShellTool(state, jobs)]),
 						readTool(state),
 						readImageTool(state, imageRoute),
 						renderHtmlTool(pi, state, options.security?.workspace, sandbox),
@@ -368,7 +375,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 		pi.on("session_start", (_event, ctx) => {
 			shellJobsBySession.set(ctx.sessionManager, jobs);
 			const branch = ctx.sessionManager.getBranch() as Entry[];
-			state.cwd = lastCustom<{ cwd: string }>(branch, CWD_ENTRY)?.cwd ?? (sandbox ? SANDBOX_HOME : ctx.cwd);
+			state.cwd = lastCustom<{ cwd: string }>(branch, CWD_ENTRY)?.cwd ?? (sandbox ? (sandbox.workspaceDir ?? SANDBOX_HOME) : ctx.cwd);
 			state.planMode = lastCustom<{ on: boolean }>(branch, PLAN_ENTRY)?.on === true;
 			state.todos = lastCustom<{ todos: TodoItem[] }>(branch, TODO_ENTRY)?.todos ?? null;
 			turn = branch.filter((e) => e.type === "message" && e.message?.role === "user").length;
@@ -400,11 +407,12 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				STANDARD_PERSONA.replace("{{model}}", model?.id ?? "unknown"),
 				state.planMode ? PLAN_POLICY : "",
 				...TOOL_GUIDANCE.filter((g) => active.has(g.tool)).map((g) => g.text),
+				...(!sandbox && active.has("bash") ? ["Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on."] : []),
 				active.has("web_search") ? WEB_SEARCH_GUIDANCE : "",
 				active.has("show_card") ? RICH_OUTPUT_GUIDANCE : "",
 				// The workbench: shipped tools, and .dreamflutter with the workspace notes (read fresh every run).
 				sandbox ? "" : WORKBENCH_IDENTITY,
-				sandbox ? SANDBOX_ENVIRONMENT : workspaceGuidance(prepareWorkspace(cwd).notes),
+				sandbox ? sandboxEnvironmentText(sandbox.workspaceDir) : workspaceGuidance(prepareWorkspace(cwd).notes),
 				options.butterflyStyle?.() ?? "",
 			];
 			return sections.filter((s) => s.length > 0).join("\n\n");

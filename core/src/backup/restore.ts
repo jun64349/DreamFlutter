@@ -105,11 +105,20 @@ async function readManifest(archive: Archive, target: RestoreTarget): Promise<Ma
 	return manifest;
 }
 
+export function isSameBackupSource(
+	source: Manifest["source"],
+	platform: NodeJS.Platform = process.platform,
+	host: string = hostname(),
+	user: string = userInfo().username,
+): boolean {
+	return source.platform === platform && source.host === host && source.user === user;
+}
+
 function previewOf(archive: Archive, manifest: Manifest, target: RestoreTarget): Preview {
-	const sameUser = manifest.source.host === hostname() && manifest.source.user === userInfo().username;
+	const sameUser = isSameBackupSource(manifest.source);
 	const warnings: string[] = [];
 	if (manifest.credentials === "none") warnings.push("备份里没有 API Key：这台电脑上已有的 Key 会保留，没有的渠道要重新填写。");
-	if (manifest.credentials === "local" && !sameUser) warnings.push("这是另一台电脑或另一个 Windows 用户的自动备份，里面的 API Key 在这里解不开，需要重新填写。");
+	if (manifest.credentials === "local" && !sameUser) warnings.push("这是另一台电脑、另一个系统或另一个用户的自动备份，里面的 API Key 在这里解不开，需要重新填写。");
 	if (manifest.includes.sandbox) warnings.push("蝶君沙箱里的文件会在沙箱下次启动时放回（没有沙箱时，建好后放回）。");
 	return {
 		appVersion: manifest.appVersion,

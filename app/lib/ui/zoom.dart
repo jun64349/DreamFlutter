@@ -60,8 +60,8 @@ class _AppZoomState extends State<AppZoom> {
   }
 
   bool _onKey(KeyEvent event) {
-    if (event is KeyUpEvent || !HardwareKeyboard.instance.isControlPressed) return false;
-    if (HardwareKeyboard.instance.isAltPressed || HardwareKeyboard.instance.isMetaPressed) return false;
+    if (event is KeyUpEvent || !HeldKeys.primaryOnly) return false;
+    if (HardwareKeyboard.instance.isAltPressed) return false;
     final step = switch (event.logicalKey) {
       LogicalKeyboardKey.equal || LogicalKeyboardKey.add || LogicalKeyboardKey.numpadAdd => 1,
       LogicalKeyboardKey.minus || LogicalKeyboardKey.numpadSubtract => -1,
@@ -78,7 +78,7 @@ class _AppZoomState extends State<AppZoom> {
   /// Ctrl + mouse wheel zooms, one step per notch (a touchpad's stream of small
   /// scrolls is spaced out so one swipe does not jump to the end).
   void _onPointerSignal(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent || !HeldKeys.control || event.scrollDelta.dy == 0) return;
+    if (event is! PointerScrollEvent || !HeldKeys.primary || event.scrollDelta.dy == 0) return;
     final now = DateTime.now();
     if (now.difference(_lastWheelStep) < const Duration(milliseconds: 90)) return;
     _lastWheelStep = now;
@@ -151,7 +151,7 @@ class _StillWhileZooming extends ScrollPhysics {
   _StillWhileZooming applyTo(ScrollPhysics? ancestor) => _StillWhileZooming(parent: buildParent(ancestor));
 
   @override
-  bool shouldAcceptUserOffset(ScrollMetrics position) => !HeldKeys.control && super.shouldAcceptUserOffset(position);
+  bool shouldAcceptUserOffset(ScrollMetrics position) => !HeldKeys.primary && super.shouldAcceptUserOffset(position);
 }
 
 class _ZoomBadge extends StatelessWidget {
@@ -262,7 +262,7 @@ Future<void> showAppearanceDialog(BuildContext context) => showDialog<void>(
           const SizedBox(height: 6),
           const ThemePicker(brightness: Brightness.dark),
           const SizedBox(height: 12),
-          Text('快捷键：Ctrl + 滚轮或 Ctrl + 加号 / 减号缩放，Ctrl + 0 恢复。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
+          Text('快捷键：${HeldKeys.primaryLabel} + 滚轮或 ${HeldKeys.primaryLabel} + 加号 / 减号缩放，${HeldKeys.primaryLabel} + 0 恢复。', style: context.text.bodySmall?.copyWith(color: context.colors.muted)),
         ],
           ),
         ),

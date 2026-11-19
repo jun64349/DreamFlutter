@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'proto_icon.dart';
@@ -52,7 +53,7 @@ class _HomePageState extends State<HomePage> {
     }
     if (event.logicalKey != LogicalKeyboardKey.keyB) return false;
     final keys = HardwareKeyboard.instance;
-    if (!HeldKeys.control || keys.isAltPressed || keys.isShiftPressed || keys.isMetaPressed) return false;
+    if (!HeldKeys.primaryOnly || keys.isAltPressed || keys.isShiftPressed) return false;
     if (MediaQuery.sizeOf(context).width / agent.zoom < 860) {
       final scaffold = _scaffoldKey.currentState;
       if (scaffold != null && !scaffold.isDrawerOpen) scaffold.openDrawer();
@@ -98,7 +99,7 @@ class _HomePageState extends State<HomePage> {
       child: LayoutBuilder(builder: (context, constraints) {
         final narrow = constraints.maxWidth < 860;
         final sidebarWidth = narrow || _collapsed ? 0.0 : agent.sidebarWidth.clamp(180.0, MediaQuery.sizeOf(context).width * .36);
-        final captionInset = AppTitleBar.realWindow ? AppTitleBar.captionWidth : 0.0;
+        final captionInset = (AppTitleBar.realWindow && !Platform.isMacOS) ? AppTitleBar.captionWidth : 0.0;
         Widget header(AppSection section, {bool panelVisible = false}) => AppTitleBar(
           windowButtons: AppTitleBar.realWindow,
           contentOnly: true,
@@ -106,7 +107,7 @@ class _HomePageState extends State<HomePage> {
           captionInset: panelVisible ? 0 : captionInset,
           active: _baseSection == section,
           leading: narrow || _collapsed ? IconButton(
-            tooltip: narrow ? '打开侧栏' : '展开侧栏（Ctrl + B）',
+            tooltip: narrow ? '打开侧栏' : '展开侧栏（${HeldKeys.primaryLabel} + B）',
             onPressed: narrow ? () => _scaffoldKey.currentState?.openDrawer() : () => setState(() => _collapsed = false),
             style: IconButton.styleFrom(minimumSize: const Size(30, 30), fixedSize: const Size(30, 30), padding: EdgeInsets.zero),
             icon: const ProtoIcon('side'),
@@ -147,7 +148,7 @@ class _HomePageState extends State<HomePage> {
           if (agent.section == AppSection.memory) Positioned.fill(child: MemoryOverlay(onClose: close)),
           if (agent.section == AppSection.library) Positioned.fill(child: LibraryOverlay(onClose: close)),
           if (agent.section == AppSection.spending) Positioned.fill(child: SpendingOverlay(onClose: close)),
-          if (AppTitleBar.realWindow) const Positioned(top: 0, right: 0, child: AppTitleBar(windowButtons: true, captionOnly: true)),
+          if (AppTitleBar.realWindow && !Platform.isMacOS) const Positioned(top: 0, right: 0, child: AppTitleBar(windowButtons: true, captionOnly: true)),
           Positioned.fill(child: ValueListenableBuilder(valueListenable: agent.appearance, builder: (context, appearance, _) {
             final factor = switch (appearance.paperTexture) { 'off' => 0.0, 'cotton' => .7, 'grain' => 1.35, _ => 1.0 };
             return PaperGrain(strength: appearance.paperStrength * factor);

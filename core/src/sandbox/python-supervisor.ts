@@ -137,3 +137,99 @@ while time.monotonic() < deadline:
     time.sleep(0.025)
 sys.exit(1)
 `;
+
+/** macOS Seatbelt supervisor: avoids Linux-only /proc, prctl and os.waitid(WNOWAIT). */
+export const MACOS_PYTHON_SUPERVISOR = String.raw`
+import json, os, selectors, signal, subprocess, sys
+
+stopping = False
+def stop(_signal, _frame):
+    global stopping
+    stopping = True
+
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGHUP, stop)
+owner = sys.argv[2]
+worker = subprocess.Popen(
+    [sys.executable, "-I", "-u", "-c", sys.argv[1]],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    start_new_session=True,
+    env={**os.environ, "DF_PYTHON_KERNEL_OWNER": owner},
+)
+def control(kind, **fields):
+    print(json.dumps({"kind": kind, "owner": owner, **fields}), file=sys.stderr, flush=True)
+
+buffer = b""
+try:
+    control("kernel_group", pid=worker.pid, start="0")
+    worker_out = worker.stdout.fileno()
+    sel = selectors.DefaultSelector()
+    sel.register(0, selectors.EVENT_READ, "stdin")
+    sel.register(worker_out, selectors.EVENT_READ, "stdout")
+    stdin_open = True
+    while not stopping and worker.poll() is None:
+        for key, _ in sel.select(0.05):
+            if key.data == "stdout":
+                output = os.read(worker_out, 65536)
+                if not output:
+                    stopping = True
+                    break
+                sys.stdout.buffer.write(output)
+                sys.stdout.buffer.flush()
+            else:
+                data = os.read(0, 65536)
+                if not data:
+                    stdin_open = False
+                    sel.unregister(0)
+                    stopping = True
+                    break
+                buffer += data
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    if line == b"interrupt":
+                        os.kill(worker.pid, signal.SIGINT)
+                    else:
+                        worker.stdin.write(line + b"\n")
+                        worker.stdin.flush()
+    if worker.poll() is not None:
+        while True:
+            rem = os.read(worker_out, 65536)
+            if not rem:
+                break
+            sys.stdout.buffer.write(rem)
+            sys.stdout.buffer.flush()
+except (BrokenPipeError, ProcessLookupError, ValueError):
+    pass
+finally:
+    try:
+        os.killpg(worker.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        worker.wait(timeout=3)
+    except Exception:
+        pass
+    control("cleanup_done")
+`;
+
+export const MACOS_PYTHON_FALLBACK_CLEANUP = String.raw`
+import os, signal, subprocess, sys
+
+group = int(sys.argv[1])
+if group > 1:
+    try:
+        os.killpg(group, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    out = subprocess.check_output(["/bin/ps", "-axo", "pid=,pgid="], text=True)
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].isdigit() and int(parts[1]) == group:
+            try:
+                os.kill(int(parts[0]), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+sys.exit(0)
+`;

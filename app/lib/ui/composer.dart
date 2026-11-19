@@ -221,7 +221,7 @@ class _ComposerState extends State<Composer> {
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
-    if (event is KeyDownEvent && key == LogicalKeyboardKey.keyV && HeldKeys.control) {
+    if (event is KeyDownEvent && key == LogicalKeyboardKey.keyV && HeldKeys.primary) {
       // Text pastes as usual; images and files on the clipboard are attached.
       unawaited(_pasteAttachments());
       return KeyEventResult.ignored;
@@ -575,7 +575,7 @@ class _ComposerState extends State<Composer> {
                     const SizedBox(height: 4),
                     LayoutBuilder(builder: (context, constraints) {
                       if(_voice?.active==true)return VoiceRecordingBar(voice:_voice!);
-                      final mic=_ToolbarButton(icon:'mic',tooltip:'语音输入（Ctrl + Shift + M）',onTap:agent.isReady?()=>_voice!.start(_controller.text):null);
+                      final mic=_ToolbarButton(icon:'mic',tooltip:'语音输入（${HeldKeys.primaryLabel} + Shift + M）',onTap:agent.isReady?()=>_voice!.start(_controller.text):null);
                       final controls = <Widget>[
                         _ToolbarButton(
                           icon: 'attach',

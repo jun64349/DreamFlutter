@@ -1,0 +1,119 @@
+name: Build macOS Apple Silicon Beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      beta:
+        description: Build friend-beta edition (activation code + Sui-xiang GPT Pro only)
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22 (arm64)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          architecture: arm64
+
+      - name: Verify Apple Silicon runner architecture
+        run: |
+          uname -a
+          test "$(uname -m)" = "arm64"
+          node -p "process.platform + '/' + process.arch"
+
+      - name: Set up Flutter (arm64)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          architecture: arm64
+          cache: true
+
+      - name: Install core dependencies & typecheck
+        working-directory: core
+        run: |
+          npm install --no-audit --no-fund
+          npm run typecheck
+
+      - name: Run macOS-relevant core tests & live Seatbelt check
+        working-directory: core
+        run: |
+          node --experimental-strip-types --test \
+            test/macos-port.test.ts \
+            test/seatbelt-sandbox.test.ts \
+            test/backup.test.ts \
+            test/storage-target.test.ts \
+            test/system-proxy.test.ts \
+            test/toolchain.test.ts \
+            test/security-primitives.test.ts \
+            test/security-boundaries.test.ts
+          node --experimental-strip-types --input-type=module -e '
+            import { mkdtempSync, rmSync } from "node:fs";
+            import { join } from "node:path";
+            import { tmpdir } from "node:os";
+            import { startCore } from "./src/app.ts";
+            import { MacSeatbeltSandbox } from "./src/sandbox/seatbelt.ts";
+            const dir = mkdtempSync(join(tmpdir(), "df-ci-seatbelt-"));
+            const started = await startCore({ dataDir: dir, port: 0 });
+            try {
+              const sb = started.core.module(MacSeatbeltSandbox);
+              const items = await sb.selfTest();
+              console.log(JSON.stringify(items, null, 2));
+              if (!items.length || items.some(i => !i.passed)) {
+                throw new Error("Seatbelt live selfTest failed");
+              }
+            } finally {
+              await started.stop();
+              rmSync(dir, { recursive: true, force: true });
+            }
+          '
+
+      - name: Test packages/pi_rpc
+        working-directory: packages/pi_rpc
+        run: |
+          flutter pub get
+          flutter test test/macos_locator_test.dart test/client_test.dart
+
+      - name: Analyze & test app
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test test/beta_edition_test.dart --dart-define=DREAMFLUTTER_BETA=true
+
+      - name: Package macOS Apple Silicon .dmg
+        run: |
+          if [ "${{ inputs.beta }}" = "true" ]; then
+            bash scripts/package-macos.sh --beta
+          else
+            bash scripts/package-macos.sh
+          fi
+
+      - name: Verify packaged .app bundle
+        run: |
+          RES="dist/macos/DreamFlutter.app/Contents/Resources"
+          test -f "$RES/beta-edition.json"
+          test ! -e "$RES/core/bin/voice/model.int8.onnx"
+          test -f "$RES/core/bin/voice/tokens.txt"
+          test -f "$RES/core/bin/voice/silero_vad.onnx"
+          test -d "$RES/core/node_modules/sherpa-onnx-darwin-arm64"
+          "$RES/runtime/bin/node" --version
+          "$RES/core/bin/rg" --version
+          "$RES/core/bin/uv" --version
+
+      - name: Upload macOS DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamFlutter-macos-arm64-beta
+          path: |
+            dist/macos/*.dmg
+            dist/macos/SHA256SUMS
+          if-no-files-found: error

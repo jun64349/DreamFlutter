@@ -41,6 +41,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/tray_icon.ico
+    - assets/tray_icon_macos.png
     - assets/paper_noise.png
     - assets/fonts/OFL-MaShanZheng.txt
     - assets/fonts/OFL-LXGWWenKai.txt

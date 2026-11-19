@@ -8,6 +8,7 @@ import { pidAlive, readInfo } from "../instance.ts";
 import { corePaths, type CorePaths } from "../paths.ts";
 import { MIGRATIONS } from "../schema.ts";
 import { Sandbox } from "../sandbox/sandbox.ts";
+import { MacSeatbeltSandbox } from "../sandbox/seatbelt.ts";
 import { createBackup, estimateSize, formatBytes, freeSpace, MIN_DB_VERSION, type BackupKind, type ExportResult } from "./export.ts";
 import { userTables } from "./parts.ts";
 import { inspectBackup, RestoreError, stageBackup, type Preview, type RestoreTarget, type Staged } from "./restore.ts";
@@ -375,7 +376,7 @@ export class BackupModule implements CoreModule {
 	}): Promise<ExportResult> {
 		const busy = this.core.busySlots();
 		if (busy.length) throw new RpcError("busy", `有 ${busy.length} 个任务正在运行，请等它结束或先停止，再备份。`);
-		const sandbox = this.core.module(Sandbox);
+		const sandbox = this.core.module(Sandbox) ?? this.core.module(MacSeatbeltSandbox);
 		const release = () => {
 			if (!options.held) this.core.maintenance = undefined;
 		};
@@ -479,7 +480,7 @@ export class BackupModule implements CoreModule {
 		const sessions = this.core.db.all<{ path: string }>("SELECT path FROM session_meta").map((r) => r.path);
 		const materials = this.core.db.all<{ path: string }>("SELECT path FROM materials WHERE path IS NOT NULL AND path != ''").map((r) => r.path);
 		const estimate = estimateSize({ paths: this.core.paths, agentDir: this.core.agentDir, sessionsDir: this.sessionsDir, appVersion: CORE_VERSION }, sessions, materials);
-		const sandbox = this.core.module(Sandbox);
+		const sandbox = this.core.module(Sandbox) ?? this.core.module(MacSeatbeltSandbox);
 		const status = sandbox ? await sandbox.status().catch(() => undefined) : undefined;
 		const history = this.history();
 		return {

@@ -57,7 +57,7 @@ Future<void> startApplication(List<String> args) async {
   if (!Installation.hasData(dataDir)) {
     // Our own title strip from the first screen on, like the app after it (DesktopShell does the same later).
     await windowManager.ensureInitialized();
-    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: Platform.isMacOS);
     runApp(FreshApp(home:FreshInstallation(initialRoot:dataDir,launch:(root)=>launchApplication(args,root,initialStep:2))));
     return;
   }

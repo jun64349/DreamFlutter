@@ -290,6 +290,35 @@ export class WindowsNotifier implements Notifier {
 	}
 
 	deliver(title: string, body: string): Promise<"delivered" | "undelivered" | "unknown"> {
+		if (process.platform === "darwin") {
+			const script = "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run";
+			return new Promise((resolve) => {
+				try {
+					const child = spawn("/usr/bin/osascript", ["-e", script, "--", title, body.slice(0, 300)], {
+						stdio: "ignore",
+					});
+					const timer = setTimeout(() => {
+						child.kill();
+						resolve("unknown");
+					}, 20_000);
+					timer.unref();
+					child.on("error", (error) => {
+						clearTimeout(timer);
+						this.log.warn("macos notification failed", error);
+						resolve("undelivered");
+					});
+					child.on("exit", (code) => {
+						clearTimeout(timer);
+						if (code !== 0) this.log.warn(`macos notification failed: osascript exited with ${code}`);
+						resolve(code === 0 ? "delivered" : "undelivered");
+					});
+					child.unref();
+				} catch (error) {
+					this.log.warn("macos notification failed", error);
+					resolve("undelivered");
+				}
+			});
+		}
 		if (process.platform !== "win32") return Promise.resolve("undelivered");
 		const xml = `<toast><visual><binding template="ToastGeneric"><text>${xmlEscape(title)}</text><text>${xmlEscape(body.slice(0, 300))}</text></binding></visual></toast>`;
 		const script = [

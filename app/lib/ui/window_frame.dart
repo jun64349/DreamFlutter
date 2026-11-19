@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../state/preferences.dart';
 import '../theme.dart';
 import 'butterfly_motion.dart';
 import 'agent_scope.dart';
+import 'keys.dart';
 import 'proto_icon.dart';
 import 'sidebar.dart' show sidebarGoalStatuses;
 import 'onboarding_tour.dart';
@@ -81,7 +83,7 @@ class AppTitleBar extends StatefulWidget {
 
 class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
   var _maximized = false;
-  bool get _hasCaption => widget.windowButtons && widget.showCaptionButtons;
+  bool get _hasCaption => widget.windowButtons && widget.showCaptionButtons && !Platform.isMacOS;
 
   @override
   void initState() {
@@ -118,7 +120,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
     if (!widget.contentOnly) return false;
     if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyO) return false;
     final keys = HardwareKeyboard.instance;
-    if (!keys.isControlPressed || keys.isAltPressed || keys.isShiftPressed || keys.isMetaPressed) return false;
+    if (!HeldKeys.primaryOnly || keys.isAltPressed || keys.isShiftPressed) return false;
     final agent = AgentScope.read(context).main;
     if (agent.workspace.isEmpty && agent.recentWorkspaces.isEmpty) return false;
     openWorkspaceMenu(agent);
@@ -160,7 +162,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
     final sideWidth = (agent?.sidebarWidth ?? Preferences.sidebarWidths.initial).clamp(180.0, screen / zoom * 0.36) * zoom;
     final brand = _drag(
       Padding(
-        padding: const EdgeInsets.only(left: 16, right: 12),
+        padding: EdgeInsets.only(left: (widget.windowButtons && Platform.isMacOS) ? 76 : 16, right: 12),
         child: Row(
           mainAxisSize: besideSidebar ? MainAxisSize.max : MainAxisSize.min,
           children: [
@@ -231,7 +233,7 @@ class _AppTitleBarState extends State<AppTitleBar> with WindowListener {
       child: SizedBox(
         height: AppTitleBar.height,
         child: Row(children: [
-          if (widget.leading != null) Padding(padding: const EdgeInsets.only(left: 8), child: widget.leading!),
+          if (widget.leading != null) Padding(padding: EdgeInsets.only(left: (widget.windowButtons && Platform.isMacOS) ? 74 : 8), child: widget.leading!),
           const SizedBox(width: 20),
           // The header over the drag area: the blank part moves the window, and the buttons after
           // it sit at the right edge.

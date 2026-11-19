@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { killTree } from "./shell.ts";
+import { toolchainEnv } from "./toolchain.ts";
 import { currentToolEnvironment, type ToolEnvironment } from "./tool-environment.ts";
+import { ensureSeatbeltProfile, type SeatbeltConfig } from "../sandbox/seatbelt.ts";
 
 /**
  * The bash of 蝶君's sandbox: one persistent shell per session, as the agent
@@ -41,19 +43,56 @@ export class SandboxShell {
 	private queue: Promise<unknown> = Promise.resolve();
 	private readonly distro: string;
 	private readonly ready: () => Promise<void>;
+	private readonly seatbelt?: SeatbeltConfig;
 	private readonly sources = currentToolEnvironment();
 	private sourceFingerprint: string | undefined;
-	private directory = "/workspace";
+	private directory: string;
 
-	/** [ready] boots the sandbox (mounts cut, firewall rules) before the shell starts. */
-	constructor(distro: string, ready: () => Promise<void>) {
+	/** [ready] boots the sandbox (mounts cut, firewall rules, or Seatbelt profile) before the shell starts. */
+	constructor(distro: string, ready: () => Promise<void>, seatbelt?: SeatbeltConfig) {
 		this.distro = distro;
 		this.ready = ready;
+		this.seatbelt = seatbelt;
+		this.directory = seatbelt ? seatbelt.workspaceDir : "/workspace";
 	}
 
 	private async ensure(): Promise<ChildProcess> {
 		if (this.child && this.child.exitCode === null) return this.child;
 		this.output = "";
+		if (this.seatbelt) {
+			try {
+				await this.ready();
+			} catch (error) {
+				this.reset();
+				throw error;
+			}
+			const profile = ensureSeatbeltProfile(this.seatbelt);
+			const child = spawn("/usr/bin/sandbox-exec", ["-f", profile, "/bin/bash", "--noprofile", "--norc"], {
+				cwd: this.seatbelt.workspaceDir,
+				detached: true,
+				stdio: ["pipe", "pipe", "pipe"],
+				env: toolchainEnv({
+					...process.env,
+					HOME: this.seatbelt.workspaceDir,
+					TMPDIR: this.seatbelt.tmpDir,
+					LANG: "C.UTF-8",
+					PYTHONIOENCODING: "utf-8",
+					PYTHONUTF8: "1",
+					MPLBACKEND: "Agg",
+				}),
+			});
+			const append = (decoder: StringDecoder) => (chunk: Buffer) => {
+				this.output += decoder.write(chunk);
+				if (this.output.length > MEMORY_CHARS) this.output = this.output.slice(0, MEMORY_CHARS / 4) + this.output.slice(-MEMORY_CHARS / 4);
+			};
+			child.stdout!.on("data", append(new StringDecoder("utf8")));
+			child.stderr!.on("data", append(new StringDecoder("utf8")));
+			child.on("error", () => {});
+			child.stdin!.on("error", () => {});
+			this.child = child;
+			child.stdin!.write(`cd ${bashQuote(this.seatbelt.workspaceDir)}\n`);
+			return child;
+		}
 		// Start the shell first: it keeps the distro running, so the boot's work (mounts cut, rules) stays in place.
 		const child = spawn("wsl.exe", ["-d", this.distro, "-u", "agent", "--cd", "/workspace", "--", "bash", "--noprofile", "--norc"], {
 			windowsHide: true,
@@ -85,7 +124,7 @@ export class SandboxShell {
 		this.child = undefined;
 		this.output = "";
 		this.sourceFingerprint = undefined;
-		this.directory = "/workspace";
+		this.directory = this.seatbelt ? this.seatbelt.workspaceDir : "/workspace";
 	}
 
 	run(command: string, signal: AbortSignal | undefined, receipt?: (exitCode: number) => void): Promise<string> {
@@ -100,8 +139,9 @@ export class SandboxShell {
 	private async execute(command: string, signal: AbortSignal | undefined, receipt?: (exitCode: number) => void): Promise<string> {
 		if (signal?.aborted) return "";
 		let child = await this.ensure();
+		const workspaceRoot = this.seatbelt ? this.seatbelt.workspaceDir : "/workspace";
 		const cwd = this.directory;
-		const source = await this.sources?.provider.sandbox(this.distro, cwd, "/workspace", command);
+		const source = await this.sources?.provider.sandbox(this.distro, cwd, workspaceRoot, command);
 		if (signal?.aborted) { this.reset(); return ""; }
 		if (source && this.sourceFingerprint !== undefined && source.fingerprint !== this.sourceFingerprint) {
 			this.reset(); child = await this.ensure();
@@ -117,7 +157,7 @@ export class SandboxShell {
 		const cwdMarker = `__DF_SANDBOX_CWD_${nonce}:`;
 		const body = Buffer.from(command.replaceAll("\r", ""), "utf8").toString("base64");
 		// The command never reads the shell's own stdin (that is where the next commands come from).
-		const wrapper = `printf '%s\\n' '${start}'; { eval "$(printf %s '${body}' | base64 -d)"; } </dev/null 2>&1; __df_status=$?; printf '\\n%s%s\\n' '${cwdMarker}' "$(pwd | base64 -w0)"; printf '%s%d\\n' '${end}' "$__df_status"\n`;
+		const wrapper = `printf '%s\\n' '${start}'; { eval "$(printf %s '${body}' | (base64 -D 2>/dev/null || base64 -d))"; } </dev/null 2>&1; __df_status=$?; printf '\\n%s%s\\n' '${cwdMarker}' "$(pwd | base64 | tr -d '\\n')"; printf '%s%d\\n' '${end}' "$__df_status"\n`;
 		this.output = "";
 		child.stdin!.write(wrapper);
 		const startedAt = Date.now();

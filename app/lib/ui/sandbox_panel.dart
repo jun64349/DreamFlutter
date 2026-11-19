@@ -23,6 +23,9 @@ const sandboxCheckNames = {
   'dns-locked': '改不了 DNS 设置',
   'firewall-locked': '改不了网络规则',
   'no-windows-programs': '运行不了 Windows 程序',
+  'workspace-write': '沙箱工作区读写',
+  'host-write-blocked': '阻断修改用户主目录',
+  'sensitive-read-blocked': '阻断读取钥匙串与敏感目录',
 };
 
 /// Settings › 蝶君沙箱: set the sandbox up, test that it holds, go offline,
@@ -195,10 +198,18 @@ class _SandboxPanelState extends State<SandboxPanel> {
         ),
       ]);
     } else {
+      final seatbelt = status['kind'] == 'seatbelt';
       final disk = (status['diskBytes'] as num?)?.toDouble();
+      final diskLabel = disk == null
+          ? ''
+          : (disk < 1024 * 1024 * 1024
+              ? ' · 占用 ${(disk / 1024 / 1024).toStringAsFixed(1)} MB'
+              : ' · 占用 ${(disk / 1024 / 1024 / 1024).toStringAsFixed(1)} GB');
       children.addAll([
         SettingRow('沙箱已就绪',
-          desc:'蝶君在这台电脑上一个隔离的 Linux 里干活，碰不到你的系统${disk == null ? '' : ' · 占用 ${(disk / 1024 / 1024 / 1024).toStringAsFixed(1)} GB'}',
+          desc: seatbelt
+              ? '蝶君在 macOS 原生轻量隔离沙箱里干活，只能读写自己的工作目录$diskLabel'
+              : '蝶君在这台电脑上一个隔离的 Linux 里干活，碰不到你的系统${disk == null ? '' : ' · 占用 ${(disk / 1024 / 1024 / 1024).toStringAsFixed(1)} GB'}',
           child:Wrap(
           spacing: 8,
           runSpacing: 6,
@@ -212,22 +223,29 @@ class _SandboxPanelState extends State<SandboxPanel> {
               onPressed: _busy != null
                   ? null
                   : () async {
-                      if (await _confirm('重置沙箱？', '沙箱会回到刚建好时的样子：蝶君在里面装的东西、做的文件（包括 outbox 里还没保存的产物）都会清空。', '重置')) {
+                      if (await _confirm(
+                        '重置沙箱？',
+                        seatbelt
+                            ? '清空蝶君在沙箱工作区里的所有文件和临时缓存，回到初始干净状态。'
+                            : '沙箱会回到刚建好时的样子：蝶君在里面装的东西、做的文件（包括 outbox 里还没保存的产物）都会清空。',
+                        '重置',
+                      )) {
                         await _do('重置', 'sandbox.reset');
                       }
                     },
               child: const Text('重置'),
             ),
-            TextButton(
-              onPressed: _busy != null
-                  ? null
-                  : () async {
-                      if (await _confirm('删除沙箱？', '沙箱和里面的所有文件都会删除，释放磁盘空间。以后可以重新建立。', '删除')) {
-                        await _do('删除', 'sandbox.remove');
-                      }
-                    },
-              child: Text('删除沙箱', style: TextStyle(color: colors.danger)),
-            ),
+            if (!seatbelt)
+              TextButton(
+                onPressed: _busy != null
+                    ? null
+                    : () async {
+                        if (await _confirm('删除沙箱？', '沙箱和里面的所有文件都会删除，释放磁盘空间。以后可以重新建立。', '删除')) {
+                          await _do('删除', 'sandbox.remove');
+                        }
+                      },
+                child: Text('删除沙箱', style: TextStyle(color: colors.danger)),
+              ),
           ],
         )),
       ]);

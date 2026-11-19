@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { extname, posix, resolve } from "node:path";
 import type { Core } from "../../core.ts";
-import { sandboxEnv } from "../../agent/state.ts";
+import { resolveSandboxEnv } from "../../agent/state.ts";
 import { canonicalPath, pathKey } from "../../security/paths.ts";
 import { redact } from "../../security/redaction.ts";
 import { SANDBOX_WORKSPACE } from "../../sandbox/sandbox.ts";
@@ -45,8 +45,8 @@ export function scopeTools(scope: GoalScope): string[] {
 	return scope.allowedTools ?? [...FILE_TOOLS, ...STATE_TOOLS, ...scope.externalActions?.map(action => action.tool) ?? []];
 }
 
-function roots(scope: GoalScope): string[] {
-	const cwd = scope.sandbox ? SANDBOX_WORKSPACE : scope.cwd;
+function roots(scope: GoalScope, workspaceRoot = SANDBOX_WORKSPACE): string[] {
+	const cwd = scope.sandbox ? workspaceRoot : scope.cwd;
 	if (!cwd) return [];
 	return (scope.allowedPaths ?? [cwd]).map(path => scope.sandbox ? posix.resolve(cwd, path) : pathKey(resolve(cwd, path)));
 }
@@ -68,13 +68,14 @@ export async function goalPath(core: Core, scope: GoalScope, raw: string): Promi
 	if (scope.sandbox) {
 		const cwd = scope.cwd;
 		if (/\\|^[A-Za-z]:/.test(raw)) return null;
-		const distro = core.sandboxProvider?.()?.distro;
-		if (!distro) return null;
-		const env = sandboxEnv(distro), path = posix.resolve(SANDBOX_WORKSPACE, raw);
-		if (!within(path, SANDBOX_WORKSPACE) || !roots(scope).some(root => within(path, root))) return null;
+		const provider = core.sandboxProvider?.();
+		if (!provider) return null;
+		const base = (provider.workspaceDir ?? SANDBOX_WORKSPACE).replaceAll("\\", "/");
+		const env = resolveSandboxEnv(provider), path = posix.resolve(base, raw);
+		if (!within(path, base) || !roots(scope, base).some(root => within(path, root))) return null;
 		const local = await canonicalPath(env.local(path), cwd);
-		const safeRoots = await Promise.all(roots(scope).filter(root => within(root, SANDBOX_WORKSPACE)).map(root => canonicalPath(env.local(root), cwd)));
-		const workspace = await canonicalPath(env.local(SANDBOX_WORKSPACE), cwd);
+		const safeRoots = await Promise.all(roots(scope, base).filter(root => within(root, base)).map(root => canonicalPath(env.local(root), cwd)));
+		const workspace = await canonicalPath(env.local(base), cwd);
 		return within(pathKey(local), pathKey(workspace)) && safeRoots.some(root => within(pathKey(local), pathKey(root))) ? local : null;
 	}
 	const candidate = await canonicalPath(raw, scope.cwd);

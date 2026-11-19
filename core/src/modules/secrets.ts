@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -103,13 +104,80 @@ foreach ($line in [Console]::In.ReadToEnd().Split("\`n")) {
 [Console]::Out.Write(($out -join "\`n"))
 `;
 
+const KEYCHAIN_SERVICE = "DreamFlutter.SecretsMasterKey";
+const KEYCHAIN_ACCOUNT = "default";
+const KEYCHAIN_PREFIX = "dfkc1:";
+const KEYCHAIN_AAD = Buffer.from("DreamFlutter.Secrets.v1", "utf8");
+let cachedMasterKey: string | undefined;
+
+export function resetSecretMasterKeyCache(): void {
+	cachedMasterKey = undefined;
+}
+
+function validateMasterKeyHex(masterKeyHex: string): Buffer {
+	const clean = masterKeyHex.trim();
+	if (!/^[0-9a-f]{64}$/i.test(clean)) throw new Error("主密钥格式无效，应为 64 位十六进制密钥");
+	return Buffer.from(clean, "hex");
+}
+
+export function sealWithMasterKey(plain: string, masterKeyHex: string): string {
+	const key = validateMasterKeyHex(masterKeyHex);
+	const iv = randomBytes(12);
+	const cipher = createCipheriv("aes-256-gcm", key, iv);
+	cipher.setAAD(KEYCHAIN_AAD);
+	const ciphertext = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+	const tag = cipher.getAuthTag();
+	return `${KEYCHAIN_PREFIX}${iv.toString("base64")}:${tag.toString("base64")}:${ciphertext.toString("base64")}`;
+}
+
+export function openWithMasterKey(blob: string, masterKeyHex: string): string {
+	const trimmed = blob.trim();
+	if (!trimmed.startsWith(KEYCHAIN_PREFIX)) throw new Error("不支持的密钥封装格式");
+	const parts = trimmed.split(":");
+	if (parts.length !== 4) throw new Error("密钥封装数据已损坏");
+	const key = validateMasterKeyHex(masterKeyHex);
+	const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(parts[1]!, "base64"));
+	decipher.setAAD(KEYCHAIN_AAD);
+	decipher.setAuthTag(Buffer.from(parts[2]!, "base64"));
+	return Buffer.concat([decipher.update(Buffer.from(parts[3]!, "base64")), decipher.final()]).toString("utf8");
+}
+
+function macMasterKey(createIfMissing: boolean): string {
+	const envKey = process.env.DREAMFLUTTER_TEST_MASTER_KEY?.trim();
+	if (envKey && /^[0-9a-f]{64}$/i.test(envKey)) return envKey;
+	if (cachedMasterKey) return cachedMasterKey;
+	const found = spawnSync("/usr/bin/security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w"], { encoding: "utf8" });
+	if (found.status === 0 && /^[0-9a-f]{64}$/i.test(found.stdout.trim())) {
+		cachedMasterKey = found.stdout.trim();
+		return cachedMasterKey;
+	}
+	if (!createIfMissing) {
+		throw new Error(`无法从 macOS 钥匙串读取主密钥：${found.stderr?.trim() || `exit ${found.status}`}`);
+	}
+	const generated = randomBytes(32).toString("hex");
+	const added = spawnSync(
+		"/usr/bin/security",
+		["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-l", "DreamFlutter Secrets Master Key", "-w", generated],
+		{ encoding: "utf8" },
+	);
+	if (added.status !== 0) {
+		throw new Error(`无法将主密钥写入 macOS 钥匙串：${added.stderr?.trim() || `exit ${added.status}`}`);
+	}
+	cachedMasterKey = generated;
+	return generated;
+}
+
 /**
- * DPAPI over many values in one PowerShell (a backup has a key per channel).
+ * DPAPI (Windows) / Keychain master key + AES-GCM (macOS) over many values.
  * protect: plain texts → the .dpapi file contents; unprotect: the reverse.
  * Everything crosses the pipe base64-encoded, so no console code page touches it.
  */
 export async function dpapiMany(operation: "protect" | "unprotect", values: string[]): Promise<string[]> {
 	if (values.length === 0) return [];
+	if (process.platform === "darwin") {
+		const key = macMasterKey(operation === "protect");
+		return values.map((v) => (operation === "protect" ? sealWithMasterKey(v, key) : openWithMasterKey(v, key)));
+	}
 	if (process.platform !== "win32") throw new Error("DPAPI is only available on Windows");
 	const encoded = Buffer.from(MANY, "utf16le").toString("base64");
 	const input = `${operation}\n${values.map((v) => Buffer.from(operation === "protect" ? v : v.trim(), "utf8").toString("base64")).join("\n")}\n`;
@@ -128,8 +196,16 @@ export async function dpapiMany(operation: "protect" | "unprotect", values: stri
 	return lines.map((l) => Buffer.from(l, "base64").toString("utf8"));
 }
 
-/** Runs DPAPI through PowerShell; data goes through stdin, never the command line. */
+/** Runs DPAPI on Windows or Keychain+AES-GCM on macOS. */
 export function dpapi(operation: "protect" | "unprotect", input: string): Promise<string> {
+	if (process.platform === "darwin") {
+		try {
+			const key = macMasterKey(operation === "protect");
+			return Promise.resolve(operation === "protect" ? sealWithMasterKey(input, key) : openWithMasterKey(input, key));
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
 	if (process.platform !== "win32") return Promise.reject(new Error("DPAPI is only available on Windows"));
 	const script = operation === "protect" ? PROTECT : UNPROTECT;
 	const encoded = Buffer.from(script, "utf16le").toString("base64");

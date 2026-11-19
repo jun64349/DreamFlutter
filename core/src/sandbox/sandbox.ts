@@ -61,6 +61,7 @@ export const MIRRORS: Mirror[] = [
 export type SandboxState = "no-wsl" | "restart-needed" | "absent" | "provisioning" | "ready" | "error";
 
 export interface SandboxStatus {
+	kind?: "wsl" | "seatbelt";
 	state: SandboxState;
 	/** What provisioning is doing, for the window. */
 	step: string | null;
@@ -70,6 +71,7 @@ export interface SandboxStatus {
 	online: boolean;
 	diskBytes: number | null;
 	distro: string;
+	workspaceDir?: string;
 	mirror: string | null;
 	/** The app ships the sandbox image: setting up needs no download. */
 	bundled: boolean;
@@ -294,7 +296,7 @@ export class Sandbox implements CoreModule {
 		this.remoteImage = options.remoteImage === undefined ? (this.image ? undefined : shippedImageInfo()) : (options.remoteImage ?? undefined);
 		this.fetchImpl = options.fetchImpl;
 		this.wslInstall = options.wslInstall === undefined ? (options.wsl ? null : realWslInstall()) : options.wslInstall;
-		core.sandboxProvider = () => (existsSync(this.cleanPath) ? { distro: this.distro, ready: () => this.prepare(), online: () => this.core.settings.get().sandboxOnline } : undefined);
+		core.sandboxProvider = () => (existsSync(this.cleanPath) ? { kind: "wsl", distro: this.distro, ready: () => this.prepare(), online: () => this.core.settings.get().sandboxOnline } : undefined);
 		core.register("sandbox.status", () => this.status());
 		core.register("sandbox.provision", () => {
 			void this.provision().catch(() => {});

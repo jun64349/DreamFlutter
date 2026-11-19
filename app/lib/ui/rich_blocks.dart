@@ -78,7 +78,7 @@ class RichRenderer {
     final key = '$kind|$dark|${width.round()}|$scale|$css|$source';
     final hit = _cache[key];
     if (hit != null) return hit;
-    if (!await _start()) throw StateError('这台电脑不能绘制图形（缺少 WebView2）');
+    if (!await _start()) throw StateError(Platform.isWindows ? '这台电脑不能绘制图形（缺少 WebView2）' : '当前环境不能绘制图形（缺少内嵌网页视图）');
     final id = 'r${++_seq}';
     final completer = Completer<RichResult>();
     _pending[id] = completer;

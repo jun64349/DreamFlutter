@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
-import { browserEnvironment, managedBrowserPipe, OFFLINE_BROWSER_FLAGS } from "../agent/render-html-browser.ts";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import type { Readable, Writable } from "node:stream";
+import { browserEnvironment, EdgeHtmlBrowser, managedBrowserPipe, OFFLINE_BROWSER_FLAGS } from "../agent/render-html-browser.ts";
 import type { BrowserPipe } from "../agent/render-html-cdp.ts";
+import { ensureSeatbeltProfile, type SeatbeltConfig } from "./seatbelt.ts";
 
 const BROWSER_PATHS = ["/usr/bin/chromium-headless-shell", "/usr/local/bin/chromium-headless-shell"];
 // Debian 13 installation plan on the shipped pre-browser image (download bytes).
@@ -35,16 +39,33 @@ finally:
     shutil.rmtree(profile)
 `;
 
-export interface HtmlSandbox { distro: string; ready(): Promise<void> }
+export interface HtmlSandbox {
+	kind?: "wsl" | "seatbelt";
+	distro: string;
+	workspaceDir?: string;
+	seatbelt?: SeatbeltConfig;
+	ready(): Promise<void>;
+}
 
 export class SandboxHtmlBrowser {
 	private static readonly installations = new Map<string, Promise<void>>();
 	private readonly distro: string;
-	constructor(distro: string) { this.distro = distro; }
+	private readonly seatbelt?: SeatbeltConfig;
+	constructor(sandboxOrDistro: string | HtmlSandbox) {
+		if (typeof sandboxOrDistro === "string") {
+			this.distro = sandboxOrDistro;
+		} else {
+			this.distro = sandboxOrDistro.distro;
+			this.seatbelt = sandboxOrDistro.seatbelt;
+		}
+	}
 
 	private env(): NodeJS.ProcessEnv { return { ...browserEnvironment(), WSLENV: "", WSL_UTF8: "1" }; }
 
 	install(): Promise<void> {
+		if (this.seatbelt) {
+			return Promise.reject(new Error("未在本机检测到 Chrome、Edge 或 Chromium 浏览器，请安装其中之一后再使用页面截图。"));
+		}
 		const pending = SandboxHtmlBrowser.installations.get(this.distro);
 		if (pending) return pending;
 		const installation = this.installFromMirror().finally(() => SandboxHtmlBrowser.installations.delete(this.distro));
@@ -73,6 +94,10 @@ export class SandboxHtmlBrowser {
 	}
 
 	async find(signal: AbortSignal): Promise<string | undefined> {
+		if (this.seatbelt) {
+			signal.throwIfAborted();
+			return new EdgeHtmlBrowser().find();
+		}
 		for (const file of BROWSER_PATHS) {
 			signal.throwIfAborted();
 			const child = spawn("wsl.exe", ["-d", this.distro, "-u", "agent", "--exec", "/usr/bin/test", "-x", file], {
@@ -88,6 +113,28 @@ export class SandboxHtmlBrowser {
 
 	async launch(binary: string, signal: AbortSignal): Promise<BrowserPipe> {
 		signal.throwIfAborted();
+		if (this.seatbelt) {
+			const profileDir = await mkdtemp(join(this.seatbelt.tmpDir, "df-html-chromium-"));
+			const cleanup = () => rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+			try {
+				await mkdir(join(profileDir, "Default"), { recursive: true });
+				signal.throwIfAborted();
+				const profile = ensureSeatbeltProfile(this.seatbelt);
+				const child = spawn(
+					"/usr/bin/sandbox-exec",
+					["-f", profile, binary, "--headless", ...OFFLINE_BROWSER_FLAGS, `--user-data-dir=${profileDir}`, "about:blank"],
+					{
+						detached: true,
+						env: { ...browserEnvironment(), HOME: this.seatbelt.workspaceDir, TMPDIR: this.seatbelt.tmpDir },
+						stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
+					},
+				);
+				return managedBrowserPipe(child, child.stdio[3] as Writable, child.stdio[4] as Readable, cleanup);
+			} catch (error) {
+				await cleanup();
+				throw error;
+			}
+		}
 		// The fixed launcher creates a private network namespace then drops to agent
 		// before starting Chromium. No change to the sandbox's shared network rules.
 		const child = spawn("wsl.exe", ["-d", this.distro, "-u", "root", "--cd", "/", "--exec",

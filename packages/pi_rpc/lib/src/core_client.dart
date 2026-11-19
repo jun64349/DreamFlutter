@@ -130,36 +130,48 @@ class CoreLocator {
   static const mainRelativePath = 'core/src/main.ts';
 
   /// Everything lives in `data` next to the software (the folder holding
-  /// `core\`), as the core decides too (core/src/paths.ts); DREAMFLUTTER_DATA
-  /// overrides it. Without a core to be found, the v0.3.1 location.
+  /// `core\`), or `~/Library/Application Support/DreamFlutter` inside a macOS
+  /// `.app` bundle, as `core/src/paths.ts` decides; DREAMFLUTTER_DATA overrides
+  /// it. Without a core to be found, the legacy location.
   static String defaultDataDir([List<String>? searchRoots]) {
     final override = Platform.environment['DREAMFLUTTER_DATA'];
     if (override != null && override.isNotEmpty) return override;
     final main = findMain(searchRoots ?? [p.dirname(Platform.resolvedExecutable), Directory.current.path]);
     if (main != null) {
       final root = p.dirname(p.dirname(p.dirname(main)));
+      if (Platform.isMacOS && root.replaceAll('\\', '/').contains('.app/Contents/Resources')) {
+        return legacyDataDir();
+      }
       if (File(p.join(root, 'sq.version')).existsSync() && File(p.join(p.dirname(root), 'Update.exe')).existsSync()) return p.join(p.dirname(root), 'data');
       return p.join(root, 'data');
     }
     return legacyDataDir();
   }
 
-  /// Where versions up to v0.3.1 kept the core's data.
+  /// Where versions up to v0.3.1 (Windows) or bundle releases (macOS) keep data.
   static String legacyDataDir() {
+    if (Platform.isMacOS) {
+      final home = Platform.environment['HOME'] ?? '.';
+      return p.join(home, 'Library', 'Application Support', 'DreamFlutter');
+    }
     final appData = Platform.environment['APPDATA'] ?? p.join(Platform.environment['USERPROFILE'] ?? '.', 'AppData', 'Roaming');
     return p.join(appData, 'DreamFlutter');
   }
 
   /// `DREAMFLUTTER_CORE_MAIN`, else `core/src/main.ts` found walking up from
-  /// each of [searchRoots].
+  /// each of [searchRoots] (including macOS `Contents/Resources/`).
   static String? findMain(List<String> searchRoots) {
     final override = Platform.environment['DREAMFLUTTER_CORE_MAIN'];
     if (override != null && File(override).existsSync()) return override;
     for (final root in searchRoots) {
       var dir = p.normalize(p.absolute(root));
       for (var depth = 0; depth < 8; depth++) {
-        final candidate = p.join(dir, mainRelativePath);
-        if (File(candidate).existsSync()) return candidate;
+        for (final candidate in [
+          p.normalize(p.join(dir, mainRelativePath)),
+          p.normalize(p.join(dir, 'Resources', mainRelativePath)),
+        ]) {
+          if (File(candidate).existsSync()) return candidate;
+        }
         final parent = p.dirname(dir);
         if (parent == dir) break;
         dir = parent;

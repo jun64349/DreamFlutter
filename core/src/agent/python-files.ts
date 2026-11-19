@@ -1,8 +1,9 @@
+import { posix } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { Core, CoreModule } from "../core.ts";
 import { TasksModule } from "../modules/tasks.ts";
 import { pythonFilesBySession } from "./python-kernel.ts";
-import { sandboxEnv } from "./state.ts";
+import { resolveSandboxEnv } from "./state.ts";
 
 /** Bind the kernel's files to the same outbox and artifact rules as other butterfly tools. */
 export class PythonFilesModule implements CoreModule {
@@ -17,13 +18,15 @@ export class PythonFilesModule implements CoreModule {
 				pythonFilesBySession.set(ctx.sessionManager, sessionId => {
 					const slot = this.core.slots.get(slotId);
 					const taskId = slot?.currentRun?.taskId ?? slot?.taskId;
-					const distro = this.core.sandboxProvider?.()?.distro;
+					const provider = this.core.sandboxProvider?.();
 					const scope = taskId ?? sessionId;
-					if (!slot?.sandboxed || slot.incognito || !distro || !/^[\w-]+$/.test(scope)) return { folder: null, record: () => {} };
+					if (!slot?.sandboxed || slot.incognito || !provider || !/^[\w-]+$/.test(scope)) return { folder: null, record: () => {} };
+					const root = (provider.workspaceDir ?? "/workspace").replaceAll("\\", "/");
+					const env = resolveSandboxEnv(provider);
 					return {
-						folder: "/workspace/outbox/" + scope,
+						folder: posix.join(root, "outbox", scope),
 						record: path => {
-							if (taskId) this.core.module(TasksModule)?.recordArtifact(taskId, sandboxEnv(distro).local(path));
+							if (taskId) this.core.module(TasksModule)?.recordArtifact(taskId, env.local(path));
 						},
 					};
 				});

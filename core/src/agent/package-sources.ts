@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, join, posix, relative, resolve } from "node:path";
+import { SEATBELT_DISTRO } from "../sandbox/seatbelt.ts";
 import type { SourceChoice, ToolEnvironment } from "./tool-environment.ts";
 
 export const PYTHON_SOURCES = { inherit: null, pypi: "https://pypi.org/simple", tuna: "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple", ustc: "https://mirrors.ustc.edu.cn/pypi/simple" } as const;
@@ -40,6 +41,7 @@ export function hostProjectFiles(paths: string[]): ProjectFiles {
 
 /** Metadata only, as the Linux agent, after SandboxShell.ready has applied its existing network rules. */
 export async function sandboxProjectFiles(distro: string, paths: string[]): Promise<ProjectFiles> {
+  if (process.platform === "darwin" || distro === SEATBELT_DISTRO) return hostProjectFiles(paths);
   const script = `import os,sys,json,base64,stat
 paths=json.loads(base64.b64decode(sys.argv[1])); result={}
 for path in paths:

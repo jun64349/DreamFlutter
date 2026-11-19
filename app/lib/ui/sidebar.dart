@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'keys.dart';
 import 'proto_icon.dart';
 import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
@@ -86,7 +88,7 @@ class _SidebarState extends State<Sidebar> {
               children: [
                 // 原型 #side 的 .brand：24 蝴蝶、衬线 18 强调色字标、11.5 「梦蝶」，右边 26 方的收起钮。
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 10, 10),
+                  padding: EdgeInsets.fromLTRB(16, (Platform.isMacOS && AppTitleBar.realWindow) ? 38 : 14, 10, 10),
                   child: Row(children: [
                     const ButterflyMark(size: 24),
                     const SizedBox(width: 8),
@@ -97,7 +99,7 @@ class _SidebarState extends State<Sidebar> {
                       Text('梦蝶', style: context.text.bodySmall?.copyWith(fontSize: 11.5, color: colors.muted)),
                     ]))),
                     _SideIconButton(
-                      tooltip: '收起侧栏（Ctrl + B）',
+                      tooltip: '收起侧栏（${HeldKeys.primaryLabel} + B）',
                       icon: 'side',
                       onPressed: widget.onCollapse ?? () => closeShellDrawer(context),
                     ),
@@ -478,7 +480,7 @@ class _SidebarWorkspaceButtonState extends State<SidebarWorkspaceButton>{
           padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
           child: SizedBox(
             width: 320,
-            child: Row(children: [Text('切换工作区', style: context.label), const Spacer(), Text('Ctrl O', style: muted?.copyWith(fontSize: 11))]),
+            child: Row(children: [Text('切换工作区', style: context.label), const Spacer(), Text('${HeldKeys.primaryLabel} O', style: muted?.copyWith(fontSize: 11))]),
           ),
         ),
         if (current.isNotEmpty) MenuItemButton(style: itemStyle, onPressed: () {}, child: SizedBox(width: 320, child: row(current, selected: true))),
@@ -486,10 +488,10 @@ class _SidebarWorkspaceButtonState extends State<SidebarWorkspaceButton>{
         const Divider(height: 9),
         MenuItemButton(leadingIcon: const Icon(Icons.create_new_folder_outlined, size: 18), onPressed: () => pickWorkspaceFolder(agent), child: const Text('打开文件夹作为工作区…')),
         if (current.isNotEmpty)
-          MenuItemButton(leadingIcon: const Icon(Icons.open_in_new, size: 18), onPressed: () => agent.revealInExplorer(current), child: const Text('在资源管理器中显示')),
+          MenuItemButton(leadingIcon: const Icon(Icons.open_in_new, size: 18), onPressed: () => agent.revealInExplorer(current), child: Text(Platform.isMacOS ? '在访达中显示' : '在资源管理器中显示')),
       ],
       builder: (context, controller, _) => Tooltip(
-        message: current.isEmpty ? '选择工作区（Ctrl + O）' : '$current（Ctrl + O 切换）',
+        message: current.isEmpty ? '选择工作区（${HeldKeys.primaryLabel} + O）' : '$current（${HeldKeys.primaryLabel} + O 切换）',
         waitDuration: const Duration(milliseconds: 600),
         // The workspace shares the painting's selected surface, including in dark mode.
         child: CraftSelectionSurface(child: Material(
@@ -695,7 +697,7 @@ class _SessionPaneState extends State<_SessionPane> {
   bool _onKey(KeyEvent event) {
     if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyK) return false;
     final keys = HardwareKeyboard.instance;
-    if (!keys.isControlPressed || keys.isAltPressed || keys.isShiftPressed || keys.isMetaPressed || !mounted) return false;
+    if (!HeldKeys.primaryOnly || keys.isAltPressed || keys.isShiftPressed || !mounted) return false;
     _focus.requestFocus();
     _query.selection = TextSelection(baseOffset: 0, extentOffset: _query.text.length);
     return true;
@@ -769,7 +771,7 @@ class _SessionPaneState extends State<_SessionPane> {
               prefixIcon: Padding(padding: const EdgeInsets.only(left: 10, right: 8), child: ProtoIcon('search', size: 14, color: colors.muted)),
               prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 14),
               suffixIcon: _query.text.isEmpty
-                  ? Padding(padding: const EdgeInsets.only(right: 10), child: Text('Ctrl K', style: TextStyle(fontSize: 11, color: colors.muted)))
+                  ? Padding(padding: const EdgeInsets.only(right: 10), child: Text('${HeldKeys.primaryLabel} K', style: TextStyle(fontSize: 11, color: colors.muted)))
                   : IconButton(
                       tooltip: '清除搜索',
                       iconSize: 14,

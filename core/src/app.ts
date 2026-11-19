@@ -17,6 +17,7 @@ import { SchedulerModule } from "./modules/scheduler.ts";
 import { TasksModule } from "./modules/tasks.ts";
 import { SubagentsModule } from "./modules/subagents.ts";
 import { Sandbox } from "./sandbox/sandbox.ts";
+import { MacSeatbeltSandbox } from "./sandbox/seatbelt.ts";
 import { VisionModule } from "./modules/vision.ts";
 import { registerRenderer } from "./render/renderer.ts";
 import { StorageModule } from "./storage/storage.ts";
@@ -58,6 +59,7 @@ export function buildCore(options: CoreOptions): Core {
 	core.use(new CardsModule(core));
 	core.use(new SubagentsModule(core));
 	if (process.platform === "win32") core.use(new Sandbox(core, options.sandbox));
+	else if (process.platform === "darwin") core.use(new MacSeatbeltSandbox(core));
 	core.use(new BackupModule(core, options.legacyData));
 	core.use(new StorageModule(core));
 	core.use(new WebSearchModule(core, options.webSearch));

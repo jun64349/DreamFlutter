@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:webview_windows/webview_windows.dart';
 
-/// An embedded browser view (WebView2 on Windows) the window shows cards and
+/// An embedded browser view (WebView2 on Windows, WKWebView on macOS) the window shows cards and
 /// renders rich content in. Behind an interface so widget tests run without
 /// a browser: [WebSurfaces.create] returns null there.
 abstract class WebSurface {
@@ -24,6 +24,9 @@ abstract class WebSurface {
   /// The view; [repaintKey] lets [capture] take a picture of it.
   Widget view({Key? repaintKey});
 
+  /// Native snapshot (used by macOS WKWebView where RepaintBoundary cannot read platform view pixels).
+  Future<Uint8List?> takeSnapshot() => Future.value(null);
+
   Future<void> dispose();
 }
 
@@ -31,7 +34,7 @@ typedef WebSurfaceFactory = Future<WebSurface?> Function();
 
 class WebSurfaces {
   /// Replaced in tests.
-  static WebSurfaceFactory create = _createWebView2;
+  static WebSurfaceFactory create = _createDefault;
 
   /// Where WebView2 keeps its profile; set once before the first surface.
   static String? userDataFolder;
@@ -51,8 +54,18 @@ class WebSurfaces {
     }
   }();
 
-  /// Whether this machine can show cards at all (WebView2 runtime present).
-  static Future<bool> get available => _ensureEnvironment();
+  /// Whether this machine can show cards at all (WebView2 on Windows, WKWebView on macOS).
+  static Future<bool> get available => Platform.isMacOS ? Future.value(true) : _ensureEnvironment();
+
+  static Future<WebSurface?> _createDefault() => Platform.isMacOS ? _createMacWebView() : _createWebView2();
+
+  static Future<WebSurface?> _createMacWebView() async {
+    try {
+      return await _MacWebSurface.create();
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<WebSurface?> _createWebView2() async {
     if (!await _ensureEnvironment()) return null;
@@ -124,11 +137,93 @@ class _WebView2Surface implements WebSurface {
   Widget view({Key? repaintKey}) => RepaintBoundary(key: repaintKey, child: Webview(_controller));
 
   @override
+  Future<Uint8List?> takeSnapshot() => Future.value(null);
+
+  @override
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
     await _sub?.cancel();
     await _messages.close();
     await _controller.dispose();
+  }
+}
+
+class _MacWebSurface implements WebSurface {
+  _MacWebSurface._(this._id) : _channel = MethodChannel('dreamflutter/mac_web_surface/$_id') {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'message' && !_messages.isClosed) {
+        Object? value = call.arguments;
+        if (value is String) {
+          try {
+            value = jsonDecode(value);
+          } catch (_) {
+            return;
+          }
+        }
+        if (value is Map) _messages.add(value.cast<String, dynamic>());
+      }
+    });
+  }
+
+  static const _control = MethodChannel('dreamflutter/mac_web_surface');
+
+  static Future<_MacWebSurface?> create() async {
+    final id = await _control.invokeMethod<int>('createSurface');
+    if (id == null) return null;
+    return _MacWebSurface._(id);
+  }
+
+  final int _id;
+  final MethodChannel _channel;
+  final _messages = StreamController<Map<String, dynamic>>.broadcast();
+  var _disposed = false;
+
+  @override
+  Stream<Map<String, dynamic>> get messages => _messages.stream;
+
+  @override
+  Future<void> load(String url) async {
+    if (_disposed) return;
+    await _channel.invokeMethod<void>('loadUrl', {'url': url});
+  }
+
+  @override
+  Future<void> post(Map<String, Object?> message) async {
+    if (_disposed) return;
+    try {
+      await _channel.invokeMethod<void>('postMessage', {'json': jsonEncode(message)});
+    } catch (_) {}
+  }
+
+  @override
+  Widget view({Key? repaintKey}) => RepaintBoundary(
+    key: repaintKey,
+    child: AppKitView(
+      viewType: 'dreamflutter/mac_web_surface',
+      creationParams: {'id': _id},
+      creationParamsCodec: const StandardMessageCodec(),
+    ),
+  );
+
+  @override
+  Future<Uint8List?> takeSnapshot() async {
+    if (_disposed) return null;
+    try {
+      return await _channel.invokeMethod<Uint8List>('takeSnapshot');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _channel.setMethodCallHandler(null);
+    await _messages.close();
+    try {
+      await _control.invokeMethod<void>('disposeSurface', {'id': _id});
+    } catch (_) {}
   }
 }

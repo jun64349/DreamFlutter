@@ -3,7 +3,7 @@ import { constants, createReadStream } from "node:fs";
 import { copyFile, lstat, mkdir, opendir, realpath } from "node:fs/promises";
 import { basename, dirname, join, posix } from "node:path";
 import type { Core } from "../../core.ts";
-import { sandboxEnv } from "../../agent/state.ts";
+import { resolveSandboxEnv } from "../../agent/state.ts";
 import { canonicalPath, pathKey } from "../../security/paths.ts";
 import { hostKey, inside } from "./rules.ts";
 
@@ -31,12 +31,15 @@ export function inboxPath(id: string, file: FolderFile): string {
 
 export async function localSandboxPath(core: Core, path: string): Promise<string> {
 	const provider = core.sandboxProvider?.();
-	if (!provider || !inside(path, "/workspace")) throw new Error("蝶君的沙箱或交付路径不可用");
-	const env = sandboxEnv(provider.distro);
-	const root = await realpath(env.local("/workspace"));
+	const workspaceRoot = (provider?.workspaceDir ?? "/workspace").replaceAll("\\", "/");
+	const allowed = inside(path, "/workspace") || (provider?.workspaceDir ? inside(path.replaceAll("\\", "/"), workspaceRoot) : false);
+	if (!provider || !allowed) throw new Error("蝶君的沙箱或交付路径不可用");
+	const env = resolveSandboxEnv(provider);
+	const root = await realpath(env.local(workspaceRoot));
 	const local = env.local(path);
 	const canonical = await canonicalPath(local, root);
-	const expected = join(root, ...path.slice("/workspace".length).split("/").filter(Boolean));
+	const suffix = inside(path, "/workspace") ? path.slice("/workspace".length) : path.replaceAll("\\", "/").slice(workspaceRoot.length);
+	const expected = join(root, ...suffix.split("/").filter(Boolean));
 	if (pathKey(canonical) !== pathKey(expected)) throw new Error("沙箱路径发生重定向");
 	return local;
 }

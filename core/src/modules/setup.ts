@@ -3,6 +3,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { RpcError, requireStr, type Core, type CoreModule, type Params } from "../core.ts";
 import { Gateway, type ChannelInput, type ChannelModel } from "../gateway/gateway.ts";
 import { Sandbox } from "../sandbox/sandbox.ts";
+import { MacSeatbeltSandbox } from "../sandbox/seatbelt.ts";
 
 export interface SetupModels { conversation: string | null; small: string | null; large: string | null; vision?: string | null; }
 export interface SetupInput {
@@ -62,7 +63,7 @@ export class SetupModule implements CoreModule {
 		if (p.channel?.id) throw new RpcError("bad_request", "首次设置请用 channelId 引用已保存的渠道");
 		if (p.defaultWorkspace !== undefined && p.defaultWorkspace !== null && (typeof p.defaultWorkspace !== "string" || !isAbsolute(p.defaultWorkspace) || !existsSync(p.defaultWorkspace) || !statSync(p.defaultWorkspace).isDirectory())) throw new RpcError("bad_request", "默认工作区需要是存在的绝对目录");
 		if (p.sandbox !== undefined && p.sandbox !== "now" && p.sandbox !== "later") throw new RpcError("bad_request", "沙箱选择无效");
-		if (p.sandbox === "now" && !this.core.module(Sandbox)) throw new RpcError("unavailable", "此系统暂不支持准备蝶君沙箱");
+		if (p.sandbox === "now" && !(this.core.module(Sandbox) ?? this.core.module(MacSeatbeltSandbox))) throw new RpcError("unavailable", "此系统暂不支持准备蝶君沙箱");
 		if (p.models !== undefined && (!p.models || typeof p.models !== "object" || Array.isArray(p.models) || ["conversation", "small", "large"].some(k => !(k in p.models!)) || Object.entries(p.models).some(([k,v]) => !["conversation","small","large","vision"].includes(k) || v !== null && (typeof v !== "string" || v.indexOf("/") <= 0 || v.endsWith("/"))))) throw new RpcError("bad_request", "请提供对话、小任务和大任务的模型标识");
 	}
 	async complete(p: SetupInput) {
@@ -89,7 +90,7 @@ export class SetupModule implements CoreModule {
 	}
 	start(): void {
 		const s = this.core.settings.get();
-		if (s.firstSetupComplete && s.sandboxSetupChoice === "now" && this.core.module(Sandbox)) {
+		if (s.firstSetupComplete && s.sandboxSetupChoice === "now" && (this.core.module(Sandbox) ?? this.core.module(MacSeatbeltSandbox))) {
 			void this.core.call("sandbox.provision", {}).catch(error => this.core.log.warn("initial sandbox preparation failed", error));
 		}
 	}

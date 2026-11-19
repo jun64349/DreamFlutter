@@ -19,8 +19,12 @@ class PiRuntimeLocator {
     for (final root in searchRoots) {
       var dir = p.normalize(p.absolute(root));
       for (var depth = 0; depth < 8; depth++) {
-        final candidate = p.join(dir, cliRelativePath);
-        if (File(candidate).existsSync()) return candidate;
+        for (final candidate in [
+          p.normalize(p.join(dir, cliRelativePath)),
+          p.normalize(p.join(dir, 'Resources', cliRelativePath)),
+        ]) {
+          if (File(candidate).existsSync()) return candidate;
+        }
         final parent = p.dirname(dir);
         if (parent == dir) break;
         dir = parent;
@@ -29,9 +33,8 @@ class PiRuntimeLocator {
     return null;
   }
 
-  /// Node.js: `DREAMFLUTTER_NODE`, else a `runtime/node.exe` shipped with the
-  /// app (found walking up from [searchRoots], as in the packaged layout
-  /// `<root>/app/dreamflutter.exe` + `<root>/runtime/node.exe`), else PATH.
+  /// Node.js: `DREAMFLUTTER_NODE`, else a `runtime/node.exe` (or `runtime/bin/node`
+  /// / `Resources/runtime/bin/node`) shipped with the app, else PATH.
   static String? findNode([List<String> searchRoots = const []]) {
     final override = Platform.environment['DREAMFLUTTER_NODE'];
     if (override != null && File(override).existsSync()) return override;
@@ -39,8 +42,14 @@ class PiRuntimeLocator {
     for (final root in searchRoots) {
       var dir = p.normalize(p.absolute(root));
       for (var depth = 0; depth < 4; depth++) {
-        final candidate = p.join(dir, 'runtime', name);
-        if (File(candidate).existsSync()) return candidate;
+        for (final candidate in [
+          p.join(dir, 'runtime', name),
+          p.join(dir, 'runtime', 'bin', name),
+          p.join(dir, 'Resources', 'runtime', 'bin', name),
+          p.join(dir, 'Resources', 'runtime', name),
+        ]) {
+          if (File(candidate).existsSync()) return candidate;
+        }
         final parent = p.dirname(dir);
         if (parent == dir) break;
         dir = parent;

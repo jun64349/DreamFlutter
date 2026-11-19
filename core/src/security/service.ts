@@ -7,7 +7,7 @@ import { APPROVAL_TITLE } from "../pi/dialogs.ts";
 import { SecurityAudit, type AuditContext } from "./audit.ts";
 import { canonicalPath, classifyPath, pathKey, type PathReading, type PathRoots } from "./paths.ts";
 import { MASK, redact, redactValue, rememberSecret } from "./redaction.ts";
-import { approveSecurityCall, safeLiteralCommand } from "./command.ts";
+import { approveSecurityCall, safeLiteralCommand, safePosixLiteralCommand } from "./command.ts";
 import { dpapiMany, SecretStore } from "../modules/secrets.ts";
 
 const ONCE = "本次允许", WORKSPACE = "始终允许此路径", DENY = "拒绝";
@@ -139,13 +139,13 @@ export class SecurityScope implements SecurityFileAccess {
 	async shellNeedsApproval(command: string, cwd?: string): Promise<boolean> {
 		const base = cwd ?? await this.commandCwd?.() ?? this.cwd();
 		const roots = this.service.roots;
-		const expanded = command.replace(/\$(?:env:)?(?:USERPROFILE|HOME)\b|%USERPROFILE%/gi, roots.home)
+		const expanded = command.replace(/\$\{?(?:env:)?(?:USERPROFILE|HOME)\}?|%USERPROFILE%/gi, roots.home)
 			.replace(/\$env:LOCALAPPDATA\b|%LOCALAPPDATA%/gi, roots.localAppData).replace(/\$env:APPDATA\b|%APPDATA%/gi, roots.appData);
 		const tokens = expanded.match(/'[^']*'|"[^"]*"|[^\s;|&()]+/g) ?? [];
 		for (let token of tokens) {
 			token = token.replace(/^['"]|['"]$/g, "").replace(/^-[\w-]+[:=]/, "");
 			if (!token || token.startsWith("-")) continue;
-			if (/^~[\\/]/.test(token)) token = join(roots.home, token.slice(2));
+			if (/^~(?:[\\/]|$)/.test(token)) token = token === "~" ? roots.home : join(roots.home, token.slice(2));
 			try {
 				if ((await this.service.inspect(resolve(base, token), base)).decision === "deny") return true;
 			} catch { return true; }
@@ -169,9 +169,16 @@ export class SecurityScope implements SecurityFileAccess {
 				if (["pwsh", "powershell", "bash"].includes(event.toolName) && typeof input.command === "string") {
 					try {
 					const sensitive = await this.shellNeedsApproval(input.command, typeof input.workdir === "string" ? resolve(this.cwd(), input.workdir) : undefined);
-					const unsafe = event.toolName === "bash" || !safeLiteralCommand(input.command);
+					const posixBash = event.toolName === "bash" && process.platform !== "win32";
+					const unsafe = posixBash ? !safePosixLiteralCommand(input.command) : (event.toolName === "bash" || !safeLiteralCommand(input.command));
 					const required = sensitive || (!this.sandboxed && unsafe && this.service.approvalMode() !== "off");
-					this.service.audit.record("command", event.toolName, required ? "confirm" : "allow", sensitive ? "命令参数直接包含默认拒绝路径" : unsafe ? "未证明为安全 PowerShell 字面量命令" : "保守 PowerShell 字面量命令", { ...this.context(), requestId: event.toolCallId });
+					this.service.audit.record(
+						"command",
+						event.toolName,
+						required ? "confirm" : "allow",
+						sensitive ? "命令参数直接包含默认拒绝路径" : unsafe ? (posixBash ? "未证明为安全 Shell 字面量命令" : "未证明为安全 PowerShell 字面量命令") : (posixBash ? "保守 Shell 字面量命令" : "保守 PowerShell 字面量命令"),
+						{ ...this.context(), requestId: event.toolCallId },
+					);
 					if (required) {
 						const choice = !this.unattended && ctx.hasUI ? await ctx.ui.select(`${APPROVAL_TITLE}\n\n${sensitive ? "命令直接包含敏感路径。" : "此命令需要批准。"}\n${redact(input.command, true)}`, ["允许", DENY], { signal: ctx.signal }) : undefined;
 						this.service.audit.record("approval", event.toolName, choice === "允许" ? "allow" : "deny", choice === "允许" ? "用户批准本次命令" : "未获用户批准（含无人值守）", { ...this.context(), requestId: event.toolCallId });

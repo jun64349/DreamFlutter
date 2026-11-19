@@ -72,9 +72,9 @@ function browserInstallPrompt(browser: SandboxHtmlBrowser, pi: ExtensionAPI) {
 export function renderHtmlTool(pi: ExtensionAPI, state: HarnessState, workspace: string | undefined, sandbox?: HtmlSandbox): ToolDefinition {
 	const closed = new AbortController();
 	const active = new Set<Promise<Result>>();
-	const browser = sandbox ? new SandboxHtmlBrowser(sandbox.distro) : new EdgeHtmlBrowser();
-	const askToInstall = browser instanceof SandboxHtmlBrowser ? browserInstallPrompt(browser, pi) : undefined;
-	const root = () => sandbox ? "/workspace" : workspace ?? state.cwd;
+	const browser = sandbox ? new SandboxHtmlBrowser(sandbox) : new EdgeHtmlBrowser();
+	const askToInstall = browser instanceof SandboxHtmlBrowser && !sandbox?.seatbelt ? browserInstallPrompt(browser, pi) : undefined;
+	const root = () => sandbox ? (sandbox.workspaceDir ?? "/workspace") : workspace ?? state.cwd;
 	const security = state.security;
 	if (security) {
 		// Pi can reject the call in its file guard before execute() is entered.

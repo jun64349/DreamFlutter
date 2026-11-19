@@ -40,3 +40,36 @@ export function safeLiteralCommand(command: string): boolean {
 	// Unknown switches, positional command substitutions and aliases never get a free pass.
 	return args.every((arg) => !arg.startsWith("-") || flags!.has(arg.toLowerCase()));
 }
+
+const POSIX_COMMANDS: Record<string, Set<string>> = {
+	pwd: new Set(["-L", "-P"]),
+	ls: new Set(["-l", "-a", "-la", "-al", "-h", "-lh", "-alh", "-lah", "-1", "-F", "-d"]),
+	cat: new Set(["-n"]),
+	head: new Set(["-n"]),
+	tail: new Set(["-n"]),
+	wc: new Set(["-l", "-w", "-c", "-m"]),
+	file: new Set(["-b", "-i"]),
+	which: new Set(["-a"]),
+	uname: new Set(["-a", "-m", "-s", "-r", "-p"]),
+};
+
+/** Conservative POSIX shell literal grammar for non-Windows workbench auto-approval. */
+export function safePosixLiteralCommand(command: string): boolean {
+	if (!command.trim() || /[\r\n;|&`$(){}<>\[\]@\\~*?]/.test(command)) return false;
+	const tokens = literalCommand(command);
+	if (!tokens) return false;
+	const first = tokens[0]!;
+	if (first === "git") {
+		const sub = tokens[1]?.toLowerCase() ?? "";
+		const flags = GIT[sub];
+		if (!flags) return false;
+		return tokens.slice(2).every((arg) => !arg.startsWith("-") || flags.has(arg.toLowerCase()));
+	}
+	const flags = POSIX_COMMANDS[first];
+	if (!flags) return false;
+	return tokens.slice(1).every((arg) => {
+		if (!arg.startsWith("-")) return true;
+		if ((first === "head" || first === "tail") && /^-\d+$/.test(arg)) return true;
+		return flags.has(arg);
+	});
+}

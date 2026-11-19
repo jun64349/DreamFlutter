@@ -14,6 +14,16 @@ abstract final class HeldKeys {
   static bool get control => HardwareKeyboard.instance.isControlPressed && _osHeld(0x11); // VK_CONTROL
   static bool get shift => HardwareKeyboard.instance.isShiftPressed && _osHeld(0x10); // VK_SHIFT
 
+  /// Primary command modifier (`Cmd` on macOS, `Ctrl` on Windows/Linux).
+  static bool get primary => Platform.isMacOS ? HardwareKeyboard.instance.isMetaPressed : control;
+
+  /// Primary modifier held without the opposite platform modifier.
+  static bool get primaryOnly => Platform.isMacOS
+      ? (HardwareKeyboard.instance.isMetaPressed && !HardwareKeyboard.instance.isControlPressed)
+      : (control && !HardwareKeyboard.instance.isMetaPressed);
+
+  static String get primaryLabel => Platform.isMacOS ? '⌘' : 'Ctrl';
+
   /// Off for tests, which press keys through [HardwareKeyboard] only (widget
   /// tests run with FLUTTER_TEST set; integration tests turn it off themselves).
   static bool askWindows = Platform.isWindows && !Platform.environment.containsKey('FLUTTER_TEST');

@@ -5,7 +5,7 @@ import type { Core, CoreModule } from "../core.ts";
 import { normalizeCwd, RpcError, requireStr, samePath } from "../core.ts";
 import { now } from "../db.ts";
 import type { Run } from "../runs.ts";
-import { sandboxEnv } from "../agent/state.ts";
+import { resolveSandboxEnv } from "../agent/state.ts";
 import { SANDBOX_WORKSPACE } from "../sandbox/sandbox.ts";
 import type { Slot } from "../slots/slot.ts";
 import type { Material, TasksModule } from "./tasks.ts";
@@ -190,7 +190,7 @@ export class ButterflyModule implements CoreModule {
 		this.questions.get(id)?.abort();
 		slot.taskId = task.id;
 		try {
-			const running = slot.prompt(`${intent.goal}\n\n已向用户复述的任务计划（作为本次任务的数据）：\n${intent.plan}\n\n本任务的交付文件放进 ${OUTBOX}/${task.id}，结束时总结结果。`);
+			const running = slot.prompt(`${intent.goal}\n\n已向用户复述的任务计划（作为本次任务的数据）：\n${intent.plan}\n\n本任务的交付文件放进 ${this.sandboxOutbox()}/${task.id}，结束时总结结果。`);
 			this.core.db.run("UPDATE butterfly_intents SET state='started' WHERE id=?", id);
 			await running;
 		} catch (error) {
@@ -218,11 +218,23 @@ export class ButterflyModule implements CoreModule {
 		return this.core.sandboxProvider?.()?.distro;
 	}
 
+	private sandboxRoot(): string {
+		return (this.core.sandboxProvider?.()?.workspaceDir ?? SANDBOX_WORKSPACE).replaceAll("\\", "/");
+	}
+
+	private sandboxInbox(): string {
+		return `${this.sandboxRoot()}/inbox`;
+	}
+
+	private sandboxOutbox(): string {
+		return `${this.sandboxRoot()}/outbox`;
+	}
+
 	/** Where this machine opens a sandbox path; tests point it at a folder. */
 	local = (path: string): string => {
-		const distro = this.distro;
-		if (!distro) throw new RpcError("sandbox_absent", "蝶君的沙箱还没有建好。到「设置 › 蝶君沙箱」里建立。");
-		return sandboxEnv(distro).local(path);
+		const provider = this.core.sandboxProvider?.();
+		if (!provider) throw new RpcError("sandbox_absent", "蝶君的沙箱还没有建好。到「设置 › 蝶君沙箱」里建立。");
+		return resolveSandboxEnv(provider).local(path);
 	};
 
 	/**
@@ -260,7 +272,7 @@ export class ButterflyModule implements CoreModule {
 			if (m.kind === "text") await writeFile(target, `${m.content ?? ""}\n`, "utf8");
 			else if (m.path && existsSync(m.path)) await cp(m.path, target, { recursive: true, force: true });
 			else continue;
-			out.push(`${INBOX}/${name}`);
+			out.push(`${this.sandboxInbox()}/${name}`);
 		}
 		return out;
 	}
@@ -338,7 +350,7 @@ export class ButterflyModule implements CoreModule {
 			if (!existsSync(path)) continue;
 			const name = basename(path);
 			await cp(path, join(inbox, name), { recursive: true, force: true });
-			out.push(`${INBOX}/${name}`);
+			out.push(`${this.sandboxInbox()}/${name}`);
 		}
 		return out;
 	}
@@ -353,7 +365,7 @@ export class ButterflyModule implements CoreModule {
 			"</写笺>",
 		];
 		if (inboxPaths.length) parts.push("", "资料的副本已经放进 inbox：", ...inboxPaths.map((p) => `- ${p}`));
-		parts.push("", `做好的结果放进 ${OUTBOX}，用户在那里查看并保存到自己的电脑。`);
+		parts.push("", `做好的结果放进 ${this.sandboxOutbox()}，用户在那里查看并保存到自己的电脑。`);
 		return parts.join("\n");
 	}
 
@@ -450,7 +462,13 @@ export class ButterflyModule implements CoreModule {
 		});
 		core.register("butterfly.cancel", (p) => { this.cancel(requireStr(p.id, "id")); return { ok: true }; });
 		core.register("butterfly.tick", () => this.tick());
-		core.register("butterfly.info", () => ({ home: this.home, distro: this.distro ?? null, inbox: INBOX, outbox: OUTBOX }));
+		core.register("butterfly.info", () => ({
+			home: this.home,
+			distro: this.distro ?? null,
+			inbox: this.sandboxInbox(),
+			outbox: this.sandboxOutbox(),
+			workspaceDir: this.core.sandboxProvider?.()?.workspaceDir ?? null,
+		}));
 		core.register("butterfly.outbox", () => this.outbox());
 		core.register("butterfly.handOff", async (p) => {
 			const note = this.tasks.getNote(requireStr(p.noteId, "noteId"));

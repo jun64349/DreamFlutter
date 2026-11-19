@@ -98,7 +98,7 @@ class _AboutPanelState extends State<AboutPanel> {
     final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, color: colors.ink2);
     Widget toggle(String title, bool value, ValueChanged<bool>? onChanged, {String? desc}) => SettingRow(title, desc: desc, child: V1Toggle(value: value, onChanged: onChanged));
     if (widget.startupOnly) {
-      return toggle('开机启动', _status['startOnLogin'] == true, _working || _status['canStartup'] != true ? null : (value) => _action(() async { final status = asJsonMap(await agent.backend.call('app.setStartup', {'enabled': value})); if (mounted) { setState(() => _status = status); } }), desc: _status['canStartup'] == true ? null : '免安装版不能开机启动');
+      return toggle('开机启动', _status['startOnLogin'] == true, _working || _status['canStartup'] != true ? null : (value) => _action(() async { final status = asJsonMap(await agent.backend.call('app.setStartup', {'enabled': value})); if (mounted) { setState(() => _status = status); } }), desc: _status['canStartup'] == true ? null : (Platform.isMacOS ? 'macOS 内测版暂不支持开机启动' : '免安装版不能开机启动'));
     }
     if (widget.details) {
       Widget row(String title, String value) => SettingRow(title, child: SelectableText(value, style: mono));

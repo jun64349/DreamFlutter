@@ -27,6 +27,7 @@ import type { TodoItem } from "../agent/state.ts";
 import { DISTRUST_ONCE, DISTRUST_REMEMBER, TRUST_ONCE, TRUST_REMEMBER, TRUST_TITLE } from "./dialogs.ts";
 import type { UiBridge } from "./ui-bridge.ts";
 import { dropSharedAgentSkills } from "../paths.ts";
+import type { SandboxHandle } from "../core.ts";
 import { HISTORY_ENTRY, SIDE_ENTRY, sideConversation } from "./session-metadata.ts";
 import type { SecurityService } from "../security/service.ts";
 import type { AuditContext } from "../security/audit.ts";
@@ -63,7 +64,7 @@ export interface PiHostConfig {
 	/** How long the agent's questions wait for an answer, in ms; 0 = no limit. */
 	askTimeoutMs?: () => number;
 	/** 蝶君's sandbox for sandboxed sessions; undefined while it is not set up. */
-	sandbox?: () => { distro: string; ready: () => Promise<void>; online: () => boolean } | undefined;
+	sandbox?: () => SandboxHandle | undefined;
 	/** A session's todo list or plan mode changed. */
 	agentStateChanged?: (slot: SlotIdentity, state: { todos: TodoItem[] | null; planMode: boolean }) => void;
 	/** Handles of each slot's current harness, by slot id. */

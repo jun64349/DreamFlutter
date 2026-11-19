@@ -72,7 +72,10 @@ export function toolchainSummary(env: NodeJS.ProcessEnv = toolchainEnv()): strin
 	const has = (exe: string) => existsSync(join(TOOLS_DIR, process.platform === "win32" ? `${exe}.exe` : exe));
 	const tools = ["rg", "fd", "uv"].filter(has);
 	if (tools.length) lines.push(`The app provides ${tools.join(", ")} on PATH for your commands.`);
-	if (env.UV_PYTHON) lines.push(`Python ${pythonVersion(env.UV_PYTHON) ?? "3"} is on PATH (\`python\`) and is uv's default interpreter; use it rather than installing another.`);
+	if (env.UV_PYTHON) {
+		const cmd = process.platform === "win32" ? "python" : "python3";
+		lines.push(`Python ${pythonVersion(env.UV_PYTHON) ?? "3"} is on PATH (\`${cmd}\`) and is uv's default interpreter; use it rather than installing another.`);
+	}
 	return lines;
 }
 
@@ -102,16 +105,17 @@ export function prepareWorkspace(cwd: string): { dir: string; notes: string | un
 }
 
 /** The system-prompt section about the workspace folder and the tools. */
-export function workspaceGuidance(notes: string | undefined, tools: string[] = toolchainSummary()): string {
+export function workspaceGuidance(notes: string | undefined, tools: string[] = toolchainSummary(), platform: NodeJS.Platform = process.platform): string {
+	const s = platform === "win32" ? "\\" : "/";
 	const parts = [
 		"# Workspace environment",
 		...tools.map((t) => `- ${t}`),
-		`- Keep your own working files in \`${WORKSPACE_DIR}\\\` inside the workspace, never among the user's files: \`${WORKSPACE_DIR}\\venv\` for a Python virtual environment when you need packages (\`uv venv ${WORKSPACE_DIR}\\venv\`, then \`uv pip install --python ${WORKSPACE_DIR}\\venv <package>\`), \`${WORKSPACE_DIR}\\tmp\` for scratch files and helper scripts. Git ignores this folder.`,
-		`- \`${WORKSPACE_DIR}\\${WORKSPACE_NOTES}\` keeps notes about this workspace for later sessions: what it is, how to run and test it, conventions you found. When you learn something lasting about it, update the file (short, facts only).`,
+		`- Keep your own working files in \`${WORKSPACE_DIR}${s}\` inside the workspace, never among the user's files: \`${WORKSPACE_DIR}${s}venv\` for a Python virtual environment when you need packages (\`uv venv ${WORKSPACE_DIR}${s}venv\`, then \`uv pip install --python ${WORKSPACE_DIR}${s}venv <package>\`), \`${WORKSPACE_DIR}${s}tmp\` for scratch files and helper scripts. Git ignores this folder.`,
+		`- \`${WORKSPACE_DIR}${s}${WORKSPACE_NOTES}\` keeps notes about this workspace for later sessions: what it is, how to run and test it, conventions you found. When you learn something lasting about it, update the file (short, facts only).`,
 	];
 	if (notes) {
 		const cut = notes.length > NOTES_PROMPT_CHARS ? `${notes.slice(0, NOTES_PROMPT_CHARS)}\n… (cut here; read the file for the rest)` : notes;
-		parts.push("", `## ${WORKSPACE_DIR}\\${WORKSPACE_NOTES}`, cut);
+		parts.push("", `## ${WORKSPACE_DIR}${s}${WORKSPACE_NOTES}`, cut);
 	}
 	return parts.join("\n");
 }

@@ -18,9 +18,11 @@ const definitions: { name: string; label: string; description: string; propertie
 	{ name: "git_recover", label: "Git 恢复", description: "Recover a saved point on a NEW local branch; preserves current branch/history and saves another point. Requires clean idle state. Only to cancel this tool's conflicted revert, explicitly set abortRevert=true with its matching point id: this discards conflict-resolution edits from that revert using git revert --abort. Other in-progress operations are refused.", properties: { id: { type: "string" }, abortRevert: { type: "boolean" } }, required: ["id"] },
 ];
 
-export function gitTools(state: HarnessState, sandbox?: { ready: () => Promise<void>; distro: string }): ToolDefinition[] {
+import type { SandboxHandle } from "../core.ts";
+
+export function gitTools(state: HarnessState, sandbox?: Pick<SandboxHandle, "ready" | "distro" | "seatbelt">): ToolDefinition[] {
 	const runner = state.env.kind === "sandbox"
-		? sandboxGitRunner(sandbox ? sandboxGitEnvironment(sandbox.distro) : state.env, sandbox?.ready ?? (async () => { throw new Error("沙箱尚未准备好。"); }))
+		? sandboxGitRunner(sandbox ? sandboxGitEnvironment(sandbox) : state.env, sandbox?.ready ?? (async () => { throw new Error("沙箱尚未准备好。"); }))
 		: hostGitRunner();
 	return definitions.map((definition) => ({
 		...definition,

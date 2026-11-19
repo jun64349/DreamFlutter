@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { SandboxHandle } from "../core.ts";
+import { ensureSeatbeltProfile, resolveSeatbeltHostPath } from "../sandbox/seatbelt.ts";
 import type { HarnessState } from "./state.ts";
 import { toolchainEnv } from "./toolchain.ts";
 import { currentToolEnvironment, type ToolEnvironment } from "./tool-environment.ts";
@@ -41,8 +43,30 @@ export function pwshPath(): string {
 /** Ends [child] and everything it started. */
 export function killTree(child: ChildProcess): void {
 	if (child.pid === undefined || child.exitCode !== null) return;
-	if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-	else child.kill("SIGKILL");
+	if (process.platform === "win32") {
+		const res = spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+		if (res.error || res.status !== 0) {
+			try { child.kill("SIGKILL"); } catch {}
+		}
+		return;
+	}
+	try { process.kill(-child.pid, "SIGKILL"); } catch {}
+	try { child.kill("SIGKILL"); } catch {}
+}
+
+let resolvedPosixShell: string | undefined;
+
+/** Preferred POSIX shell for macOS/Linux host sessions. */
+export function posixShellPath(): string {
+	if (resolvedPosixShell) return resolvedPosixShell;
+	for (const candidate of ["/bin/zsh", "/bin/bash", "/bin/sh"]) {
+		if (existsSync(candidate)) {
+			resolvedPosixShell = candidate;
+			return candidate;
+		}
+	}
+	resolvedPosixShell = "/bin/sh";
+	return resolvedPosixShell;
 }
 
 /** Output kept in memory per stream; older bytes live only in the spill file. */
@@ -378,12 +402,28 @@ function renderResult(stdout: string, stderr: string, exitCode: number | null, t
 	return body + markers.join("\n");
 }
 
-export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition {
+export const POSIX_SHELL_DESCRIPTION =
+	"Execute a shell command (`zsh`/`bash`) and return its stdout/stderr. " +
+	"Each call runs in a fresh shell process; pass `workdir` instead of using `cd`. Paths use native POSIX form (`/Users/...`). " +
+	"Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. " +
+	"Provide `description` before `command` in the arguments. " +
+	"Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked.";
+
+function hostShellTool(
+	state: HarnessState,
+	jobs: JobRegistry,
+	config: {
+		name: "pwsh" | "bash";
+		description: string;
+		commandDescription: string;
+		spawnArgs: (command: string) => { bin: string; args: string[]; detached: boolean };
+	},
+): ToolDefinition {
 	const sources = currentToolEnvironment();
 	return {
-		name: "pwsh",
+		name: config.name,
 		label: "运行命令",
-		description: PWSH_DESCRIPTION,
+		description: config.description,
 		parameters: {
 			type: "object",
 			properties: {
@@ -394,7 +434,7 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 						'5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; ' +
 						'"git status" → "Show working tree status"; "Get-Process" → "List running processes".',
 				},
-				command: { type: "string", description: "The PowerShell command to execute." },
+				command: { type: "string", description: config.commandDescription },
 				timeoutMs: {
 					type: "number",
 					description: "Timeout in milliseconds. The executor applies its configured default and cap; on expiry the command moves to the background as a job instead of being killed.",
@@ -416,9 +456,11 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 			}
 			const workdir = params.workdir === undefined ? state.cwd : isAbsolute(params.workdir) ? params.workdir : resolve(state.cwd, params.workdir);
 			const timeoutMs = Math.min(params.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
-			const child = spawn(pwshPath(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `${ENCODING_PREAMBLE}${params.command}`], {
+			const { bin, args, detached } = config.spawnArgs(params.command);
+			const child = spawn(bin, args, {
 				cwd: workdir,
 				windowsHide: true,
+				detached,
 				stdio: ["ignore", "pipe", "pipe"],
 				env: toolchainEnv(process.env, undefined, undefined, sources?.provider.host(workdir, sources.workspace, params.command)),
 			});
@@ -428,10 +470,10 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 			child.stderr!.on("data", (c: Buffer) => stderr.push(c));
 			const spawned = new Promise<void>((resolveSpawn, reject) => {
 				child.once("spawn", () => resolveSpawn());
-				child.once("error", (error) => reject(new Error(`failed to start PowerShell: ${error.message}`)));
+				child.once("error", (error) => reject(new Error(`failed to start ${config.name}: ${error.message}`)));
 			});
 			await spawned;
-			const job = jobs.start("pwsh", params.command, child, stdout, stderr);
+			const job = jobs.start(config.name, params.command, child, stdout, stderr);
 			const details = { cwd: workdir, description: params.description };
 			const background = { cwd: workdir, label: params.description, service: params.service === true };
 			if (params.run_in_background === true) {
@@ -472,6 +514,35 @@ export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition
 	};
 }
 
+export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition {
+	return hostShellTool(state, jobs, {
+		name: "pwsh",
+		description: PWSH_DESCRIPTION,
+		commandDescription: "The PowerShell command to execute.",
+		spawnArgs: (command) => ({
+			bin: pwshPath(),
+			args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `${ENCODING_PREAMBLE}${command}`],
+			detached: false,
+		}),
+	});
+}
+
+export function posixShellTool(state: HarnessState, jobs: JobRegistry): ToolDefinition {
+	return hostShellTool(state, jobs, {
+		name: "bash",
+		description: POSIX_SHELL_DESCRIPTION,
+		commandDescription: "The shell command to execute.",
+		spawnArgs: (command) => {
+			const bin = posixShellPath();
+			return {
+				bin,
+				args: bin.endsWith("zsh") ? ["-f", "-c", command] : ["--noprofile", "--norc", "-c", command],
+				detached: true,
+			};
+		},
+	});
+}
+
 // Keep a control pipe open until the job ends. Closing it stops the Linux process
 // group even though killing only wsl.exe need not stop its Linux descendants.
 export const BASH_JOB_SUPERVISOR = [
@@ -488,14 +559,57 @@ export const BASH_JOB_SUPERVISOR = [
 	"exit \"$code\"",
 ].join("\n");
 
-export async function startBashJob(jobs: JobRegistry, distro: string, command: string, environment: string, background: BackgroundCommand): Promise<Job> {
-	const encoded = Buffer.from([environment, command.replaceAll("\r", "")].filter(Boolean).join("\n")).toString("base64");
-	const child = spawn("wsl.exe", ["-d", distro, "-u", "agent", "--cd", background.cwd, "--exec", "bash", "--noprofile", "--norc", "-c", BASH_JOB_SUPERVISOR, "df-background", encoded], {
-		windowsHide: true,
-		stdio: ["pipe", "pipe", "pipe"],
-		env: { ...process.env, WSL_UTF8: "1" },
-	});
-	child.stdin!.on("error", () => {}); // The job may exit while a stop closes the control pipe.
+export async function startBashJob(
+	jobs: JobRegistry,
+	distroOrSandbox: string | Pick<SandboxHandle, "distro" | "seatbelt">,
+	command: string,
+	environment: string,
+	background: BackgroundCommand,
+): Promise<Job> {
+	const sandbox = typeof distroOrSandbox === "string" ? undefined : distroOrSandbox;
+	const distro = typeof distroOrSandbox === "string" ? distroOrSandbox : distroOrSandbox.distro;
+	const script = [environment, command.replaceAll("\r", "")].filter(Boolean).join("\n");
+	const encoded = Buffer.from(script, "utf8").toString("base64");
+	let child: ChildProcess;
+	if (sandbox?.seatbelt) {
+		const profile = ensureSeatbeltProfile(sandbox.seatbelt);
+		const cwd = resolveSeatbeltHostPath(sandbox.seatbelt, background.cwd);
+		child = spawn(
+			"/usr/bin/sandbox-exec",
+			[
+				"-f",
+				profile,
+				"/bin/bash",
+				"--noprofile",
+				"--norc",
+				"-c",
+				"eval \"$(printf '%s' \"$1\" | (base64 -D 2>/dev/null || base64 -d))\"",
+				"df-background",
+				encoded,
+			],
+			{
+				cwd,
+				detached: true,
+				stdio: ["ignore", "pipe", "pipe"],
+				env: toolchainEnv({
+					...process.env,
+					HOME: sandbox.seatbelt.workspaceDir,
+					TMPDIR: sandbox.seatbelt.tmpDir,
+					LANG: "C.UTF-8",
+					PYTHONIOENCODING: "utf-8",
+					PYTHONUTF8: "1",
+					MPLBACKEND: "Agg",
+				}),
+			},
+		);
+	} else {
+		child = spawn("wsl.exe", ["-d", distro, "-u", "agent", "--cd", background.cwd, "--exec", "bash", "--noprofile", "--norc", "-c", BASH_JOB_SUPERVISOR, "df-background", encoded], {
+			windowsHide: true,
+			stdio: ["pipe", "pipe", "pipe"],
+			env: { ...process.env, WSL_UTF8: "1" },
+		});
+		child.stdin!.on("error", () => {}); // The job may exit while a stop closes the control pipe.
+	}
 	const stdout = new OutputStream("stdout");
 	const stderr = new OutputStream("stderr");
 	child.stdout!.on("data", (chunk: Buffer) => stdout.push(chunk));
@@ -505,7 +619,7 @@ export async function startBashJob(jobs: JobRegistry, distro: string, command: s
 		child.once("error", reject);
 	});
 	const job = jobs.start("bash", command, child, stdout, stderr);
-	job.stopProcess = () => child.stdin!.end();
+	job.stopProcess = sandbox?.seatbelt ? () => killTree(child) : () => child.stdin!.end();
 	jobs.publish(job, background);
 	return job;
 }
@@ -520,13 +634,23 @@ export const PERSISTENT_PWSH_DESCRIPTION = `Run commands in a PowerShell shell
 * Please avoid commands that may produce a very large amount of output.
 * Please run long lived commands in the background, e.g. 'Start-Job' or start a server with Start-Process.`;
 
+const PERSISTENT_POSIX_DESCRIPTION = `Run commands in a POSIX shell (zsh/bash)
+* When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
+* You don't have access to the internet via this tool.
+* State is persistent across command calls and discussions with the user.
+* Use native POSIX paths (/...) and standard environment variables.
+* Please avoid commands that may produce a very large amount of output.`;
+
 const PERSISTENT_TIMEOUT_MS = 300_000;
 const PERSISTENT_MAX_OUTPUT_CHARS = 16_000;
 /** Characters of one command's output kept in memory before its middle is dropped. */
 const PERSISTENT_MEMORY_CHARS = 4_000_000;
 const TRUNCATED_MESSAGE =
 	"<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with Select-String in order to find the line numbers of what you are looking for.</NOTE>";
-const SHELL_RESET_MESSAGE = "The persistent pwsh shell was reset; the next pwsh call starts from the workspace with a fresh current directory and environment.";
+const SHELL_RESET_MESSAGE =
+	process.platform === "win32"
+		? "The persistent pwsh shell was reset; the next pwsh call starts from the workspace with a fresh current directory and environment."
+		: "The persistent shell was reset; the next bash call starts from the workspace with a fresh current directory and environment.";
 
 /**
  * The command as one ASCII line that decodes to every character literally.
@@ -572,9 +696,15 @@ export class PersistentShell {
 	private ensure(source?: ToolEnvironment, cwd = this.cwd()): ChildProcess {
 		if (this.child && this.child.exitCode === null) return this.child;
 		this.output = "";
-		const child = spawn(pwshPath(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"], {
+		const isWin = process.platform === "win32";
+		const bin = isWin ? pwshPath() : posixShellPath();
+		const args = isWin
+			? ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"]
+			: bin.endsWith("zsh") ? ["-f"] : ["--noprofile", "--norc"];
+		const child = spawn(bin, args, {
 			cwd,
 			windowsHide: true,
+			detached: !isWin,
 			stdio: ["pipe", "pipe", "pipe"],
 			env: toolchainEnv(process.env, undefined, undefined, source),
 		});
@@ -589,7 +719,7 @@ export class PersistentShell {
 		child.stderr!.on("data", append(new StringDecoder("utf8")));
 		child.on("error", () => {});
 		child.stdin!.on("error", () => {});
-		child.stdin!.write(`${ENCODING_PREAMBLE}$ProgressPreference = 'SilentlyContinue'\n`);
+		child.stdin!.write(isWin ? `${ENCODING_PREAMBLE}$ProgressPreference = 'SilentlyContinue'\n` : "export LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUTF8=1\n");
 		this.child = child;
 		this.sourceFingerprint = source?.fingerprint;
 		return child;
@@ -626,8 +756,10 @@ export class PersistentShell {
 		const start = `__DSH_PERSISTENT_PWSH_START_${nonce}__`;
 		const end = `__DSH_PERSISTENT_PWSH_END_${nonce}:`;
 		const cwdMarker = `__DSH_PERSISTENT_CWD_${nonce}:`;
-		const body = encodeForPwsh(command);
-		const wrapper = `Write-Output '${start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ${body}; $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${cwdMarker}' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Location).ProviderPath))); Write-Output ('${end}' + $__s)`;
+		const wrapper =
+			process.platform === "win32"
+				? `Write-Output '${start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ${encodeForPwsh(command)}; $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${cwdMarker}' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Location).ProviderPath))); Write-Output ('${end}' + $__s)`
+				: `printf '%s\\n' '${start}'; eval "$(printf '%s' '${Buffer.from(command.replaceAll("\r", ""), "utf8").toString("base64")}' | (base64 -D 2>/dev/null || base64 -d))"; __df_s=$?; printf '%s%s\\n' '${cwdMarker}' "$(pwd | base64 | tr -d '\\n')"; printf '%s%d\\n' '${end}' "$__df_s"`;
 		// Anything left from earlier commands is stray output: drop it so the buffer never grows across calls.
 		this.output = "";
 		const from = 0;
@@ -685,6 +817,29 @@ export function persistentPwshTool(shell: PersistentShell): ToolDefinition {
 			type: "object",
 			properties: {
 				command: { type: "string", description: "The PowerShell command to run. Relative path is preferred in the command." },
+			},
+			required: ["command"],
+		} as never,
+		executionMode: "sequential",
+		async execute(_id, params: { command: string }, signal) {
+			if (params.command.trim().length === 0) throw new Error("command must be a non-empty string");
+			const details: { exitCode?: number } = {};
+			const text = await shell.run(params.command, signal, exitCode => { details.exitCode = exitCode; });
+			return { content: [{ type: "text", text }], details };
+		},
+	};
+}
+
+export function persistentShellTool(shell: PersistentShell, platform: NodeJS.Platform = process.platform): ToolDefinition {
+	if (platform === "win32") return persistentPwshTool(shell);
+	return {
+		name: "bash",
+		label: "运行命令",
+		description: PERSISTENT_POSIX_DESCRIPTION,
+		parameters: {
+			type: "object",
+			properties: {
+				command: { type: "string", description: "The shell command to run. Relative path is preferred in the command." },
 			},
 			required: ["command"],
 		} as never,

@@ -1,7 +1,7 @@
 import { ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { addAbortListener } from "node:events";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { posix } from "node:path";
 import { PassThrough } from "node:stream";
 import { finished } from "node:stream/promises";
@@ -9,8 +9,10 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { OutputStream, type JobRegistry } from "./shell.ts";
 import type { HarnessState } from "./state.ts";
+import { bundledPython, toolchainEnv } from "./toolchain.ts";
 import { redactValue } from "../security/redaction.ts";
-import { PYTHON_FALLBACK_CLEANUP, PYTHON_SUPERVISOR } from "../sandbox/python-supervisor.ts";
+import { MACOS_PYTHON_FALLBACK_CLEANUP, MACOS_PYTHON_SUPERVISOR, PYTHON_FALLBACK_CLEANUP, PYTHON_SUPERVISOR } from "../sandbox/python-supervisor.ts";
+import { ensureSeatbeltProfile, resolveSeatbeltHostPath, type SeatbeltConfig } from "../sandbox/seatbelt.ts";
 
 const IDLE_MS = 30 * 60_000;
 const TIMEOUT_SECONDS = 300;
@@ -25,7 +27,7 @@ export const PYTHON_BACKGROUND_RESULT = "df.python_result";
 const WORKER = readFileSync(new URL("../../assets/python-kernel.py", import.meta.url)).toString("base64");
 const LOADER = "import base64,sys;exec(compile(base64.b64decode(sys.stdin.buffer.readline()),'df-python-kernel','exec'))";
 
-export interface PythonSandbox { distro: string; ready(): Promise<void> }
+export interface PythonSandbox { distro: string; ready(): Promise<void>; workspaceDir?: string; seatbelt?: SeatbeltConfig }
 export interface PythonFiles {
 	folder: string | null;
 	record(path: string): void;
@@ -48,10 +50,18 @@ function waitForPython<T>(operation: Promise<T>, signal: AbortSignal): Promise<T
 	});
 }
 
+function realOrSelf(path: string): string {
+	try { return realpathSync(path); } catch { return path; }
+}
+
+function macPythonExecutable(): string {
+	return bundledPython() ?? "/usr/bin/python3";
+}
+
 class KernelConnection {
 	private readonly child: ChildProcess;
 	private readonly owner = randomUUID().replaceAll("-", "");
-	private readonly distro: string;
+	private readonly sandbox: PythonSandbox;
 	private readonly log: KernelLog;
 	private group?: { pid: number; start: string };
 	private cleaned = false;
@@ -64,14 +74,36 @@ class KernelConnection {
 	private opened!: (ok: boolean) => void;
 	private readonly started = new Promise<boolean>(resolve => { this.opened = resolve; });
 
-	constructor(distro: string, cwd: string, log: KernelLog) {
-		this.distro = distro;
+	constructor(sandbox: PythonSandbox, cwd: string, log: KernelLog) {
+		this.sandbox = sandbox;
 		this.log = log;
-		this.child = spawn("wsl.exe", ["-d", distro, "-u", "agent", "--cd", cwd, "--exec",
-			"/usr/bin/env", "HOME=/workspace", "LANG=C.UTF-8", "PYTHONIOENCODING=utf-8", "MPLBACKEND=Agg",
-			"/usr/bin/python3", "-I", "-u", "-c", PYTHON_SUPERVISOR, LOADER, this.owner], {
-			windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, WSLENV: "", WSL_UTF8: "1" },
-		});
+		if (sandbox.seatbelt) {
+			const profile = ensureSeatbeltProfile(sandbox.seatbelt);
+			const hostCwd = realOrSelf(resolveSeatbeltHostPath(sandbox.seatbelt, cwd));
+			this.child = spawn("/usr/bin/sandbox-exec", [
+				"-f", profile,
+				macPythonExecutable(), "-I", "-u", "-c", MACOS_PYTHON_SUPERVISOR, LOADER, this.owner,
+			], {
+				cwd: hostCwd,
+				detached: true,
+				stdio: ["pipe", "pipe", "pipe"],
+				env: toolchainEnv({
+					...process.env,
+					HOME: sandbox.seatbelt.workspaceDir,
+					TMPDIR: sandbox.seatbelt.tmpDir,
+					LANG: "C.UTF-8",
+					PYTHONIOENCODING: "utf-8",
+					PYTHONUTF8: "1",
+					MPLBACKEND: "Agg",
+				}),
+			});
+		} else {
+			this.child = spawn("wsl.exe", ["-d", sandbox.distro, "-u", "agent", "--cd", cwd, "--exec",
+				"/usr/bin/env", "HOME=/workspace", "LANG=C.UTF-8", "PYTHONIOENCODING=utf-8", "MPLBACKEND=Agg",
+				"/usr/bin/python3", "-I", "-u", "-c", PYTHON_SUPERVISOR, LOADER, this.owner], {
+				windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, WSLENV: "", WSL_UTF8: "1" },
+			});
+		}
 		this.child.stderr!.setEncoding("utf8").on("data", (chunk: string) => this.receiveControl(chunk));
 		this.child.stdin!.on("error", () => this.child.stdin!.destroy());
 		this.child.once("error", () => this.opened(false));
@@ -131,9 +163,11 @@ class KernelConnection {
 
 	private fallbackCleanup(): Promise<boolean> {
 		return new Promise(resolve => {
-			const child = spawn("wsl.exe", ["-d", this.distro, "-u", "agent", "--exec", "/usr/bin/python3", "-I", "-c",
-				PYTHON_FALLBACK_CLEANUP, this.owner, String(this.group?.pid ?? 0), this.group?.start ?? "0"],
-				{ windowsHide: true, stdio: "ignore", env: { ...process.env, WSLENV: "", WSL_UTF8: "1" } });
+			const child = this.sandbox.seatbelt
+				? spawn(macPythonExecutable(), ["-I", "-c", MACOS_PYTHON_FALLBACK_CLEANUP, String(this.group?.pid ?? 0)], { stdio: "ignore" })
+				: spawn("wsl.exe", ["-d", this.sandbox.distro, "-u", "agent", "--exec", "/usr/bin/python3", "-I", "-c",
+					PYTHON_FALLBACK_CLEANUP, this.owner, String(this.group?.pid ?? 0), this.group?.start ?? "0"],
+					{ windowsHide: true, stdio: "ignore", env: { ...process.env, WSLENV: "", WSL_UTF8: "1" } });
 			const finish = (ok: boolean) => { clearTimeout(timer); resolve(ok); };
 			const timer = setTimeout(() => { child.kill(); finish(false); }, CLEANUP_WAIT_MS);
 			child.once("exit", code => finish(code === 0));
@@ -265,7 +299,14 @@ export class PythonKernel {
 				return readySignal.aborted ? { ...result, status: "interrupted", text: "Python 执行已取消。" }
 					: { ...result, status: "failed", text: "蝶君的沙箱还没准备好" };
 			}
-			const connection = this.connection = new KernelConnection(this.sandbox.distro, request.cwd, this.log);
+		if (this.sandbox.seatbelt) {
+			request = {
+				...request,
+				cwd: realOrSelf(resolveSeatbeltHostPath(this.sandbox.seatbelt, request.cwd)),
+				folder: request.folder ? realOrSelf(resolveSeatbeltHostPath(this.sandbox.seatbelt, request.folder)) : null,
+			};
+		}
+		const connection = this.connection ??= new KernelConnection(this.sandbox, request.cwd, this.log);
 			try { await waitForPython(connection.start(), readySignal); }
 			catch (error) {
 				await this.reset();
@@ -394,7 +435,13 @@ export function pythonTool(pi: ExtensionAPI, state: HarnessState, sandbox: Pytho
 			const request = { code: params.code, cwd: state.cwd, folder: files.folder };
 			signal?.throwIfAborted();
 			if (params.background) return backgroundPython(pi, jobs, kernel, request, files, params);
-			const result = await kernel.run(request, files, { ...params, signal });
+			const result = await kernel.run(
+				sandbox.seatbelt
+					? { ...request, cwd: realOrSelf(resolveSeatbeltHostPath(sandbox.seatbelt, request.cwd)), folder: request.folder ? realOrSelf(resolveSeatbeltHostPath(sandbox.seatbelt, request.folder)) : null }
+					: request,
+				files,
+				{ ...params, signal },
+			);
 			const text = result.text || "Python 执行完成。";
 			return { content: [{ type: "text", text: result.images.length ? text + "\n" + PYTHON_IMAGE_SOURCE : text }, ...result.images],
 				details: { status: result.status, imagePaths: result.paths } };

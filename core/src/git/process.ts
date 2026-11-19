@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { access, stat } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { killTree } from "../agent/shell.ts";
 import { toolchainEnv } from "../agent/toolchain.ts";
 import { sandboxEnv, type ExecEnv } from "../agent/state.ts";
+import type { SandboxHandle } from "../core.ts";
+import { ensureSeatbeltProfile, resolveSeatbeltHostPath } from "../sandbox/seatbelt.ts";
 
 export interface GitOutput { code: number; stdout: string; stderr: string; }
 export interface GitRunner {
@@ -27,6 +29,14 @@ async function executable(path: string): Promise<boolean> {
 	try { await access(path, process.platform === "win32" ? constants.F_OK : constants.X_OK); return (await stat(path)).isFile(); } catch { return false; }
 }
 
+let appleCltReady: boolean | undefined;
+function hasAppleCommandLineTools(): boolean {
+	if (appleCltReady !== undefined) return appleCltReady;
+	if (process.platform !== "darwin") return (appleCltReady = true);
+	appleCltReady = spawnSync("/usr/bin/xcode-select", ["-p"], { stdio: "ignore", timeout: 1500 }).status === 0;
+	return appleCltReady;
+}
+
 /** Only the configured package and absolute PATH entries; never implicitly execute workspace/git.exe. */
 export async function findGit(options: { bundledPath?: string | null; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
 	const env = options.env ?? process.env;
@@ -37,7 +47,14 @@ export async function findGit(options: { bundledPath?: string | null; env?: Node
 		const dir = entry.replace(/^"|"$/g, "");
 		if (!isAbsolute(dir)) continue;
 		const candidate = join(dir, process.platform === "win32" ? "git.exe" : "git");
+		// On clean macOS without Xcode CLT, /usr/bin/git is an interactive installer stub.
+		if (process.platform === "darwin" && candidate === "/usr/bin/git" && !hasAppleCommandLineTools()) continue;
 		if (await executable(candidate)) return candidate;
+	}
+	if (options.env === undefined && process.platform === "darwin") {
+		for (const candidate of ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/Library/Developer/CommandLineTools/usr/bin/git"]) {
+			if (await executable(candidate)) return candidate;
+		}
 	}
 	throw new GitError("not_installed", "未安装 Git：请安装 Git 并加入 PATH，或配置 DREAMFLUTTER_BUNDLED_GIT 为随包 Git 的绝对路径。");
 }
@@ -73,8 +90,36 @@ export function hostGitRunner(options: { bundledPath?: string | null; env?: Node
 	} };
 }
 
-/** Boot first; use Linux git as agent, never a Windows/bundled executable. */
-export function sandboxGitEnvironment(distro: string): ExecEnv {
+/** Boot first; use Linux git as agent (or macOS Seatbelt sandbox-exec), never an arbitrary workspace binary. */
+export function sandboxGitEnvironment(distroOrSandbox: string | Pick<SandboxHandle, "distro" | "seatbelt">): ExecEnv {
+	const sandbox = typeof distroOrSandbox === "string" ? undefined : distroOrSandbox;
+	const distro = typeof distroOrSandbox === "string" ? distroOrSandbox : distroOrSandbox.distro;
+	if (sandbox?.seatbelt) {
+		const cfg = sandbox.seatbelt;
+		return {
+			kind: "sandbox",
+			resolve: (cwd, path) => sandboxEnv(distro).resolve(cwd, path),
+			local: (path) => resolveSeatbeltHostPath(cfg, path),
+			spawn(command, args, cwd) {
+				const profile = ensureSeatbeltProfile(cfg);
+				const hostCwd = resolveSeatbeltHostPath(cfg, cwd);
+				const mappedArgs = args.map((arg) => (arg === "HOME=/workspace" ? `HOME=${cfg.workspaceDir}` : arg));
+				const pathParts = [
+					dirname(DEFAULT_BUNDLED_GIT),
+					"/opt/homebrew/bin",
+					"/usr/local/bin",
+					...(hasAppleCommandLineTools() ? ["/Library/Developer/CommandLineTools/usr/bin", "/usr/bin"] : []),
+					"/bin",
+				];
+				return spawn("/usr/bin/sandbox-exec", ["-f", profile, command, ...mappedArgs], {
+					cwd: hostCwd,
+					detached: true,
+					stdio: ["ignore", "pipe", "pipe"],
+					env: toolchainEnv({ ...process.env, HOME: cfg.workspaceDir, PATH: pathParts.join(":"), LC_ALL: "C" }),
+				});
+			},
+		};
+	}
 	return { ...sandboxEnv(distro), spawn(command, args, cwd) {
 		// WSL's default -- route joins arguments into a shell command. --exec preserves argv,
 		// including Git formats, multiline messages, spaces and shell metacharacters.

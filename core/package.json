@@ -35,6 +35,7 @@
   },
   "optionalDependencies": {
     "sherpa-onnx-node": "1.13.8",
-    "sherpa-onnx-win-x64": "1.13.8"
+    "sherpa-onnx-win-x64": "1.13.8",
+    "sherpa-onnx-darwin-arm64": "1.13.8"
   }
 }

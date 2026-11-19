@@ -9,7 +9,7 @@ import { json, now, parseJson } from "../db.ts";
 import type { Run } from "../runs.ts";
 import { textOf } from "../runs.ts";
 import type { Slot } from "../slots/slot.ts";
-import { sandboxEnv } from "../agent/state.ts";
+import { resolveSandboxEnv } from "../agent/state.ts";
 import { SANDBOX_WORKSPACE } from "../sandbox/sandbox.ts";
 import { GoalsModule } from "./goals.ts";
 
@@ -427,10 +427,12 @@ export class TasksModule implements CoreModule {
 			task.id,
 		);
 		// Products are the files left at the end: helper scripts the agent wrote and removed again are not.
-		// 蝶君's files are sandbox paths: kept as this machine opens them (\\wsl.localhost\...).
-		const distro = slot.sandboxed ? this.core.sandboxProvider?.()?.distro : undefined;
+		// 蝶君's files are sandbox paths: kept as this machine opens them.
+		const provider = slot.sandboxed ? this.core.sandboxProvider?.() : undefined;
+		const env = provider ? resolveSandboxEnv(provider) : undefined;
+		const sandboxBase = provider?.workspaceDir ?? SANDBOX_WORKSPACE;
 		for (const file of run.files) {
-			const path = distro ? sandboxEnv(distro).local(posix.resolve(SANDBOX_WORKSPACE, file)) : isAbsolute(file) ? file : resolve(run.cwd, file);
+			const path = env ? env.local(posix.resolve(sandboxBase, file)) : isAbsolute(file) ? file : resolve(run.cwd, file);
 			if (existsSync(path)) this.addArtifact(task, path);
 		}
 		this.changed(task.id);

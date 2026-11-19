@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import '../state/agent_controller.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
+import 'keys.dart';
 import 'settings_controls.dart';
 import 'number_setting.dart';
 import 'notification_settings.dart';
@@ -131,9 +134,9 @@ class SettingsPageState extends State<SettingsPage>{
           ]),
         ])),
         const _Setting('语音 识别 本机 云端 Key 快捷键',card:'语音输入',VoiceSettings()),
-        const _Setting('语音 快捷键',card:'语音输入',SettingRow('快捷键',desc:'按一次开始说，再按一次结束',child:Row(mainAxisSize:MainAxisSize.min,children:[V1Keycap('Ctrl'),SizedBox(width:4),V1Keycap('Shift'),SizedBox(width:4),V1Keycap('M')]))),
+        _Setting('语音 快捷键',card:'语音输入',SettingRow('快捷键',desc:'按一次开始说，再按一次结束',child:Row(mainAxisSize:MainAxisSize.min,children:[V1Keycap(HeldKeys.primaryLabel),const SizedBox(width:4),const V1Keycap('Shift'),const SizedBox(width:4),const V1Keycap('M')]))),
         const _Setting('文字大小 字号',card:'界面',SettingRow('文字大小',child:TextSizeControl())),
-        const _Setting('缩放 放大 缩小',card:'界面',SettingRow('界面缩放',desc:'也可以按 Ctrl + 加号 / 减号',child:ZoomControl())),
+        _Setting('缩放 放大 缩小',card:'界面',SettingRow('界面缩放',desc:'也可以按 ${HeldKeys.primaryLabel} + 加号 / 减号',child:const ZoomControl())),
       ],const []),
       if(kBetaEdition)_SettingsGroup('模型','hub',[
         const _Setting('模型池 激活码 花费',card:'模型池',BetaPoolRows()),
@@ -228,10 +231,10 @@ class SettingsPageState extends State<SettingsPage>{
       ],const []),
       _SettingsGroup('数据与安全','shield',[
         const _Setting('备份 恢复 导出 导入',card:'备份',BackupPanel()),
-        const _Setting('卸载 删除',card:'卸载',UninstallSetting()),
-        const _Setting('敏感路径 不让它碰',card:'敏感路径',Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-          SettingRow('不让它碰的地方',desc:'这些位置读写前一律先问你，就算你选了「不询问」',child:SizedBox.shrink()),
-          Padding(padding:EdgeInsets.only(bottom:10),child:V1Inset(child:Text(r'C:\Windows · 用户目录下的 .ssh、.aws · 浏览器的密码文件'))),
+        if (!Platform.isMacOS) const _Setting('卸载 删除',card:'卸载',UninstallSetting()),
+        _Setting('敏感路径 不让它碰',card:'敏感路径',Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+          const SettingRow('不让它碰的地方',desc:'这些位置读写前一律先问你，就算你选了「不询问」',child:SizedBox.shrink()),
+          Padding(padding:const EdgeInsets.only(bottom:10),child:V1Inset(child:Text(Platform.isMacOS ? '系统钥匙串 · 用户目录下的 .ssh、.aws · 浏览器的密码文件' : r'C:\Windows · 用户目录下的 .ssh、.aws · 浏览器的密码文件'))),
         ])),
         const _Setting('路径例外 允许 操作记录 审计',card:'敏感路径',SecurityPanel()),
         const _Setting('数据 目录 位置 空间',card:'数据位置',DataStoragePanel(locationsOnly:true)),

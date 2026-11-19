@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Core } from "../core.ts";
+import { bundledPython, toolchainEnv } from "../agent/toolchain.ts";
+import { ensureSeatbeltProfile, type SeatbeltConfig } from "../sandbox/seatbelt.ts";
 import { minimalMcpEnv } from "../security/mcp.ts";
 import { redact, redactValue } from "../security/redaction.ts";
 
@@ -85,6 +87,24 @@ finally:
  print(json.dumps(result,ensure_ascii=False))
 `;
 
+export const runTrialSeatbelt = (seatbelt: SeatbeltConfig, input: string, timeoutMs: number): Promise<{ code: number | null; stdout: string; stderr: string }> =>
+	new Promise((done) => {
+		const profile = ensureSeatbeltProfile(seatbelt);
+		const python = bundledPython() ?? "/usr/bin/python3";
+		const child = spawn("/usr/bin/sandbox-exec", ["-f", profile, python, "-I", "-c", TRIAL_PYTHON], {
+			cwd: seatbelt.tmpDir,
+			detached: true,
+			env: toolchainEnv({ ...minimalMcpEnv(), HOME: seatbelt.workspaceDir, TMPDIR: seatbelt.tmpDir }),
+		});
+		let stdout = "", stderr = "", finished = false;
+		const finish = (code: number | null, error?: string) => { if (finished) return; finished = true; clearTimeout(timer); done({ code, stdout, stderr: error ?? stderr }); };
+		const timer = setTimeout(() => { try { if (child.pid) process.kill(-child.pid, "SIGKILL"); } catch {} child.kill("SIGKILL"); finish(null, "沙箱试运行控制进程超时"); }, timeoutMs + 8_000);
+		child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+		child.stdout.on("data", (chunk: string) => { if (Buffer.byteLength(stdout) + Buffer.byteLength(chunk) > 2 * 1024 * 1024) { child.kill("SIGKILL"); finish(null, "沙箱试运行响应超过上限"); } else stdout += chunk; });
+		child.stderr.on("data", (chunk: string) => { if (Buffer.byteLength(stderr) < 64 * 1024) stderr += chunk.slice(0, 4096); });
+		child.on("error", (error) => finish(null, error.message)); child.on("close", (code) => finish(code)); child.stdin.on("error", () => {}); child.stdin.end(input);
+	});
+
 /** Host captures only the bounded harness response; it never runs the supplied script/interpreter. */
 export const runTrialWsl: TrialRunner = (distro, input, timeoutMs) => new Promise((done) => {
 	const child = spawn("wsl.exe", ["-d", distro, "-u", "agent", "--exec", "python3", "-c", TRIAL_PYTHON], { windowsHide: true, env: { ...minimalMcpEnv(), WSL_UTF8: "1" } });
@@ -123,7 +143,9 @@ export async function trialSkill(core: Pick<Core, "sandboxProvider" | "security"
 		await sandbox.ready();
 		await core.security.loadKnownSecrets();
 		core.security.audit.record("skill-trial", bundle.script, "sandbox", "复制技能目录到临时目录，以 agent 用户限时限输出试运行，不改变信任或启用");
-		const response = await runner(sandbox.distro, input, timeoutMs);
+		const response = sandbox.seatbelt && runner === runTrialWsl
+			? await runTrialSeatbelt(sandbox.seatbelt, input, timeoutMs)
+			: await runner(sandbox.distro, input, timeoutMs);
 		if (response.code !== 0) return fail("runner-error", redact(response.stderr || "沙箱执行器未正常退出", true));
 		const result: unknown = JSON.parse(response.stdout);
 		if (!result || typeof result !== "object" || !("runtime" in result) || result.runtime !== "butterfly-sandbox" || !("ok" in result) || typeof result.ok !== "boolean") return fail("runner-error", "沙箱执行器返回了无效结果");

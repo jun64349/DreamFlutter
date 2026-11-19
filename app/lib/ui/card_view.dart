@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
@@ -597,7 +598,7 @@ class _CardViewState extends State<CardView> {
 
   Future<void> _capture() async {
     if (!_loaded || widget.sizing == 'viewport') return;
-    final png = await WebSurfaces.capture(_repaintKey);
+    final png = await _surface?.takeSnapshot() ?? await WebSurfaces.capture(_repaintKey);
     if (png == null || png.length < 200 || !mounted) return;
     final agent = AgentScope.read(context);
     final stamp = DateTime.now().millisecondsSinceEpoch;
@@ -624,7 +625,7 @@ class _CardViewState extends State<CardView> {
     final width = widget.card.preferredWidth;
     Widget body;
     if (_unavailable) {
-      body = _Placeholder(icon: Icons.web_asset_off_outlined, text: '这台电脑缺少 Microsoft Edge WebView2 运行库，无法显示卡片。');
+      body = _Placeholder(icon: Icons.web_asset_off_outlined, text: Platform.isWindows ? '这台电脑缺少 Microsoft Edge WebView2 运行库，无法显示卡片。' : '无法创建内嵌预览视图，无法显示卡片。');
     } else if (_live && _surface != null) {
       body = Listener(
         onPointerDown: (_) => _stage?.touch(widget.card.id),

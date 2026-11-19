@@ -39,7 +39,10 @@ export function classifyPath(path: string, roots: PathRoots): PathReading {
 	const fileKey = [...parts.slice(0, -1), file].join("/");
 	const denied = [pathKey(roots.secrets), `${local}/google/chrome/user data`, `${local}/microsoft/edge/user data`,
 		`${roaming}/mozilla/firefox`, `${local}/mozilla/firefox`, `${local}/microsoft/credentials`,
-		`${roaming}/microsoft/credentials`, `${local}/microsoft/vault`, `${roaming}/microsoft/vault`];
+		`${roaming}/microsoft/credentials`, `${local}/microsoft/vault`, `${roaming}/microsoft/vault`,
+		`${home}/library/keychains`, `${home}/library/application support/google/chrome`,
+		`${home}/library/application support/microsoft edge`, `${home}/library/application support/firefox`,
+		`${home}/library/safari`, `${home}/library/cookies`, `${home}/library/mail`, `${home}/library/messages`];
 	if (denied.some((root) => root && within(key, root))) return { path, decision: "deny", reason: "凭据或浏览器用户数据目录" };
 	if (within(key, `${home}/.ssh`) && /^id_/.test(file) && !file.endsWith(".pub")) return { path, decision: "deny", reason: "SSH 私钥" };
 	if ((file === ".env" || file.startsWith(".env.")) && ![".env.example", ".env.sample", ".env.template"].includes(file)) {

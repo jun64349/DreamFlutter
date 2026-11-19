@@ -24,6 +24,8 @@ dependencies:
 flutter:
   plugin:
     platforms:
+      macos:
+        pluginClass: DesktopDropPlugin
       windows:
         pluginClass: DesktopDropPlugin
       web:

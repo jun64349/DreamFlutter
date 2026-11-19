@@ -21,7 +21,7 @@ export const OFFLINE_BROWSER_FLAGS = [
 ];
 
 export function browserEnvironment(): NodeJS.ProcessEnv {
-	const allowed = /^(?:path|pathext|systemroot|windir|systemdrive|temp|tmp|comspec|userprofile|localappdata|appdata|programdata)$/i;
+	const allowed = /^(?:path|pathext|systemroot|windir|systemdrive|temp|tmp|comspec|userprofile|localappdata|appdata|programdata|home|tmpdir|user|logname|lang|lc_all|lc_ctype|xdg_config_home|xdg_cache_home)$/i;
 	return Object.fromEntries(Object.entries(process.env).filter(([name]) => allowed.test(name)));
 }
 
@@ -53,6 +53,21 @@ export function managedBrowserPipe(child: ChildProcess, input: Writable, output:
 
 export class EdgeHtmlBrowser {
 	async find(): Promise<string | undefined> {
+		if (process.platform === "darwin") {
+			const candidates = [
+				process.env.DREAMFLUTTER_CHROME,
+				"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+				"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+				"/Applications/Chromium.app/Contents/MacOS/Chromium",
+				"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+				"/Applications/Arc.app/Contents/MacOS/Arc",
+			];
+			for (const file of candidates) {
+				if (!file) continue;
+				try { await access(file, constants.X_OK); return file; } catch {}
+			}
+			return;
+		}
 		if (process.platform !== "win32") return;
 		for (const root of [process.env["ProgramFiles(x86)"], process.env.ProgramFiles, process.env.LOCALAPPDATA]) {
 			if (!root) continue;
@@ -70,7 +85,10 @@ export class EdgeHtmlBrowser {
 			await writeFile(join(preferences, "Preferences"), JSON.stringify({ net: { network_prediction_options: 2 } }), { flag: "wx" });
 			signal.throwIfAborted();
 			const child = spawn(binary, ["--headless", ...OFFLINE_BROWSER_FLAGS, "--user-data-dir=" + profile, "about:blank"], {
-				windowsHide: true, env: browserEnvironment(), stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
+				windowsHide: true,
+				detached: process.platform !== "win32",
+				env: browserEnvironment(),
+				stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
 			});
 			return managedBrowserPipe(child, child.stdio[3] as Writable, child.stdio[4] as Readable, cleanup);
 		} catch (error) { await cleanup(); throw error; }

@@ -7,6 +7,7 @@ import { readSystemProxy } from "../agent/system-proxy.ts";
 import { STORAGE_KINDS, storageLocations, type StorageKind } from "./locations.ts";
 import { moveResultFile, requestMove } from "./move.ts";
 import { Sandbox } from "../sandbox/sandbox.ts";
+import { MacSeatbeltSandbox } from "../sandbox/seatbelt.ts";
 
 /** Count owned files without following junctions/symlinks into someone else's data. */
 export function directoryBytes(path: string): number {
@@ -30,7 +31,7 @@ export class StorageModule implements CoreModule {
 			if (!STORAGE_KINDS.includes(params.kind as StorageKind) || typeof params.target !== "string") throw new RpcError("bad_request", "需要数据类别和目标目录");
 			if (existsSync(join(core.paths.dataDir, "restore-switch.json"))) throw new RpcError("busy", "请先完成待重启的备份恢复");
 			if (core.busySlots().length || core.module(MemoryModule)!.work.jobs.list({ status: ["running"] }).length) throw new RpcError("busy", "请先停止对话和记忆后台任务，再搬迁数据");
-			const sandbox = params.kind === "sandbox" ? await core.module(Sandbox)?.status() : undefined;
+			const sandbox = params.kind === "sandbox" ? await (core.module(Sandbox) ?? core.module(MacSeatbeltSandbox))?.status() : undefined;
 			if (sandbox?.state === "provisioning") throw new RpcError("busy", "沙箱正在准备，请完成后再搬迁");
 			const move = requestMove(core.paths.dataDir, params.kind as StorageKind, params.target, core.agentDir, core.sessionDir, core.paths.dbFile, sandbox?.distro);
 			core.maintenance = "正在准备搬迁数据，后台即将重启";
