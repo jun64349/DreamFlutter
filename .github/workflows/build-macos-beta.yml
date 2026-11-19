@@ -36,6 +36,7 @@ jobs:
       - name: Set up Flutter (arm64)
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.47.8'
           channel: stable
           architecture: arm64
           cache: true
@@ -111,19 +112,24 @@ jobs:
           flutter pub get
           flutter test test/macos_locator_test.dart test/client_test.dart
 
-      - name: Analyze & test app
+      - name: App pub get
         working-directory: app
-        run: |
-          flutter pub get
-          flutter analyze
-          flutter test test/beta_edition_test.dart --dart-define=DREAMFLUTTER_BETA=true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-run.sh" "app flutter pub get" flutter pub get
+
+      - name: App analyze
+        working-directory: app
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-run.sh" "app flutter analyze" flutter analyze
+
+      - name: App beta tests
+        working-directory: app
+        run: bash "$GITHUB_WORKSPACE/scripts/ci-run.sh" "app beta_edition_test" flutter test test/beta_edition_test.dart --dart-define=DREAMFLUTTER_BETA=true
 
       - name: Package macOS Apple Silicon .dmg
         run: |
           if [ "${{ inputs.beta }}" != "false" ]; then
-            bash scripts/package-macos.sh --beta
+            bash "$GITHUB_WORKSPACE/scripts/ci-run.sh" "package-macos.sh --beta" bash scripts/package-macos.sh --beta
           else
-            bash scripts/package-macos.sh
+            bash "$GITHUB_WORKSPACE/scripts/ci-run.sh" "package-macos.sh" bash scripts/package-macos.sh
           fi
 
       - name: Verify packaged .app bundle
@@ -145,9 +151,10 @@ jobs:
         run: |
           SHOT_DIR="$GITHUB_WORKSPACE/dist/macos/screenshots"
           mkdir -p "$SHOT_DIR"
-          flutter test integration_test/macos_beta_look_test.dart -d macos \
-            --dart-define=DREAMFLUTTER_BETA=true \
-            --dart-define="MACOS_SHOT_DIR=$SHOT_DIR"
+          bash "$GITHUB_WORKSPACE/scripts/ci-run.sh" "macos_beta_look_test" \
+            flutter test integration_test/macos_beta_look_test.dart -d macos \
+              --dart-define=DREAMFLUTTER_BETA=true \
+              --dart-define="MACOS_SHOT_DIR=$SHOT_DIR"
 
       - name: Smoke-launch packaged DreamFlutter.app & build screenshot gallery
         run: |
@@ -167,6 +174,16 @@ jobs:
           if [ "$READY" != "true" ]; then
             echo "Packaged DreamFlutter.app did not write core.json within 30s"
             cat "$SMOKE_DATA/core.log" || true
+            if [ -f "$SMOKE_DATA/core.log" ]; then
+              node -e '
+                const fs = require("fs");
+                const lines = fs.readFileSync(process.argv[1], "utf8").split(/\r?\n/).filter(Boolean).slice(-40);
+                const msg = lines.join("\n").replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").slice(0, 3500);
+                console.log(`::error title=smoke-launch::${msg}`);
+              ' "$SMOKE_DATA/core.log"
+            else
+              echo "::error title=smoke-launch::Packaged DreamFlutter.app did not write core.json or core.log within 30s"
+            fi
             kill "$APP_PID" || true
             rm -rf "$SMOKE_DATA"
             exit 1
