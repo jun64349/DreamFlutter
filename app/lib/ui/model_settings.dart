@@ -75,7 +75,7 @@ class _ModelWindowSettingState extends State<ModelWindowSetting> {
           isExpanded: true,
           decoration: const InputDecoration(labelText: '模型'),
           hint: Text(models.isEmpty ? '还没有可用模型' : '选择模型'),
-          items: [for (final model in models) DropdownMenuItem(value: model.key, child: Text('${agent.providerLabel(model.provider)} · ${model.name}', overflow: TextOverflow.ellipsis))],
+          items: [for (final model in models) DropdownMenuItem(value: model.key, child: Text(agent.providerLabel(model.provider).isEmpty ? model.name : '${agent.providerLabel(model.provider)} · ${model.name}', overflow: TextOverflow.ellipsis))],
           onChanged: _saving ? null : (key) {
             setState(() {
               _selected = key;

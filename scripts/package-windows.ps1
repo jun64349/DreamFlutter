@@ -27,7 +27,9 @@ param(
     [string]$VelopackSdkDir,
     [string]$VelopackToolsDir,
     [string]$BundledCache,
-    [switch]$FailStartupForTest
+    [switch]$FailStartupForTest,
+    # 内测版（第 6 步朋友内测，用户 2026-11-19 定）：激活码一步、只走随想 GPT Pro、不检查更新、沙箱镜像随包。
+    [switch]$Beta
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,7 +65,7 @@ if (Test-Path $target) {
 # 1. The window.
 if (-not $SkipBuild) {
     Push-Location "$root\app"
-    flutter build windows --release --no-pub "--build-name=$version" "--build-number=$buildNumber" "--dart-define=DREAMFLUTTER_VERSION=$version" "--dart-define=DREAMFLUTTER_BUILD=$buildNumber"
+    flutter build windows --release --no-pub "--build-name=$version" "--build-number=$buildNumber" "--dart-define=DREAMFLUTTER_VERSION=$version" "--dart-define=DREAMFLUTTER_BUILD=$buildNumber" $(if ($Beta) { "--dart-define=DREAMFLUTTER_BETA=true" })
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "flutter build failed" }
     Pop-Location
 }
@@ -129,6 +131,13 @@ if (-not $NoSandboxImage) {
     foreach ($item in "dreamflutter-sandbox.json", "dreamflutter-sandbox.packages.txt", "office-layer.json") {
         Copy-Item "$root\core\sandbox-image\$item" "$target\core\sandbox-image"
     }
+    # 内测版：镜像本身也随包，朋友建沙箱不用下载（core/src/sandbox/image.ts 优先用随包的镜像）。
+    if ($Beta) { Copy-Item $image "$target\core\sandbox-image" }
+}
+if ($Beta) {
+    if ($NoSandboxImage) { throw 'The beta package ships the sandbox image; do not pass -NoSandboxImage.' }
+    # core/src/paths.ts BETA_EDITION: no update checks or downloads.
+    [IO.File]::WriteAllText((Join-Path $target 'beta-edition.json'), '{"edition":"beta"}')
 }
 
 # 4. Node.js.

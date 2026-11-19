@@ -81,19 +81,26 @@ function vSchedule(){
   <div class="card" style="padding:12px 16px"><div style="font-family:var(--serif);font-weight:600;font-size:16px;margin-bottom:6px">11 月 ${S.selDay} 日</div>${S.selDay===14?items.map(([t,n,d,r,c])=>`<div class="it"><span class="tm">${t}</span><div class="w">${n}<small>${d}</small></div><span class="${c}" style="font-size:12px">${r}</span></div>`).join(''):S.selDay===12?`<div class="it"><span class="tm">09:00</span><div class="w">交传感器对比<small>蝶君去做</small></div><span class="bad" style="font-size:12px">没做成</span></div><div class="cnote" style="margin-top:8px">网页打不开，价格没抓到。<span class="sp"></span><a>现在再做一次</a></div>`:'<div class="empty" style="padding:24px">这天没有安排</div>'}</div>
  </div></div></div>`,right:null};
 }
+// 内测版反馈表（用户的腾讯文档）。
+const FEEDBACK_URL='https://docs.qq.com/doc/DVm1zU2VmU1JIVHZn';
 function vWizard(){
  const n=S.wz,man=S.ed==='managed';
  const dots=n>=1?`<div class="dots">${[1,2,3,4,5].map(i=>`<i class="${i===n?'on':i<n?'done':''}"></i>`).join('')}</div>`:'';
  const nav=(o={})=>`<div class="wnav">${n>1?'<button class="btn" style="background:none" data-a="wz" data-v="-1">上一步</button>':''}<span class="sp"></span>${o.skip?'<button class="btn" style="background:none;color:var(--muted)" data-a="wz" data-v="1">跳过</button>':''}<button class="btn pri" data-a="wz" data-v="1" ${o.block?'disabled':''}>${o.label||'下一步'}</button></div>`;
  let c='';
- if(n===0)c=`<div style="text-align:center;padding:20px 0 6px">${bf(96,'float')}<h2 class="poetic" style="font-size:30px;font-weight:400;margin-top:16px">你好，我是 DreamFlutter</h2><div class="sub">住在你电脑里的助手。花一分钟设好，就能开始。</div><button class="btn pri" style="padding:8px 34px" data-a="wz" data-v="1">开始</button></div>`;
+ // 内测版（2026-11-19 用户定）：第一次启动只有这一张卡片，激活成功直接进界面；其余几步全用默认。
+ if(man){const t=S.wzT;c=`<div style="text-align:center;padding:20px 0 6px">${bf(96,'float')}<h2 class="poetic" style="font-size:30px;font-weight:400;margin-top:16px">输入激活码</h2>
+  <div class="fld" style="margin-top:18px"><input type="password" value="${t?'sk-••••••••••••••••':''}" placeholder="粘贴激活码" style="text-align:center"></div>
+  ${t==='busy'?`<div style="display:flex;gap:8px;align-items:center;justify-content:center;font-size:13px;color:var(--muted)"><span class="spin"></span>正在激活…</div>`:t==='ok'?`<div style="font-size:13px" class="ok">${ic('check','width:14px;height:14px;vertical-align:-2px')} 激活成功</div>`:t==='bad'?`<div style="font-size:13px" class="bad">${ic('x','width:14px;height:14px;vertical-align:-2px')} 激活码不对或已经停用</div>`:''}
+  <button class="btn pri" style="padding:8px 34px;margin-top:16px" data-a="go" data-v="home" ${t!=='ok'?'disabled':''}>进入</button>
+  <div class="demo-sw" style="margin-top:14px">${['','busy','ok','bad'].map((v,i)=>`<button class="chip ${S.wzT===v?'on':''}" style="font-size:11px;padding:2px 8px;border-style:dashed" data-a="set" data-k="wzT" data-v="${v}">演示：${['未填','激活中','成功','不对'][i]}</button>`).join(' ')}</div></div>`;}
+ else if(n===0)c=`<div style="text-align:center;padding:20px 0 6px">${bf(96,'float')}<h2 class="poetic" style="font-size:30px;font-weight:400;margin-top:16px">你好，我是 DreamFlutter</h2><div class="sub">住在你电脑里的助手。花一分钟设好，就能开始。</div><button class="btn pri" style="padding:8px 34px" data-a="wz" data-v="1">开始</button></div>`;
  else if(n===1)c=`${dots}<h2>数据放在哪</h2><div class="sub">对话、记忆、设置都存在这里</div><div class="choice on"><span class="rd"></span><div>跟软件放在一起（推荐）<small>E:\\DreamFlutter\\data · 剩余 142 GB</small></div></div><div class="choice"><span class="rd"></span><div>选别的文件夹…</div></div>${nav()}`;
  else if(n===2)c=`${dots}<h2>怎么称呼你</h2><div class="sub">随时能改</div><div class="fld"><input value="小周"></div>${nav()}`;
  else if(n===3&&!man){const t=S.wzT;c=`${dots}<h2>连接一个模型</h2><div class="sub">密钥只存在这台电脑上</div><div class="provs">${['DeepSeek','智谱','OpenCode Go','其他'].map((p,i)=>`<div class="prov ${i===0?'on':''}">${p}</div>`).join('')}</div>
   <div class="fld"><label>密钥<a class="lk">去 DeepSeek 拿密钥 ↗</a></label><input type="password" value="${t?'sk-••••••••••••••••':''}" placeholder="粘贴后自动测试"></div>
   ${t==='busy'?`<div class="state" style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)"><span class="spin"></span>正在试连接…</div>`:t==='ok'?`<div style="font-size:13px" class="ok">${ic('check','width:14px;height:14px;vertical-align:-2px')} 连上了。对话用 DeepSeek V4.1 Flash，大任务用 DeepSeek V4.1，以后在输入框里能换。</div>`:t==='bad'?`<div style="font-size:13px" class="bad">${ic('x','width:14px;height:14px;vertical-align:-2px')} DeepSeek 说这个密钥无效。回网站重新复制一次，注意前后别多出空格。</div>`:''}
   <div class="demo-sw" style="margin-top:8px">${['','busy','ok','bad'].map((v,i)=>`<button class="chip ${S.wzT===v?'on':''}" style="font-size:11px;padding:2px 8px;border-style:dashed" data-a="set" data-k="wzT" data-v="${v}">演示：${['未填','测试中','连上','不对'][i]}</button>`).join(' ')}</div>${nav({block:t!=='ok',skip:true})}`;}
- else if(n===3&&man)c=`${dots}<h2>输入激活码</h2><div class="sub">发给你这份 DreamFlutter 的人会给你一个</div><div class="fld"><input value="MENG-7Q4K-28XD" style="letter-spacing:.1em;text-align:center"></div><div class="card" style="padding:8px 14px;margin-top:6px"><div class="kv"><span>模型</span><span>由「梦蝶模型池」提供</span></div><div class="kv"><span>本月额度</span><span>还剩 100%</span></div></div><div style="font-size:12.5px;color:var(--ink2);margin-top:8px">你发的内容会经过模型池转给模型服务商。<a class="lk">数据怎么处理</a></div>${nav()}`;
  else if(n===4)c=`${dots}<h2>常用的项目文件夹</h2><div class="sub">工作台默认在这里干活</div><div style="display:flex;gap:8px"><div class="path" style="flex:1;color:var(--muted)">还没选</div><button class="btn">选一个</button></div>${nav({skip:true})}`;
  else c=`${dots}<h2>蝶君</h2><div class="sub">选一种说话的样子，以后可以在设置里改</div><div class="pcards" style="padding-top:0">${['静','暖','利落','灵动'].map(k=>`<button class="pcard ${S.persona===k?'on':''}" data-a="set" data-k="persona" data-v="${k}"><b>${k}</b></button>`).join('')}</div><div class="choice on"><span class="rd"></span><div>现在准备沙箱（推荐）<small>后台进行，大约 3 分钟，不影响先用工作台</small></div></div><div class="choice"><span class="rd"></span><div>以后再说</div></div>${nav({label:'开始使用'})}`;
  return {full:`<div class="wzbg" style="position:relative;overflow:hidden"><div style="position:absolute;right:-60px;bottom:-80px;opacity:.07;transform:rotate(-14deg)">${bf(520)}</div><div class="inscr" style="right:auto;left:48px;top:60px;bottom:auto;font-size:22px;opacity:.18">昔者庄周梦为胡蝶</div><div class="wz" style="position:relative">${c}</div></div>`};
@@ -105,11 +112,11 @@ home:`<h4>首页</h4><ul><li>布局照 HanaAgent：主区一条中线，蝴蝶�
 chat:`<h4>对话</h4><ul><li>正文最宽 720，衬线体；你的话在右边浅底气泡，回复开头一只小蝴蝶（写的时候扇翅，写完留着当头像）。</li><li>过程块轻：浅底、不加框，折叠时和标题一样宽；展开后一行一步。</li><li>回复下面一行照旧（模型 · 速度 · 用时 · 几点，不写花费），按钮悬停才出现。</li><li>代码块、图表：头上一行语言名，按钮平时很淡；图表可以切到源码。表格细线全框，引用左边一条线。</li><li>右栏「这个对话」：工作台分文件 / Git / 后台 / 上下文四页；蝶君是目标、后台、交付、定时竖着排。</li><li>顶上切到蝶君能看目标、计划条、提问卡。</li></ul>`,
 inbox:`<h4>等你处理（案头）</h4><ul><li>三组固定顺序：待你决定 → 卡住了 → 等你验收；卡片左边一条细色带。每张卡片写清是谁、哪件事、现在怎样，再给能直接按的按钮。</li></ul>`,
 schedule:`<h4>日程（时令）</h4><ul><li>左边月历，右边那天的清单；过去没做成的标红，点开在清单下面给「现在再做一次」。顶上一行巡检状态。</li></ul>`,
-settings:`<h4>设置（一方天地）</h4><ul><li>改成 HanaAgent 那样盖在窗口上的大面板：左边搜索 + 分组导航（我与蝶君 / 工作 / 应用 / 更多），右边内容，Esc 关。</li><li>11 个分页每一项都画了。写法统一：名字在左，控件在右、同类同宽；说明只写「改了会怎样」；几个档位用分段按钮；开关打开后子项缩进出现；列表为空时给例子；危险的值红字。</li><li>「外观」里点主题卡片，整个界面马上换，试试幻蝶、石青。</li><li>演示开关「托管版」打开后，「模型」页换成模型池。</li></ul>`,
+settings:`<h4>设置（一方天地）</h4><ul><li>改成 HanaAgent 那样盖在窗口上的大面板：左边搜索 + 分组导航（我与蝶君 / 工作 / 应用 / 更多），右边内容，Esc 关。</li><li>11 个分页每一项都画了。写法统一：名字在左，控件在右、同类同宽；说明只写「改了会怎样」；几个档位用分段按钮；开关打开后子项缩进出现；列表为空时给例子；危险的值红字。</li><li>「外观」里点主题卡片，整个界面马上换，试试幻蝶、石青。</li><li>演示开关「托管版」打开后就是内测版：「模型」页换成模型池（激活码、本机已花、四个用途写死），不显示模型组和渠道；「关于」只留版本、反馈、诊断，没有更新。</li></ul>`,
 memory:`<h4>记忆（梦君记）</h4><ul><li>浮在窗口上的面板，上面三个标签：最近 / 日志 / 设置。最近按天排成时间线，每条一个书法字当记号，标出来源和分组；改和删都在条目上。</li></ul>`,
 skills:`<h4>技能（百工）</h4><ul><li>浮层面板，「技能 / 连接的服务」两个标签；左边列表（等你确认在最上），右边详情：技能能看 SKILL.md 和文件；服务每个工具一个开关，底部固定测试连接、保存。</li></ul>`,
 spend:`<h4>花费（锱铢）</h4><ul><li>照旧是图表：近 30 天柱状、按用途和按模型两个环，金额 / 次数可切。上面三个大数字。</li></ul>`,
-wizard:`<h4>第一次启动</h4><ul><li>五步，每步一张卡片居中，顶上进度条。模型那步粘贴密钥自动测试，可以跳过；托管版换成激活码。</li></ul>`};
+wizard:`<h4>第一次启动</h4><ul><li>五步，每步一张卡片居中，顶上进度条。模型那步粘贴密钥自动测试，可以跳过；托管版（内测版）只有一张「输入激活码」卡片，激活成功点「进入」直接到首页，其余几步全用默认。</li></ul>`};
 
 /* ---------- render ---------- */
 const SCENES=[['home','首页'],['chat','对话'],['inbox','等你处理'],['schedule','日程'],['wizard','第一次启动']];

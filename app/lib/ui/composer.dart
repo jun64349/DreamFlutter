@@ -14,6 +14,7 @@ import '../craft_style.dart';
 import 'craft_surface.dart';
 import 'context_usage_ring.dart';
 import '../state/mentions.dart';
+import '../state/beta_edition.dart';
 import '../state/agent_controller.dart' show AgentController, asJsonMap, jsonRows, MaterialInfo, NoteInfo, SessionRuntime;
 import '../state/side_chat.dart';
 import '../theme.dart';
@@ -698,7 +699,7 @@ const _modelLabelWidth = double.infinity;
 String composerModelLabel(AgentController agent) {
   final model = agent.model;
   if (model == null) return '选择模型';
-  return '${model.name} · ${agent.providerLabel(model.provider)}';
+  return agent.modelWithProvider(model.name, model.provider);
 }
 
 /// A quiet chip in the input box's toolbar that opens a menu.
@@ -784,9 +785,11 @@ class _MenuHeaderState extends State<_MenuHeader> {
 }
 
 class _MenuRow extends StatelessWidget {
-  const _MenuRow({required this.title, required this.selected});
+  const _MenuRow({required this.title, required this.selected, this.note});
 
   final String title;
+  /// 内测版在模型后面标用途（用户 2026-11-19）。
+  final String? note;
   final bool selected;
 
   @override
@@ -794,7 +797,7 @@ class _MenuRow extends StatelessWidget {
     return Row(
       children: [
         SizedBox(width: 22, child: selected ? const Icon(Icons.check, size: 16) : null),
-        Expanded(child: Text(title)),
+        Expanded(child: note == null ? Text(title) : Text.rich(TextSpan(text: title, children: [TextSpan(text: '　$note', style: TextStyle(color: context.colors.muted, fontSize: 12.5))]))),
       ],
     );
   }
@@ -861,7 +864,7 @@ class _ModelChip extends StatelessWidget {
       tightLabel: tightLabel,
       label: composerModelLabel(agent),
       maxLabelWidth: _modelLabelWidth,
-      tooltip: model == null ? '模型' : member != null ? '模型组「${model.name}」：现在用 $member' : '模型：${model.name} · ${agent.providerLabel(model.provider)}',
+      tooltip: model == null ? '模型' : member != null ? '模型组「${model.name}」：现在用 $member' : '模型：${agent.modelWithProvider(model.name, model.provider)}',
       enabled: agent.isReady && agent.models.isNotEmpty,
       filled: true,
       items: [
@@ -870,7 +873,7 @@ class _ModelChip extends StatelessWidget {
           for (final m in section.models)
             PopupMenuItem(
               value: m,
-              child: _MenuRow(title: m.name, selected: m == model),
+              child: _MenuRow(title: m.name, note: betaModelNote(m.id), selected: m == model),
             ),
         ],
         if (agent.hasMoreModels)

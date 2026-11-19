@@ -132,7 +132,7 @@ function composer(o={}){
   <button class="ib" title="加文件或图片">${ic('attach')}</button>
   ${wb?`<button class="pill" title="这次不保存、不记忆">${ic('eye','width:14px;height:14px')}无痕</button><button class="pill on" title="改文件、跑命令前问你">${ic('shield','width:14px;height:14px')}先问我</button>`:''}
   <span class="sp"></span>
-  <button class="pill box" title="换模型">${S.ed==='managed'?'DeepSeek V4.1 Flash · 模型池':'DeepSeek V4.1 Flash · OpenCode Go'}${ic('chev','width:12px;height:12px')}</button>
+  <button class="pill box" title="换模型">${S.ed==='managed'?'GPT-6.1 Terra':'DeepSeek V4.1 Flash · OpenCode Go'}${ic('chev','width:12px;height:12px')}</button>
   <button class="pill" title="思考深度">${ic('think','width:14px;height:14px')}中</button>
   <button class="context-ring" data-a="context" aria-label="${S.scene==='home'?'上下文尚未使用':'上下文已用 59k / 128k'}" title="${S.scene==='home'?'上下文尚未使用':'上下文已用 59k / 128k'}" style="--used:${S.scene==='home'?0:59/128}"><span></span></button>
   <button class="ib" title="说话（Ctrl + Shift + M）">${ic('mic')}</button>

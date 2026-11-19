@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'beta_edition.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
 import 'agent_controller.dart';
@@ -57,7 +58,7 @@ final tourLessons = <TourLesson>[
   TourLesson('Agent 是什么', 0, [
     const TourStep('它会动手', 'DreamFlutter 是一个会动手的助手：除了回答问题，它还能读写你电脑上的文件、运行程序、上网查资料，把一件事从头做到尾。'),
     const TourStep('两种用法', '「工作台」：你在旁边看着它做，它改你的文件前会先问你。「蝶君」：交给它一件事就可以走开，它在一个隔离的小系统里自己做完。', anchor: 'place-switch'),
-    const TourStep('它需要一个大脑', '做这些事要靠一个 AI 模型来思考。下一课把它接上。'),
+    const TourStep('它需要一个大脑', kBetaEdition ? '做这些事要靠一个 AI 模型来思考。激活码已经帮你接好了。' : '做这些事要靠一个 AI 模型来思考。下一课把它接上。'),
   ]),
   TourLesson('接上一个模型', 1, alreadyDone: modelConnected, [
     const TourStep('先弄懂两个词', '「模型」是帮你思考的 AI，「密钥」是你在模型公司的账号凭证，像一把钥匙。我们用 DeepSeek 举例：便宜，国内能直接用。'),
@@ -82,7 +83,7 @@ final tourLessons = <TourLesson>[
   ]),
   TourLesson('认识蝶君', 4, [
     TourStep('切到蝶君', '点左上角的「蝶君」。', anchor: 'place-butterfly', done: (c) => c.agent.section == AppSection.butterfly),
-    TourStep('建好沙箱', '蝶君在自己的「沙箱」里干活：一个隔离的小系统，看不到你的文件。第一次要先建好，会下载约 650 MB；没有 WSL 的电脑会弹出管理员确认，点「是」，可能要重启一次，重启后会自动接着建。建的时候可以先去做别的。', action: TourAction.provisionSandbox, actionLabel: '建立沙箱', done: (c) => c.agent.sandboxStatus.value?['state'] == 'ready'),
+    TourStep('建好沙箱', kBetaEdition ? '蝶君在自己的「沙箱」里干活：一个隔离的小系统，看不到你的文件。第一次要先建好；没有 WSL 的电脑会弹出管理员确认，点「是」，可能要重启一次，重启后会自动接着建。建的时候可以先去做别的。' : '蝶君在自己的「沙箱」里干活：一个隔离的小系统，看不到你的文件。第一次要先建好，会下载约 650 MB；没有 WSL 的电脑会弹出管理员确认，点「是」，可能要重启一次，重启后会自动接着建。建的时候可以先去做别的。', action: TourAction.provisionSandbox, actionLabel: '建立沙箱', done: (c) => c.agent.sandboxStatus.value?['state'] == 'ready'),
     TourStep('交给它一件事', '让它查资料写一份小报告。这件事大约 5–15 分钟、花 1–3 角钱。可以点「帮我填好」，然后按 Enter。', anchor: 'composer', fill: reportPrompt, action: TourAction.fillComposer, actionLabel: '帮我填好', done: (c) => userMessages(c.butterfly) > (c.baseline['butterfly'] ?? 0)),
     const TourStep('让它自己做', '它会先列个计划，然后自己去查、去写。右边能看到目标、进度和花了多少钱。你现在可以去干别的。'),
     TourStep('验收', '做完它会通知你，报告出现在「等你处理」的「等你验收」里。点「打开看看」，满意就点「收下」。', anchor: 'attention-page|nav-attention', action: TourAction.later, actionLabel: '做完再看', done: (c) => c.signals.contains('accepted')),

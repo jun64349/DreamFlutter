@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 
 import '../state/agent_controller.dart';
+import '../state/beta_edition.dart';
 import '../theme.dart';
 import '../craft_style.dart';
 import 'craft_surface.dart';
@@ -177,6 +178,9 @@ class ConversationApprovalCard extends StatelessWidget {
 /// A plain-words headline for a model error; the original text stays below it (0.8.1 C.2).
 String explainModelError(String raw) {
   final t = raw.toLowerCase();
+  // 内测版：模型都走发激活码的人的额度，出事了要找他（用户 2026-11-19）。
+  if (kBetaEdition && (t.contains('quota') || t.contains('额度'))) return '激活码的额度用完了，请找发给你激活码的人';
+  if (kBetaEdition && (t.contains('401') || t.contains('invalid_api_key') || (t.contains('invalid') && t.contains('key')))) return '激活码不对或已经停用，请找发给你激活码的人';
   if (t.contains('timed out') || t.contains('timeout') || t.contains('etimedout')) return '模型太久没有回应，这次请求超时了';
   if (t.contains('401') || (t.contains('invalid') && t.contains('key')) || t.contains('authentication') || t.contains('unauthorized')) return '密钥不对或已失效';
   if (t.contains('402') || t.contains('insufficient') || t.contains('balance') || t.contains('quota') || t.contains('余额')) return '余额或额度不够了';

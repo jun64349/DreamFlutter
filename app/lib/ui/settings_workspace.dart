@@ -28,6 +28,8 @@ import 'shell_widgets.dart' show ShellButton, ShellButtonKind;
 import 'notes.dart';
 import 'guide_page.dart';
 import 'onboarding_tour.dart';
+import '../state/beta_edition.dart';
+import 'beta_settings.dart';
 
 /// One setting: the words search matches, the card it sits in, and the widget.
 class _Setting { const _Setting(this.words,this.child,{this.card,this.trailing,this.cardDesc}); final String words;final Widget child;
@@ -133,7 +135,14 @@ class SettingsPageState extends State<SettingsPage>{
         const _Setting('文字大小 字号',card:'界面',SettingRow('文字大小',child:TextSizeControl())),
         const _Setting('缩放 放大 缩小',card:'界面',SettingRow('界面缩放',desc:'也可以按 Ctrl + 加号 / 减号',child:ZoomControl())),
       ],const []),
-      _SettingsGroup('模型','hub',[
+      if(kBetaEdition)_SettingsGroup('模型','hub',[
+        const _Setting('模型池 激活码 花费',card:'模型池',BetaPoolRows()),
+        const _Setting('对话模型',card:'用哪个模型',BetaFixedModel('对话','GPT-6.1 Terra',desc:'聊天和工作台默认用它')),
+        const _Setting('小任务模型 标题 记忆整理',card:'用哪个模型',BetaFixedModel('小任务','GPT-6.1 Terra',desc:'起标题、整理记忆')),
+        const _Setting('大任务模型 整理上下文 深度分析',card:'用哪个模型',BetaFixedModel('大任务','GPT-6.2 Sol',desc:'整理上下文、深度分析')),
+        const _Setting('看图模型 图片',card:'用哪个模型',BetaFixedModel('看图','GPT-6.1 Terra')),
+        _Setting('默认思考深度',card:'用哪个模型',SettingsSeg<String>('思考深度',value:a.defaultThinkingLevel??'',options:const [('','自动'),('low','低'),('medium','中'),('high','高')],save:(v)=>save('defaultThinking',v.isEmpty?null:v))),
+      ],const [])else _SettingsGroup('模型','hub',[
         _Setting('对话模型',card:'用哪个模型',model('对话','defaultModel',desc:'聊天和工作台默认用它')),
         _Setting('小任务模型 标题 记忆整理',card:'用哪个模型',model('小任务','smallTaskModel',desc:'起标题、整理记忆')),
         _Setting('大任务模型 整理上下文 深度分析',card:'用哪个模型',model('大任务','largeTaskModel',desc:'整理上下文、深度分析')),
@@ -505,7 +514,7 @@ class ModelSettingMenu extends StatelessWidget {
       for(final m in section.models){choices[m.key]=m.name;}
     }
     return SettingMenu<String>(key:ValueKey('model-menu-$label'),value:selected??'',choices:choices,headers:headers,
-      label:model==null?(extra[selected]??(selected==null?inheritLabel:'暂不可用')):model.provider==groupProvider?'${model.name}（模型组）':'${model.name} · ${a.providerLabel(model.provider)}',
+      label:model==null?(extra[selected]??(selected==null?inheritLabel:'暂不可用')):model.provider==groupProvider?'${model.name}（模型组）':a.modelWithProvider(model.name,model.provider),
       more:a.hasMoreModels?('更多模型…',()async{final picked=await showModelSearch(context);if(picked!=null&&context.mounted)await _choose(context,picked.key);}):null,
       onSelected:(v)=>_choose(context,v.isEmpty?null:v));
   }

@@ -9,7 +9,7 @@ import { createBackup, estimateSize, freeSpace } from "../backup/export.ts";
 import { inspectBackup } from "../backup/restore.ts";
 import { Archive } from "../backup/archive.ts";
 import { MemoryModule } from "../modules/memory.ts";
-import { APP_ROOT } from "../paths.ts";
+import { APP_ROOT, BETA_EDITION } from "../paths.ts";
 import { bridgeCall, guardianExecDir, launchGuardian, makeFeed, prepareGuardian } from "./bridge.ts";
 import { buildInfo, dropLeftoverPackages, installation, piVersion, type BuildInfo } from "./installation.ts";
 import { compareVersions, LATEST_RELEASE, limitedText, localSource, parseRelease, request, UpdateError, type Release } from "./release.ts";
@@ -77,8 +77,8 @@ export class UpdateModule implements CoreModule {
       if (cache.source === this.source) this.cachedRelease = cache.release;
     } catch { /* No previous check in a new installation. */ }
     core.register("updates.status", () => this.status());
-    core.register("updates.check", () => this.check(true));
-    core.register("updates.download", () => this.download());
+    core.register("updates.check", () => { if (BETA_EDITION) throw new RpcError("unavailable", "内测版不检查更新"); return this.check(true); });
+    core.register("updates.download", () => { if (BETA_EDITION) throw new RpcError("unavailable", "内测版不检查更新"); return this.download(); });
     core.register("updates.install", (p) => {
       if (core.maintenance && !this.preparation) throw new UpdateError("busy", "后台正在维护数据，请完成后再安装更新。");
       if (!this.downloaded || !this.installed) throw new UpdateError("not_downloaded", "请先下载并校验可安装的更新包。");
@@ -130,7 +130,7 @@ export class UpdateModule implements CoreModule {
     // Not during an update in progress; a few seconds after start (it never slows the window down, and a
     // first-run core may only live seconds before the wizard restarts it).
     if (this.installed && (!journal || journal.cleaned && !pendingValidation(journal))) { const root = this.installed.root; const leftover = setTimeout(() => { const freed = dropLeftoverPackages(root); if (freed) this.core.log.info(`removed Velopack's leftover full package (${Math.round(freed / 1_048_576)} MB)`); }, 3_000); leftover.unref(); }
-    if (this.installed) { this.timer = setInterval(() => { if (this.core.settings.get().autoCheckUpdates && !this.preparation && this.state !== "downloading") void this.check(false); }, 60 * 60 * 1000); this.timer.unref(); this.initialTimer = setTimeout(() => { if (this.core.settings.get().autoCheckUpdates) void this.check(false); }, 2000); this.initialTimer.unref(); }
+    if (this.installed && !BETA_EDITION) { this.timer = setInterval(() => { if (this.core.settings.get().autoCheckUpdates && !this.preparation && this.state !== "downloading") void this.check(false); }, 60 * 60 * 1000); this.timer.unref(); this.initialTimer = setTimeout(() => { if (this.core.settings.get().autoCheckUpdates) void this.check(false); }, 2000); this.initialTimer.unref(); }
   }
   async stop(): Promise<void> { this.stopping = true; if (this.timer) clearInterval(this.timer); if (this.initialTimer) clearTimeout(this.initialTimer); if (this.cleanupTimer) clearInterval(this.cleanupTimer); this.controller?.abort(); this.checkController?.abort(); await Promise.allSettled([this.preparation, this.checking]); }
   private async maintainJournal(): Promise<void> {

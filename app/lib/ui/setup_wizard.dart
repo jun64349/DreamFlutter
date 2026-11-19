@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:pi_rpc/pi_rpc.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../state/agent_controller.dart';
+import '../state/beta_edition.dart';
+import 'beta_activation.dart';
 import '../state/installation.dart';
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -159,7 +161,7 @@ class _SetupGateState extends State<SetupGate>{
   Future<void> _readProgress()async{if(_status!=null)return;try{final data=jsonDecode(await File(p.join(widget.dataRoot,'core-startup.json')).readAsString()) as Map;final text=(data['current'] as Map?)?['text'];if(mounted&&text is String&&text!=_progress)setState(()=>_progress=text);}catch(_){} }
   @override void dispose(){_timer?.cancel();super.dispose();}
   Future<void> _load(AgentController a)async{if(_loading)return;_loading=true;try{final status=asJsonMap(await a.backend.call('setup.status'));final candidates=status['completed']==true?<Json>[]:await preservedCandidates(a);if(mounted){setState((){_status=status;_preserved=candidates.firstOrNull;_error=null;});widget.onSetupVisible?.call(status['completed']!=true);}}catch(_){if(mounted)setState(()=>_error='没能读取首次设置，请重试。');}finally{_loading=false;}}
-  @override Widget build(BuildContext context){final a=AgentScope.of(context);if(_status==null&&a.coreInfo.isNotEmpty&&!_loading&&_error==null)unawaited(_load(a));if(_status?['completed']==true)return const HomePage();if(_preserved!=null)return Scaffold(body:PreservedDataWelcome(candidate:_preserved!,onContinue:()=>setState(()=>_preserved=null),onRestored:()=>_load(a)));if(_status!=null)return SetupWizard(status:_status!,initialStep:widget.initialStep,onComplete:(){setState(()=>_status={..._status!,'completed':true});widget.onSetupVisible?.call(false);});return Scaffold(body:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const ButterflyMark(size:84),const SizedBox(height:22),Text(_error??a.backendProblem??_progress),if(_error!=null||a.backendProblem!=null)TextButton(onPressed:()async{await a.restart();if(a.coreInfo.isNotEmpty)await _load(a);},child:const Text('重试'))]))));}
+  @override Widget build(BuildContext context){final a=AgentScope.of(context);if(_status==null&&a.coreInfo.isNotEmpty&&!_loading&&_error==null)unawaited(_load(a));if(_status?['completed']==true)return const HomePage();if(_preserved!=null)return Scaffold(body:PreservedDataWelcome(candidate:_preserved!,onContinue:()=>setState(()=>_preserved=null),onRestored:()=>_load(a)));if(_status!=null){void done(){setState(()=>_status={..._status!,'completed':true});widget.onSetupVisible?.call(false);}return kBetaEdition?BetaActivation(status:_status!,onComplete:done):SetupWizard(status:_status!,initialStep:widget.initialStep,onComplete:done);}return Scaffold(body:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[const ButterflyMark(size:84),const SizedBox(height:22),Text(_error??a.backendProblem??_progress),if(_error!=null||a.backendProblem!=null)TextButton(onPressed:()async{await a.restart();if(a.coreInfo.isNotEmpty)await _load(a);},child:const Text('重试'))]))));}
 }
 
 class SetupWizard extends StatefulWidget{

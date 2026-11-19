@@ -18,6 +18,7 @@ import 'gateway_models.dart';
 import 'garden_deletions.dart';
 import '../theme.dart';
 import 'work_models.dart';
+import 'beta_edition.dart';
 import 'onboarding.dart';
 
 export 'backend.dart' show AgentBackend, CoreBackend, asJsonMap;
@@ -483,7 +484,8 @@ class AgentController extends ChangeNotifier {
     final name = models.where((m) => m.provider == provider && m.id == id).firstOrNull?.name ??
         gatewayChannels.where((c) => c.provider == provider).firstOrNull?.models.where((m) => m['id'] == id).firstOrNull?['name'] as String? ??
         id;
-    return '${providerLabel(provider)} · $name';
+    final label = providerLabel(provider);
+    return label.isEmpty ? name : '$label · $name';
   }
 
   /// [modelSections] as one list.
@@ -860,9 +862,17 @@ class AgentController extends ChangeNotifier {
   }
 
   /// A model's provider as people know it: the channel's name, or 「模型组」.
+  /// 内测版不露出中转站的名字（用户 2026-11-19）：空字符串。
   String providerLabel(String provider) {
     if (provider == groupProvider) return '模型组';
+    if (kBetaEdition) return '';
     return gatewayChannels.where((c) => c.provider == provider).firstOrNull?.name ?? provider;
+  }
+
+  /// 「模型 · 渠道」, or just the model where the channel is not shown (the beta).
+  String modelWithProvider(String name, String provider) {
+    final label = providerLabel(provider);
+    return label.isEmpty ? name : '$name · $label';
   }
 
   /// Counts for the navigation badges.

@@ -1,3 +1,4 @@
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,7 @@ import 'state/agent_controller.dart';
 import 'state/file_preferences_store.dart';
 import 'state/preferences.dart';
 import 'state/installation.dart';
+import 'state/beta_edition.dart';
 import 'theme.dart';
 import 'ui/agent_scope.dart';
 import 'ui/home_page.dart';
@@ -45,6 +47,13 @@ Future<void> startApplication(List<String> args) async {
   });
   // Everything the window keeps goes to the app's data folder too (v0.3.2), next to the core's.
   final dataDir = Installation.dataRoot();
+  // 内测版：数据跟软件放在一起，不问，直接到输入激活码（用户 2026-11-19 定）。
+  if (kBetaEdition && !Installation.hasData(dataDir)) {
+    await Directory(dataDir).create(recursive: true);
+    await Installation.remember(dataDir);
+    await launchApplication(args, dataDir);
+    return;
+  }
   if (!Installation.hasData(dataDir)) {
     // Our own title strip from the first screen on, like the app after it (DesktopShell does the same later).
     await windowManager.ensureInitialized();

@@ -22,6 +22,9 @@ export interface CorePaths {
 /** The software folder: the one holding app\, core\ (and runtime\ in a package). */
 export const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+/** 内测版（第 6 步朋友内测）：打包时在程序根目录放 beta-edition.json。内测版不检查、不下载更新。 */
+export const BETA_EDITION = existsSync(join(APP_ROOT, "beta-edition.json")) || process.env.DREAMFLUTTER_BETA === "1";
+
 /**
  * Everything the platform keeps lives in one folder next to the software
  * (v0.3.2, user's choice): `<software>\data`. DREAMFLUTTER_DATA overrides it

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pi_rpc/pi_rpc.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../state/agent_controller.dart' show AgentController, asJsonMap;
+import '../state/beta_edition.dart';
 import '../state/session_runtime.dart' show SessionRuntime;
 import '../theme.dart';
 import 'agent_scope.dart';
@@ -127,10 +128,11 @@ class _AboutPanelState extends State<AboutPanel> {
         Text('DreamFlutter', style: context.serif(context.text.titleLarge).copyWith(fontSize: 22, fontWeight: FontWeight.w700, color: colors.accent)),
         const SizedBox(height: 2),
         Text('住在你电脑里的助手，一只认真的蝴蝶。', textAlign: TextAlign.center, style: context.text.bodySmall?.copyWith(fontSize: 13, color: colors.ink2)),
-        if (version != null && version.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 2), child: Text('v$version', style: mono.copyWith(fontSize: 12, color: colors.muted))),
+        if (version != null && version.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 2), child: Text(kBetaEdition ? 'v$version · 内测版' : 'v$version', style: mono.copyWith(fontSize: 12, color: colors.muted))),
         if (message != null && message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(message, style: muted, textAlign: TextAlign.center)),
         const SizedBox(height: 10),
-        Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        if (kBetaEdition) ShellButton('反馈问题 ↗', kind: ShellButtonKind.primary, small: true, onPressed: () => _action(() async { if (!await launchUrl(Uri.parse(betaFeedbackUrl), mode: LaunchMode.externalApplication)) throw StateError('暂时打不开反馈表，请在浏览器里打开 $betaFeedbackUrl'); }))
+        else Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center, children: [
           if (release.isNotEmpty && _status['downloaded'] != true) ShellButton('下载 ${release['version'] ?? '新版本'}', kind: ShellButtonKind.primary, small: true, onPressed: enabled ? () => _action(() => _method('updates.download')) : null),
           if (_status['downloaded'] == true) ShellButton('安装并重启', kind: ShellButtonKind.primary, small: true, onPressed: enabled && _status['canInstall'] == true ? () => _action(_install) : null),
           if (active && _status['state'] != 'installing') ShellButton('取消更新', kind: ShellButtonKind.ghost, small: true, onPressed: () async { try { await _agent!.backend.call('updates.cancel'); } catch (error) { if (mounted) setState(() => _error = SessionRuntime.describeError(error)); } }),
@@ -139,10 +141,10 @@ class _AboutPanelState extends State<AboutPanel> {
         if (_status['state'] == 'downloading') Padding(padding: const EdgeInsets.only(top: 12), child: SizedBox(width: 240, child: LinearProgressIndicator(value: (_status['progress'] as num?)?.toDouble(), color: colors.accent, backgroundColor: colors.sunk))),
       ])),
       SettingsCard(children: [
-        if (release.isNotEmpty) Theme(data: Theme.of(context).copyWith(dividerColor: Colors.transparent), child: ExpansionTile(tilePadding: EdgeInsets.zero, title: Text('${release['version']} 更新了什么', style: context.text.bodyMedium?.copyWith(fontSize: 14)), children: [Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText('${release['notes'] ?? '这个版本没有写更新日志。'}')))])),
-        toggle('自动检查更新', agent.coreSettings['autoCheckUpdates'] != false, _working ? null : (value) => _action(() => agent.updateCoreSettings({'autoCheckUpdates': value}))),
+        if (release.isNotEmpty && !kBetaEdition) Theme(data: Theme.of(context).copyWith(dividerColor: Colors.transparent), child: ExpansionTile(tilePadding: EdgeInsets.zero, title: Text('${release['version']} 更新了什么', style: context.text.bodyMedium?.copyWith(fontSize: 14)), children: [Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText('${release['notes'] ?? '这个版本没有写更新日志。'}')))])),
+        if (!kBetaEdition) toggle('自动检查更新', agent.coreSettings['autoCheckUpdates'] != false, _working ? null : (value) => _action(() => agent.updateCoreSettings({'autoCheckUpdates': value}))),
         SettingRow('导出诊断', desc: _diagnostics != null ? '已保存：$_diagnostics（不会自动上传）' : '不含对话内容，导出前可以先看一遍', child: ShellButton('导出…', small: true, onPressed: _working ? null : () => _action(() async { final result = asJsonMap(await agent.backend.call('updates.diagnostics')); if (mounted) setState(() => _diagnostics = result['path'] as String?); }))),
-        SettingRow('反馈问题', child: link('写给我们', () => _action(() async { final body = Uri.encodeComponent('版本：${build['version'] ?? ''}（${build['build'] ?? ''}）\n平台：${_status['platform'] ?? Platform.operatingSystem} / ${_status['arch'] ?? ''}\n\n问题描述：\n'); await launchUrl(Uri.parse('https://github.com/jun64349/DreamFlutter/issues/new?body=$body'), mode: LaunchMode.externalApplication); }))),
+        if (!kBetaEdition) SettingRow('反馈问题', child: link('写给我们', () => _action(() async { final body = Uri.encodeComponent('版本：${build['version'] ?? ''}（${build['build'] ?? ''}）\n平台：${_status['platform'] ?? Platform.operatingSystem} / ${_status['arch'] ?? ''}\n\n问题描述：\n'); await launchUrl(Uri.parse('https://github.com/jun64349/DreamFlutter/issues/new?body=$body'), mode: LaunchMode.externalApplication); }))),
         SettingRow('许可证', child: link('开源许可 · 查看', () => _action(_licenses))),
       ]),
       if (recovery['error'] != null) Text('${recovery['error']}', style: TextStyle(color: colors.danger)),
