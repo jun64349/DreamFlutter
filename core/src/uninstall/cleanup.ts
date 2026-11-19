@@ -1,6 +1,6 @@
 import { appendFileSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import { rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { redact } from "../security/redaction.ts";
@@ -26,6 +26,14 @@ function recordLog(path: string, entry: LogEntry): void {
 	appendFileSync(path, JSON.stringify({ at: new Date().toISOString(), ...entry,
 		path: entry.path === undefined ? undefined : redact(entry.path, true) }) + "\n", { mode: 0o600 });
 }
+
+/**
+ * WSL keeps the sandbox folder (and briefly its disk) open for a few seconds after
+ * `--unregister`. 2026-11-19: with 3 tries over 0.5 s every real uninstall with a
+ * sandbox left data behind and failed the hook. 16 tries, waiting up to 1 s between
+ * them, give it about 13 s, well inside the native hook's limit.
+ */
+export const SANDBOX_REMOVE_ATTEMPTS = 16;
 
 export async function cleanInstallation(root: string, deps: UninstallDeps, existingLog?: string): Promise<{
 	ok: boolean; plan?: UninstallPlan; logPath: string; remaining: string[];
@@ -96,7 +104,7 @@ export async function cleanInstallation(root: string, deps: UninstallDeps, exist
 	} else if (sandboxReady) log({ step: "sandbox.unregister", status: "skip", path: plan.sandboxDir, reason: "no_distro_record" });
 
 	const remove = deps.remove ?? (async (path: string, tree: boolean) => { await rm(path, { recursive: tree, force: true }); });
-	const erase = async (target: DeleteTarget, attempts = 1): Promise<boolean> => {
+	const erase = async (target: DeleteTarget, attempts = 1, backoff = false): Promise<boolean> => {
 		const { path, tree, kind } = target;
 		log({ step: "remove." + kind, status: "start", path });
 		for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -108,7 +116,7 @@ export async function cleanInstallation(root: string, deps: UninstallDeps, exist
 			} catch {
 				if (attempt < attempts) {
 					log({ step: "remove." + kind, status: "retry", path, reason: "could_not_remove" });
-					await delay(deps.retryDelayMs ?? 250);
+					await delay((deps.retryDelayMs ?? 250) * (backoff ? Math.min(attempt, 4) : 1));
 				}
 			}
 		}
@@ -120,9 +128,9 @@ export async function cleanInstallation(root: string, deps: UninstallDeps, exist
 	const sandboxTree = plan.remove.find(target => target.kind === "sandbox" && target.tree);
 	if (sandboxReady && sandboxTree) {
 		for (const disk of sandboxFiles) {
-			if (!await erase(disk, 3)) sandboxReady = false;
+			if (!await erase(disk, SANDBOX_REMOVE_ATTEMPTS, true)) sandboxReady = false;
 		}
-		if (sandboxReady) sandboxReady = await erase(sandboxTree, 3);
+		if (sandboxReady) sandboxReady = await erase(sandboxTree, SANDBOX_REMOVE_ATTEMPTS, true);
 	}
 	if (stopped && plan.preserveTo) {
 		log({ step: "preserve", status: "start", path: plan.preserveTo });
@@ -162,12 +170,27 @@ function preserveExceptSandbox(source: string, destination: string, sandbox: str
 	}
 }
 
+/**
+ * Where a tree waits for bulk deletion: next to the install folder, so it outlives the
+ * package removal. 2026-11-19: the installer lets people install to D:DreamFlutter, whose
+ * parent is a drive root, which safePath refuses — every removal failed and the uninstall
+ * left the data behind. Then the tree waits inside the install folder, which Velopack
+ * deletes anyway; a tree of its own whose parent is a drive root is not moved at all.
+ */
+export function quarantineParent(path: string, installRoot: string): string | undefined {
+	const inside = isInside(installRoot, path);
+	const parent = inside ? dirname(installRoot) : dirname(path);
+	if (parent !== parse(parent).root) return parent;
+	return inside ? installRoot : undefined;
+}
+
 // Velopack runs the main executable synchronously. Moving a large tree to an adjacent
 // directory is cheap, so actual bulk deletion can run after Velopack removes the app.
 export function quarantine(path: string, tree: boolean, installRoot: string): { path: string; directory: string } | undefined {
 	safePath(path);
 	if (!lstatSync(path, { throwIfNoEntry: false })) return undefined;
-	const parent = isInside(installRoot, path) ? dirname(installRoot) : dirname(path);
+	const parent = quarantineParent(path, installRoot);
+	if (!parent) { rmSync(path, { recursive: tree, force: true }); return undefined; }
 	safePath(parent);
 	const directory = mkdtempSync(join(parent, ".dreamflutter-remove-"));
 	try {

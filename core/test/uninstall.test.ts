@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test, type TestContext } from "node:test";
-import { cleanInstallation, quarantine, type UninstallDeps } from "../src/uninstall/cleanup.ts";
+import { cleanInstallation, SANDBOX_REMOVE_ATTEMPTS, quarantine, quarantineParent, type UninstallDeps } from "../src/uninstall/cleanup.ts";
 import { keepMarker, planUninstall, type LegacyPaths } from "../src/uninstall/plan.ts";
 import { MOVED_MARKER } from "../src/backup/backup.ts";
 import { windowsDependencies } from "../src/uninstall/windows.ts";
@@ -114,12 +114,30 @@ test("an occupied VHDX is retried, left in place, and reported without raw failu
 			await rm(path, { recursive: tree, force: true });
 		},
 	});
-	assert.equal(attempts, 3);
+	assert.equal(attempts, SANDBOX_REMOVE_ATTEMPTS);
 	assert.equal(result.ok, false);
 	assert.ok(result.remaining.includes(f.disk));
 	assert.ok(existsSync(f.disk));
 	assert.ok(existsSync(f.data));
 	assert.doesNotMatch(readFileSync(result.logPath, "utf8"), new RegExp(secret));
+});
+
+// 2026-11-19 real uninstall: WSL let go of the sandbox folder a few seconds after --unregister;
+// with 3 quick tries the folder and all data stayed and the hook failed.
+test("a sandbox folder WSL still holds after unregister is retried until it lets go", async t => {
+	const f = fixture(t, false);
+	let busy = 0;
+	const result = await cleanInstallation(f.root, {
+		...f.deps,
+		async remove(path, tree) {
+			if (path === f.sandbox && busy < 8) { busy++; throw new Error("EBUSY"); }
+			await rm(path, { recursive: tree, force: true });
+		},
+	});
+	assert.equal(busy, 8);
+	assert.equal(result.ok, true, JSON.stringify(result.remaining));
+	assert.equal(existsSync(f.sandbox), false);
+	assert.equal(existsSync(f.data), false);
 });
 
 test("failed unregister and mismatched registrations never trigger disk deletion", async t => {
@@ -191,6 +209,15 @@ test("bulk quarantine under the install root survives the package directory remo
 	assert.ok(existsSync(join(dir.path, "configuration.json")));
 });
 
+// 2026-11-19 real uninstall of D:\DreamFlutter: the quarantine went to D:\, which is refused,
+// so nothing under the install folder could be removed and the data stayed.
+test("an install folder right under a drive root keeps its quarantine inside itself", { skip: process.platform !== "win32" }, () => {
+	assert.equal(quarantineParent("D:\\DreamFlutter\\data\\application-data\\sandbox", "D:\\DreamFlutter"), "D:\\DreamFlutter");
+	assert.equal(quarantineParent("C:\\Users\\a\\AppData\\Local\\DreamFlutter\\data", "C:\\Users\\a\\AppData\\Local\\DreamFlutter"), "C:\\Users\\a\\AppData\\Local");
+	assert.equal(quarantineParent("E:\\data", "D:\\DreamFlutter"), undefined);
+	assert.equal(quarantineParent("E:\\x\\data", "D:\\DreamFlutter"), "E:\\x");
+});
+
 test("the Windows bulk worker deletes quarantined trees without following a junction", {
 	skip: process.platform !== "win32",
 }, async t => {
@@ -215,7 +242,8 @@ test("packaging selects the registered hook and includes its runtime without cha
 	assert.match(pkg, /'runtime\/node.exe', 'app\/velopack_libc.dll', 'core\/src\/uninstall\/hook.ts'/);
 	assert.match(pkg, /--mainExe 'app\/dreamflutter.exe'/);
 	assert.match(native, /\.SetAutoApplyOnStartup\(false\)\s*\.OnBeforeUninstall\(BeforeDreamFlutterUninstall\)\.Run\(\)/);
-	assert.match(native, /WaitForSingleObject\(process.hProcess, 25000\)/);
+	// 2026-11-19: 25 s timed out a real uninstall; Velopack itself allows the hook 60 s.
+	assert.match(native, /WaitForSingleObject\(process.hProcess, 50000\)/);
 	assert.match(read("core/src/uninstall/hook.ts"), /windowsDependencies/);
 });
 

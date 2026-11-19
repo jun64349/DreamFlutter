@@ -22,7 +22,9 @@ void BeforeDreamFlutterUninstall(void*, const char*) {
                         CREATE_NO_WINDOW, nullptr, current.c_str(), &startup, &process)) {
       ExitProcess(1);
     }
-    const DWORD wait = WaitForSingleObject(process.hProcess, 25000);
+    // Velopack waits 60 s for this hook. 2026-11-19: 25 s was not enough on a real
+    // uninstall (no cleanup log at all); leave the cleanup most of the window.
+    const DWORD wait = WaitForSingleObject(process.hProcess, 50000);
     DWORD status = 1;
     if (wait == WAIT_OBJECT_0) GetExitCodeProcess(process.hProcess, &status);
     else TerminateProcess(process.hProcess, 1);
