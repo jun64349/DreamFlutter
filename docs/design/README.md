@@ -18,4 +18,4 @@
 | `canvases/frame-0.4/` | 窗口框架设计稿源文件（`.dc.html`，Claude 设计画布格式；`canvas.json` 是画布索引）。线上画布 https://claude.ai/artifact/NYpoVANRPEKZPmMgkhKYuS |
 | `canvases/brand/` | 品牌方案设计稿源文件。线上画布 https://claude.ai/artifact/XYxoNwpu9p5mu2zWbVy5xv（图片引用的是画布里上传的原图） |
 
-更早的设计资料：[../v0.2-design.md](../v0.2-design.md)（三套视觉方向、信息架构）、v0.2 设计画布 https://claude.ai/artifact/6YEFyrT1H7voDESb7SkvDf。
+更早的设计资料：[history/v0.2-design.md](../history/v0.2-design.md)（三套视觉方向、信息架构）、v0.2 设计画布 https://claude.ai/artifact/6YEFyrT1H7voDESb7SkvDf。

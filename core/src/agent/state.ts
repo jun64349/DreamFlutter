@@ -19,7 +19,7 @@ export interface TodoItem {
  * list and plan mode. Lives as long as the Pi runtime that owns it.
  */
 /**
- * Where a session's tools act (docs/v0.3-design.md 三): this machine, or
+ * Where a session's tools act (docs/history/v0.3-design.md 三): this machine, or
  * 蝶君's WSL sandbox. Paths the model writes follow the environment's rules
  * (Windows or POSIX); the core opens them through [local].
  */

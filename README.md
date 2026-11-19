@@ -123,7 +123,7 @@ flowchart LR
 
 每个版本都走同一套流程：调研 → 决定备忘 → 分波派工 → 施工 → 全量测试 → 少量付费真实模型验证 → 打候选包 → 在真实环境安装验证 → 用户按清单实测 → 发布说明里写清楚已知限制。预览版发布前：后台 1044 项、窗口 400 余项测试全部通过，安装、升级、回滚、卸载在真实环境走通。
 
-相关文档：[开发规范](docs/dev-guide.md) · [全场景测试清单](docs/testing/scenarios.md) · [v1.0 收敛说明](docs/v1.0-convergence.md) · [交接文档](docs/HANDOFF.md)
+相关文档：[开发规范](docs/dev-guide.md) · [全场景测试清单](docs/testing/scenarios.md) · [v1.0 收敛说明](docs/history/v1.0-convergence.md) · [交接文档](docs/HANDOFF.md)
 
 ## 从源码运行
 
@@ -149,7 +149,7 @@ flutter run -d windows
 ## 文档导航
 
 - 上手：[入门课本](docs/guide/README.md)（十课，必修前五课在程序里跟着做）
-- 设计：[交互设计](docs/design/interaction-design.md) · [架构](docs/architecture.md) · [记忆设计](docs/memory-design.md) · [长任务设计](docs/long-task-design.md) · [安全](docs/security.md) · [设计语言](docs/design/design-language.md) · [品牌](docs/design/brand.md)
+- 设计：[交互设计](docs/design/interaction-design.md) · [架构](docs/architecture/architecture.md) · [记忆设计](docs/architecture/memory-design.md) · [长任务设计](docs/architecture/long-task-design.md) · [安全](docs/architecture/security.md) · [设计语言](docs/design/design-language.md) · [品牌](docs/design/brand.md)
 - 接口：[接口总览](docs/api/README.md)（会话、记忆、目标与日程、模型与用量、技能与 MCP、存储与维护、语音、卸载等）
 - 调研：[`docs/research/`](docs/research)
 - 发布：[`docs/releases/`](docs/releases)

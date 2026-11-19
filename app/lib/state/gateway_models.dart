@@ -3,7 +3,7 @@ import 'package:pi_rpc/pi_rpc.dart';
 import 'backend.dart' show asJsonMap;
 import 'work_models.dart' show jsonRows;
 
-/// The model gateway as the core reports it (docs/v0.2-gateway.md).
+/// The model gateway as the core reports it (docs/history/v0.2-gateway.md).
 
 /// Provider id the model groups are listed under.
 const groupProvider = 'dreamflutter';

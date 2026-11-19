@@ -1006,7 +1006,7 @@ interface CoreSettings {
 	memoryWriteFrequency: "standard" | "low";
 	/** Tokens of long-term memory injected at task start. */
 	memoryBudgetTokens: number;
-	/** 「写入前要我确认」: memory changes the agents make wait for the user (docs/memory-design.md §4); off = they take effect and go in the memory log. */
+	/** 「写入前要我确认」: memory changes the agents make wait for the user (docs/architecture/memory-design.md §4); off = they take effect and go in the memory log. */
 	memoryConfirmWrites: boolean;
 	/** Model the memory agent uses (provider/id or a model group); null = the auxiliary model (memory-design §5). */
 	memoryModel: string | null;

@@ -28,7 +28,7 @@
 
 1. 让用户在现有位置理解发送动作、当前使用的服务与可用额度；提交前是否确有疑惑须通过后续用户研究验证。Raycast 在主搜索已有问题时按 Tab 立即提交是其文档行为，不应因此改变 DreamFlutter 已定型输入交互。
 2. 将额度不足、上游限流、网络失败、自带服务商验证失败分开设计可恢复提示；任何权限、附件传输或额外费用应在相关操作附近按需说明，避免堆叠无必要说明。
-3. 遵守 [已定型清单](../../design/settled-0.8.3.md)、[0.12 前端规格](../../design/v0.12-frontend-spec.md)和避免多余说明原则；前端设计由 Claude 负责。以上仅为建议，尚未据此修改设计或证明已获批准。
+3. 遵守 [已定型清单](../../design/settled-0.8.3.md)、[0.12 前端规格](../../history/v0.12-frontend-spec.md)和避免多余说明原则；前端设计由 Claude 负责。以上仅为建议，尚未据此修改设计或证明已获批准。
 ### 本地推理的数据边界补充
 
 依据 [Local Models](https://manual.raycast.com/ai/local-models) 与 [隐私说明](https://manual.raycast.com/ai/raycast-ai-privacy-security)：文档所述本地 Ollama 对话本身不消耗 Raycast AI 积分，但图像生成等由云端完成的步骤仍需要联网并消耗积分；也可以把 Ollama Host 指向另一台机器，不能一律称为本机处理。厂商说明 Cloud Sync 开启时可能同步聊天；图片附件默认可能上传，但关闭 Cloud Sync 或不同步 AI Chat History 时，发送给本地模型的图片保留在设备上。AI Memory 开启时，近期聊天可能由 Raycast 托管模型处理。此处仅转述官方文档的条件，未进行网络抓包或隐私审计，也不保证绝无其他数据流。

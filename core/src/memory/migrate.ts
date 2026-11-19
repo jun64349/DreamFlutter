@@ -32,7 +32,7 @@ export function activateMigratedReview(db: Db, store: MemoryStore): number | und
 	return changed;
 }
 
-/** What moving v0.2's memory over did (docs/memory-design.md §11: 「迁移有核对报告」). */
+/** What moving v0.2's memory over did (docs/architecture/memory-design.md §11: 「迁移有核对报告」). */
 export interface MigrationReport {
 	at: number;
 	/** v0.2 memories now items, in effect (V07-03). */

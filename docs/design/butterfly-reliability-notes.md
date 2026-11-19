@@ -1,6 +1,6 @@
 # 蝶君的可控可靠：讨论记录
 
-2026-11-12 用户和 Claude 的讨论，**2.0 以后做**。先由调研 Agent 做文献调研（提示词见 [research/butterfly-reliability-research-prompt.md](../research/butterfly-reliability-research-prompt.md)），再构思、仿真、写正式设计。roadmap 第七节「蝶君的可控可靠」是这份记录的摘要。
+2026-11-12 用户和 Claude 的讨论，**2.0 以后做**。先由调研 Agent 做文献调研（提示词见 [research/butterfly-reliability-research-prompt.md](../research/prompts/butterfly-reliability-research-prompt.md)），再构思、仿真、写正式设计。roadmap 第七节「蝶君的可控可靠」是这份记录的摘要。
 
 ## 一、出发点
 

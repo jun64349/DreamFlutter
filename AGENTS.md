@@ -1,6 +1,6 @@
 # DreamFlutter：给 Agent 的项目规矩
 
-开工前先读 [docs/NEW-AGENT-START.md](docs/NEW-AGENT-START.md)（接手须知：用户、规矩、方向、环境）、[docs/HANDOFF.md](docs/HANDOFF.md) 最上面的当前状态和 [docs/dev-guide.md](docs/dev-guide.md)。界面以 [docs/design/v1-redesign-spec.md](docs/design/v1-redesign-spec.md) 和原型 [docs/design/prototype/v1-redesign.html](docs/design/prototype/v1-redesign.html) 为准（2026-11-14 用户要求整体 UI 重做；概念、流程、用词仍看 [docs/design/interaction-design.md](docs/design/interaction-design.md)）。跟用户说话一律用平实的中文。
+文档总目录在 [docs/README.md](docs/README.md)。开工前先读 [docs/NEW-AGENT-START.md](docs/NEW-AGENT-START.md)（接手须知：用户、规矩、方向、环境）、[docs/HANDOFF.md](docs/HANDOFF.md) 最上面的当前状态和 [docs/dev-guide.md](docs/dev-guide.md)。界面以 [docs/design/v1-redesign-spec.md](docs/design/v1-redesign-spec.md) 和原型 [docs/design/prototype/v1-redesign.html](docs/design/prototype/v1-redesign.html) 为准（2026-11-14 用户要求整体 UI 重做；概念、流程、用词仍看 [docs/design/interaction-design.md](docs/design/interaction-design.md)）。跟用户说话一律用平实的中文。
 
 ## 到 1.0 的最后路线（用户 2026-11-17 定，必须照做）
 

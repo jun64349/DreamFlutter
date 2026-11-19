@@ -136,7 +136,7 @@ const CONFLICT_SYSTEM = [
 
 /**
  * The memory agent's work: what is queued, how each kind of job runs, the
- * weekly schedule, and the ledger and budget (docs/memory-design.md §5, §7).
+ * weekly schedule, and the ledger and budget (docs/architecture/memory-design.md §5, §7).
  */
 export class MemoryWork {
 	private readonly core: Core;

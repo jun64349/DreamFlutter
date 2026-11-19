@@ -444,7 +444,7 @@ export const MIGRATIONS: string[] = [
 		at INTEGER NOT NULL
 	);
 	`,
-	// 9: v0.5 memory (docs/memory-design.md §2): workspaces with a stable id, memory items with
+	// 9: v0.5 memory (docs/architecture/memory-design.md §2): workspaces with a stable id, memory items with
 	// every version, sources, links, the op log in batches (the memory log, undoable), and
 	// changes waiting for the user. The v0.2 tables stay, read-only, for one version.
 	`

@@ -16,7 +16,7 @@ import { storageLocations, type StorageKind } from "../storage/locations.ts";
 
 /**
  * Restoring a package, up to the point where it can replace the live data
- * (docs/v0.3.1-backup-design.md §五–六): check it, show what it holds, then
+ * (docs/history/v0.3.1-backup-design.md §五–六): check it, show what it holds, then
  * extract it to restore-staging/, upgrade its database with the app's own
  * migrations, move every path to this machine and seal the keys with this
  * Windows user's DPAPI. The switch itself happens at the next start (switch.ts).

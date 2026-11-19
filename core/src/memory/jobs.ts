@@ -3,7 +3,7 @@ import type { Db } from "../db.ts";
 import { json, parseJson } from "../db.ts";
 
 /**
- * The memory agent's job queue (docs/memory-design.md §7): one job at a
+ * The memory agent's job queue (docs/architecture/memory-design.md §7): one job at a
  * time, by priority; failures retried twice with growing pauses, then
  * failed with the reason; ordinary work put off (never dropped) when the
  * memory budget for the day is spent or tidying is paused.

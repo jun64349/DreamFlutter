@@ -1,7 +1,7 @@
 /**
  * What a failed request says about the channel that served it. Platforms
  * return most limits as HTTP 429, quota exhaustion included, so the kind comes
- * from business codes and wording, not the status alone (docs/v0.2-gateway.md,
+ * from business codes and wording, not the status alone (docs/history/v0.2-gateway.md,
  * appendix B).
  */
 export type FailureKind =

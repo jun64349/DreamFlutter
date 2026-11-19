@@ -48,7 +48,7 @@
 | 15 | 首页标题和引文居中，引文出处在下一行 | 首页 |
 | 16 | 花费页是图表（近 30 天柱状、按用途和按模型两个环，金额 / 次数可切）；记忆有搜索和分组筛选、按天分组 | 花费面板、记忆面板 |
 
-另外保留：0.12 已实现的全部功能（日程、巡检、目标、计划条、提问卡、后台任务、语音、卸载、规则草稿、长期目标……），只换样子。功能清单见 `docs/design/v0.12-frontend-spec.md` 和 `docs/releases/v0.12.0-test.5.md`。
+另外保留：0.12 已实现的全部功能（日程、巡检、目标、计划条、提问卡、后台任务、语音、卸载、规则草稿、长期目标……），只换样子。功能清单见 `docs/history/v0.12-frontend-spec.md` 和 `docs/releases/v0.12.0-test.5.md`。
 
 **守护测试的处理**：行为断言一律不改；**截图类守护**（`v082_look_test`、`t87_pages_look_test`、`t86_chat_look_test` 等）的基准图要按新样子重拍，重拍前后的截图都存档，在派工单第 5 节写明。
 
@@ -73,7 +73,7 @@
 | 定型清单（逻辑部分仍有效） | `docs/design/settled-0.8.3.md` |
 | 交互设计（概念、流程、用词仍有效） | `docs/design/interaction-design.md` |
 | 概念和叫法 | `docs/design/glossary.md` |
-| 0.12 功能规则（功能仍有效，样子以新原型为准） | `docs/design/v0.12-frontend-spec.md` |
+| 0.12 功能规则（功能仍有效，样子以新原型为准） | `docs/history/v0.12-frontend-spec.md` |
 | 名画主题的作品资料 | `docs/research/art-themes.md` |
 | 蝴蝶图形（必须用它，不能自己画） | `docs/design/assets/butterfly.svg` |
 | 接口文档 | `docs/api/README.md` 及同目录各文件 |

@@ -1,5 +1,5 @@
 /**
- * v0.5 memory model (docs/memory-design.md §2–4). One row per memory item,
+ * v0.5 memory model (docs/architecture/memory-design.md §2–4). One row per memory item,
  * every version kept; changes go through MemoryStore.commit, which checks
  * them (scope, version, the user-only exceptions) and logs them in batches.
  */

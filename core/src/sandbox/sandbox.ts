@@ -13,7 +13,7 @@ import { dirname } from "node:path";
 import { storageLocations } from "../storage/locations.ts";
 
 /**
- * 蝶君's sandbox: a WSL2 distro of its own (roadmap 3.3, docs/v0.3-design.md).
+ * 蝶君's sandbox: a WSL2 distro of its own (roadmap 3.3, docs/history/v0.3-design.md).
  *
  * Checked by hand on 2026-11-02 (docs/HANDOFF.md, v0.3 sandbox):
  * - wsl.conf without automount and interop keeps Windows drives out, and the

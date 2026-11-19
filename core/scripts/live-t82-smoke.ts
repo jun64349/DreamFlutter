@@ -65,14 +65,14 @@ try{
  // A new owned distro only; never use/shutdown/move the user's existing default sandbox.
  const disk=join(root,'trial-distro');mkdirSync(disk);const image=bundledImage();assert.ok(image);const importedResult=await runWsl(['--import',distro,disk,image,'--version','2'],{timeoutMs:120_000});assert.equal(importedResult.code,0,importedResult.stderr);imported=true;proof.trialDistro=distro;
  core.sandboxProvider=()=>({distro,ready:async()=>{},online:()=>false});
- const skillCwd=make('skill');copyFileSync(join(repo,'docs/research/v0.7-r1-skills-mcp.md'),join(skillCwd,'community-research.md'));
+ const skillCwd=make('skill');copyFileSync(join(repo,'docs/research/v0.7/r1-skills-mcp.md'),join(skillCwd,'community-research.md'));
  phaseStart=proof.physicalRequests;await open('skill',skillCwd);
  const created=await prompt('skill','使用 $skill-builder，为本次隔离验收做一个独特的术语检查技能 t82-terms；先读取已提供的 community-research.md 比较成熟方案（这是既有核实调研，不冒称新联网搜索），我已明确选择自建。SKILL.md 不超过30行；scripts/check.py 用Python标准库读取第一个参数的JSON {"text":"含旧词","forbidden":["旧词"]}，写 terms-result.json={"hits":["旧词"]}。skill_register 的content填完整SKILL.md，files填源码字符串，sourceKind=agent，不需要write中转。对返回proposalId做skill_test及一次skill_script_trial（同上述样例）。禁止本机执行，保持待确认，完成后简短报告。','skill-create');
  assert.ok(loaded(created,'skill-builder'));for(const name of ['skill_register','skill_test'])assert.ok(created.calls.some((c:any)=>c.name===name));const proposal=(await core.call('proposals.list',{}) as any[]).find(p=>p.kind==='skill'&&p.payload.name==='t82-terms');assert.ok(proposal);assert.equal(proposal.status,'pending');assert.ok(!existsSync(join(agent,'skills/t82-terms/SKILL.md')));
  const trial=created.calls.find((c:any)=>c.name==='skill_script_trial');assert.ok(trial);const tested=JSON.parse(textOf(trial.result.content));assert.ok(tested.ok);assert.deepEqual(JSON.parse(tested.artifacts.find((a:any)=>a.path==='terms-result.json').textPreview).hits,['旧词']);
  await core.call('proposals.accept',{id:proposal.id});await core.slot('skill').handle({type:'df_reload',id:'t82-skill-reload'},client.id);activate('skill');
  const used=await prompt('skill','验收操作者已在管理端确认。请使用 $t82-terms，只实际加载技能，不再执行脚本，简短报告。','skill-confirmed');assert.ok(loaded(used,'t82-terms'));proof.skillPassed=true;await core.closeSlot('skill');save();
- const mcpCwd=make('mcp'),fixture=join(mcpCwd,'fixture.mjs');copyFileSync(join(repo,'docs/research/v0.7-r1-skills-mcp.md'),join(mcpCwd,'community-research.md'));
+ const mcpCwd=make('mcp'),fixture=join(mcpCwd,'fixture.mjs');copyFileSync(join(repo,'docs/research/v0.7/r1-skills-mcp.md'),join(mcpCwd,'community-research.md'));
  copyFileSync(join(repo,'core/scripts/t82-mcp-fixture.mjs'),fixture);
  writeFileSync(join(mcpCwd,'mcp-fixture.md'),`# Owned T82 fixture, not a public Registry entry\nOfficial lifecycle: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle\nCompare community-research.md, then register this agent-owned local test service, protocol 2025-11-25:\n${JSON.stringify({name:'t82-fixture',transport:'stdio',command:process.execPath,args:[fixture],exposure:'direct'})}\nOnly echo returns T82_MCP_READONLY_OK. Keep butterfly authorization off.\n`);
  phaseStart=proof.physicalRequests;await open('mcp',mcpCwd);

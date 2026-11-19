@@ -7,7 +7,7 @@ import { LIVE_STATUSES, type Confidence, type Level, type MemoryItem, type Memor
 
 /**
  * What the program decides about a memory's life on its own, without a model
- * (docs/memory-design.md §3, 17.3–17.6): whether a level change is allowed,
+ * (docs/architecture/memory-design.md §3, 17.3–17.6): whether a level change is allowed,
  * validity running out, counter-evidence from tools, and the cheap check for
  * contradictions that decides whether the memory agent is asked at all.
  */

@@ -41,7 +41,7 @@ assert.equal(source.toLowerCase(), resolve("E:/DreamFlutter测试版/data").toLo
 assert.ok(evidenceArg && !existsSync(evidence), "new evidence file required; no silent paid rerun");
 assert.ok(["formal", "compare-on", "compare-off"].includes(profile));
 assert.ok(["0", "1", "2"].includes(round));
-const raw = readFileSync(new URL("../../docs/research/v0.7-routing-draft.json", import.meta.url));
+const raw = readFileSync(new URL("../../docs/research/v0.7/routing-draft.json", import.meta.url));
 const digest = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 const datasetSha256 = digest(raw); assert.equal(datasetSha256, "9ad1622f6710d204439a9f50842fbe74e16d8bea05198ff9c0c1b14b16664935");
 const dataset = JSON.parse(raw.toString("utf8")) as RoutingDataset;
@@ -135,7 +135,7 @@ const distro = `df-t80-real-${randomUUID().slice(0, 12)}`, distroDir = join(root
 try {
 	const python = fileURLToPath(new URL("../python/cpython-3.13.18-windows-x86_64-none/python.exe", import.meta.url));
 	await promisify(execFile)(python, [fileURLToPath(new URL("routing-fixtures-t80.py", import.meta.url)), template], { windowsHide: true });
-	copyFileSync(new URL("../../docs/research/v0.7-r1-skills-mcp.md", import.meta.url), join(template, "community-research.md"));
+	copyFileSync(new URL("../../docs/research/v0.7/r1-skills-mcp.md", import.meta.url), join(template, "community-research.md"));
 	writeFileSync(join(template, "AGENTS.md"), "# 本地测试材料\n本周记录为 materials.md，文档材料 materials.docx，销售表 sales.xlsx，销售 CSV sales.csv，PDF 为 table.pdf 和 appendix.pdf，PPT 材料 materials.pptx，总路由草案 community-research.md。阅读用的未安装示例为 example-skill/SKILL.md。输入全为合成夹具，每次任务有独立副本；不得覆盖原始输入。现有 calendar/files 为受控只读测试服务，未提供真实天气/日历厂商账号。环境已随包提供 Python/办公依赖与 Node，不授权联网安装、提交 Git 或写其他个人目录。\n");
 	// Ten distinct CSV input files satisfy the quantity in RT09 without changing the prompt.
 	mkdirSync(join(template, "csv-inputs")); for (let i=1; i<=10; i++) copyFileSync(join(template, "sales.csv"), join(template, "csv-inputs", `sales-${i}.csv`));

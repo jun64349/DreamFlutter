@@ -2,7 +2,7 @@ import type { AssistantMessage, Message, Model, Tool } from "@earendil-works/pi-
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 /**
- * The memory agent (docs/memory-design.md §5): a role whose limits the
+ * The memory agent (docs/architecture/memory-design.md §5): a role whose limits the
  * program sets, not its prompt. It runs as a small loop in the background
  * process: no Pi session, no shell, files, network or search, no execution
  * environment at all; its only tools read the memory store in the scope it

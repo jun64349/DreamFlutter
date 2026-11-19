@@ -46,7 +46,7 @@ String _date(num? ms) {
   return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
 }
 
-/// Settings › 数据与迁移 (docs/v0.3.1-backup-design.md §八): export a backup,
+/// Settings › 数据与迁移 (docs/history/v0.3.1-backup-design.md §八): export a backup,
 /// import one (check → preview → stage → replace on restart), undo the last
 /// restore, and the backups made so far.
 class BackupPanel extends StatefulWidget {

@@ -1,7 +1,7 @@
 /**
  * Known platforms: what the "add channel" form fills in, and how to read a
  * channel's balance or plan allowance. From the 2026-10-31 research
- * (docs/v0.2-gateway.md appendix B); change addresses here only.
+ * (docs/history/v0.2-gateway.md appendix B); change addresses here only.
  */
 
 export type ChannelKind = "payg" | "plan" | "relay";

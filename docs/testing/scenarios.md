@@ -358,7 +358,7 @@ test.6 包的结果见 [test.6 发布说明](../releases/v0.12.0-test.6.md) 和 
 
 ### 路由与展示
 
-固定集：`docs/research/v0.7-routing-draft.json`，Claude已确认showcard-pro六处改名，SHA-256 **9ad1622f6710d204439a9f50842fbe74e16d8bea05198ff9c0c1b14b16664935**（T77§4/派工§15），不因JSON历史draft标签另换题。实测输入/标签/门槛保持原样，修复规则后按要求整套重跑。
+固定集：`docs/research/v0.7/routing-draft.json`，Claude已确认showcard-pro六处改名，SHA-256 **9ad1622f6710d204439a9f50842fbe74e16d8bea05198ff9c0c1b14b16664935**（T77§4/派工§15），不因JSON历史draft标签另换题。实测输入/标签/门槛保持原样，修复规则后按要求整套重跑。
 
 | 编号 | 操作 / 触发 | 预期与证据要求 | 当前证据 / 联合状态 |
 | --- | --- | --- | --- |

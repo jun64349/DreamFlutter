@@ -14,7 +14,7 @@ import { isInside } from "./path-map.ts";
 import { storageLocations, type StorageLocations } from "../storage/locations.ts";
 
 /**
- * Making a backup package (docs/v0.3.1-backup-design.md §三–四): take a
+ * Making a backup package (docs/history/v0.3.1-backup-design.md §三–四): take a
  * consistent copy of everything into a work folder (the database by VACUUM
  * INTO, session files up to their current length), then hash, seal the keys
  * if asked and zip it to `<out>.partial`, renamed to `<out>` only when

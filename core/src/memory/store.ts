@@ -164,7 +164,7 @@ const REVIEW_ONLY = new Set(["lastVerifiedAt", "nextReviewAt"]);
 type Check = { apply: true } | { reject: string } | { pending: PendingWhy; review?: boolean };
 
 /**
- * The memory store and its gate (docs/memory-design.md §4–5, 「程序侧守门」):
+ * The memory store and its gate (docs/architecture/memory-design.md §4–5, 「程序侧守门」):
  * every change is an op checked for scope, version and the user-only
  * exceptions, applied in one transaction per batch, versioned and logged.
  * Whatever is not allowed to take effect on its own waits in

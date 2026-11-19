@@ -4,7 +4,7 @@ import { scoreRouting, type RoutingDataset, type RoutingAttempt } from "../src/m
 
 const [trace, output] = process.argv.slice(2);
 if (!trace || !output) throw new Error("Usage: score-routing-t77.ts <actual-trace.json> <score.json>");
-const raw = readFileSync(new URL("../../docs/research/v0.7-routing-draft.json", import.meta.url));
+const raw = readFileSync(new URL("../../docs/research/v0.7/routing-draft.json", import.meta.url));
 const dataset = JSON.parse(raw.toString("utf8")) as RoutingDataset;
 const rawTrace = readFileSync(trace), input = JSON.parse(rawTrace.toString("utf8")) as { attempts: RoutingAttempt[]; datasetSha256: string };
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex"), datasetSha256 = hash(raw);

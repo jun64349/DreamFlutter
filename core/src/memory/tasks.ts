@@ -4,7 +4,7 @@ import type { Db } from "../db.ts";
 import { relevance, trigrams } from "./text.ts";
 
 /**
- * The task a session is on (docs/memory-design.md §16): a snapshot follows
+ * The task a session is on (docs/architecture/memory-design.md §16): a snapshot follows
  * the task, not every message. One session can hold several tasks one after
  * another; a task that the program only guessed is over is 「挂起」, not
  * 「完成」, so the user can say it was the same task after all.

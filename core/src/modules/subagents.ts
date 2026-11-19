@@ -9,7 +9,7 @@ import { JobsModule } from "./jobs.ts";
  * The `agent` tool: the main agent sends a role card off with a task; the
  * subagent works in its own in-memory Pi session (fresh context, the parent's
  * approval rules, channel models) and hands back its final reply. Several
- * calls in one turn run side by side. See docs/v0.3-design.md.
+ * calls in one turn run side by side. See docs/history/v0.3-design.md.
  */
 
 /** Subagents running at once across the core; more wait their turn. */

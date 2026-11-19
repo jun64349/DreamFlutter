@@ -1,5 +1,5 @@
 /**
- * Role cards: agents the main agent can send off to work (docs/v0.3-design.md).
+ * Role cards: agents the main agent can send off to work (docs/history/v0.3-design.md).
  * Subagents now; the memory agent (0.5) and 蝶君 (3.5) become role cards too.
  */
 

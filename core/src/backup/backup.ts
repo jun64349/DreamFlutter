@@ -14,7 +14,7 @@ import { inspectBackup, RestoreError, stageBackup, type Preview, type RestoreTar
 import { resultFile, writeSwitchRecord } from "./switch.ts";
 
 /**
- * Settings › 数据与迁移 (docs/v0.3.1-backup-design.md): export a package,
+ * Settings › 数据与迁移 (docs/history/v0.3.1-backup-design.md): export a package,
  * import one (check → preview → stage → automatic backup of the current
  * data → switch on restart), undo the last restore, and the list of
  * backups. Long steps run as one job at a time; the window follows its

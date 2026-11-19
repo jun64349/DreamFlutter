@@ -3,7 +3,7 @@ import { estimateTokens } from "./text.ts";
 
 /**
  * Corrects the snapshot's token estimate with what the model actually
- * counted (docs/memory-design.md §6.1 「token 用模型实际的计数回校估算值」).
+ * counted (docs/architecture/memory-design.md §6.1 「token 用模型实际的计数回校估算值」).
  *
  * A provider reports the input of a whole request: system prompt, tool
  * definitions and every message. Those first two are the same from one call

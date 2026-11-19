@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { scanSecrets } from "../cards/document.ts";
 
 /**
- * What memory must never hold (docs/memory-design.md §10, 17.2 item 3):
+ * What memory must never hold (docs/architecture/memory-design.md §10, 17.2 item 3):
  * memory goes into every request, so text written into it keeps acting.
  * Checked when an item is written and again when a snapshot is put
  * together (old data, a hand-edited database).

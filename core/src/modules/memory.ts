@@ -90,7 +90,7 @@ export const BLOCKS = [
 const STABLE_KINDS: readonly ItemKind[] = ["preference", "background", "agreement", "persona", "decision"];
 
 /**
- * Long-term memory (docs/memory-design.md). The store and its gate live in
+ * Long-term memory (docs/architecture/memory-design.md). The store and its gate live in
  * src/memory/; this module wires them into sessions (snapshot, agent tools,
  * extraction after runs) and the window (memory.* methods, the memory log).
  */
@@ -250,7 +250,7 @@ export class MemoryModule implements CoreModule {
 		}
 	}
 
-	// ---- snapshot (docs/memory-design.md §6) -------------------------------------------------
+	// ---- snapshot (docs/architecture/memory-design.md §6) -------------------------------------------------
 
 	/** Plans the snapshot for [prompt] in [cwd]: the budget from [model]'s window and what the request already holds (§6.1). */
 	snapshot(prompt: string, cwd: string, model?: { contextWindow: number; maxTokens: number; provider?: string; id?: string }, nonMemory = 0): Snapshot {
@@ -887,7 +887,7 @@ export class MemoryModule implements CoreModule {
 		return slot.sideConversation ? [] : [this.extension(slot)];
 	}
 
-	// ---- the memory agent's work (docs/memory-design.md §5, §7) -----------------------------
+	// ---- the memory agent's work (docs/architecture/memory-design.md §5, §7) -----------------------------
 
 	/**
 	 * A tool call that succeeded disproves observations saying it does not

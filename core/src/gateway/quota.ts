@@ -20,7 +20,7 @@ type Fetch = typeof fetch;
 
 /**
  * Reads a channel's balance or plan allowance. Endpoints and fields come from
- * the 2026-10-31 research (docs/v0.2-gateway.md appendix B); only DeepSeek's
+ * the 2026-10-31 research (docs/history/v0.2-gateway.md appendix B); only DeepSeek's
  * was checked live, the others parse defensively and report what they cannot read.
  */
 export async function readQuota(source: QuotaSource, baseUrl: string, apiKey: string, fetchImpl: Fetch = fetch, clock: () => number = Date.now): Promise<QuotaReading> {

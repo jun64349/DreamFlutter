@@ -5,7 +5,7 @@ import { gradeRoutingCase, scoreRouting, type RoutingAttempt, type RoutingDatase
 
 const [folderArg, formalArg, onArg, offArg, outputArg] = process.argv.slice(2);
 assert.ok(folderArg && formalArg && onArg && offArg && outputArg);
-const folder = resolve(folderArg), dataset = JSON.parse(readFileSync(new URL("../../docs/research/v0.7-routing-draft.json", import.meta.url), "utf8")) as RoutingDataset;
+const folder = resolve(folderArg), dataset = JSON.parse(readFileSync(new URL("../../docs/research/v0.7/routing-draft.json", import.meta.url), "utf8")) as RoutingDataset;
 const read = (file: string) => JSON.parse(readFileSync(join(folder, file), "utf8"));
 const formal = read(formalArg), on = read(onArg), off = read(offArg);
 for (const proof of [formal, on, off]) {

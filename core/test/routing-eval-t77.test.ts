@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { gradeRoutingCase, routingReadiness, scoreRouting, type RoutingDataset, type RoutingAttempt, type RoutingCase, type RoutingObservation } from "../src/modules/skill-routing-eval.ts";
 
-const dataset = JSON.parse(readFileSync(new URL("../../docs/research/v0.7-routing-draft.json", import.meta.url), "utf8")) as RoutingDataset;
+const dataset = JSON.parse(readFileSync(new URL("../../docs/research/v0.7/routing-draft.json", import.meta.url), "utf8")) as RoutingDataset;
 function expected(item: RoutingCase): RoutingObservation {
 	const calls = [...item.required_skills, ...item.one_of.map((group) => group[0]!)].map((name) => ({ toolName: "skill", args: { name }, isError: false, known: true }));
 	for (const action of item.required_actions) calls.push({ toolName: action === "git.status" ? "git_status" : action === "mcp:calendar/list-events" ? "mcp__calendar__list_events" : "mcp__files__read", args: { name: "" }, isError: false, known: true });

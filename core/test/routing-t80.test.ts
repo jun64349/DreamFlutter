@@ -24,7 +24,7 @@ test("T80 ordinary Chinese multi-skill lists match dollar syntax, preserve order
 });
 
 test("T80 R81 changes only multiple deadlines, allowing input/environment reads before later skills but not production", () => {
-	const dataset = JSON.parse(readFileSync(new URL("../../docs/research/v0.7-routing-draft.json", import.meta.url), "utf8")) as RoutingDataset;
+	const dataset = JSON.parse(readFileSync(new URL("../../docs/research/v0.7/routing-draft.json", import.meta.url), "utf8")) as RoutingDataset;
 	const item = dataset.cases.find((value) => value.id === "RT19")!;
 	const call = (toolName: string, args: Record<string, unknown> = {}): ObservedCall => ({ toolName, args, isError: false, known: true });
 	const selected = (name: string) => call("skill", { name });

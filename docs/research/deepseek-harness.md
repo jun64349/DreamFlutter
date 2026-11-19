@@ -1,4 +1,4 @@
-> 2026-10-30 委派产出（Codex 只读调研），属待核验素材。用户据此做的决定见 [../v0.2-plan.md](../v0.2-plan.md) 第五节。
+> 2026-10-30 委派产出（Codex 只读调研），属待核验素材。用户据此做的决定见 [../v0.2-plan.md](../history/v0.2-plan.md) 第五节。
 
 # DreamFlutter 对齐 DeepSeek Harness 的分析与改造方案
 

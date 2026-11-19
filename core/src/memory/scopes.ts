@@ -12,7 +12,7 @@ export interface Workspace {
 }
 
 /**
- * Which memories a session may read and write (docs/memory-design.md §8).
+ * Which memories a session may read and write (docs/architecture/memory-design.md §8).
  * Every place that reads memory or history goes through one of these.
  */
 export interface ScopeSet {

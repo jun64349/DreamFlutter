@@ -12,7 +12,7 @@ import 'craft_style.dart';
 /// The current theme is 「蛱蝶」, after Zhao Chang's Northern Song scroll
 /// 《写生蛱蝶图》: paper-silk ground, ink text, mineral green, a touch of
 /// ochre and a cinnabar seal; Song typefaces, fine lines, almost no shadows.
-/// See docs/v0.2-design.md.
+/// See docs/history/v0.2-design.md.
 class AppTokens {
   // Corner radii of 「蛱蝶」; widgets use context.radius*, which follow the theme.
   static const radiusSm = 4.0;

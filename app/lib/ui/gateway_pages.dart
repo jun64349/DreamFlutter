@@ -21,7 +21,7 @@ class ChannelManagementPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('渠道管理')), body: ListView(padding: const EdgeInsets.all(16), children: const [PiCompatibilityPanel(), ChannelList()]));
 }
 
-/// Channels of the model gateway (docs/v0.2-gateway.md): the list under
+/// Channels of the model gateway (docs/history/v0.2-gateway.md): the list under
 /// 设置 › 模型, and its editor.
 
 String _money(double v) => v == 0 ? '0' : (v < 0.01 ? v.toStringAsFixed(4) : v.toStringAsFixed(2));

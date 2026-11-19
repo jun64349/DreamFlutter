@@ -2,37 +2,16 @@
 
 > **到 1.0 的最后路线（用户 2026-11-17 定，唯一有效顺序，不要另起规划）**：0.13.0（已完成）→ 0.13.1 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程 → 降低上手门槛 → 1.0 preview 打包推送 → preview 阶段做朋友内测 → 1.0 正式版。详表见 [roadmap 页首★节](roadmap.md)。本文第五节「到 1.0 还要做的事」是旧写法，以这里为准。
 >
-> **2026-11-18 夜 当前交接**：路线第 0–5 步完成，**1.0.0-preview.1 已发布**（main 快进、标签 `v1.0.0-preview.1`、GitHub 发布页 https://github.com/jun64349/DreamFlutter/releases/tag/v1.0.0-preview.1 ，设为最新发布）。下一步第 6 步朋友内测，开工前先问用户内测细节。先读 [HANDOFF](HANDOFF.md) 顶部。
->
-> **2026-11-18 晚 交接（历史）**：路线第 0–4 步完成并本地提交（第 3 步 `2cdf749`，第 4 步 `77fed1c`）。第 5 步「1.0 preview」当时进行中：版本号 `1.0.0-preview.1`，修好了一直失败的守护测试，课本截图、README 与说明文档已更新，预览包交用户验收后再合并 main、打标签 `v1.0.0-preview.1`、推送、建 GitHub 预发布页（每一项都要用户当次同意）。先读 [HANDOFF](HANDOFF.md) 顶部。
->
-> **2026-11-17 晚 交接（历史）**：路线第 0–2 步完成（0.13.1 修复 `2fcea7f`、完整安装与升级验证 `6a81832`，版本号 0.13.1+18），下一步第 3 步「性能与包体」。先读 [HANDOFF](HANDOFF.md) 顶部「下一窗口从这里开始」，尤其是**安装类验证必须在 Claude 终端面板里启动**这一条。
->
-> **2026-11-17 白天交接（历史）**：0.13 真实任务验证已完成（用户指定的 OpenCode Go 渠道，五轮 USD 0.0595，九项通过），并修了技能与日程三个问题、加了平台默认记忆、把短提示统一为「便笺」。用户授权后提交 `a515046`、打标签 `v0.13` 并推送分支 `v0.12-frontend` 和标签；未合并 main。详见 [HANDOFF](HANDOFF.md) 顶部和 [真实任务验证回执](releases/v0.13-真实任务验证回执.md)。**下一步**：剩余 4 条小问题等用户定，之后进完整安装与升级。以后推送、打标签、合并仍要逐次问。下面两段是前序状态。
->
-> **2026-11-16 交接（历史）**：0.12 试用后的七项修正完成，定向验证通过；回执在 [试用反馈修正](releases/v0.12-试用反馈修正.md)，11 张原生窗口图入口 `app/build/trial-feedback/index.html`。用户授权的本地收尾已完成：**0.12.1+16**，代码提交 `55c4d49`，产物 `dist/v0.12.1/DreamFlutter` 与同目录 zip；构建、包体和压缩包校验通过，详见 [0.12.1 发布记录](releases/v0.12.1.md)。下文 0.12.0+15 和“不提交/不打包”均属前序状态。仍不推送、不打标签、不切分支；下一主题集继续是待选方向的样稿。
-
-> **当时的下一步（已完成）**：从 [0.13 真实任务验证计划](releases/v0.13-真实任务验证计划.md) 开始。用户此前要求停在真实 API 验证前；须等用户恢复开发，提供本轮指定的 API 配置和预算。不要使用既有私人渠道，不提前发真实请求，不重复已完成的全量检查。
+> **2026-11-19 当前状态**：路线第 0–5 步完成，第 6 步朋友内测进行中。内测包 `dist/beta.1`（激活码一步、只走随想 GPT Pro、不露出中转站、不检查更新，设计 [beta-pool](design/beta-pool.md)）已交用户自己发给朋友。修了「装在盘符下一级文件夹时卸载卡住、删不干净」后发了 **1.0.0-preview.2**（标签 `v1.0.0-preview.2`，GitHub 最新发布 https://github.com/jun64349/DreamFlutter/releases/tag/v1.0.0-preview.2 ）。文档 2026-11-19 整理过，总目录见 [docs/README.md](README.md)。先读 [HANDOFF](HANDOFF.md) 顶部。
 
 > **可直接复制给下一窗口的开工提示**：
 >
 > ```text
-> 在 E:\claude\DreamFlutter 接手 DreamFlutter。先按顺序读 docs/NEW-AGENT-START.md 顶部、AGENTS.md、docs/HANDOFF.md 顶部「下一窗口从这里开始」、docs/roadmap.md 页首★节和 docs/dev-guide.md。1.0.0-preview.1 已发布；照到 1.0 的最后路线做第 6 步朋友内测，开工前先问用户内测名字、中转站、每人额度、反馈方式、托管版边界。推送、标签、合并、发布每次都要用户同意。跟用户一律说平实的中文。
-> ```
->
-> 更早的开工提示（历史）：
->
-> ```text
-> 在 E:\claude\DreamFlutter 接手 DreamFlutter。先按顺序读 docs/NEW-AGENT-START.md、AGENTS.md、docs/HANDOFF.md 顶部、docs/dev-guide.md，再读 docs/releases/v0.12-试用反馈修正.md 和 docs/releases/v0.13-真实任务验证计划.md；核对最新提交及 dist/v0.12.1/DreamFlutter、zip 的实际回执。0.12 试用后的七项修正已完成且定向验证通过，11 张实窗图见 app/build/trial-feedback/index.html。下一项是按真实任务验证计划开展完整任务验证，但用户之前要求停在这一环节前：先等用户明确恢复并提供本轮指定 API 配置和预算，不用既有私人渠道。真实 API、安装升级、性能包体和首次上手门槛均未验收；别把定向测试或截图写成真实任务通过，也别重跑已完成的全量检查。下一主题集只有调研样稿。未经新授权不推送、不打标签、不切分支。
+> 在 E:\claude\DreamFlutter 接手 DreamFlutter。先按顺序读 docs/NEW-AGENT-START.md 顶部、AGENTS.md、docs/HANDOFF.md 顶部「下一窗口从这里开始」、docs/roadmap.md 页首★节和 docs/dev-guide.md；文档总目录在 docs/README.md。1.0.0-preview.2 已发布，朋友内测进行中（内测包设计见 docs/design/beta-pool.md）；照到 1.0 的最后路线做，内测反馈怎么处理先问用户。推送、标签、合并、发布每次都要用户同意。跟用户一律说平实的中文。
 > ```
 
-> **2026-11-16 前版收尾（历史）**：用户已确认数字等最后细节，授权 0.12.0+15 收尾、本地提交和打包。下面“不提交/不打包”为更早待验收阶段。
+> 2026-11-14 到 11-18 各次交接时写在这里的状态摘要（都已过时）挪到了 [history/接手须知-旧状态摘要](history/接手须知-旧状态摘要.md)。
 
-> **收尾结果**：最终检查与新便携包已完成，见 [0.12.0 发布记录](releases/v0.12.0.md)。下一阶段为 0.13 深度验证，不自动扩展功能。便携包对应本地提交见包内 `RELEASE.json`。
-
-> **前一轮约定（已验收）**：全局字体、随机引文、名作主题集控件与动效完成；下一集只做调研和交互样稿。此前「看完再决定是否提交」已由上条收尾授权解除。下条保留此前阶段记录。
-
-> **2026-11-16 前序阶段**：用户试用并基本接受 test.6，最终界面修正和审批折叠已完成，详见 [0.12 收尾记录](releases/v0.12-收尾.md)。当时只授权本地提交；后续打包以顶部最新授权为准。以下通用规矩继续适用于后续未授权的操作。
 
 > 用户从 2026-11-14 起换一个 Agent 平台，把 DreamFlutter 一直开发到 **1.0 正式发布**。本文把之前只记在 Claude 私人记忆里的规矩和经验搬进仓库，接手的 Agent 先读完本文，再读 `docs/HANDOFF.md` 最上面两段。
 > 读的顺序：本文 → `AGENTS.md` → `docs/HANDOFF.md`（顶部）→ `docs/design/v1-redesign-spec.md` → `docs/roadmap.md`（第一节、v0.13、v1.0）→ `docs/dev-guide.md`。
@@ -48,7 +27,7 @@
   - 窗口是 Flutter Desktop（`app/`），协议层在 `packages/pi_rpc/`；
   - 后台是 Node/TypeScript（`core/`），内嵌 Pi SDK（`@earendil-works/pi-coding-agent`）；
   - 两边通过本地带令牌的 WebSocket 通信，窗口关了后台的会话照样跑。
-  - 架构见 `docs/architecture.md`，接口见 `docs/api/README.md`。
+  - 架构见 `docs/architecture/architecture.md`，接口见 `docs/api/README.md`。
 - **用户的模型**：DeepSeek 等，配置在 DreamFlutter 自己数据目录下的 Pi `models.json`，不在 `~/.pi/agent`。不要用开发环境里继承来的其他平台密钥做测试。
 
 ## 二、用户是谁、怎么和他合作

@@ -1,6 +1,6 @@
 # 高级记忆与资料库：讨论记录
 
-2026-11-13 用户和 Claude 的讨论，**未定稿，以后版本做**（资料库、检索是基座内置功能，不是 2.0 的可插拔模块）。起因是 Anthropic 的《The components of agent memory》；调研提示词见 [research/agent-memory-large-corpus-research-prompt.md](../research/agent-memory-large-corpus-research-prompt.md)，调研报告见 [research/agent-memory-large-corpus.md](../research/agent-memory-large-corpus.md)（报告里部分「事实」的数字和 2026 年的文献还没核实，见第七节）。
+2026-11-13 用户和 Claude 的讨论，**未定稿，以后版本做**（资料库、检索是基座内置功能，不是 2.0 的可插拔模块）。起因是 Anthropic 的《The components of agent memory》；调研提示词见 [research/agent-memory-large-corpus-research-prompt.md](../research/prompts/agent-memory-large-corpus-research-prompt.md)，调研报告见 [research/agent-memory-large-corpus.md](../research/agent-memory-large-corpus.md)（报告里部分「事实」的数字和 2026 年的文献还没核实，见第七节）。
 
 ## 一、用户已定的方向
 

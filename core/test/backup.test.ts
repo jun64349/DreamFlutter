@@ -14,7 +14,7 @@ import { SessionIndex } from "../src/modules/session-index.ts";
 import { MIGRATIONS } from "../src/schema.ts";
 import { startTestCore, type TestCore } from "./harness.ts";
 
-/** v0.3.1 backup, migration and restore (docs/v0.3.1-backup-design.md §九). */
+/** v0.3.1 backup, migration and restore (docs/history/v0.3.1-backup-design.md §九). */
 
 const PASSWORD = "迁移密码123";
 

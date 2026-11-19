@@ -20,7 +20,7 @@ try {
 	proof.requests = db.prepare("SELECT model,ok,error_kind,error,input,output,cost,duration_ms FROM gateway_requests ORDER BY id").all();
 	proof.costUsd = Number((db.prepare("SELECT COALESCE(SUM(cost),0) total FROM gateway_requests").get() as {total:number}).total);
 } finally { db.close(); }
-const dataset = JSON.parse(readFileSync(new URL("../../docs/research/v0.7-routing-draft.json", import.meta.url), "utf8")) as RoutingDataset;
+const dataset = JSON.parse(readFileSync(new URL("../../docs/research/v0.7/routing-draft.json", import.meta.url), "utf8")) as RoutingDataset;
 proof.score = scoreRouting(dataset, proof.attempts);
 proof.stoppedByUser = true; proof.stoppedAt = new Date().toISOString(); proof.passed = false;
 proof.error = "Stopped at user's request; incomplete, not a formal result. No further full batch authorized.";

@@ -2,7 +2,7 @@ import { estimateTokens, taskRelevance, trigrams } from "./text.ts";
 import type { ItemKind, Level, MemoryItem } from "./types.ts";
 
 /**
- * Snapshot assembly (docs/memory-design.md §6.1–6.2): the program picks, no
+ * Snapshot assembly (docs/architecture/memory-design.md §6.1–6.2): the program picks, no
  * model. One budget for everything memory puts into a request; pinned items,
  * related items by level, and room left for memory_search.
  */

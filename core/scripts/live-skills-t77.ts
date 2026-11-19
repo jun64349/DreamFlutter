@@ -78,7 +78,7 @@ const result=m.method==='initialize'?{protocolVersion:'2025-11-25',capabilities:
 m.method==='tools/list'?{tools:[{name:tool,description:'Read-only T77 '+mode+' fixture; return known result',annotations:{readOnlyHint:true},inputSchema:{type:'object',properties:{}}}]}:
 {content:[{type:'text',text:mode==='calendar'?'[{"title":"T77 fixture meeting","readOnly":true}]':mode==='files'?'fixture table: a,b\\n1,2':'T77_READONLY_OK'}]};
 process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n')});`);
-copyFileSync(new URL("../../docs/research/v0.7-r1-skills-mcp.md", import.meta.url), join(workspace, "community-research.md"));
+copyFileSync(new URL("../../docs/research/v0.7/r1-skills-mcp.md", import.meta.url), join(workspace, "community-research.md"));
 const fixtureForm = (name: string, service = "echo") => ({ name, transport: "stdio", command: process.execPath, args: [fixture], env: { T77_SERVICE: { value: service, secret: false } }, exposure: "direct" });
 writeFileSync(join(workspace, "mcp-fixture.md"), `# Owned T77 fixture\nThis is our controlled local fixture, not a published official service.\n${JSON.stringify(fixtureForm("t77-fixture"), null, 2)}\nProtocol: 2025-11-25. Read-only tool echo returns T77_READONLY_OK. Official lifecycle: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle . Discovery reference: community-research.md Registry section.\n`);
 function policies(): Record<string, { trusted: number; enabled: number; butterfly_allowed: number }> { return Object.fromEntries(core.db.all<any>("SELECT kind,locator,trusted,enabled,butterfly_allowed FROM library_entries WHERE source_kind!='builtin'").map((row) => [`${row.kind}:${row.locator}`, row])); }
@@ -181,7 +181,7 @@ try {
 		}
 		proof.legalCatalogSize = (await core.call("skills.list", { cwd: workspace }) as SkillInfo[]).filter((skill) => skill.enabled && skill.trust === "trusted" && skill.modelInvocable).length;
 		const git = await findGit(); await promisify(execFile)(git, ["init", workspace], { windowsHide: true }); writeFileSync(join(workspace, "changed.txt"), "routing Git fixture\n");
-		const raw = readFileSync(new URL("../../docs/research/v0.7-routing-draft.json", import.meta.url)), dataset = JSON.parse(raw.toString("utf8")) as RoutingDataset;
+		const raw = readFileSync(new URL("../../docs/research/v0.7/routing-draft.json", import.meta.url)), dataset = JSON.parse(raw.toString("utf8")) as RoutingDataset;
 		proof.datasetSha256 = createHash("sha256").update(raw).digest("hex"); proof.datasetApproval = "dispatch §8 confirmed by user; original JSON unchanged";
 		const quarantined = join(agent, "skills", "community-report"); mkdirSync(join(quarantined, "scripts"), { recursive: true }); writeFileSync(join(quarantined, "SKILL.md"), "---\nname: community-report\ndescription: Untrusted community report fixture\n---\nUse scripts/report.py\n"); writeFileSync(join(quarantined, "scripts", "report.py"), "print('untrusted fixture must not run')");
 		core.library.write("skill", join(quarantined, "SKILL.md").toLowerCase(), { sourceKind: "community", trust: "untrusted", enabled: false });

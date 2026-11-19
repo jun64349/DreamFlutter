@@ -3,7 +3,7 @@
 开发前先读这份。每一条都是真实出过的问题，后面写了是哪次发现的。新踩的坑加在对应的节里。
 测试清单见 [testing/scenarios.md](testing/scenarios.md)，交接和历史见 [HANDOFF.md](HANDOFF.md)。
 
-开发前同时读 [v1.0.0 收敛说明](v1.0-convergence.md)：用户已确认现有计划基本满足需求；完成既定范围、必要修复与验收，新增增强项留到 1.x，不擅自扩大或削减 v1.0.0 范围。
+开发前同时读 [v1.0.0 收敛说明](history/v1.0-convergence.md)：用户已确认现有计划基本满足需求；完成既定范围、必要修复与验收，新增增强项留到 1.x，不擅自扩大或削减 v1.0.0 范围。
 
 ## 一、窗口（Flutter）
 
@@ -99,7 +99,7 @@
   - 写之前查有没有意思相近的（`nearDuplicate`）：说得更完整的变成「修改」建议，重复的不写（v0.3.2 实测：「回复要简练，少说话」和「回复要简练，别长篇大论……」同时进了记忆库）。
   - 记忆以「用户」为主语。Agent 的名字、身份不是用户的信息（v0.3.2 实测：蝶君会话里提取出「用户叫蝶君」）。
   - 提取时把全部记忆和待确认的候选给模型看，不要只给和这次对话字面相近的几条。
-  - 记忆系统的整体重做在 v0.5，见 [memory-design.md](memory-design.md) 末尾「v0.3.2 实测问题」。
+  - 记忆系统的整体重做在 v0.5，见 [memory-design.md](architecture/memory-design.md) 末尾「v0.3.2 实测问题」。
 - 测试里要关掉自动标题和自动提取记忆（harness 已关），否则会抢走假模型预设的回复。
 - 假模型错误信息里带 "rate limited" 会触发 Pi 的自动重试。
 - 平台默认记忆只在 `buildCore({ platformMemory: true })`（main.ts）时写入；测试默认关，需要时 `startTestCore(dir, { platformMemory: true })`。（v0.13）

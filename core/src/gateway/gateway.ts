@@ -173,7 +173,7 @@ interface Registered {
 }
 
 /**
- * The personal model gateway (docs/v0.2-gateway.md). Channels become Pi
+ * The personal model gateway (docs/history/v0.2-gateway.md). Channels become Pi
  * providers whose stream goes through [wrap]: it picks the key, records each
  * request, keeps the circuit breaker, and turns a switchable failure of a
  * group request into one Pi retries, so the group's router moves on. Model
