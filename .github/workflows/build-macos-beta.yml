@@ -114,6 +114,55 @@ jobs:
           "$RES/core/bin/rg" --version
           "$RES/core/bin/uv" --version
 
+      - name: Capture real macOS window UI screenshots
+        working-directory: app
+        run: |
+          SHOT_DIR="$GITHUB_WORKSPACE/dist/macos/screenshots"
+          mkdir -p "$SHOT_DIR"
+          flutter test integration_test/macos_beta_look_test.dart -d macos \
+            --dart-define=DREAMFLUTTER_BETA=true \
+            --dart-define="MACOS_SHOT_DIR=$SHOT_DIR"
+
+      - name: Smoke-launch packaged DreamFlutter.app & build screenshot gallery
+        run: |
+          SHOT_DIR="dist/macos/screenshots"
+          mkdir -p "$SHOT_DIR"
+          SMOKE_DATA="$(mktemp -d)"
+          DREAMFLUTTER_DATA="$SMOKE_DATA" dist/macos/DreamFlutter.app/Contents/MacOS/DreamFlutter >/dev/null 2>&1 &
+          APP_PID=$!
+          READY=false
+          for i in $(seq 1 30); do
+            if [ -f "$SMOKE_DATA/core.json" ]; then
+              READY=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" != "true" ]; then
+            echo "Packaged DreamFlutter.app did not write core.json within 30s"
+            cat "$SMOKE_DATA/core.log" || true
+            kill "$APP_PID" || true
+            rm -rf "$SMOKE_DATA"
+            exit 1
+          fi
+          sleep 3
+          /usr/sbin/screencapture -x "$SHOT_DIR/00-packaged-app-desktop.png" || true
+          CORE_PID="$(node -e 'try{console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).pid||"")}catch{}' "$SMOKE_DATA/core.json")"
+          kill "$APP_PID" || true
+          if [ -n "$CORE_PID" ]; then
+            kill "$CORE_PID" || true
+          fi
+          rm -rf "$SMOKE_DATA"
+
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const dir = process.argv[1];
+            const files = fs.readdirSync(dir).filter(f => f.endsWith(".png")).sort();
+            const cards = files.map(f => `<div class="card"><h3>${f}</h3><img src="${f}" alt="${f}"></div>`).join("\n");
+            fs.writeFileSync(path.join(dir, "index.html"), `<!doctype html><html><meta charset="utf-8"><title>DreamFlutter macOS Beta Screenshots</title><style>body{font-family:system-ui;background:#f7f4ee;color:#2c2924;margin:24px}h1{margin-bottom:16px}.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:24px;box-shadow:0 2px 12px rgba(0,0,0,.08)}img{max-width:100%;height:auto;border-radius:8px;border:1px solid #e5dfd5}</style><h1>DreamFlutter 1.0 Beta (macOS Apple Silicon)</h1>\n${cards}\n</html>`);
+          ' "$SHOT_DIR"
+
       - name: Upload macOS DMG artifact
         uses: actions/upload-artifact@v4
         with:
@@ -122,3 +171,11 @@ jobs:
             dist/macos/*.dmg
             dist/macos/SHA256SUMS
           if-no-files-found: error
+
+      - name: Upload macOS screenshots artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DreamFlutter-macos-screenshots
+          path: dist/macos/screenshots/
+          if-no-files-found: warn
