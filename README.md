@@ -14,7 +14,7 @@
   <img alt="ui" src="https://img.shields.io/badge/UI-Flutter%20Desktop-02569B">
   <img alt="core" src="https://img.shields.io/badge/core-Node.js%2022%20%2B%20Pi%20SDK-3c873a">
   <img alt="sandbox" src="https://img.shields.io/badge/sandbox-WSL2-6e4a9e">
-  <img alt="status" src="https://img.shields.io/badge/version-1.0.0--preview.1-ca704d">
+  <img alt="status" src="https://img.shields.io/badge/version-1.0.0--preview.2-ca704d">
 </p>
 
 > **English in one paragraph** — DreamFlutter is a local-first personal AI agent platform for Windows. A Flutter desktop shell talks to a Node.js core that hosts many [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) agent sessions in-process. It has two spaces: the **Workbench**, which works with you on your own folders under per-action approval, and **Diejun** ("Lord Butterfly"), an agent that runs on its own inside a WSL2 sandbox that the app sets up for you. Beyond that it has a three-tier long-term memory, context compaction, sub-agents, long-running goals and schedules, skills and MCP that the agent can find, build, test and register itself, built-in Office/PDF/data tooling, a Git service, a per-request cost ledger, backups and rollback-safe updates. A five-lesson, follow-along tutorial in the real window gets people with no agent experience started. Bring your own model keys (DeepSeek, GLM, Kimi, MiniMax, OpenCode Go, or any OpenAI/Anthropic-compatible relay). **1.0 preview** — friends' beta in progress.
