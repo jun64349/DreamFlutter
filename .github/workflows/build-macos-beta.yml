@@ -1,6 +1,9 @@
 name: Build macOS Apple Silicon Beta
 
 on:
+  push:
+    branches:
+      - macos_preview_migration
   workflow_dispatch:
     inputs:
       beta:
@@ -91,7 +94,7 @@ jobs:
 
       - name: Package macOS Apple Silicon .dmg
         run: |
-          if [ "${{ inputs.beta }}" = "true" ]; then
+          if [ "${{ inputs.beta }}" != "false" ]; then
             bash scripts/package-macos.sh --beta
           else
             bash scripts/package-macos.sh
@@ -100,7 +103,9 @@ jobs:
       - name: Verify packaged .app bundle
         run: |
           RES="dist/macos/DreamFlutter.app/Contents/Resources"
-          test -f "$RES/beta-edition.json"
+          if [ "${{ inputs.beta }}" != "false" ]; then
+            test -f "$RES/beta-edition.json"
+          fi
           test ! -e "$RES/core/bin/voice/model.int8.onnx"
           test -f "$RES/core/bin/voice/tokens.txt"
           test -f "$RES/core/bin/voice/silero_vad.onnx"
