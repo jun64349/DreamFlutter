@@ -33,7 +33,7 @@
 
 - [design/README.md](design/README.md)：设计资料索引。
 - 当前以 [v1-redesign-spec.md](design/v1-redesign-spec.md) 和原型 [prototype/v1-redesign.html](design/prototype/v1-redesign.html) 为准；概念、流程、用词看 [interaction-design.md](design/interaction-design.md)、[glossary.md](design/glossary.md)。
-- 不能动的已定型体验：[settled-0.8.3.md](design/settled-0.8.3.md)。
+- 不能动的已定型核心交互逻辑（仅守逻辑，视觉以 1.0 重做版为准）：[settled-behaviors.md](design/settled-behaviors.md)。
 - 内测版（模型池、激活码）：[beta-pool.md](design/beta-pool.md)。
 
 ## 5. 用户手册 `guide/`
@@ -44,7 +44,7 @@
 
 按版本号命名，正式发布、候选包（`-test.N`）和验证回执都在这里：
 
-- 1.0 预览版：[v1.0.0-preview.2](releases/v1.0.0-preview.2.md)（最新）、[v1.0.0-preview.1](releases/v1.0.0-preview.1.md)
+- 1.0 预览版与内测：[v1.0.0-preview.2](releases/v1.0.0-preview.2.md)（最新）、[v1.0.0-preview.1](releases/v1.0.0-preview.1.md)、[macOS 内测版使用说明](releases/macos-beta-guide.md)
 - 0.13 验证：[真实任务验证计划](releases/v0.13-真实任务验证计划.md) / [回执](releases/v0.13-真实任务验证回执.md)、[安装升级验证计划](releases/v0.13.1-安装升级验证计划.md) / [回执](releases/v0.13.1-安装升级验证回执.md)、[性能与包体回执](releases/v0.13.2-性能与包体回执.md)
 - 更早：0.12（`v0.12*`）、0.8（`v0.8*`）、0.5–0.7、0.2–0.4（`v0.x-release-notes`）。
 

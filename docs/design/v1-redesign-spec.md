@@ -28,7 +28,7 @@
 
 ## 2. 不变的操作逻辑（必须保留，守护测试的行为断言不能改）
 
-来自 `docs/design/settled-0.8.3.md`，用户已同意「样子重做、逻辑不变」（该文件「规矩」一节已写明）。
+来自 `docs/design/settled-behaviors.md`，用户已同意「样子重做、逻辑不变」（该文件「规矩」一节已写明）。
 
 | 定型条 | 保留的行为 | 新样子在原型哪里 |
 |---|---|---|
@@ -70,7 +70,7 @@
 | 本报告 | `docs/design/v1-redesign-spec.md` |
 | HanaAgent 设计提炼（23 条原则） | `docs/design/hana-study.md` |
 | 悬停提示规则和改动表 | `docs/design/hover-tips.md` |
-| 定型清单（逻辑部分仍有效） | `docs/design/settled-0.8.3.md` |
+| 定型清单（逻辑部分仍有效） | `docs/design/settled-behaviors.md` |
 | 交互设计（概念、流程、用词仍有效） | `docs/design/interaction-design.md` |
 | 概念和叫法 | `docs/design/glossary.md` |
 | 0.12 功能规则（功能仍有效，样子以新原型为准） | `docs/history/v0.12-frontend-spec.md` |
@@ -108,7 +108,7 @@
 |---|---|
 | 真窗口和原型对比截图（0.12 的做法，照它新建一个） | `app/integration_test/v012_compare_test.dart`，输出 `app\build\v012_compare\`，对照页 `dist\v012-对照.html` |
 | 演示数据工具 | `core/scripts/ui-fixtures/`、`app/test/fixtures/` |
-| 守护测试清单 | `docs/design/settled-0.8.3.md` 表格最后两列 |
+| 守护测试清单 | `docs/design/settled-behaviors.md` 表格最后两列 |
 | 开发规范 | `docs/dev-guide.md` |
 
 ---

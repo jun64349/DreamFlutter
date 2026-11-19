@@ -9,9 +9,9 @@
 - **按这条路线逐步做，不要另起规划、不要改顺序、不要插入新阶段或新功能。** 和其他文档冲突时以它为准；没写到的细节先问用户。
 - 每一步做完交用户验收再进下一步；推送、打标签、合并 main 每次都要用户明确同意。
 
-## 已定型的操作和体验（v0.8.3 起，用户 2026-11-11 定）
+## 已定型的核心交互逻辑（1.0 现行）
 
-- **现在的操作逻辑和体验已经不错，不要动。** 清单和守着它们的测试在 [docs/design/settled-0.8.3.md](docs/design/settled-0.8.3.md)。新功能装进现有位置，不改这些地方的交互、布局和用词；只有用户明确要求改某一条时才动。
+- **16 条核心交互逻辑不要动（视觉与布局以 1.0 重做版 `v1-redesign-spec.md` / `v1-redesign.html` 为准）。** 清单和守着它们的测试在 [docs/design/settled-behaviors.md](docs/design/settled-behaviors.md)。新功能装进 1.0 现有位置，不改这些地方的交互逻辑和用词；只有用户明确要求改某一条时才动。
 - 清单里列出的测试必须一直通过，不能为了让测试通过而改它的期望。后端和测试任务同样适用：后端改动不能让这些表现变样。
 
 ## 分工与验证（T-142，用户 2026-11-14 最新决定）
@@ -30,7 +30,7 @@
 
 ## 界面设计原则
 
-- **1.0 前端形态已定**（用户 2026-11-10）：体验版原型 [docs/design/prototype/interaction-v2.html](docs/design/prototype/interaction-v2.html)。新功能装进它已有的页面和位置，不另起页面结构、不换交互方式；放不进去先问用户。
+- **1.0 前端设计已定**（2026-11-14 整体 UI 重做定稿）：以 [docs/design/v1-redesign-spec.md](docs/design/v1-redesign-spec.md) 和原型 [docs/design/prototype/v1-redesign.html](docs/design/prototype/v1-redesign.html) 为准（朋友内测版叠加 [docs/design/beta-pool.md](docs/design/beta-pool.md)；早期 `interaction-v2.html` 已作废，仅作历史参考）。新功能装进 1.0 现有页面和位置，不另起页面结构、不换交互方式；放不进去先问用户。
 
 - **Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.**
   避免不必要的次要标签和描述，让布局本身来传达信息。（用户 2026-11-09 定；也写在交互设计第二节第 7 条、设计语言第一节、开发规范第五节）

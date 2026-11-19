@@ -137,8 +137,8 @@
 
 ## 五、界面、派工和收尾的规矩（2026-11-09，v0.7 实测后定）
 
-- **1.0 前端形态已定**（用户 2026-11-10）：体验版原型 [design/prototype/interaction-v2.html](design/prototype/interaction-v2.html) 就是 1.0 的前端形态。0.9 起的新功能都装进这个壳子里已有的页面和位置，和后端接好；不新增页面结构、不换交互方式，放不进去的先问用户。
-- **界面以交互设计为准**：[design/interaction-design.md](design/interaction-design.md) 和原型 [design/prototype/interaction-v1.html](design/prototype/interaction-v1.html) 是第一版定稿。新功能的界面一律放进那里已定的位置，**概念表里没有的按钮、设置项、页面不能自己加**，要加先问用户。原来「每样功能只配最少界面」的做法作废：v0.7 实测里「下一条作为新任务」这类按钮让用户看不懂，就是把后台概念直接做成了按钮。
+- **1.0 前端视觉与页面已定**（2026-11-14 整体 UI 重做定稿）：以 [design/v1-redesign-spec.md](design/v1-redesign-spec.md) 和主原型 [design/prototype/v1-redesign.html](design/prototype/v1-redesign.html) 为准（朋友内测版见 [design/beta-pool.md](design/beta-pool.md)；早期 `interaction-v1.html` / `interaction-v2.html` 已作废，仅留历史）。新功能一律放进 1.0 现有页面和位置，不另起页面结构、不换交互方式，放不进去的先问用户。
+- **概念、用词与交互流程**：看 [design/interaction-design.md](design/interaction-design.md)、[design/glossary.md](design/glossary.md) 和 [design/settled-behaviors.md](design/settled-behaviors.md)。概念表里没有的按钮、设置项、页面不能自己加，要加先问用户。原来「每样功能只配最少界面」的做法作废：v0.7 实测里「下一条作为新任务」这类按钮让用户看不懂，就是把后台概念直接做成了按钮。
 - **让布局来说明**（用户 2026-11-09 加）：Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining. 避免不必要的次要标签和描述，让布局本身来传达信息。做界面时不加设计里没有的副标题、说明行、提示文字；验收时把多出来的当问题。见 [design/interaction-design.md](design/interaction-design.md) 第二节第 7 条。
 - **派工单写明对应设计**：每张任务卡写出对应设计稿的哪一节、概念表哪几项；验收时对照检查。只做后端的任务写明「不露界面」。
 - **测试和验收必须收尾清理**：建过的临时目录、测试用 WSL 发行版、候选包、隔离数据目录都要登记，任务结束时删掉（只删本任务建的，不碰用户的测试版和个人数据）；确实要留的写明位置、大小和原因。v0.7 时这些遗留在用户 C 盘积了 90–100 GB。
@@ -151,3 +151,8 @@
 3. 本版改到的地方，在 [testing/scenarios.md](testing/scenarios.md) 里有对应的行；新修的 bug 有回归测试，且确认去掉修复后测试会失败。
 4. 打安装包，按「手动清单」走一遍。
 5. 发布说明写清楚：修了什么、没修什么、要用户试什么。
+
+### macOS Apple Silicon（arm64）内测版打包
+
+- 在 Windows 改共享代码后，推送分支并在 GitHub Actions 手动触发 `.github/workflows/build-macos-beta.yml`（`macos-latest`，自动跑 core 测试、`flutter analyze`、调用 `scripts/package-macos.sh --beta` 与 `scripts/prepare-bundled-runtime-macos.mjs` 并上传 `.dmg` 和 `SHA256SUMS`）。
+- 打包不内置 228 MB 本地语音模型 `model.int8.onnx`，首次使用本地语音时按需下载；内测版带 `Resources/beta-edition.json` 与 ad-hoc 签名（朋友首次打开按 [releases/macos-beta-guide.md](releases/macos-beta-guide.md) 放行）。
