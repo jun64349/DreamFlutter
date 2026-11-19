@@ -113,11 +113,14 @@ while IFS= read -r -d '' f; do
     codesign --force --sign - "$f"
   fi
 done < <(find "$RESOURCES" -type f \( -name "*.dylib" -o -name "*.so" -o -name "*.node" -o -perm +111 \) -print0)
-# 2. Sign frameworks and dylibs inside Contents/Frameworks
+# 2. Sign dylibs first, then frameworks inside Contents/Frameworks
 if [[ -d "$APP_OUT/Contents/Frameworks" ]]; then
   while IFS= read -r -d '' f; do
     codesign --force --sign - "$f"
-  done < <(find "$APP_OUT/Contents/Frameworks" -maxdepth 2 \( -name "*.dylib" -o -name "*.framework" \) -print0)
+  done < <(find "$APP_OUT/Contents/Frameworks" -type f -name "*.dylib" -print0)
+  while IFS= read -r -d '' f; do
+    codesign --force --sign - "$f"
+  done < <(find "$APP_OUT/Contents/Frameworks" -maxdepth 1 -type d -name "*.framework" -print0)
 fi
 # 3. Sign main .app bundle with entitlements
 codesign --force \

@@ -162,7 +162,7 @@ function installPythonAndOffice(target, bundledLock, cacheDir, scratch) {
   if (!existsSync(python3)) throw new Error(`Missing python3 binary at ${python3}`);
 
   // Install Office stack directly into the bundled Python environment using uv pip install.
-  run(uv, ['pip', 'install', '--system', '--python', python3, '--no-cache', ...OFFICE_PACKAGES]);
+  run(uv, ['pip', 'install', '--system', '--break-system-packages', '--python', python3, '--no-cache', ...OFFICE_PACKAGES]);
 
   const mplData = run(python3, [
     '-I',
