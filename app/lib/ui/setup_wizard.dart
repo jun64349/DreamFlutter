@@ -57,7 +57,7 @@ class WizardFrame extends StatelessWidget {
           style:shellButtonStyle(context,ShellButtonKind.primary,small:true).copyWith(
             padding:const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal:34,vertical:8)),
             shape:WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius:BorderRadius.circular(9))),
-            textStyle:const WidgetStatePropertyAll(TextStyle(fontSize:13,height:1.6)),
+            textStyle:const WidgetStatePropertyAll(TextStyle(fontFamily:AppTokens.fontFamily,fontFamilyFallback:AppTokens.fontFallback,fontSize:13,height:1.6)),
           ),
           onPressed:busy?null:next,child:Text(nextLabel),
         ))

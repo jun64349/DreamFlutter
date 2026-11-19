@@ -23,7 +23,7 @@ ButtonStyle composerPillStyle(BuildContext context, {required bool on, bool warn
     iconColor: warn ? c.warning : on ? c.accent : c.ink2,
     disabledForegroundColor: c.muted,
     backgroundColor: warn ? c.warning.withValues(alpha: .12) : on ? c.accentSoft : null,
-    textStyle: const TextStyle(fontSize: 12.5),
+    textStyle: const TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontSize: 12.5),
   ).copyWith(iconSize: const WidgetStatePropertyAll(14)));
 }
 
@@ -42,7 +42,7 @@ class IncognitoToggle extends StatelessWidget {
           style: composerPillStyle(context, on: on),
           onPressed: agent.isReady && !agent.isRunning ? () => on ? agent.newSession() : agent.newTemporarySession() : null,
           icon: const ProtoIcon('eye', size: 14),
-          label: const Text('无痕', style: TextStyle(fontSize: 12.5)),
+          label: const Text('无痕'),
         ),
       ),
     );
@@ -68,7 +68,7 @@ class AskBeforeActingToggle extends StatelessWidget {
           showNote(on ? '改文件、跑命令不再先问你' : '改文件、跑命令前会先问你', kind: NoteKind.info);
         } : null,
         icon: ProtoIcon(on ? 'shield' : 'spark', size: 14),
-        label: Text(on ? '先问我' : '直接做', style: const TextStyle(fontSize: 12.5)),
+        label: Text(on ? '先问我' : '直接做'),
       )),
     );
   }

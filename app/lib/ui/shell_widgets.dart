@@ -374,7 +374,7 @@ ButtonStyle shellButtonStyle(BuildContext context, ShellButtonKind kind, {bool s
     minimumSize: Size(0, small ? 28 : 34),
     visualDensity: VisualDensity.standard,
     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    textStyle: TextStyle(fontSize: small ? 13 : 14),
+    textStyle: TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontSize: small ? 13 : 14),
     shape: craftButtonShape(context.painting.craftGeometry).copyWith(
       side: kind == ShellButtonKind.normal ? BorderSide(color: colors.border) : BorderSide.none,
     ),
@@ -436,7 +436,7 @@ class ShellExample extends StatelessWidget {
         side: BorderSide(color: colors.border),
         shape: craftButtonShape(context.painting.craftGeometry, radius: 16),
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
-        textStyle: const TextStyle(fontSize: 13),
+        textStyle: const TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontSize: 13),
       ),
       child: Text(text),
     );

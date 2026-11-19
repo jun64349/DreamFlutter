@@ -34,7 +34,7 @@ class _BetaPoolRowsState extends State<BetaPoolRows> {
     final hint = channel?.keys.firstOrNull?.hint ?? '';
     final mono = TextStyle(fontFamily: AppTokens.monoFamily, fontFamilyFallback: AppTokens.monoFallback, fontSize: 12.5, color: colors.ink2);
     Widget link(String text, VoidCallback onTap) => TextButton(onPressed: onTap,
-      style: TextButton.styleFrom(foregroundColor: colors.accent, padding: const EdgeInsets.symmetric(horizontal: 6), minimumSize: const Size(0, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap, textStyle: const TextStyle(fontSize: 13)),
+      style: TextButton.styleFrom(foregroundColor: colors.accent, padding: const EdgeInsets.symmetric(horizontal: 6), minimumSize: const Size(0, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap, textStyle: const TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontSize: 13)),
       child: Text(text));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SettingRow('激活码', child: Row(mainAxisSize: MainAxisSize.min, children: [Text('sk-••••$hint', style: mono), link('换一个', () => _replace(context, channel))])),

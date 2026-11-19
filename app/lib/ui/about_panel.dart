@@ -117,7 +117,7 @@ class _AboutPanelState extends State<AboutPanel> {
     final version = build['version'] as String?;
     Widget link(String text, VoidCallback? onTap) => TextButton(
       onPressed: onTap,
-      style: TextButton.styleFrom(foregroundColor: colors.accent, padding: const EdgeInsets.symmetric(horizontal: 6), minimumSize: const Size(0, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap, textStyle: const TextStyle(fontSize: 13.5)),
+      style: TextButton.styleFrom(foregroundColor: colors.accent, padding: const EdgeInsets.symmetric(horizontal: 6), minimumSize: const Size(0, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap, textStyle: const TextStyle(fontFamily: AppTokens.fontFamily, fontFamilyFallback: AppTokens.fontFallback, fontSize: 13.5)),
       child: Text(text),
     );
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
