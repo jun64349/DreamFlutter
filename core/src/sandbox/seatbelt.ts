@@ -108,7 +108,7 @@ export function buildSeatbeltProfile(options: SeatbeltProfileOptions): string {
 			"",
 			";; Offline mode: block remote network sockets while keeping local IPC functional.",
 			"(deny network-outbound (remote ip))",
-			"(deny network-inbound (remote ip))",
+			"(deny network-inbound (local ip))",
 		);
 	}
 
@@ -194,7 +194,7 @@ export function seatbeltSandboxEnv(config: SeatbeltConfig): ExecEnv {
 					...process.env,
 					HOME: config.workspaceDir,
 					TMPDIR: config.tmpDir,
-					LANG: "C.UTF-8",
+					LANG: "en_US.UTF-8",
 					PYTHONIOENCODING: "utf-8",
 					PYTHONUTF8: "1",
 					MPLBACKEND: "Agg",

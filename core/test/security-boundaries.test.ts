@@ -49,11 +49,14 @@ test("security S1: persistent PowerShell checks its actual current directory for
 	const t = await startTestCore();
 	try {
 		t.core.settings.update({ approvalMode: "off" });
+		const shellTool = process.platform === "win32" ? "pwsh" : "bash";
+		const stayCmd = process.platform === "win32" ? "Set-Location ." : "cd .";
+		const readSecretCmd = process.platform === "win32" ? "Get-Content -LiteralPath .env.synthetic" : "cat .env.synthetic";
 		const secretFile = join(t.workspace, ".env.synthetic"); writeFileSync(secretFile, "SYNTHETIC_PERSISTENT_SECRET");
 		await t.core.call("slot.open", { slotId: "minimal", cwd: t.workspace, agentMode: "minimal" }, t.client);
-		t.respond(fauxAssistantMessage([fauxToolCall("pwsh", { command: "Set-Location ." })], { stopReason: "toolUse" }), fauxAssistantMessage("done"));
+		t.respond(fauxAssistantMessage([fauxToolCall(shellTool, { command: stayCmd })], { stopReason: "toolUse" }), fauxAssistantMessage("done"));
 		await t.send("minimal", { id: "p1", type: "prompt", message: "keep cwd" }); await t.waitFor(() => settledCount(t.records("minimal")) === 1);
-		t.respond(fauxAssistantMessage([fauxToolCall("pwsh", { command: "Get-Content -LiteralPath .env.synthetic" })], { stopReason: "toolUse" }), fauxAssistantMessage("done"));
+		t.respond(fauxAssistantMessage([fauxToolCall(shellTool, { command: readSecretCmd })], { stopReason: "toolUse" }), fauxAssistantMessage("done"));
 		await t.send("minimal", { id: "p2", type: "prompt", message: "protected argument" });
 		const question = await t.waitFor(() => dialogs(t.records("minimal"))[0]);
 		await t.send("minimal", { type: "extension_ui_response", id: question.id, value: "拒绝" });

@@ -719,7 +719,7 @@ export class PersistentShell {
 		child.stderr!.on("data", append(new StringDecoder("utf8")));
 		child.on("error", () => {});
 		child.stdin!.on("error", () => {});
-		child.stdin!.write(isWin ? `${ENCODING_PREAMBLE}$ProgressPreference = 'SilentlyContinue'\n` : "export LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUTF8=1\n");
+		child.stdin!.write(isWin ? `${ENCODING_PREAMBLE}$ProgressPreference = 'SilentlyContinue'\n` : "export LANG=en_US.UTF-8 PYTHONUTF8=1\n");
 		this.child = child;
 		this.sourceFingerprint = source?.fingerprint;
 		return child;
@@ -759,7 +759,7 @@ export class PersistentShell {
 		const wrapper =
 			process.platform === "win32"
 				? `Write-Output '${start}'; $LASTEXITCODE = $null; $__s = 1; try { Invoke-Expression ${encodeForPwsh(command)}; $__ok = $? } catch { $__ok = $false }; if ($null -ne $LASTEXITCODE) { $__s = [int]$LASTEXITCODE } else { $__s = if ($__ok) { 0 } else { 1 } }; Write-Output ('${cwdMarker}' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Location).ProviderPath))); Write-Output ('${end}' + $__s)`
-				: `printf '%s\\n' '${start}'; eval "$(printf '%s' '${Buffer.from(command.replaceAll("\r", ""), "utf8").toString("base64")}' | (base64 -D 2>/dev/null || base64 -d))"; __df_s=$?; printf '%s%s\\n' '${cwdMarker}' "$(pwd | base64 | tr -d '\\n')"; printf '%s%d\\n' '${end}' "$__df_s"`;
+				: `printf '%s\\n' '${start}'; eval "$(printf '%s' '${Buffer.from(command.replaceAll("\r", ""), "utf8").toString("base64")}' | (base64 -D 2>/dev/null || base64 -d))"; __df_s=$?; printf '%s%s\\n' '${cwdMarker}' "$(printf '%s' "$(pwd)" | base64 | tr -d '\\n')"; printf '%s%d\\n' '${end}' "$__df_s"`;
 		// Anything left from earlier commands is stray output: drop it so the buffer never grows across calls.
 		this.output = "";
 		const from = 0;
@@ -778,7 +778,7 @@ export class PersistentShell {
 				const endIndex = settled.lastIndexOf(end);
 				let captured = settled.slice(startAt < 0 ? 0 : startAt + start.length, endIndex) + settled.slice(endIndex + end.length).replace(/^-?\d+ *\r?\n/, "");
 				const location = new RegExp(`^${cwdMarker}([A-Za-z0-9+/=]+)\\r?$`, "m").exec(captured);
-				if (location) { const decoded = Buffer.from(location[1]!, "base64").toString("utf8"); if (isAbsolute(decoded)) this.directory = decoded; }
+				if (location) { const decoded = Buffer.from(location[1]!, "base64").toString("utf8").trim(); if (isAbsolute(decoded)) this.directory = decoded; }
 				captured = captured.replace(new RegExp(`^${cwdMarker}[^\\r\\n]*\\r?\\n?`, "m"), "");
 				const clean = captured.replace(/^\r?\n/, "").replace(/\r?\n$/, "").replaceAll("\r\n", "\n");
 				receipt?.(Number(status));

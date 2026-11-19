@@ -105,11 +105,25 @@ rm -f "$RESOURCES/core/bin/voice/model.int8.onnx"
 chmod +x "$RESOURCES/runtime/bin/node" "$RESOURCES/core/bin/uv" "$RESOURCES/core/bin/uvx" "$RESOURCES/core/bin/rg" "$RESOURCES/core/bin/fd"
 find "$RESOURCES/core/python" -maxdepth 3 -path "*/bin/python*" -exec chmod +x {} + || true
 
-echo "Ad-hoc signing $APP_OUT..."
-codesign --force --deep \
+echo "Ad-hoc signing $APP_OUT (inside-out)..."
+xattr -cr "$APP_OUT"
+# 1. Sign all Mach-O binaries, shared libs, and native addons inside Contents/Resources
+while IFS= read -r -d '' f; do
+  if file -b "$f" | grep -q "Mach-O"; then
+    codesign --force --sign - "$f"
+  fi
+done < <(find "$RESOURCES" -type f \( -name "*.dylib" -o -name "*.so" -o -name "*.node" -o -perm +111 \) -print0)
+# 2. Sign frameworks and dylibs inside Contents/Frameworks
+if [[ -d "$APP_OUT/Contents/Frameworks" ]]; then
+  while IFS= read -r -d '' f; do
+    codesign --force --sign - "$f"
+  done < <(find "$APP_OUT/Contents/Frameworks" -maxdepth 2 \( -name "*.dylib" -o -name "*.framework" \) -print0)
+fi
+# 3. Sign main .app bundle with entitlements
+codesign --force \
   --entitlements "$ROOT/app/macos/Runner/Release.entitlements" \
   --sign - "$APP_OUT"
-codesign --verify --deep --strict "$APP_OUT"
+codesign --verify --deep --strict --verbose=2 "$APP_OUT"
 
 SUFFIX=""
 if [[ "$BETA" == "true" ]]; then

@@ -28,6 +28,7 @@ test("seatbelt-sandbox: buildSeatbeltProfile locks writes and denies sensitive m
 	assert.match(offline, /\/Users\/alice\/\.ssh/);
 	assert.match(offline, /\/Users\/alice\/df\/secrets/);
 	assert.match(offline, /\(deny network-outbound \(remote ip\)\)/);
+	assert.match(offline, /\(deny network-inbound \(local ip\)\)/);
 
 	const online = buildSeatbeltProfile({
 		workspaceDir: "/Users/alice/df/sandbox/workspace",

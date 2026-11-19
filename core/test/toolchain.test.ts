@@ -103,7 +103,7 @@ describe("workspace environment in a session", () => {
 		writeFileSync(join(t.workspace, WORKSPACE_DIR, WORKSPACE_NOTES), "这个工作区放周报。");
 		t.respond(capture);
 		await send("再来");
-		assert.match(prompts[1]!, /## \.dreamflutter\\workspace\.md\n这个工作区放周报。/);
+		assert.match(prompts[1]!, /## \.dreamflutter[\\/]workspace\.md\n这个工作区放周报。/);
 	});
 
 	it("leaves the minimal mode's prompt alone", async () => {
