@@ -18,10 +18,12 @@ import { secretFileOf } from "../src/modules/secrets.ts";
 import { Llm } from "../src/modules/llm.ts";
 import { recordedSessionModel } from "../src/pi/host.ts";
 
+const evidenceDirectory = new URL("../../Claude Codex Bridge/", import.meta.url);
 const API_KEY = "T70B_SYNTHETIC_API_KEY", ACCESS = "T70B_SYNTHETIC_OAUTH", FRESH = "T70B_SYNTHETIC_REFRESHED";
 const oauth = (access: string, expires = Date.now() + 3600000) => ({ type: "oauth" as const, access, refresh: "T70B_SYNTHETIC_REFRESH", expires });
 const reply = () => { const stream = createAssistantMessageEventStream(); queueMicrotask(() => { stream.push({ type: "done", reason: "stop", message: fauxAssistantMessage("MOCK_OK") }); stream.end(); }); return stream; };
 async function fixture() {
+  mkdirSync(evidenceDirectory, { recursive: true });
   const root = mkdtempSync(join(tmpdir(), "df-t70b-")), agentDir = join(root, "agent"), sessions = join(root, "sessions"), workspace = join(root, "workspace");
   for (const path of [agentDir, sessions, workspace]) mkdirSync(path);
   const base = builtinProviders().find(p => p.id === "openai")!, modelId = base.getModels().find(m => m.type === "chat")!.id;
@@ -75,7 +77,7 @@ test("T70b gate: migrated OpenAI API key and ChatGPT OAuth coexist through login
     await t.core.call("piMigration.oauthLogout", { provider: "openai" }); t.assertIntact(); assert.equal(t.auth().openai, undefined);
     await t.runtime.completeSimple(t.runtime.getModel(t.apiChannel.provider, t.modelId)!, { messages: [] });
     assert.equal(t.sent.at(-1)!.route, "api-key"); assert.equal(t.sent.at(-1)!.credentialMatches, true);
-    writeFileSync("../Claude Codex Bridge/T70b-storage-gate.json", JSON.stringify({ passed: true, loginAndRefreshPreserveApiChannelAndCiphertext: true, logoutPreservesApiChannelAndCiphertext: true, retainedCodexPreserved: true, explicitGroupRoutesUseCorrectSyntheticCredentials: true, requests: t.sent, modelId: t.modelId }, null, 2));
+    writeFileSync(new URL("T70b-storage-gate.json", evidenceDirectory), JSON.stringify({ passed: true, loginAndRefreshPreserveApiChannelAndCiphertext: true, logoutPreservesApiChannelAndCiphertext: true, retainedCodexPreserved: true, explicitGroupRoutesUseCorrectSyntheticCredentials: true, requests: t.sent, modelId: t.modelId }, null, 2));
   } finally { await t.cleanup(); }
 });
 
@@ -94,7 +96,7 @@ test("T70b gate: a newly selected ChatGPT auxiliary model and a fresh OAuth hist
     const restored = t.core.restoreSessionModel!(reference.ref, t.runtime, reference.recordedAt);
     t.assertIntact();
     const proof = { passed: selected?.provider === "openai" && restored?.provider === "openai", modelId: t.modelId, migratedApiProvider: t.apiChannel.provider, requestedOAuthProvider: "openai", actualAuxiliaryProvider: selected?.provider, recordedFreshHistoryProvider: recorded.provider, actualHistoryProvider: restored?.provider, secretAndApiChannelPreserved: true };
-    writeFileSync("../Claude Codex Bridge/T70b-routing-gate.json", JSON.stringify(proof, null, 2));
+    writeFileSync(new URL("T70b-routing-gate.json", evidenceDirectory), JSON.stringify(proof, null, 2));
     assert.equal(selected?.provider, "openai", "Fresh ChatGPT auxiliary selection must not be rewritten to the migrated API key channel");
     assert.equal(restored?.provider, "openai", "Fresh ChatGPT history must not be restored as the migrated API key channel");
   } finally { await t.cleanup(); }

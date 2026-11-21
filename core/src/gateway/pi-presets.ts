@@ -4,8 +4,9 @@ import type { Platform } from "./platforms.ts";
 /** Public Pi catalog only; no auth resolution or network work. */
 let cached: (Platform & { modelDetails: Record<string, unknown>[] })[] | undefined;
 export function piPresets(): (Platform & { modelDetails: Record<string, unknown>[] })[] {
+	if (cached) return cached;
 	const names = new Map(builtinProviders().map((p) => [p.id, p.name]));
-	return cached ??= getBuiltinProviders().flatMap((id) => {
+	return cached = getBuiltinProviders().flatMap((id) => {
 		const models = getBuiltinModels(id);
 		if (!models.length) return [];
 		const endpoints = [...new Map(models.filter((m) => m.baseUrl && m.api).map((m) => [`${m.api}|${m.baseUrl}`, { api: m.api, baseUrl: m.baseUrl }])).values()];

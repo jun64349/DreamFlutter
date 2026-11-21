@@ -284,11 +284,23 @@
 - **用途** 读取蝶君沙箱状态。
 - **调用方** 窗口或后台，蝶君。
 - **参数** 无。
-- **返回** `SandboxStatus`。
+- **返回** `SandboxStatus`。Windows V1.1 的 `kind` 为 `appcontainer`。就绪时 `workspaceDir` 为当前目录，重置、恢复或切换后 `retainedWorkspaceDir` 可指向保留的原目录。`gitCompatibility: {enabled: boolean, alternativePath: string}` 给出现用布局和切换时确切的新路径。若本安装的旧沙箱目录仍有 1.0 的磁盘，`legacyDisk` 给出其位置。已有 1.0 备份中的 `workspace` 和 `home/agent` 可恢复到新的 Windows 工作区。
 - **错误** 无专属 RpcError；未分类异常按通用 `internal` 返回。
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。
 - **源码** [sandbox/sandbox.ts:258](../../core/src/sandbox/sandbox.ts#L258)
+
+## sandbox.setGitCompatibility
+<!-- api:method -->
+
+- **用途** Windows 专用。启用时把工作文件经归档复制到标准工作区所在盘的一个全新盘根目录，实测随包 Git 能建库和查询状态后切换。原文件保留。关闭时复制到新的标准工作区，保留盘根的原文件。
+- **参数** `enabled: boolean`，`workspaceDir: string` 必须与窗口确认的 `sandbox.status.gitCompatibility.alternativePath` 一致。
+- **返回** `SandboxStatus`，其中 `workspaceDir` 为核对后的当前实际位置。
+- **错误** `busy` 表示有任务或维护正在运行，`conflict` 表示确认的路径已变化，`unavailable` 表示磁盘权限、安装组件、归档或 Git 检查失败。切换失败时保留原活动工作区。
+- **事件** `sandbox.changed`。归属记录和位置选择留在本机，备份仅带工作文件归档。按存储位置搬迁时，在新址恢复为标准工作区。
+- **工作树** 归档移到新根时会重定位 Git 工作树指向原工作区内部的标准链接。项目脚本、普通文本和指向外部目录的引用保留原样。
+- **开放范围** 仅已连接的窗口。
+- **源码** [appcontainer-module.ts](../../core/src/sandbox/appcontainer-module.ts)
 
 ## security.addException
 <!-- api:method -->

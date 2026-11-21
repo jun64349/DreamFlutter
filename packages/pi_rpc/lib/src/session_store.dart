@@ -69,6 +69,7 @@ class SessionStore {
     final summaries = <SessionSummary>[];
     await for (final entity in root.list(recursive: true, followLinks: false)) {
       if (entity is! File || !entity.path.endsWith('.jsonl')) continue;
+      if (p.split(p.relative(entity.path, from: sessionsDir)).first == '.dsh') continue;
       final summary = await readSummary(entity,
         includeSideConversations: includeSideConversations,
       );

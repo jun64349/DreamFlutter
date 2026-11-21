@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:dreamflutter/main.dart';
 import 'package:dreamflutter/state/desktop_notifications.dart';
 import 'package:dreamflutter/state/installation.dart';
+import 'package:dreamflutter/ui/home_page.dart';
 import 'package:dreamflutter/ui/setup_wizard.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,11 +33,17 @@ void main(){
     }
     expect(calls.where((c)=>c.method=='notify'),hasLength(4));expect(opened,hasLength(4));expect(opened.first['role'],'butterfly');expect(opened.last['role'],'main');expect(opened.last['slotId'],'slot-workbench.done');expect(opened.last['sessionFile'],'C:/fixture/workbench.done.jsonl');
   });
-  testWidgets('existing data tests its encrypted channel without asking for the secret again',(t)async{
+  testWidgets('completed setup with an existing channel goes straight to the workbench',(t)async{
     final f=(await t.runAsync(T88Fixture.create))!;addTearDown(()async{await t.pumpWidget(const SizedBox());await t.runAsync(f.dispose);});
-    await t.pumpWidget(DreamFlutterApp(controller:f.agent,home:SetupWizard(status:{'dataRoot':f.root.path,'models':{'conversation':'df-c1/flash'}},initialStep:3,onComplete:(){})));await t.pumpAndSettle();
-    expect(find.widgetWithText(TextField,'留空沿用已保存的密钥'),findsOneWidget);
-    await t.tap(find.byTooltip('测试连接'));await t.pumpAndSettle();expect(find.text('连接成功'),findsOneWidget);expect(f.backend.callsTo('gateway.saveChannel'),isEmpty);expect(f.backend.callsTo('setup.testChannel').single,{'channel':'c1'});
+    f.backend.handlers['setup.status'] = (_) => {'completed': true, 'dataRoot': f.root.path};
+    await t.pumpWidget(DreamFlutterApp(controller:f.agent,home:SetupGate(dataRoot:f.root.path)));
+    await t.pumpAndSettle();
+    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(SetupWizard), findsNothing);
+    expect(f.agent.gatewayChannels.single.id, 'c1');
+    expect(f.backend.callsTo('setup.complete'), isEmpty);
+    expect(f.backend.callsTo('gateway.saveChannel'), isEmpty);
+    expect(f.backend.callsTo('setup.testChannel'), isEmpty);
   });
   test('failed delayed action resurfaces with a retryable error and event count',()async{
     final f=await T88Fixture.create();addTearDown(f.dispose);

@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { afterEach, it } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, type Context } from "@earendil-works/pi-ai";
 import { PYTHON_SOURCES, hostProjectFiles, packageEnvironment, projectPaths } from "../src/agent/package-sources.ts";
@@ -145,10 +145,14 @@ it("actual uv/pip/npm HTTPS requests select presets or project sources through a
     writeFileSync(join(dir, "npmrc"), ""); writeFileSync(join(dir, "requirements.txt"), "idna==3.10\n");
     const python = bundledPython()!;
     assert.ok(python, "bundled Python required for this regression");
+    const npmCli = [process.env.npm_execpath, ...[dirname(process.execPath), ...(process.env.PATH ?? "").split(delimiter)]
+      .filter(Boolean).map(directory => join(directory, "node_modules", "npm", "bin", "npm-cli.js"))]
+      .find((file): file is string => !!file && existsSync(file));
+    assert.ok(npmCli, "npm CLI required for the registry selection regression");
     const tools = [
       { name: "uv", exe: join(TOOLS_DIR, "uv.exe"), args: ["pip", "compile", "requirements.txt", "--python-version", "3.13", "--no-cache"] },
       { name: "pip", exe: python, args: ["-m", "pip", "download", "--no-deps", "--no-cache-dir", "idna==3.10"] },
-      { name: "npm", exe: process.execPath, args: [join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"), "view", "is-number@7.0.0", "version"] },
+      { name: "npm", exe: process.execPath, args: [npmCli, "view", "is-number@7.0.0", "version"] },
     ];
     for (const scenario of ["official", "mirror", "project"] as const) {
       if (scenario === "project") {
@@ -163,7 +167,10 @@ it("actual uv/pip/npm HTTPS requests select presets or project sources through a
         assert.equal(env.PIP_TRUSTED_HOST, undefined); assert.equal(env.NODE_TLS_REJECT_UNAUTHORIZED, undefined); assert.equal(env.UV_INSECURE_HOST, undefined);
         await new Promise<void>((done, reject) => {
           const child = spawn(tool.exe, tool.args, { cwd: dir, env, windowsHide: true, stdio: "ignore" });
-          const timer = setTimeout(() => { child.kill(); reject(new Error(`${tool.name} did not finish`)); }, 10_000);
+          const timer = setTimeout(() => {
+            child.kill();
+            reject(new Error(scenario + "/" + tool.name + " timed out; observed CONNECT hosts: " + seen.slice(start).join(",")));
+          }, 30_000);
           child.on("error", (error) => { clearTimeout(timer); reject(error); });
           child.on("close", () => { clearTimeout(timer); done(); });
         });

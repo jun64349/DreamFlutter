@@ -30,7 +30,7 @@
 
 - `state`、`message` 为当前更新阶段和显示文本。`checkedAt` 为毫秒或 null，`progress` 为数字进度。
 - `available` 为 null 或 `{version:string,notes:string,page:string,size:number,sha256:string}`，其中 size 为字节。`downloaded`、`canInstall`、`canStartup` 为布尔值。`signature` 是下载包签名核验结果或 null。
-- `application` 为应用构建信息。`coreVersion`、`nodeVersion`、`platform`、`arch` 为字符串，`piVersion` 可为 null。
+- `application` 为应用构建信息。`dshVersion` 来自后台实际加载的官方 DSH 会话包，窗口「关于」显示此值。`coreVersion`、`nodeVersion`、`platform`、`arch` 为字符串，`piVersion` 保留给旧客户端，可为 null。
 - `autoCheckUpdates`、`startOnLogin` 为布尔值，`closeBehavior` 为 tray 或 quit。`recovery` 为 null 或含 phase、from、to、backup、error、acceptedWrites 的恢复快照。字段实现见 [UpdateModule.status](../../core/src/update/module.ts#L117)。
 
 ## 会话、消息、运行

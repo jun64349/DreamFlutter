@@ -1,13 +1,16 @@
+import { completeModel } from "../llm.ts";
 import { randomUUID } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import type { Context } from "@deepseek-ai/cordis";
 import { noticeCopy } from "../../notify.ts";
 import { recordGoalNotice } from "./notices.ts";
 import { retryDelayMs, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import type { AgentSessionEvent, ExtensionFactory, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { normalizeCwd, samePath, RpcError, type Core } from "../../core.ts";
-import { RETRY } from "../../agent/dsh-text.ts";
+import { RETRY, STANDARD_PERSONA } from "../../agent/dsh-text.ts";
+import { sandboxEnvironmentText } from "../../agent/host-text.ts";
 import { ledgerContext, withLedgerContext } from "../../ledger/types.ts";
 import { estimateTokens } from "../../memory/text.ts";
 import { redact } from "../../security/redaction.ts";
@@ -15,13 +18,13 @@ import { textOf, type Run } from "../../runs.ts";
 import type { Slot } from "../../slots/slot.ts";
 import type { GoalScheduler } from "../goals.ts";
 import { TasksModule } from "../tasks.ts";
-import { allowedTool, checkProgram, readVerdict, sandboxToolPath, scopeTools, toolPath, type ToolReceipt } from "./acceptance.ts";
+import { allowedTool, appContainerGoalPath, checkProgram, goalPath, readVerdict, sandboxToolPath, scopeTools, toolPath, type ToolReceipt } from "./acceptance.ts";
 import { estimateGoalCost } from "./budget.ts";
 import { goalChannelFailure, type ChannelFailure } from "./channel.ts";
 import { isTerminal, type Goal, type IntentRow, type StopIntent } from "./types.ts";
 import { parseWait } from "./waits.ts";
 import { GoalProposals, qualifyingRequest } from "./proposals.ts";
-import { GOAL_TOOLS, registerGoalTools } from "./tools.ts";
+import { GOAL_TOOLS, registerDshGoalTools, registerGoalTools } from "./tools.ts";
 import { chatTask, deliveryDirectory, promisedFiles } from "./chat-task.ts";
 import { selfworkGrant } from "./selfwork.ts";
 import { hostKey, inside, sandboxGoalTools, sandboxPath } from "../autonomy/rules.ts";
@@ -142,7 +145,7 @@ export class GoalExecutor {
 		queue.push(item);
 		this.inputs.set(goal.id, queue);
 		const active = this.active.get(slot.slotId);
-		if (!immediate && active && slot.session.isStreaming && queue.every(input => !input.immediate)) {
+		if (!immediate && active && (slot.running || slot.session.isStreaming) && queue.every(input => !input.immediate)) {
 			item.delegated = true;
 			void slot.handle({ ...command, streamingBehavior: "followUp" }, scope);
 			return true;
@@ -167,11 +170,11 @@ export class GoalExecutor {
 			if (input.immediate && run && !run.interrupted && !run.tools.size) {
 				run.interrupted = true;
 				if (queue!.some(item => item.delegated)) {
-					slot.session.clearQueue();
+					slot.clearActiveQueue();
 					for (const item of queue!) if (item.delegated) { item.delegated = false; item.command = { ...item.command, id: undefined }; }
 				}
 				slot.ui.cancelAll();
-				void slot.session.abort().catch(() => {});
+				void slot.abortActive().catch(() => {});
 			}
 			return;
 		}
@@ -179,6 +182,8 @@ export class GoalExecutor {
 		const execution = this.scheduler.beginInput(id, key, task.id);
 		if (!execution) return;
 		advance();
+		try { this.prepareDshTask(slot, goal); }
+		catch (error) { this.scheduler.abandon(execution.intent, error instanceof Error ? error.message : String(error)); return; }
 		for (const review of this.reviews.values()) if (review.intent.goal_id === id) review.controller.abort();
 		slot.taskId = task.id;
 		const active: Execution = { ...execution, slot, taskId: task.id, tools: new Set(), userInput: key };
@@ -190,6 +195,7 @@ export class GoalExecutor {
 			.then(() => {
 				if (active.runId || slot.running || slot.session.pendingMessageCount || this.active.get(slot.slotId) !== active) return;
 				this.active.delete(slot.slotId);
+				slot.releaseDshTask(`goal:${id}`);
 				this.scheduler.abandon(active.intent, "会话未开始处理这条消息");
 			});
 	}
@@ -262,15 +268,34 @@ export class GoalExecutor {
 		this.active.set(slot.slotId, run);
 		this.wrap(slot.session.modelRuntime);
 		try {
+			this.prepareDshTask(slot, goal);
 			await withLedgerContext({ purpose: "conversation", slotId: slot.slotId }, () => slot.prompt(this.prompt(goal, intent)));
 		} catch (error) {
 			this.active.delete(slot.slotId);
+			slot.releaseDshTask(`goal:${goal.id}`);
 			throw error;
 		}
 		if (!run.runId && !slot.running && !slot.session.isStreaming && !slot.session.pendingMessageCount) {
 			this.active.delete(slot.slotId);
+			slot.releaseDshTask(`goal:${goal.id}`);
 			throw new Error("会话未开始执行目标");
 		}
+	}
+
+	private prepareDshTask(slot: Slot, goal: Goal): void {
+		if (!this.core.dshBackend) return;
+		const sandbox = goal.scope.sandbox ? this.core.sandboxProvider?.() : undefined;
+		if (goal.scope.sandbox && !sandbox?.appContainer) throw new RpcError("unavailable", "蝶君的 Windows 工作区还没准备好，目标没有执行");
+		const persona = STANDARD_PERSONA.replace("{{model}}", slot.session.model?.id ?? "unknown");
+		const allowed = this.core.autonomy.hasSandboxTools(goal) ? sandboxGoalTools(sandbox) : scopeTools(goal.scope);
+		const prepared = slot.prepareDshTask({
+			scopeId: `goal:${goal.id}`,
+			dshSystemPrompt: sandbox ? `${persona}\n\n${sandboxEnvironmentText(sandbox.workspaceDir, true)}` : persona,
+			dshTools: [...new Set([...allowed, "job_output"])],
+			setupDsh: (ctx: Context) => registerDshGoalTools(ctx, () => this.active.has(slot.slotId),
+				(name, args, callId) => this.useDshTool(slot.slotId, name, args, callId)),
+		});
+		if (!prepared) throw new RpcError("conflict", "这个会话无法加载目标工具和权限，目标没有执行");
 	}
 
 	private prompt(goal: Goal, intent: IntentRow): string {
@@ -280,7 +305,8 @@ export class GoalExecutor {
 		const feedback = this.scheduler.feedback(goal.id, goal.revision);
 		const chat = chatTask(this.core.db, goal.id);
 		const work = selfworkGrant(this.core.db, goal.id);
-		const scope = this.core.autonomy.hasSandboxTools(goal) ? { ...goal.scope, allowedTools: sandboxGoalTools() } : goal.scope;
+		const scope = this.core.autonomy.hasSandboxTools(goal)
+			? { ...goal.scope, allowedTools: sandboxGoalTools(this.core.sandboxProvider?.()) } : goal.scope;
 		return [
 			"继续推进目标。按授权完成可验证的工作。一次 run 结束后，程序会检查实际产物和回执。",
 			`如果你判断本修订的目标已经达成，在本轮最后一条答复开头单独写一行 ${COMPLETION_REPORT}，然后说明产物和证据。`,
@@ -324,6 +350,7 @@ export class GoalExecutor {
 		}
 		if (event.type === "agent_settled") {
 			this.active.delete(slot.slotId);
+			slot.releaseDshTask(`goal:${active.goal.id}`);
 			for (const [sessionId, run] of this.childSessions) if (run === active) this.childSessions.delete(sessionId);
 		}
 	}
@@ -339,7 +366,8 @@ export class GoalExecutor {
 		const run = this.active.get(slotId);
 		if (!run) return undefined;
 		// The goal extension checks the actual input and canonical paths before execution.
-		const tools = this.core.autonomy.hasSandboxTools(run.goal) ? sandboxGoalTools() : scopeTools(run.goal.scope);
+		const tools = this.core.autonomy.hasSandboxTools(run.goal)
+			? sandboxGoalTools(this.core.sandboxProvider?.()) : scopeTools(run.goal.scope);
 		return this.canFinish(run) && (tools.includes(tool) || GOAL_TOOLS.includes(tool) || tool === "job_output") ? "allow" : "deny";
 	}
 
@@ -390,12 +418,14 @@ export class GoalExecutor {
 				const tool = event.toolName;
 				const input = event.input as Record<string, unknown>;
 				const managed = this.core.autonomy.isManaged(run.goal);
-				const location = this.core.autonomy.hasSandboxTools(run.goal) ? sandboxToolPath(tool, input) : undefined;
+				const sandbox = run.goal.scope.sandbox ? this.core.sandboxProvider?.() : undefined;
+				const location = sandbox?.appContainer || this.core.autonomy.hasSandboxTools(run.goal) ? sandboxToolPath(tool, input) : undefined;
 				let path = toolPath(tool, input);
 				if (location) {
 					const entry = ctx.sessionManager.getBranch().findLast(item => item.type === "custom" && item.customType === "df.cwd");
 					const cwd = entry?.type === "custom" ? (entry.data as { cwd?: string } | undefined)?.cwd : undefined;
-					const absolute = location.raw ? sandboxPath(location.raw, cwd) : "";
+					const absolute = location.raw && (sandbox?.appContainer ? appContainerGoalPath(sandbox, location.raw, cwd)?.logical : sandboxPath(location.raw, cwd));
+					if (sandbox?.appContainer && !absolute) return { block: true, reason: "工具调用超出目标授权范围" };
 					path = absolute || location.raw;
 					// Pin the checked location before awaiting other tool hooks. A parallel cd cannot change it.
 					if (absolute) input[location.key] = absolute;
@@ -414,7 +444,8 @@ export class GoalExecutor {
 					return { block: true, reason: "目标已停止、修订，或工具调用超出目标授权范围" };
 				}
 				if (managed && !builtIn) {
-					const verified = !path || await this.core.autonomy.checkGoalPath(run.goal, tool, path).catch(() => false);
+					const verified = !path || (sandbox?.appContainer ? !!await goalPath(this.core, run.goal.scope, path).catch(() => null)
+						: await this.core.autonomy.checkGoalPath(run.goal, tool, path).catch(() => false));
 					if (!this.canFinish(run) || !this.mandateAllows(run.goal, tool, path)) return { block: true, reason: "目标授权已失效" };
 					if (!verified) {
 						this.scheduler.pauseForAutonomy(run.goal.id, "needs_permission", "受保护的路径无法核对或发生了重定向");
@@ -484,11 +515,24 @@ export class GoalExecutor {
 		}
 	}
 
+	private useDshTool(slotId: string, name: string, args: Record<string, unknown>, callId: string): { line: string; data?: unknown } {
+		const run = this.active.get(slotId);
+		if (!run?.runId || !this.canFinish(run) || !this.mandateAllows(run.goal)) throw new RpcError("conflict", "目标已停止、修订，或工具调用超出目标授权范围");
+		let ok = false;
+		try {
+			const result = this.useTool(slotId, name, args);
+			ok = true;
+			return result;
+		} finally {
+			this.scheduler.recordTool(run.intent, run.runId, { id: callId, tool: name, ok });
+		}
+	}
+
 	private stopRun(run: Execution, action: StopIntent): void {
 		run.stop = action;
 		if (action === "stop_run" && run.tools.size) return;
 		run.slot.ui.cancelAll();
-		void run.slot.session.abort().catch(() => {});
+		void run.slot.abortActive().catch(() => {});
 	}
 
 	discardInputs(id?: string): void {
@@ -496,7 +540,7 @@ export class GoalExecutor {
 			if (id && id !== goalId) continue;
 			this.inputs.delete(goalId);
 			const delegated = new Set(queue.filter(input => input.delegated && input.slot.started).map(input => input.slot));
-			for (const slot of delegated) slot.session.clearQueue();
+			for (const slot of delegated) slot.clearActiveQueue();
 			for (const input of queue) this.scheduler.dismissInput(goalId, input.key);
 		}
 	}
@@ -610,10 +654,13 @@ export class GoalExecutor {
 		if (mandate) {
 			const files = chat ? promisedFiles(chat) : [work!.deliverable];
 			const dir = deliveryDirectory(goal.id);
+			const native = this.core.sandboxProvider?.()?.appContainer;
 			const report = await checkProgram(this.core, { ...goal, spec: { ...goal.spec, deliverables: files } }, receipts, [],
 				goal.scope.sandbox ? { verifyDeliveries: true, resolveDelivery: async raw => {
-					if (work ? sandboxPath(raw) !== work.deliverable : !inside(sandboxPath(raw), dir) || raw === dir) return null;
-					const path = await this.core.autonomy.sandboxFile(raw);
+					const target = sandboxPath(raw);
+					if (work ? target !== work.deliverable : !inside(target, dir) || target === dir) return null;
+					if (native) return target;
+					const path = await this.core.autonomy.sandboxFile(target);
 					return (await lstat(path)).nlink === 1 ? path : null;
 				} } : { metadataOnly: true });
 			if (!goal.scope.sandbox) for (const [index, file] of files.entries()) {
@@ -660,7 +707,7 @@ export class GoalExecutor {
 			let channel: ChannelFailure | null = null, retries = 0;
 			for (let attempt = 0; attempt < 3 && this.scheduler.isCurrent(intent, "reviewing");) {
 				const answer = await withLedgerContext({ purpose: "auxiliary", workspace: goal.scope.cwd, sessionId: slot.session.sessionId, slotId: reviewId, runId: run.id },
-					() => runtime.completeSimple(model, { systemPrompt: prompt, messages: [{ role: "user", content: JSON.stringify(evidence), timestamp: Date.now() }] },
+					() => completeModel(this.core, runtime, model, { systemPrompt: prompt, messages: [{ role: "user", content: JSON.stringify(evidence), timestamp: Date.now() }] },
 						{ maxTokens: 1024, signal: controller.signal }));
 				channel = answer.stopReason === "error" ? goalChannelFailure(answer.errorMessage) : null;
 				if (channel?.permanent || channel && retries >= RETRY.maxRetries) break;

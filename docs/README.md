@@ -8,6 +8,7 @@
 |---|---|
 | [NEW-AGENT-START.md](NEW-AGENT-START.md) | 接手须知：用户、规矩、方向、环境，顶部有可复制的开工提示 |
 | [HANDOFF.md](HANDOFF.md) | 开发交接：当前状态、到 1.0 的路线以来每一步做了什么、下一窗口从哪开始 |
+| [Windows V1.1.0 交付记录](releases/v1.1.0.md) | 本地 DSH、插件、蝶君工作区、Windows 安装包和验收结果 |
 | [roadmap.md](roadmap.md) | 路线图：页首★节是到 1.0 的最后路线（必须照做），后面是各版本范围和 1.0 之后的方向 |
 | [dev-guide.md](dev-guide.md) | 开发规范：怎么测、怎么打包、怎么交付 |
 | [../AGENTS.md](../AGENTS.md) | 给 Agent 的项目规矩（定型体验不能动、推送要授权等） |
@@ -16,7 +17,8 @@
 
 | 文件 | 内容 |
 |---|---|
-| [architecture.md](architecture/architecture.md) | 整体架构：Flutter 窗口 + Node 后台 + Pi |
+| [architecture.md](architecture/architecture.md) | Windows V1.1 的 Flutter、Node、DSH 和早期版本架构 |
+| [v1.1-system-plugins.md](architecture/v1.1-system-plugins.md) | V1.1.0 的 DSH 后台迁移、内置系统插件与蝶君原生工作空间验收 |
 | [agent-modes.md](architecture/agent-modes.md) | Agent 模式（标准、极简、计划） |
 | [memory-design.md](architecture/memory-design.md) | 记忆系统 |
 | [long-task-design.md](architecture/long-task-design.md) | 长任务、目标与执行 |

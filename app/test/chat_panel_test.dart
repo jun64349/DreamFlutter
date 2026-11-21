@@ -109,7 +109,7 @@ void main() {
       expect(pi.sent('df_navigate_tree'), isEmpty);
     });
 
-    testWidgets('the file panel keeps earlier reads after a later reply with no tools', (tester) async {
+    testWidgets('the file panel keeps only outputs and collapses changes beyond the top three', (tester) async {
       await startApp(tester);
       final pi = backend.pis.single;
       Json call(String id, String tool, String path) => {
@@ -128,9 +128,11 @@ void main() {
         {'role': 'assistant', 'timestamp': 2, 'stopReason': 'toolUse', 'content': [
           call('read', 'read', 'specs.csv'), call('read-again', 'read', 'specs.csv'),
           call('report-read', 'read', 'weekly.md'), call('report-edit', 'edit', 'weekly.md'),
+          for (var i = 1; i <= 3; i++) call('write-$i', 'write', 'report-$i.md'),
         ]},
         result('read', 'read'), result('read-again', 'read'),
         result('report-read', 'read'), result('report-edit', 'edit'),
+        for (var i = 1; i <= 3; i++) result('write-$i', 'write'),
         reply(3, '核对完了。'),
         {'role': 'user', 'timestamp': 4, 'content': '可不可以简短点？'},
         reply(5, '可以。'),
@@ -140,18 +142,22 @@ void main() {
       await settle(tester);
       final fileSection = find.byKey(const ValueKey('panel-section-files'));
       Finder inPanel(Finder finder) => find.descendant(of: fileSection, matching: finder);
-      expect(inPanel(find.text('1 个改动 · 1 个读过')), findsOneWidget);
+      expect(inPanel(find.text('4 个改动')), findsOneWidget);
+      expect(inPanel(find.text('specs.csv')), findsNothing);
+      expect(inPanel(find.text('weekly.md')), findsNothing);
+      for (var i = 1; i <= 3; i++) {
+        expect(inPanel(find.text('report-$i.md')), findsOneWidget);
+      }
+      await tester.tap(inPanel(find.text('展开其余 1 个文件')));
+      await settle(tester);
       expect(inPanel(find.text('weekly.md')), findsOneWidget);
-      expect(inPanel(find.text('specs.csv')), findsOneWidget);
-      expect(inPanel(find.text('读过')), findsOneWidget);
-      expect(inPanel(find.text('新建')), findsNothing);
-
+      expect(inPanel(find.text('specs.csv')), findsNothing);
       await tester.tap(inPanel(find.byTooltip('只看某类')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('读过的文件'));
+      await tester.tap(find.text('修改的文件'));
       await tester.pumpAndSettle();
-      expect(inPanel(find.text('specs.csv')), findsOneWidget);
-      expect(inPanel(find.text('weekly.md')), findsNothing);
+      expect(inPanel(find.text('weekly.md')), findsOneWidget);
+      expect(inPanel(find.text('report-1.md')), findsNothing);
 
       final filesToggle = find.byKey(const ValueKey('panel-toggle-files'));
       final contextToggle = find.byKey(const ValueKey('panel-toggle-context'));
@@ -160,7 +166,7 @@ void main() {
       expect(context, findsOneWidget, reason: 'both sections are expanded by default');
       await tester.tap(filesToggle);
       await settle(tester);
-      expect(inPanel(find.text('specs.csv')), findsNothing);
+      expect(inPanel(find.text('weekly.md')), findsNothing);
       expect(context, findsOneWidget, reason: 'sections collapse independently');
 
       await tester.ensureVisible(contextToggle);
@@ -171,13 +177,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('context-ring')));
       await settle(tester);
       expect(context, findsOneWidget);
-      expect(inPanel(find.text('specs.csv')), findsNothing, reason: 'opening context leaves the files collapsed');
+      expect(inPanel(find.text('weekly.md')), findsNothing, reason: 'opening context leaves the files collapsed');
 
       await tester.ensureVisible(filesToggle);
       await tester.tap(filesToggle);
       await settle(tester);
-      expect(inPanel(find.text('specs.csv')), findsOneWidget);
-      expect(inPanel(find.text('weekly.md')), findsNothing, reason: 'the file filter survives folding');
+      expect(inPanel(find.text('weekly.md')), findsOneWidget);
+      expect(inPanel(find.text('report-1.md')), findsNothing, reason: 'the file filter survives folding');
     });
   });
 }

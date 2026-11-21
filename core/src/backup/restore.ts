@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { Db } from "../db.ts";
+import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import type { CorePaths } from "../paths.ts";
 import { MIGRATIONS } from "../schema.ts";
@@ -13,6 +14,8 @@ import { FORMAT, FORMAT_VERSION, MIN_DB_VERSION, PI_FILES, tableCounts, type Man
 import { remapColumns, type BackupPart } from "./parts.ts";
 import { PathMap, piSessionFolder, type PathRule } from "./path-map.ts";
 import { storageLocations, type StorageKind } from "../storage/locations.ts";
+import { copyDshHistories } from "../dsh/backup.ts";
+import { LOCAL_NATIVE_FLAGS } from "../sandbox/appcontainer-placements.ts";
 
 /**
  * Restoring a package, up to the point where it can replace the live data
@@ -23,6 +26,15 @@ import { storageLocations, type StorageKind } from "../storage/locations.ts";
  */
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+function localWorkspaceFlags(path: string): { key: string; value: string; at: number }[] {
+	if (process.platform !== "win32" || !existsSync(path)) return [];
+	const db = new DatabaseSync(path, { readOnly: true });
+	try {
+		if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_flags'").get()) return [];
+		return db.prepare("SELECT key,value,at FROM app_flags WHERE key IN (?,?,?)").all(...LOCAL_NATIVE_FLAGS) as { key: string; value: string; at: number }[];
+	} finally { db.close(); }
+}
 
 export interface RestoreTarget {
 	paths: CorePaths;
@@ -302,8 +314,11 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 		const missingKeys = new Set<string>();
 		try {
 			const context = { map, secretRef: (ref: string) => relocateSecretRef(ref, locations.secrets) };
+			const workspaceFlags = localWorkspaceFlags(target.paths.dbFile);
 			db.transaction(() => {
 				remapColumns(db, options.parts, context);
+				db.run("DELETE FROM app_flags WHERE key IN (?,?,?)", ...LOCAL_NATIVE_FLAGS);
+				for (const flag of workspaceFlags) db.run("INSERT INTO app_flags(key,value,at) VALUES(?,?,?)", flag.key, flag.value, flag.at);
 				for (const part of options.parts) part.onStage?.(db, context);
 				for (const row of db.all<{ original_path: string; stored_path: string; metadata: string }>("SELECT original_path,stored_path,metadata FROM session_recycle")) {
 					const staged = sessionTargets.find((s) => s.target === row.stored_path);
@@ -363,6 +378,12 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 		if (existsSync(prefsFile)) prefs = map.mapJson(JSON.parse(await readFile(prefsFile, "utf8"))) as Record<string, unknown>;
 		const sandbox = existsSync(join(raw, "data", "sandbox", "workspace.tar.gz"));
 
+		const dshOut = join(sessionsOut, ".dsh");
+		await copyDshHistories(join(raw, "data", "dsh"), dshOut, { mapCwd: (cwd) => map.map(cwd), signal: options.signal });
+		const dshFiles = listFiles(dshOut).map(file => {
+			const staged = relative(sessionsOut, file);
+			return { staged, target: join(target.sessionsDir, staged) };
+		});
 		const staged: Staged = {
 			dir,
 			manifest,
@@ -375,7 +396,7 @@ export async function stageBackup(file: string, target: RestoreTarget, options: 
 			sandbox,
 			secrets,
 			piFiles,
-			sessionTargets: sessionTargets.map((s) => ({ staged: s.staged, target: s.target })),
+			sessionTargets: [...sessionTargets.map((s) => ({ staged: s.staged, target: s.target })), ...dshFiles],
 		};
 		await writeFile(join(dir, "staged.json"), JSON.stringify({ ...staged, manifest: undefined }, null, 2), "utf8");
 		return staged;

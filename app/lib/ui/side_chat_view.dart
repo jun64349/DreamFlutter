@@ -68,10 +68,10 @@ class _SideChatViewState extends State<SideChatView> {
         return LayoutBuilder(builder: (context, constraints) => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (side.parentMissing || !runtime.willPersist)
+            if (side.parentMissing || !runtime.willPersist && !runtime.readOnly)
               Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 0), child: Wrap(spacing: 8, children: [
                 if (side.parentMissing) Text('来源对话已删除', style: context.text.bodySmall?.copyWith(color: colors.muted)),
-                if (!runtime.willPersist) TagChip('不保存', color: colors.muted),
+                if (!runtime.willPersist && !runtime.readOnly) TagChip('不保存', color: colors.muted),
               ])),
             Container(
               margin: const EdgeInsets.fromLTRB(14, 12, 14, 6),
@@ -120,7 +120,19 @@ class _SideChatViewState extends State<SideChatView> {
                 constraints: BoxConstraints(maxHeight: constraints.maxHeight * .5),
                 child: Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), child: SideExtensionDialog(runtime: runtime)),
               ),
-            Container(
+            if (runtime.readOnly)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                child: Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('旧会话 · 只读'),
+                    FilledButton(onPressed: agent.continuingLegacy ? null : () => agent.continueLegacy(sourceRuntime: runtime), child: const Text('继续')),
+                  ],
+                ),
+              )
+            else Container(
               margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
               padding: const EdgeInsets.only(left: 12, right: 4),
               decoration: BoxDecoration(color: colors.card, border: Border.all(color: colors.border), borderRadius: BorderRadius.circular(10)),

@@ -1,6 +1,9 @@
 #ifndef RUNNER_SINGLE_INSTANCE_H_
 #define RUNNER_SINGLE_INSTANCE_H_
 
+#include <filesystem>
+#include <memory>
+#include <vector>
 #include <windows.h>
 
 // One window per data directory (V07-02). A second launch that would use the
@@ -17,6 +20,10 @@ class SingleInstance {
   // Records this process's window so later launches can find it.
   void Publish(HWND window);
 
+  // Commit the first-run selection while protecting both the original launch
+  // path and the chosen data path from a racing second instance.
+  bool SaveDataDirectory(const std::filesystem::path& path, HWND window);
+
   // Asks the running instance to show its window. Waits briefly when that
   // instance is still starting and has not created its window yet.
   void ActivateExisting();
@@ -25,9 +32,11 @@ class SingleInstance {
   static UINT ActivateMessage();
 
  private:
+  explicit SingleInstance(const std::filesystem::path& path);
   HANDLE mutex_ = nullptr;
   HANDLE mapping_ = nullptr;
   wchar_t key_[64] = {};
+  std::vector<std::unique_ptr<SingleInstance>> selected_;
 };
 
 #endif  // RUNNER_SINGLE_INSTANCE_H_

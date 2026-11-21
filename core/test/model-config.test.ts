@@ -82,6 +82,66 @@ describe("v0.6 model configuration", () => {
     assert.deepEqual(getSupportedThinkingLevels(slot.session.model!), getSupportedThinkingLevels(known));
   });
 
+  it("uses exact relay defaults for old and new records while keeping explicit settings in transport", async () => {
+    t = await startTestCore(undefined, { dshWorkbench: true,
+      gatewayTransport: (model, context, options) => t.faux.streamSimple(model as never, context as never, options) });
+    const modelId = "gemini-3.1-pro-preview";
+    const defaults = await t.core.call("gateway.modelDefaults", { id: modelId, platform: "openai-relay" }) as any;
+    assert.equal(defaults.contextWindow, 1_048_576);
+    assert.deepEqual(defaults.input, ["text", "image", "video"]);
+    assert.deepEqual(defaults.thinkingLevels, ["low", "medium", "high"]);
+    assert.equal(await t.core.call("gateway.modelDefaults", { id: modelId + "-custom-relay-alias" }), null);
+    const id = await channel([{ id: modelId }], "openai-relay");
+    const provider = channelProvider(id);
+    const gateway = t.core.module(Gateway)!;
+    assert.deepEqual(await t.core.call("gateway.modelWindow", { provider, model: modelId }), { value: defaults.contextWindow, source: "catalog" });
+    const old = { id: modelId, contextWindow: 77_000, reasoning: false, input: ["text"], maxTokens: 16_384, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+    t.core.db.run("UPDATE gateway_channels SET models=?, headers=?, auth_header=? WHERE id=?", JSON.stringify([old]), '{"x-fixture":"advanced"}', 1, id);
+    assert.equal(gateway.window(provider, modelId), 77_000);
+    const slot = await open();
+    await rpc("set_model", { provider, modelId });
+    assert.equal(slot.session.model!.contextWindow, 77_000);
+    assert.deepEqual(slot.session.model!.input, ["text", "image"], "transport supports actual image input, while video remains catalog metadata");
+    assert.deepEqual(getSupportedThinkingLevels(slot.session.model!), ["low", "medium", "high"]);
+    const existingKey = gateway.channel(id)!.keys[0]!;
+    const save = { id, name: "Edited", platform: "openai-relay", api: "openai-completions", baseUrl: "https://example.invalid/v1",
+      keys: [{ id: existingKey.id, label: existingKey.label, enabled: existingKey.enabled }] };
+    await t.core.call("gateway.saveChannel", { ...save, models: [
+      { id: modelId, contextWindow: 65_000, maxTokens: 2048, thinkingLevels: ["off"], input: ["text", "video"] },
+    ] });
+    assert.equal(gateway.channel(id)!.keys[0]!.hint, existingKey.hint);
+    assert.deepEqual(gateway.channel(id)!.headers, { "x-fixture": "advanced" });
+    assert.equal(gateway.channel(id)!.authHeader, true);
+    assert.deepEqual(gateway.channel(id)!.models[0]!.input, ["text", "video"]);
+    await rpc("set_model", { provider, modelId });
+    assert.equal(slot.session.model!.contextWindow, 65_000);
+    assert.equal(slot.session.model!.maxTokens, 2048);
+    assert.deepEqual(slot.session.model!.input, ["text"]);
+    assert.deepEqual(getSupportedThinkingLevels(slot.session.model!), ["off"]);
+    await t.core.call("gateway.saveChannel", { ...save, models: [
+      { id: modelId, contextWindow: null, maxTokens: null, reasoning: null, thinkingLevels: null, input: null },
+    ] });
+    await rpc("set_model", { provider, modelId });
+    assert.equal(slot.session.model!.contextWindow, defaults.contextWindow);
+    assert.deepEqual(slot.session.model!.input, ["text", "image"]);
+    assert.deepEqual(getSupportedThinkingLevels(slot.session.model!), ["low", "medium", "high"]);
+    await rpc("set_thinking_level", { level: "low" });
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAE0lEQVQImWP4z8DwnwGM/zMwAAAf7gP9qS/A4gAAAABJRU5ErkJggg==";
+    let called = false;
+    t.respond((request, options, _state, model) => {
+      called = true;
+      assert.equal(model.contextWindow, defaults.contextWindow);
+      assert.equal(options?.reasoning, "low");
+      assert.ok(request.messages.some(message => message.role === "user" &&
+        Array.isArray(message.content) && message.content.some(block => block.type === "image")));
+      return fauxAssistantMessage("image received");
+    });
+    await t.send("models", { id: "relay-image", type: "prompt", message: "What color?", images: [{ type: "image", mimeType: "image/png", data: png }] });
+    await t.waitFor(() => t.records("models").some(r => r.type === "agent_settled"), 15_000);
+    assert.equal(called, true);
+    assert.match(JSON.stringify(t.records("models")), /image received/);
+  });
+
   it("persists group order, returns it to selectors, appends new groups and rejects stale reorders atomically", async () => {
     await start();
     for (const id of ["a", "b", "c"]) await t.core.call("gateway.saveGroup", { id, name: id, entries: [] });

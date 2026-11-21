@@ -1,0 +1,4 @@
+source_id,scenario,arrival_per_minute,service_per_minute
+Q-OPERATIONS-1,低负载,0.35,1
+Q-OPERATIONS-1,中负载,0.60,1
+Q-OPERATIONS-1,高负载,0.80,1

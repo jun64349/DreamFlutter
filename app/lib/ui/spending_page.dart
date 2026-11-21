@@ -6,6 +6,7 @@ import '../theme.dart';
 import 'agent_scope.dart';
 import 'ledger_table.dart';
 import 'mini_charts.dart';
+import 'plugin_usage_card.dart';
 import 'overlay_panel.dart';
 import 'proto_icon.dart';
 import 'settings_controls.dart' show V1Seg;
@@ -142,6 +143,8 @@ class _SpendingPageState extends State<SpendingPage>{
         return IntrinsicHeight(child:Row(crossAxisAlignment:CrossAxisAlignment.stretch,children:[for(final (i,child) in tiles.indexed)...[if(i>0)const SizedBox(width:12),Expanded(child:child)]]));
       }),
       const SizedBox(height:14),
+      ListenableBuilder(listenable: agent.desktopPlugins, builder: (context, _) =>
+          agent.desktopPlugins.active('usage-dashboard') ? const PluginUsageCard() : const SizedBox.shrink()),
       chartCard(DayBarChart(labels:[for(final d in days)'${d.month}月${d.day}日'],values:dayValues,format:fmt)),
       if(!_busy&&used.isEmpty)Padding(padding:const EdgeInsets.symmetric(vertical:20),child:Center(child:Text('还没有花费记录',style:TextStyle(color:colors.muted)))),
       if(used.isNotEmpty)LayoutBuilder(builder:(context,c){

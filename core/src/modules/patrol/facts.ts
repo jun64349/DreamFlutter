@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { readSessionSnapshot } from "../../dsh/session-legacy.ts";
 import { isInside } from "../../backup/path-map.ts";
 import { normalizeCwd, type Core } from "../../core.ts";
 import { Gateway, GROUP_PROVIDER, type ChannelInfo } from "../../gateway/gateway.ts";
@@ -147,7 +147,7 @@ function affectedSchedules(core: Core, gateway: Gateway | undefined, bad: Channe
 			const live = core.findSlotByFile(row.session_file)?.session.model;
 			if (live) ref = live.provider + "/" + live.id;
 			else {
-				try { ref = recordedSessionModel(SessionManager.open(row.session_file))?.ref ?? ref; }
+				try { ref = recordedSessionModel(readSessionSnapshot(row.session_file))?.ref ?? ref; }
 				catch { return []; }
 			}
 		}

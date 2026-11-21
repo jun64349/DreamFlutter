@@ -1,6 +1,6 @@
-import { cp, lstat, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, open, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync, mkdirSync } from "node:fs";
-import { basename, dirname, join, posix } from "node:path";
+import { basename, dirname, join, posix, win32 } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
 import { normalizeCwd, RpcError, requireStr, samePath } from "../core.ts";
 import { now } from "../db.ts";
@@ -15,6 +15,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { ButterflyChatWorkflow, type ChatManifest } from "./goals/chat-workflow.ts";
 import { chatTask, type ChatInput } from "./goals/chat-task.ts";
 import { digest } from "./autonomy/folders.ts";
+import { appContainerFileAccess, type AppContainerFileAccess, type AppContainerListedFile } from "../sandbox/appcontainer-fs.ts";
 
 export const INBOX = `${SANDBOX_WORKSPACE}/inbox`;
 export const OUTBOX = `${SANDBOX_WORKSPACE}/outbox`;
@@ -74,6 +75,7 @@ export class ButterflyModule implements CoreModule {
 		this.chat = new ButterflyChatWorkflow(core, {
 			prepare: (...args) => this.prepareChatInputs(...args),
 			discard: (...args) => this.discardChatInputs(...args),
+			nativeArtifact: (path) => this.nativeChatArtifact(path),
 		});
 		core.declareBackup({ id: "butterfly-intents", title: "蝶君开工计划", tables: ["butterfly_intents"] });
 		this.register();
@@ -213,11 +215,6 @@ export class ButterflyModule implements CoreModule {
 		return samePath(cwd, this.home);
 	}
 
-	/** The distro, once the sandbox is set up. */
-	private get distro(): string | undefined {
-		return this.core.sandboxProvider?.()?.distro;
-	}
-
 	private sandboxRoot(): string {
 		return (this.core.sandboxProvider?.()?.workspaceDir ?? SANDBOX_WORKSPACE).replaceAll("\\", "/");
 	}
@@ -236,6 +233,40 @@ export class ButterflyModule implements CoreModule {
 		if (!provider) throw new RpcError("sandbox_absent", "蝶君的沙箱还没有建好。到「设置 › 蝶君沙箱」里建立。");
 		return resolveSandboxEnv(provider).local(path);
 	};
+
+	private nativeFiles(): AppContainerFileAccess | undefined {
+		const config = this.core.sandboxProvider?.()?.appContainer;
+		return config && appContainerFileAccess(config);
+	}
+
+	private async copyNativeInput(files: AppContainerFileAccess, source: string, target: string): Promise<void> {
+		const info = await regularChatInput(source);
+		const physical = await realpath(source);
+		const workspace = this.core.sandboxProvider?.()?.workspaceDir;
+		if (!workspace || !samePath(physical, source)) throw new RpcError("bad_request", "资料来源发生重定向。");
+		const relative = win32.relative(workspace, physical);
+		if (relative === "" || (!relative.startsWith("..\\") && relative !== ".." && !win32.isAbsolute(relative))) {
+			throw new RpcError("bad_request", "工作区里的文件可直接在对话中引用。");
+		}
+		if (info.isDirectory()) {
+			await files.makeDirectory(target);
+			for (const name of await readdir(source)) await this.copyNativeInput(files, join(source, name), posix.join(target, name));
+			return;
+		}
+		if (info.size > 8 * 1024 * 1024) throw new RpcError("bad_request", "单个文件不能超过 8 MiB。");
+		const handle = await open(source, "r");
+		let bytes: Buffer;
+		try {
+			const opened = await handle.stat();
+			if (opened.ino !== info.ino || opened.dev !== info.dev || opened.size !== info.size || opened.mtimeMs !== info.mtimeMs) {
+				throw new RpcError("bad_request", "资料在读取前发生变化。");
+			}
+			bytes = await handle.readFile();
+			if (bytes.length !== info.size || (await handle.stat()).mtimeMs !== info.mtimeMs) throw new RpcError("bad_request", "资料在读取期间发生变化。");
+		} finally { await handle.close(); }
+		const existing = await files.stat(target);
+		await files.write(target, bytes, existing?.version ?? null);
+	}
 
 	/**
 	 * v0.3: the desk becomes 蝶君's 「工作」. Notes, materials and resident cards
@@ -262,6 +293,20 @@ export class ButterflyModule implements CoreModule {
 	 */
 	async importMaterials(materials: Material[]): Promise<string[]> {
 		if (!materials.length) return [];
+		const files = this.nativeFiles();
+		if (files) {
+			const paths: string[] = [];
+			for (const material of materials) {
+				const name = material.kind === "text" ? `${safeName(material.title) || material.id}.md` : basename(material.path ?? "");
+				if (!name) continue;
+				const target = `${INBOX}/${name}`;
+				if (material.kind === "text") await files.write(target, `${material.content ?? ""}\n`, (await files.stat(target))?.version ?? null);
+				else if (material.path && existsSync(material.path)) await this.copyNativeInput(files, material.path, target);
+				else continue;
+				paths.push(target);
+			}
+			return paths;
+		}
 		const inbox = this.local(INBOX);
 		await mkdir(inbox, { recursive: true });
 		const out: string[] = [];
@@ -288,6 +333,40 @@ export class ButterflyModule implements CoreModule {
 		const paths = (manifest: ChatManifest) => manifest.map(({ name }, index) => published + "/" + (index + 1) + "/" + name);
 		active();
 		if (!input.attachments.length && !input.materials.length) return [];
+		const native = this.nativeFiles();
+		if (native) {
+			if (await native.stat(published)) {
+				if (!prior || !await sameNativeChatInputs(native, published, prior, active)) throw new Error("已发布的附件无法核对");
+				return paths(prior);
+			}
+			await this.discardChatInputs(goalId, null, false);
+			const attachments = [];
+			for (const attachment of input.attachments) {
+				active();
+				const info = await native.stat(attachment.path);
+				if (attachment.kind === "folder" ? !info?.isDirectory : !info?.isFile || info.nlink !== 1) {
+					throw new RpcError("bad_request", "附件类型与登记不符");
+				}
+				attachments.push({ name: posix.basename(attachment.path), source: attachment.path, hash: await native.inputDigest(attachment.path) });
+			}
+			const bodies = input.materials.map((body, index) => ({ name: "资料-" + (index + 1) + ".txt", hash: chatTextHash(body), body }));
+			const manifest: ChatManifest = [...attachments, ...bodies.map(({ name, hash }) => ({ name, hash }))];
+			save(manifest);
+			active();
+			await native.makeDirectory(staging);
+			for (const [index, item] of [...attachments, ...bodies].entries()) {
+				active();
+				const folder = posix.join(staging, String(index + 1));
+				const target = posix.join(folder, item.name);
+				await native.makeDirectory(folder);
+				if ("body" in item) await native.write(target, item.body, null);
+				else await native.copyInput(item.source, target);
+			}
+			if (!await sameNativeChatInputs(native, staging, manifest, active)) throw new Error("附件在复制期间发生变化");
+			active();
+			await native.renameInput(staging, published);
+			return paths(manifest);
+		}
 		const final = await this.core.autonomy.sandboxFile(published);
 		if (await inputStat(final)) {
 			if (!prior || !await sameChatInputs(final, prior, active)) throw new Error("已发布的附件无法核对");
@@ -333,6 +412,12 @@ export class ButterflyModule implements CoreModule {
 
 	async discardChatInputs(goalId: string, manifest: ChatManifest | null, cancelled: boolean): Promise<void> {
 		const { staging, published } = this.chatInputDirectory(goalId);
+		const native = this.nativeFiles();
+		if (native) {
+			if ((await native.stat(staging))?.isDirectory) await native.removeInput(staging);
+			if (cancelled && manifest?.length && await sameNativeChatInputs(native, published, manifest, () => {})) await native.removeInput(published);
+			return;
+		}
 		const temporary = await this.core.autonomy.sandboxFile(staging);
 		if ((await inputStat(temporary))?.isDirectory()) await rm(temporary, { recursive: true, force: true });
 		if (cancelled && manifest?.length) {
@@ -343,6 +428,17 @@ export class ButterflyModule implements CoreModule {
 
 	/** Files dropped on 蝶君's conversation: copied into the inbox. */
 	async importPaths(paths: string[]): Promise<string[]> {
+		const files = this.nativeFiles();
+		if (files) {
+			const imported: string[] = [];
+			for (const source of paths) {
+				if (!existsSync(source)) continue;
+				const target = `${INBOX}/${basename(source)}`;
+				await this.copyNativeInput(files, source, target);
+				imported.push(target);
+			}
+			return imported;
+		}
 		const inbox = this.local(INBOX);
 		await mkdir(inbox, { recursive: true });
 		const out: string[] = [];
@@ -371,6 +467,8 @@ export class ButterflyModule implements CoreModule {
 
 	async outbox(): Promise<OutboxFile[]> {
 		if (this.stopping) return [];
+		const native = this.nativeFiles();
+		if (native) return this.nativeOutbox(native);
 		let root: string;
 		try {
 			root = this.local(OUTBOX);
@@ -400,11 +498,56 @@ export class ButterflyModule implements CoreModule {
 		};
 		await walk(root, "");
 		if (this.stopping) return [];
+		return this.publishedOutbox(files);
+	}
+
+	private publishedOutbox(files: OutboxFile[]): OutboxFile[] {
 		return files.filter(file => {
 			const goalId = file.name.split("/", 1)[0]!;
 			const task = chatTask(this.core.db, goalId);
 			return !task || this.core.db.get<{ status: string }>("SELECT status FROM goals WHERE id=?", goalId)?.status === "completed";
 		}).sort((a, b) => b.modifiedAt - a.modifiedAt);
+	}
+
+	private async nativeOutbox(files: AppContainerFileAccess): Promise<OutboxFile[]> {
+		const listed = await files.listFiles(OUTBOX, OUTBOX_LIMIT);
+		const delivered: OutboxFile[] = [];
+		for (const entry of listed) {
+			if (this.stopping) break;
+			const file = await this.snapshotNativeOutboxFile(files, entry);
+			if (file) delivered.push(file);
+		}
+		return this.publishedOutbox(delivered);
+	}
+
+	private async nativeChatArtifact(path: string): Promise<OutboxFile | undefined> {
+		const files = this.nativeFiles();
+		if (!files) return undefined;
+		const info = await files.stat(path);
+		if (!info?.isFile || info.nlink !== 1 || !info.size) return undefined;
+		return this.snapshotNativeOutboxFile(files, { ...info, name: posix.relative(OUTBOX, path) });
+	}
+
+	private async snapshotNativeOutboxFile(files: AppContainerFileAccess, entry: AppContainerListedFile): Promise<OutboxFile | undefined> {
+		const id = createHash("sha256").update(JSON.stringify([this.sandboxOutbox(), entry.name, entry.version])).digest("hex");
+		const fileName = safeName(posix.basename(entry.name)) || "文件";
+		const folder = join(this.home, "native-deliveries", id);
+		const path = join(folder, fileName);
+		const delivery = { name: entry.name, path, size: entry.size, modifiedAt: Math.round(entry.modifiedAt) };
+		if (!this.publishedOutbox([delivery]).length) return undefined;
+		if (!existsSync(path)) {
+			const snapshot = await files.read(posix.join(OUTBOX, entry.name));
+			if (snapshot.version !== entry.version) return undefined;
+			await mkdir(folder, { recursive: true });
+			const temporary = join(folder, `.${randomUUID()}.tmp`);
+			try {
+				await writeFile(temporary, snapshot.data, { flag: "wx" });
+				await rename(temporary, path).catch(error => {
+					if (!existsSync(path)) throw error;
+				});
+			} finally { await rm(temporary, { force: true }); }
+		}
+		return delivery;
 	}
 
 	onRunStarted(slot: Slot): void {
@@ -462,18 +605,21 @@ export class ButterflyModule implements CoreModule {
 		});
 		core.register("butterfly.cancel", (p) => { this.cancel(requireStr(p.id, "id")); return { ok: true }; });
 		core.register("butterfly.tick", () => this.tick());
-		core.register("butterfly.info", () => ({
-			home: this.home,
-			distro: this.distro ?? null,
-			inbox: this.sandboxInbox(),
-			outbox: this.sandboxOutbox(),
-			workspaceDir: this.core.sandboxProvider?.()?.workspaceDir ?? null,
-		}));
+		core.register("butterfly.info", () => {
+			const sandbox = this.core.sandboxProvider?.();
+			return {
+				home: this.home,
+				distro: sandbox?.distro ?? null,
+				inbox: this.sandboxInbox(),
+				outbox: this.sandboxOutbox(),
+				...(sandbox?.workspaceDir ? { workspaceDir: sandbox.workspaceDir } : {}),
+			};
+		});
 		core.register("butterfly.outbox", () => this.outbox());
 		core.register("butterfly.handOff", async (p) => {
 			const note = this.tasks.getNote(requireStr(p.noteId, "noteId"));
 			if (!note) throw new RpcError("not_found", "这份写笺不存在");
-			this.local(INBOX); // no task without a sandbox to run it in
+			if (!this.nativeFiles()) this.local(INBOX); // no task without a sandbox to run it in
 			const inbox = await this.importMaterials(this.tasks.listMaterials(this.home));
 			if (this.stopping) throw new RpcError("busy", "后台正在退出");
 			const task = this.tasks.create({ cwd: this.home, goal: note.content.trim() || note.title, title: note.title, source: "note", noteId: note.id });
@@ -519,6 +665,18 @@ async function sameChatInputs(root: string, manifest: ChatManifest, active: () =
 		if (!(await inputStat(folder))?.isDirectory()) return false;
 		const names = await readdir(folder);
 		if (names.length !== 1 || names[0] !== name || await chatInputHash(join(folder, name), active) !== hash) return false;
+	}
+	return true;
+}
+
+async function sameNativeChatInputs(files: AppContainerFileAccess, root: string, manifest: ChatManifest, active: () => void): Promise<boolean> {
+	if (!(await files.stat(root))?.isDirectory || (await files.directoryNames(root)).length !== manifest.length) return false;
+	for (const [index, { name, hash }] of manifest.entries()) {
+		active();
+		const folder = posix.join(root, String(index + 1));
+		if (!(await files.stat(folder))?.isDirectory) return false;
+		const names = await files.directoryNames(folder);
+		if (names.length !== 1 || names[0] !== name || await files.inputDigest(posix.join(folder, name)) !== hash) return false;
 	}
 	return true;
 }

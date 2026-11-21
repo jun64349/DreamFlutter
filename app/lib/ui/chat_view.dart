@@ -95,7 +95,7 @@ class ChatView extends StatelessWidget {
               left: 0,
               right: docked ? panelWidth + 6 : 0,
               child: _FileDropArea(
-                enabled: agent.isReady && agent.main.section == (agent.sandbox ? AppSection.butterfly : AppSection.chat),
+                enabled: agent.isReady && agent.active?.readOnly != true && agent.main.section == (agent.sandbox ? AppSection.butterfly : AppSection.chat),
                 onDrop: agent.dropFiles,
                 builder: (dragging) {
                   final empty = agent.transcript.items.isEmpty && agent.active?.pendingDialogs.any((r) => isConversationApproval(r) || r.title.startsWith('Agent 需要你补充信息')) != true;
@@ -119,13 +119,26 @@ class ChatView extends StatelessWidget {
                                     Text('正在准备工作台……'),
                                   ],
                                 ))
-                            : empty
+                            : empty && agent.active?.readOnly != true
                             ? emptyStateBuilder?.call(context, agent) ?? _EmptyState(dragging: dragging)
                             : ValueListenableBuilder<String?>(valueListenable: agent.entryTarget, builder: (_, _, _) => _MessageList()),
                       ),
-                      if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
+                      if (agent.active?.readOnly == true)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 10, 24, 18),
+                          child: Center(child: Wrap(
+                            spacing: 12,
+                            runSpacing: 6,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              const Text('旧会话 · 只读'),
+                              FilledButton(onPressed: agent.continuingLegacy ? null : agent.continueLegacy, child: Text(agent.continuingLegacy ? '正在打开…' : '继续')),
+                            ],
+                          )),
+                        )
+                      else if (agent.isReady && agent.stats.contextKnown && agent.stats.contextPercent >= 85 && !agent.isCompacting)
                         _ContextWarning(percent: agent.stats.contextPercent),
-                      if (!empty)
+                      if (!empty && agent.active?.readOnly != true)
                         GoalPlanBox(key: ValueKey('plan-${agent.currentSessionPath}'), composer: Composer(dragging: dragging, contained: true)),
                     ],
                   );
@@ -472,6 +485,9 @@ class _MessageListState extends State<_MessageList> {
     }
     final fresh = {for (final row in rows) if (_seen.add(row.key)) row.key};
     final queued = transcript.queuedSteering;
+    final runtime = agent.active;
+    final frameStreamedText = runtime?.frameStreamedText == true && transcript.isRunning;
+    final latestQuestion = frameStreamedText ? rows.whereType<QuestionRow>().lastOrNull : null;
     // The messages' text registers with the selection area directly, not
     // through the list. The list's own selection handling adds the scroll
     // offset unscaled to scaled positions, so under interface zoom a drag
@@ -524,11 +540,14 @@ class _MessageListState extends State<_MessageList> {
           final registrar = SelectionContainer.maybeOf(context)!;
           Widget item(int index) {
                 final row = index < rows.length ? rows[index] : null;
+                final liveReply = frameStreamedText && row is ReplyRow && row.info.isLatest;
+                final incoming = liveReply || row != null && identical(row, latestQuestion);
                 final child = row != null
-                    ? FadeSlideIn(
+                    ? _ChatEntry(
                         key: ValueKey(row.key),
-                        animate: fresh.contains(row.key),
-                        child: ChatRowView(row: row, transcript: transcript),
+                        animate: fresh.remove(row.key),
+                        visibleOnFirstFrame: incoming,
+                        child: ChatRowView(row: row, transcript: transcript, replyFrames: liveReply ? runtime!.replyFrames : null),
                       )
                     : index == rows.length && queued.isNotEmpty ? QueuedMessages(messages: queued)
                     : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -636,6 +655,40 @@ class _MessageListState extends State<_MessageList> {
 }
 
 /// The little box over selected text: quote it in the reply, or ask about it on the side.
+class _ChatEntry extends StatefulWidget {
+  const _ChatEntry({super.key, required this.animate, required this.visibleOnFirstFrame, required this.child});
+
+  final bool animate;
+  final bool visibleOnFirstFrame;
+  final Widget child;
+
+  @override
+  State<_ChatEntry> createState() => _ChatEntryState();
+}
+
+class _ChatEntryState extends State<_ChatEntry> {
+  late bool _animate = widget.animate;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_animate) {
+      // The entry owns its initial request, even when only its reply body is
+      // updating. The mounted animation controller keeps playing once started.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _animate = false);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeSlideIn(
+    animate: _animate,
+    visibleOnFirstFrame: widget.visibleOnFirstFrame,
+    child: widget.child,
+  );
+}
+
 class _SelectionBox extends StatelessWidget {
   const _SelectionBox({required this.text, required this.canSide, required this.onReply, required this.onSide});
 

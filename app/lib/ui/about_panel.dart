@@ -16,7 +16,7 @@ import 'notes.dart';
 class AboutPanel extends StatefulWidget {
   const AboutPanel({super.key, this.details = false, this.startupOnly = false});
 
-  /// The build details (build number, core and Pi versions, platform, signing) for 高级, instead of the main rows.
+  /// Runtime and build details shown under 高级.
   final bool details;
   final bool startupOnly;
   @override
@@ -105,7 +105,10 @@ class _AboutPanelState extends State<AboutPanel> {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         row('构建号', '${build['build'] ?? '未知'}'),
         row('后台版本', '${_status['coreVersion'] ?? agent.coreInfo['version'] ?? '未知'}'),
-        row('Pi 版本', '${_status['piVersion'] ?? '未知'}'),
+        if (_status['dshVersion'] case final String version)
+          row('DeepSeek Harness', version)
+        else if (_status['piVersion'] case final String version)
+          row('Pi 版本', version),
         row('平台', '${_status['platform'] ?? Platform.operatingSystem} / ${_status['arch'] ?? '未知'}'),
         row('签名', build['signed'] == true ? '已签名' : '测试版未签名'),
         if (recovery['backup'] is String && (recovery['backup'] as String).isNotEmpty) row('更新备份', '${recovery['backup']}'),

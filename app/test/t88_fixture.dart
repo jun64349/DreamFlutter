@@ -9,12 +9,21 @@ class T88Fixture {
   T88Fixture(this.root,this.backend,this.agent);
   final Directory root;final FakeBackend backend;final AgentController agent;
   final now=<Json>[],later=<Json>[],receipts=<String,Json>{};
-  static Future<T88Fixture> create()async{
+  static Future<T88Fixture> create({bool fresh = false})async{
     final root=await Directory.systemTemp.createTemp('df_t88_');
-    SharedPreferences.setMockInitialValues({'workspace':root.path,'onboarded':true});
+    SharedPreferences.setMockInitialValues({'workspace':root.path,'onboarded':!fresh});
     final backend=FakeBackend()..sessionsDir=root.path;
     final agent=AgentController(preferences:await Preferences.load(),sessionStore:SessionStore(sessionsDir:root.path),backend:backend);
-    final f=T88Fixture(root,backend,agent)..seed();await agent.init();return f;
+    final f=T88Fixture(root,backend,agent)..seed();
+    if (fresh) {
+      backend.handlers['gateway.channels'] = (_) => [];
+      backend.onLaunch = (pi) {
+        pi.extraResponses['get_state'] = {'sessionFile': pi.sessionFile, 'isStreaming': false};
+        pi.extraResponses['get_available_models'] = {'models': []};
+      };
+    }
+    await agent.init();
+    return f;
   }
   void seed(){
     now.add({'id':'approval:a','kind':'approval','group':'now','title':'运行项目的检查','reason':'确认改动没有影响已有功能。','origin':{'role':'workbench','sessionName':'整理项目资料'},'target':{'page':'chat'},'actions':['allow','reject'],'data':{}});

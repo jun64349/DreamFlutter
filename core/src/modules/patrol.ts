@@ -6,6 +6,8 @@ import { RpcError, num, requireStr, samePath, type Core, type CoreModule, type P
 import { json, parseJson } from "../db.ts";
 import { notificationQueueState, type NotificationState } from "../notify.ts";
 import { recordedSandbox } from "../pi/host.ts";
+import { STANDARD_PERSONA } from "../agent/dsh-text.ts";
+import { sandboxEnvironmentText } from "../agent/host-text.ts";
 import { readSessionEntries } from "../pi/session-metadata.ts";
 import type { Run } from "../runs.ts";
 import type { CoreSettings } from "../settings.ts";
@@ -448,6 +450,15 @@ export class PatrolModule implements CoreModule {
 			await abortable(slot.session.setModel(this.core.resolveModel(model)), signal);
 		}
 		const model = slot.session.model;
+		if (this.core.dshBackend) {
+			const native = this.core.sandboxProvider?.();
+			const prepared = native?.appContainer && slot.prepareDshTask({
+				scopeId: `patrol:${active.id}`,
+				dshSystemPrompt: STANDARD_PERSONA.replace("{{model}}", model?.id ?? "unknown") + "\n\n" + sandboxEnvironmentText(native.workspaceDir, true),
+				dshTools: slot.session.getActiveToolNames(),
+			});
+			if (!prepared) throw new Error("巡检无法连接蝶君的原生工作区");
+		}
 		this.core.db.run("UPDATE patrol_runs SET model=?,session_file=? WHERE id=?",
 			model ? model.provider + "/" + model.id : null, slot.info().sessionFile, active.id);
 		const watching = settings.patrolChecks.watch ? this.core.db.all<{ id: string; text: string; until: number | null }>(

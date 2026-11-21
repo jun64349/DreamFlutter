@@ -1,6 +1,6 @@
 import { isAbsolute, posix, resolve } from "node:path";
 import { SANDBOX_TOOLS as harnessSandboxTools } from "../../agent/harness.ts";
-import { RpcError } from "../../core.ts";
+import { RpcError, type SandboxHandle } from "../../core.ts";
 import { pathKey } from "../../security/paths.ts";
 
 export const SOURCES = ["conversation", "schedule", "folder"] as const;
@@ -10,8 +10,9 @@ export type RuleMode = typeof MODES[number];
 
 export const SANDBOX_TOOLS = ["read", "read_image", "glob", "grep", "write", "edit", "todo", "exit_plan_mode", "render_html"] as const;
 /** Runtime tools backed by the sandbox, including the sandbox-aware web and child-session adapters. */
-export function sandboxGoalTools(): string[] {
-	return [...harnessSandboxTools(), "web_search", "agent"];
+export function sandboxGoalTools(sandbox?: Pick<SandboxHandle, "appContainer">): string[] {
+	const tools = harnessSandboxTools(sandbox?.appContainer !== undefined);
+	return [...tools.filter(tool => tool !== "job_list" && tool !== "job_kill"), "web_search", "agent"];
 }
 const HOST_TOOLS = ["read", "write", "edit"] as const;
 const ACTIONS = [...SANDBOX_TOOLS, "notify", "read_source"] as const;

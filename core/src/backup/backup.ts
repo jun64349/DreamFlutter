@@ -9,6 +9,7 @@ import { corePaths, type CorePaths } from "../paths.ts";
 import { MIGRATIONS } from "../schema.ts";
 import { Sandbox } from "../sandbox/sandbox.ts";
 import { MacSeatbeltSandbox } from "../sandbox/seatbelt.ts";
+import { WindowsAppContainerSandbox } from "../sandbox/appcontainer-module.ts";
 import { createBackup, estimateSize, formatBytes, freeSpace, MIN_DB_VERSION, type BackupKind, type ExportResult } from "./export.ts";
 import { userTables } from "./parts.ts";
 import { inspectBackup, RestoreError, stageBackup, type Preview, type RestoreTarget, type Staged } from "./restore.ts";
@@ -376,12 +377,13 @@ export class BackupModule implements CoreModule {
 	}): Promise<ExportResult> {
 		const busy = this.core.busySlots();
 		if (busy.length) throw new RpcError("busy", `有 ${busy.length} 个任务正在运行，请等它结束或先停止，再备份。`);
-		const sandbox = this.core.module(Sandbox) ?? this.core.module(MacSeatbeltSandbox);
+		const sandbox = this.core.module(WindowsAppContainerSandbox) ?? this.core.module(MacSeatbeltSandbox) ?? this.core.module(Sandbox);
 		const release = () => {
 			if (!options.held) this.core.maintenance = undefined;
 		};
 		if (!options.held) this.core.maintenance = "正在备份数据";
 		try {
+			await this.core.cordis.get("sessionPersistence")?.flush();
 			const result = await createBackup(
 				{ paths: this.core.paths, agentDir: this.core.agentDir, sessionsDir: this.sessionsDir, db: this.core.db.raw, appVersion: CORE_VERSION },
 				{
@@ -392,6 +394,7 @@ export class BackupModule implements CoreModule {
 					includeMaterials: options.includeMaterials,
 					prefs: options.prefs,
 					sandbox: options.includeSandbox && sandbox ? (dest) => sandbox.archiveWorkspace(dest) : undefined,
+					nativeWorkspaceDir: sandbox instanceof WindowsAppContainerSandbox ? sandbox.status().workspaceDir : undefined,
 					signal: options.signal,
 					onProgress: options.step,
 					copied: release,
@@ -480,8 +483,8 @@ export class BackupModule implements CoreModule {
 		const sessions = this.core.db.all<{ path: string }>("SELECT path FROM session_meta").map((r) => r.path);
 		const materials = this.core.db.all<{ path: string }>("SELECT path FROM materials WHERE path IS NOT NULL AND path != ''").map((r) => r.path);
 		const estimate = estimateSize({ paths: this.core.paths, agentDir: this.core.agentDir, sessionsDir: this.sessionsDir, appVersion: CORE_VERSION }, sessions, materials);
-		const sandbox = this.core.module(Sandbox) ?? this.core.module(MacSeatbeltSandbox);
-		const status = sandbox ? await sandbox.status().catch(() => undefined) : undefined;
+		const sandbox = this.core.module(WindowsAppContainerSandbox) ?? this.core.module(MacSeatbeltSandbox) ?? this.core.module(Sandbox);
+		const status = sandbox ? await Promise.resolve().then(() => sandbox.status()).catch(() => undefined) : undefined;
 		const history = this.history();
 		return {
 			busy: this.core.busySlots().map((s) => s.info().sessionName ?? s.cwd),

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
-import { extname, posix, resolve } from "node:path";
-import type { Core } from "../../core.ts";
+import { extname, posix, resolve, win32 } from "node:path";
+import type { Core, SandboxHandle } from "../../core.ts";
 import { resolveSandboxEnv } from "../../agent/state.ts";
 import { canonicalPath, pathKey } from "../../security/paths.ts";
 import { redact } from "../../security/redaction.ts";
@@ -18,7 +18,7 @@ const FILE_TOOLS = [...FILE_PATH_TOOLS, "read_document", "grep", "glob"];
 const STATE_TOOLS = ["todo", "exit_plan_mode"];
 const MAX_CHECK_BYTES = 8 * 1024 * 1024;
 const TEXT_DELIVERIES = new Set([".md", ".markdown", ".txt", ".csv", ".tsv", ".json", ".jsonl", ".html", ".htm", ".xml",
-	".yaml", ".yml", ".log", ".css", ".js", ".ts", ".py", ".dart", ".sql", ".sh", ".ps1", ".ini", ".toml", ".svg"]);
+	".yaml", ".yml", ".log", ".css", ".js", ".cjs", ".mjs", ".ts", ".py", ".dart", ".sql", ".sh", ".ps1", ".ini", ".toml", ".svg"]);
 
 function signature(bytes: Buffer, prefix: string, offset = 0): boolean {
 	return bytes.subarray(offset, offset + prefix.length).equals(Buffer.from(prefix, "latin1"));
@@ -41,6 +41,16 @@ const BINARY_DELIVERIES = new Map<string, (bytes: Buffer) => boolean>([
 ]);
 
 function within(path: string, root: string) { return path === root || path.startsWith(root + "/"); }
+
+/** Use the same private root for Windows paths and the /workspace alias. */
+export function appContainerGoalPath(provider: SandboxHandle, raw: string, cwd = "/workspace") {
+	if (!provider.appContainer || !provider.workspaceDir) return null;
+	try {
+		const native = resolveSandboxEnv(provider).resolve(cwd, raw);
+		const suffix = win32.relative(provider.workspaceDir, native).replaceAll("\\", "/");
+		return { native, logical: suffix ? `/workspace/${suffix}` : "/workspace" };
+	} catch { return null; }
+}
 export function scopeTools(scope: GoalScope): string[] {
 	return scope.allowedTools ?? [...FILE_TOOLS, ...STATE_TOOLS, ...scope.externalActions?.map(action => action.tool) ?? []];
 }
@@ -67,9 +77,18 @@ export async function goalPath(core: Core, scope: GoalScope, raw: string): Promi
 	if (!scope.cwd || !raw || raw.includes("\0")) return null;
 	if (scope.sandbox) {
 		const cwd = scope.cwd;
-		if (/\\|^[A-Za-z]:/.test(raw)) return null;
 		const provider = core.sandboxProvider?.();
 		if (!provider) return null;
+		if (provider.appContainer) {
+			const target = appContainerGoalPath(provider, raw);
+			const allowedRoots = (scope.allowedPaths ?? ["/workspace"]).flatMap(root => appContainerGoalPath(provider, root)?.logical.toLowerCase() ?? []);
+			if (!target || !allowedRoots.some(root => within(target.logical.toLowerCase(), root))) return null;
+			const files = resolveSandboxEnv(provider).files;
+			if (!files) return null;
+			const info = await files.stat(target.native);
+			return (!info || info.isDirectory || info.isFile && info.nlink === 1) ? target.native : null;
+		}
+		if (/\\|^[A-Za-z]:/.test(raw)) return null;
 		const base = (provider.workspaceDir ?? SANDBOX_WORKSPACE).replaceAll("\\", "/");
 		const env = resolveSandboxEnv(provider), path = posix.resolve(base, raw);
 		if (!within(path, base) || !roots(scope, base).some(root => within(path, root))) return null;
@@ -86,9 +105,10 @@ export async function goalPath(core: Core, scope: GoalScope, raw: string): Promi
 
 export async function allowedTool(core: Core, goal: Goal, tool: string, input: Record<string, unknown>): Promise<boolean> {
 	if (core.autonomy.hasSandboxTools(goal)) {
+		const sandbox = core.sandboxProvider?.();
 		// job_output is authorized by the executor against the current goal and revision.
-		if (!sandboxGoalTools().includes(tool) || tool === "job_output") return false;
-		if (tool === "web_search" || tool === "web_fetch") return core.sandboxProvider?.()?.online() === true;
+		if (!sandboxGoalTools(sandbox).includes(tool) || tool === "job_output") return false;
+		if (tool === "web_search" || tool === "web_fetch") return sandbox?.online() === true;
 		if (tool === "agent") return !input.cwd && !input.worktree;
 		const location = sandboxToolPath(tool, input);
 		if (location) return !!await goalPath(core, goal.scope, location.raw);
@@ -218,19 +238,32 @@ export async function checkProgram(core: Core, goal: Goal, receipts: ToolReceipt
 	options?: { resolveDelivery?: (raw: string) => Promise<string | null>; metadataOnly?: boolean; verifyDeliveries?: boolean }): Promise<ProgramReport> {
 	const candidates = new Set([...artifacts, ...goal.spec.deliverables].slice(0, 30));
 	const files = new Map<string, { fact: FileFact; bytes?: Buffer; path: string } | "missing" | "unverified">();
+	const sandbox = goal.scope.sandbox ? core.sandboxProvider?.() : undefined;
+	const nativeFiles = sandbox?.appContainer ? resolveSandboxEnv(sandbox).files : undefined;
 	const examine = async (raw: string) => {
 		const previous = files.get(raw);
 		if (previous) return previous;
 		try {
-			const path = await (options?.resolveDelivery ? options.resolveDelivery(raw) : goalPath(core, goal.scope, raw));
+			const authorized = options?.resolveDelivery ? await options.resolveDelivery(raw) : raw;
+			const path = authorized && (nativeFiles || !options?.resolveDelivery ? await goalPath(core, goal.scope, authorized) : authorized);
 			if (!path) { files.set(raw, "unverified"); return "unverified" as const; }
-			const info = await stat(path);
-			if (!info.isFile()) { files.set(raw, "missing"); return "missing" as const; }
-			const bytes = !options?.metadataOnly && info.size <= MAX_CHECK_BYTES ? await readFile(path) : undefined;
+			const native = await nativeFiles?.stat(path);
+			const host = nativeFiles ? undefined : await stat(path);
+			if (nativeFiles ? !native?.isFile || native.nlink !== 1 : !host?.isFile()) { files.set(raw, "missing"); return "missing" as const; }
+			const size = native?.size ?? host!.size;
+			const modifiedAt = native?.modifiedAt ?? host!.mtimeMs;
+			let bytes: Buffer | undefined;
+			if (!options?.metadataOnly && size <= MAX_CHECK_BYTES) {
+				if (nativeFiles) {
+					const current = await nativeFiles.read(path);
+					if (current.version !== native!.version) throw new Error("文件在核验期间发生变化");
+					bytes = current.data;
+				} else bytes = await readFile(path);
+			}
 			const sha256 = bytes ? createHash("sha256").update(bytes).digest("hex") : null;
 			const excerpt = bytes && /\.(md|txt|json|csv|log|ts|dart|py|yaml|yml)$/i.test(raw)
 				? redact(bytes.subarray(0, 8000).toString("utf8"), true) : undefined;
-			const item = { path, bytes, fact: { path: raw, sha256, size: info.size, modifiedAt: info.mtimeMs, artifact: candidates.has(raw), excerpt } };
+			const item = { path, bytes, fact: { path: raw, sha256, size, modifiedAt, artifact: candidates.has(raw), excerpt } };
 			files.set(raw, item);
 			return item;
 		} catch (error) {
@@ -245,7 +278,8 @@ export async function checkProgram(core: Core, goal: Goal, receipts: ToolReceipt
 		const prefix = options.resolveDelivery ? "chat-file" : "delivery-file";
 		for (const [index, raw] of goal.spec.deliverables.entries()) {
 			const file = await examine(raw);
-			const result = typeof file === "string" ? { status: file, detail: "交付文件缺失、不可读或超出交付范围" }
+			const result: Pick<CheckResult, "status" | "detail"> = typeof file === "string" ? { status: file, detail: "交付文件缺失、不可读或超出交付范围" }
+				: nativeFiles && !file.bytes ? { status: "unverified", detail: "交付文件超过 Windows 工作区单文件核验上限" }
 				: await deliveryContent(file.path, raw, file.fact.size, file.bytes);
 			checks.push({ id: `${prefix}:${index}`, text: raw, ...result });
 		}

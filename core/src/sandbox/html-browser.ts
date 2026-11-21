@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { browserEnvironment, EdgeHtmlBrowser, managedBrowserPipe, OFFLINE_BROWSER_FLAGS } from "../agent/render-html-browser.ts";
 import type { BrowserPipe } from "../agent/render-html-cdp.ts";
+import type { AppContainerConfig } from "./appcontainer.ts";
 import { ensureSeatbeltProfile, type SeatbeltConfig } from "./seatbelt.ts";
 
 const BROWSER_PATHS = ["/usr/bin/chromium-headless-shell", "/usr/local/bin/chromium-headless-shell"];
@@ -40,10 +41,11 @@ finally:
 `;
 
 export interface HtmlSandbox {
-	kind?: "wsl" | "seatbelt";
+	kind?: "wsl" | "seatbelt" | "appcontainer";
 	distro: string;
 	workspaceDir?: string;
 	seatbelt?: SeatbeltConfig;
+	appContainer?: AppContainerConfig;
 	ready(): Promise<void>;
 }
 

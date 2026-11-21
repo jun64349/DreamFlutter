@@ -67,6 +67,7 @@ test("web search: no channel borrowing, explicit backend and offline/private ref
 		const module = t.core.module(WebSearchModule)!;
 		assert.equal(module.configured(), false);
 		await assert.rejects(t.core.call("webSearch.test", {}), /未配置/); assert.equal(calls, 0);
+		assert.equal(t.core.module(WebSearchModule)!.status().lastErrorTool, "web_search");
 		await assert.rejects(t.core.call("webSearch.setBackend", { backend: "deepseek" }), /先保存/);
 		await t.core.call("webSearch.saveKey", { key: "T64_SYNTHETIC_FETCH_KEY" }); await t.core.call("webSearch.setBackend", { backend: "deepseek" });
 		await assert.rejects(module.fetchTool("http://127.0.0.1/secret", undefined, {}), /内网/); assert.equal(calls, 0);

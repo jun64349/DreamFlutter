@@ -845,8 +845,8 @@ void main() {
 
     await app(SetupWizard(key: const ValueKey('welcome'), status: {'dataRoot': root.path, 'userName': '小周'}, onComplete: () {}));
     await shot('21-wizard-welcome');
-    await app(SetupWizard(key: const ValueKey('connect'), status: {'dataRoot': root.path, 'userName': '小周'}, initialStep: 3, onComplete: () {}));
-    await shot('22-wizard-connect');
+    await app(SetupWizard(key: const ValueKey('workspace'), status: {'dataRoot': root.path, 'userName': '小周'}, initialStep: 3, onComplete: () {}));
+    await shot('22-wizard-workspace');
 
     agent.showSection(AppSection.chat);
     await tester.runAsync(agent.newSession);

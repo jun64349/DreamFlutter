@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { dreamFlutterSessions, MIGRATION_FILE, MOVED_MARKER } from "../backup/backup.ts";
 import { isInside } from "../backup/path-map.ts";
 import { atomicJson, locationFile, readLocationConfig, storageLocations, type StorageKind } from "../storage/locations.ts";
+import { gitWorkspaceRoot, nativePlacementsFile, ownsGitWorkspace, readNativePlacements, type GitWorkspacePlacement } from "../sandbox/appcontainer-placements.ts";
 
 export const keepMarker = "uninstall-keep-data";
 export const preservedReceipt = ".dreamflutter-preserved.json";
@@ -13,6 +14,7 @@ export type UninstallPlan = {
 	dataDir: string;
 	sandboxDir: string;
 	distro?: string;
+	gitWorkspaces?: GitWorkspacePlacement[];
 	preserveTo?: string;
 	remove: DeleteTarget[];
 	review: { path: string; reason: string }[];
@@ -95,6 +97,19 @@ export function planUninstall(installRoot: string, legacy: LegacyPaths, protect:
 	const plan: UninstallPlan = { dataDir, sandboxDir, remove: [], review: [] };
 	if (isInside(sandboxDir, dataDir)) throw new Error("overlapping_sandbox_path");
 	const protectedPaths = [root, legacy.dataDir, legacy.agentDir, ...protect].filter(isAbsolute);
+	if (process.platform === "win32" && lstatSync(join(dataDir, nativePlacementsFile), { throwIfNoEntry: false })) {
+		safePath(join(dataDir, nativePlacementsFile));
+		plan.gitWorkspaces = [];
+		for (const entry of readNativePlacements(dataDir).entries) {
+			const path = gitWorkspaceRoot(entry);
+			if (!lstatSync(path, { throwIfNoEntry: false })) continue;
+			if (protectedPaths.some(boundary => isInside(path, boundary) || isInside(boundary, path)) || !ownsGitWorkspace(dataDir, entry)) {
+				plan.review.push({ path, reason: "native_workspace_ownership_unconfirmed" });
+				continue;
+			}
+			plan.gitWorkspaces.push(entry);
+		}
+	}
 	for (const path of Object.values(locations)) {
 		localPath(path);
 		if (!isInside(dataDir, path) && (protectedPaths.some(boundary => isInside(path, boundary)) ||

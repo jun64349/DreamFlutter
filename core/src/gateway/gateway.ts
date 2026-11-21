@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { dshRouteSessionId } from "../dsh/routing-context.ts";
 import { secretFileOf } from "../modules/secrets.ts";
 import { piApi, piPresets } from "./pi-presets.ts";
 import { REQUEST_LEDGER_ID } from "../ledger/types.ts";
@@ -13,7 +14,7 @@ import { num, RpcError, requireStr, str } from "../core.ts";
 import { json, now, parseJson } from "../db.ts";
 import type { Providers } from "../modules/providers.ts";
 import { classifyFailure, FAILURE_LABEL, type FailureKind, isChannelFailure, resetAtOf } from "./classify.ts";
-import { catalogModel, describeCatalogModel, levelMap, selectedLevelMap, THINKING_LEVELS } from "./catalog.ts";
+import { catalogDefaults, catalogModel, describeCatalogModel, levelMap, selectedLevelMap, THINKING_LEVELS } from "./catalog.ts";
 import { HealthBook } from "./health.ts";
 import { type QuotaReading, readQuota } from "./quota.ts";
 import { type ChannelApi, type ChannelKind, hostOf, PLATFORMS, platform, platformForUrl } from "./platforms.ts";
@@ -27,6 +28,8 @@ export const channelProvider = (channelId: string) => `df-${channelId}`;
 const PI_PREFIX = "pi:";
 /** Pi needs a key on the provider to call it available; the wrapper sends the real one. */
 const KEY_PLACEHOLDER = "dreamflutter-gateway";
+const alternateKeyRetries = new WeakSet<AssistantMessage>();
+export const hasAlternateGatewayKey = (failure: AssistantMessage): boolean => alternateKeyRetries.has(failure);
 const QUOTA_INTERVAL_MS = 10 * 60_000;
 /** OpenCode's per-conversation routing header (required by OpenCode Go). */
 const OPENCODE_SESSION = "x-opencode-session";
@@ -45,6 +48,8 @@ export interface ChannelModel {
 	efforts?: string[];
 	/** User-confirmed capabilities for models absent from the catalog. */
 	thinkingLevels?: string[];
+	/** Records saved after capability defaults stopped being written as overrides. */
+	capabilitiesConfigured?: boolean;
 }
 
 export interface ChannelKeyInfo {
@@ -207,6 +212,7 @@ export class Gateway implements CoreModule {
 	private readonly sessionKeys = new Map<string, string>();
 	private readonly lastFailure = new Map<string, FailureKind>();
 	private readonly secrets = new Map<string, string>();
+	private readonly loadingSecrets = new Map<string, Promise<string>>();
 	/** Round-robin position per channel, for sessions that have no key yet. */
 	private readonly keyTurns = new Map<string, number>();
 
@@ -242,6 +248,8 @@ export class Gateway implements CoreModule {
 	stop(): void {
 		this.stopped = true;
 		clearInterval(this.quotaTimer);
+		this.secrets.clear();
+		this.loadingSecrets.clear();
 	}
 
 	// ---- balances and plan allowances ----------------------------------------------
@@ -376,10 +384,19 @@ export class Gateway implements CoreModule {
 	// ---- channels ------------------------------------------------------------------
 
 	channels(): ChannelInfo[] {
-		const rows = this.core.db.all<ChannelRow>("SELECT * FROM gateway_channels ORDER BY sort, created_at");
-		const keys = this.core.db.all<KeyRow>("SELECT * FROM gateway_keys ORDER BY sort, created_at");
+		return this.readChannels();
+	}
+
+	private readChannels(id?: string): ChannelInfo[] {
+		const rows = id === undefined
+			? this.core.db.all<ChannelRow>("SELECT * FROM gateway_channels ORDER BY sort, created_at")
+			: this.core.db.all<ChannelRow>("SELECT * FROM gateway_channels WHERE id=?", id);
+		const keys = id === undefined
+			? this.core.db.all<KeyRow>("SELECT * FROM gateway_keys ORDER BY sort, created_at")
+			: this.core.db.all<KeyRow>("SELECT * FROM gateway_keys WHERE channel_id=? ORDER BY sort, created_at", id);
+		const hasImports = rows.length && this.core.db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='pi_channel_map'");
 		const own = rows.map((row): ChannelInfo => {
-			const imported = this.core.db.raw.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pi_channel_map'").get() ? this.core.db.get<{ source: string }>("SELECT source FROM pi_channel_map WHERE channel_id=?", row.id) : undefined;
+			const imported = hasImports ? this.core.db.get<{ source: string }>("SELECT source FROM pi_channel_map WHERE channel_id=?", row.id) : undefined;
 			const channelKeys = keys
 				.filter((k) => k.channel_id === row.id)
 				.map((k) => ({
@@ -399,7 +416,7 @@ export class Gateway implements CoreModule {
 				kind: row.kind as ChannelKind,
 				api: row.api,
 				baseUrl: row.base_url,
-				models: parseJson<ChannelModel[]>(row.models, []),
+				models: parseJson<ChannelModel[]>(row.models, []).map((model) => legacyRelayModel(model, row.kind, row.platform, imported?.source)),
 				headers: parseJson<Record<string, string> | undefined>(row.headers, undefined),
 				authHeader: row.auth_header === 1,
 				enabled: row.enabled === 1,
@@ -411,7 +428,8 @@ export class Gateway implements CoreModule {
 			channel.unavailable = this.channelStatus(channel);
 			return channel;
 		});
-		const pi = this.piChannels.map((c) => ({ ...c, keys: c.keys.map((k) => ({ ...k, unavailable: this.health.status(`${c.id}#${k.id}`) })), unavailable: this.health.status(`${c.id}#pi`) }));
+		const piChannels = id === undefined ? this.piChannels : this.piChannels.filter(channel => channel.id === id);
+		const pi = piChannels.map((c) => ({ ...c, keys: c.keys.map((k) => ({ ...k, unavailable: this.health.status(`${c.id}#${k.id}`) })), unavailable: this.health.status(`${c.id}#pi`) }));
 		const chosen = this.core.settings.get().commonModels ?? {};
 		return [...own, ...pi].map((c) => ({ ...c, common: chosen[c.id]?.filter((id) => c.models.some((m) => m.id === id)) ?? defaultCommon(c) }));
 	}
@@ -426,7 +444,7 @@ export class Gateway implements CoreModule {
 	}
 
 	channel(id: string): ChannelInfo | undefined {
-		return this.channels().find((c) => c.id === id);
+		return this.readChannels(id)[0];
 	}
 
 	async saveChannel(input: ChannelInput): Promise<string> {
@@ -436,11 +454,21 @@ export class Gateway implements CoreModule {
 		const baseUrl = input.baseUrl?.trim().replace(/\/+$/, "");
 		if (!baseUrl || !/^https?:\/\//.test(baseUrl)) throw new RpcError("bad_request", "接口地址需要以 http:// 或 https:// 开头");
 		if (!piApi(input.api)) throw new RpcError("bad_request", `不支持的接口类型：${input.api}`);
-		const previousModels = input.id ? this.channel(input.id)?.models ?? [] : [];
-		const models = (input.models ?? []).filter((m) => m.id?.trim()).map((m) => ({ ...previousModels.find((old) => old.id === m.id), ...m, id: m.id.trim() }));
+		const previous = input.id ? this.channel(input.id) : undefined;
+		const previousModels = new Map(previous?.models.map((model) => [model.id, model]));
+		const models = (input.models ?? []).filter((m) => m.id?.trim()).map((m) => {
+			const { defaults: _defaults, ...fields } = m;
+			const id = m.id.trim();
+			const model: ChannelModel = { ...previousModels.get(id), ...fields, id, capabilitiesConfigured: true };
+			for (const field of ["contextWindow", "maxTokens", "input", "reasoning", "efforts", "thinkingLevels", "thinkingLevelMap"]) {
+				if (model[field] === null) delete model[field];
+			}
+			return model;
+		});
 		if (!models.length) throw new RpcError("bad_request", "至少需要一个模型");
 		for (const model of models) {
 			if (model.contextWindow !== undefined && (!Number.isSafeInteger(model.contextWindow) || model.contextWindow <= 0)) throw new RpcError("bad_request", "上下文窗口需要是正整数");
+			if (model.maxTokens !== undefined && (!Number.isSafeInteger(model.maxTokens) || model.maxTokens <= 0)) throw new RpcError("bad_request", "最大输出需要是正整数");
 			const levels = model.thinkingLevels;
 			if (levels !== undefined) {
 				if (!Array.isArray(levels) || !levels.length || new Set(levels).size !== levels.length || levels.some((l) => !THINKING_LEVELS.includes(l as never))) throw new RpcError("bad_request", "请至少选择一个有效的思考档位");
@@ -449,7 +477,9 @@ export class Gateway implements CoreModule {
 		}
 		const id = input.id ?? `c${randomUUID().slice(0, 8)}`;
 		if (input.id && !this.core.db.get("SELECT id FROM gateway_channels WHERE id = ?", input.id)) throw new RpcError("not_found", "找不到这个渠道");
-		const kind = input.kind ?? platform(input.platform)?.kind ?? "relay";
+		const platformId = input.platform === undefined ? previous?.platform ?? null : input.platform;
+		const kind = input.kind ?? platform(platformId)?.kind ?? previous?.kind ?? "relay";
+		const headers = input.headers === undefined ? previous?.headers : input.headers;
 		const existingKeys = this.core.db.all<KeyRow>("SELECT * FROM gateway_keys WHERE channel_id = ?", id);
 		const keep = new Set(input.keys.map((k) => k.id).filter((k): k is string => !!k));
 		if (!input.keys.some((k) => (k.id && existingKeys.some((e) => e.id === k.id)) || k.secret?.trim())) throw new RpcError("bad_request", "请至少填写一个 API Key");
@@ -471,16 +501,16 @@ export class Gateway implements CoreModule {
 				   enabled = excluded.enabled, top_up = excluded.top_up, low_balance = excluded.low_balance`,
 				id,
 				name,
-				input.platform ?? null,
+				platformId ?? null,
 				kind,
 				input.api,
 				baseUrl,
 				json(models),
-				input.headers && Object.keys(input.headers).length ? json(input.headers) : null,
-				input.authHeader ? 1 : 0,
-				input.enabled === false ? 0 : 1,
-				input.topUp ?? null,
-				input.lowBalance ?? null,
+				headers && Object.keys(headers).length ? json(headers) : null,
+				(input.authHeader ?? previous?.authHeader) ? 1 : 0,
+				(input.enabled ?? previous?.enabled) === false ? 0 : 1,
+				input.topUp === undefined ? previous?.topUp ?? null : input.topUp,
+				input.lowBalance === undefined ? previous?.lowBalance ?? null : input.lowBalance,
 				time,
 			);
 			for (const old of existingKeys) {
@@ -630,7 +660,7 @@ export class Gateway implements CoreModule {
 		if (provider.startsWith("df-")) {
 			const channel = this.channel(provider.slice(3));
 			const model = channel?.models.find((m) => m.id === id);
-			return model?.contextWindow ?? catalogModel(platform(channel?.platform)?.catalog, id)?.contextWindow ?? null;
+			return model?.contextWindow ?? (channel && model ? channelModelDefaults(channel, id)?.contextWindow : undefined) ?? null;
 		}
 		return this.piWindows.has(key) ? this.piWindows.get(key)! : (fallback || null);
 	}
@@ -670,7 +700,7 @@ export class Gateway implements CoreModule {
 		const model = channel?.models.find((m) => m.id === entry.model);
 		if (!channel || !model) return { kind: "payg", name: channel?.name ?? entry.channel, unavailable: { kind: "missing", message: "找不到这个渠道或模型" } };
 		// A request with pictures goes only to members that can see them (0.8.3).
-		if (needsImage && !model.input?.includes("image")) return { kind: channel.kind, name: channel.name, unavailable: channel.unavailable ?? { kind: "no_image", message: "看不了图" } };
+		if (needsImage && !inputForModel(channel, model).includes("image")) return { kind: channel.kind, name: channel.name, unavailable: channel.unavailable ?? { kind: "no_image", message: "看不了图" } };
 		return { kind: channel.kind, name: channel.name, unavailable: channel.unavailable };
 	}
 
@@ -748,12 +778,12 @@ export class Gateway implements CoreModule {
 
 		const ids = new Set(groups.map((g) => g.id));
 		for (const group of groups) {
-			const models = group.entries.map((e) => channels.find((c) => c.id === e.channel)?.models.find((m) => m.id === e.model)).filter((m) => m !== undefined);
-			const levels = new Set(group.entries.flatMap((e) => {
+			const models = group.entries.flatMap((e) => {
 				const channel = channels.find((c) => c.id === e.channel);
 				const model = channel?.models.find((m) => m.id === e.model);
-				return channel && model ? getSupportedThinkingLevels(modelConfig(channel, model) as unknown as Model<Api>) : [];
-			}));
+				return channel && model ? [modelConfig(channel, model) as unknown as Model<Api>] : [];
+			});
+			const levels = new Set(models.flatMap((model) => getSupportedThinkingLevels(model)));
 			this.safely(() =>
 				target.registerVirtualModel({
 					provider: GROUP_PROVIDER,
@@ -762,7 +792,7 @@ export class Gateway implements CoreModule {
 					thinkingLevels: levels.size ? THINKING_LEVELS.filter((l) => levels.has(l)) : ["off"],
 					// Pictures go to the group as they are when any member can see them: the router then
 					// picks one that can. With none, the vision model describes them first.
-					input: models.some((m) => m.input?.includes("image")) ? ["text", "image"] : ["text"],
+					input: models.some((m) => m.input.includes("image")) ? ["text", "image"] : ["text"],
 					contextWindow: this.executionWindow(GROUP_PROVIDER, group.id),
 					maxTokens: models.length ? Math.min(...models.map((m) => m.maxTokens ?? 16_384)) : undefined,
 					route: (request: Parameters<typeof this.route>[1], ctx?: ExtensionContext) => this.route(group.id, request, registered.find, ctx, target.registerProvider),
@@ -810,7 +840,7 @@ export class Gateway implements CoreModule {
 		const channel = channels.find((c) => c.id === decision.entry.channel)!;
 		const model = ctx ? (ctx.modelRegistry.find(channel.provider, decision.entry.model) as Model<Api> | undefined) : find(channel.provider, decision.entry.model);
 		if (!model) throw new Error(`找不到模型 ${channel.name} · ${decision.entry.model}`);
-		const sessionId = sessionIdOf(ctx);
+		const sessionId = sessionIdOf(ctx) ?? dshRouteSessionId();
 		if (sessionId) this.routed.set(sessionId, { provider: model.provider, model: model.id, group: group.id });
 		if (decision.switchedFrom) {
 			const from = channels.find((c) => c.id === decision.switchedFrom!.channel);
@@ -885,7 +915,9 @@ export class Gateway implements CoreModule {
 			if (switchable && (otherKey || group)) {
 				const name = channel?.name ?? channelId;
 				const next = otherKey ? `的这个 Key ${FAILURE_LABEL[kind]}，换同渠道的另一个 Key` : `${FAILURE_LABEL[kind]}，换下一个渠道`;
-				out.push({ type: "error", reason: "error", error: { ...failure, errorMessage: `渠道「${name}」${next}（service temporarily unavailable）` } });
+				const retry = { ...failure, errorMessage: `渠道「${name}」${next}（service temporarily unavailable）` };
+				if (otherKey) alternateKeyRetries.add(retry);
+				out.push({ type: "error", reason: "error", error: retry });
 			} else {
 				out.push({ type: "error", reason, error: failure });
 			}
@@ -954,17 +986,28 @@ export class Gateway implements CoreModule {
 		const cached = this.secrets.get(keyId);
 		if (cached !== undefined) return cached;
 		const stored = this.core.db.get<{ secret: string; channel_id: string }>("SELECT secret,channel_id FROM gateway_keys WHERE id=?", keyId);
-		const file = stored && secretFileOf(stored.secret);
-		if (stored && (!file || !existsSync(file) || resolve(file).toLowerCase() !== resolve(this.providers.secrets.fileFor(basename(file).replace(/\.dpapi$/, ""))).toLowerCase())) {
+		if (!stored) throw new RpcError("missing_credential", "渠道凭据已移除");
+		const file = secretFileOf(stored.secret);
+		const secretName = file && basename(file).replace(/\.dpapi$/, "");
+		if (!file || !secretName || !existsSync(file) || resolve(file).toLowerCase() !== resolve(this.providers.secrets.fileFor(secretName)).toLowerCase()) {
 			const resolved = await this.providers.apiKeyOf(channelProvider(stored.channel_id));
 			if (!resolved) throw new RpcError("missing_credential", "渠道凭据引用当前不可用，请检查对应命令或环境变量。");
 			return resolved;
 		}
-		if (file) return this.providers.secrets.get(basename(file).replace(/\.dpapi$/, ""));
-		const value = await this.providers.secrets.get(`gateway-${keyId}`);
-		// The key may have been deleted while it was being decrypted: then do not keep it.
-		if (!this.stopped && this.core.db.get("SELECT id FROM gateway_keys WHERE id = ?", keyId)) this.secrets.set(keyId, value);
-		return value;
+		const name = `gateway-${keyId}`;
+		// Shared or imported credentials may rotate in their owning provider.
+		if (secretName !== name) return this.providers.secrets.get(secretName);
+		const pending = this.loadingSecrets.get(keyId);
+		if (pending) return pending;
+		const load = this.providers.secrets.get(name).then(value => {
+			if (this.stopped || !this.core.db.get("SELECT id FROM gateway_keys WHERE id=? AND secret=?", keyId, stored.secret)) {
+				throw new RpcError("missing_credential", "渠道凭据已移除");
+			}
+			this.secrets.set(keyId, value);
+			return value;
+		}).finally(() => this.loadingSecrets.delete(keyId));
+		this.loadingSecrets.set(keyId, load);
+		return load;
 	}
 
 	private record(
@@ -1017,7 +1060,12 @@ export class Gateway implements CoreModule {
 		core.register("gateway.platforms", () =>
 			PLATFORMS.map((p) => ({ ...p, modelDetails: (p.models ?? []).map((id) => mapOr(catalogModel(p.catalog, id), describeCatalogModel, { id, name: id })) })),
 		);
-		core.register("gateway.channels", () => this.channels());
+		core.register("gateway.channels", () => this.channels().map((channel) => ({
+			...channel,
+			models: channel.models.map((model) => ({ ...model, defaults: channelModelDefaults(channel, model.id) })),
+		})));
+		core.register("gateway.modelDefaults", (params) =>
+			channelModelDefaults({ platform: str(params.platform) ?? null, kind: str(params.kind) as ChannelKind | undefined, source: "df" }, requireStr(params.id, "id")) ?? null);
 		core.register("gateway.setCommonModels", (params) => {
 			const models = params.models;
 			if (models !== null && (!Array.isArray(models) || models.some((m) => typeof m !== "string"))) throw new RpcError("bad_request", "models 要是模型 ID 列表，或 null 恢复默认");
@@ -1054,7 +1102,13 @@ export class Gateway implements CoreModule {
 			const channel = str(params.channel) ? this.channel(str(params.channel)!) : undefined;
 			const apiKey = str(params.apiKey) ?? (channel?.source === "df" ? await this.firstSecret(channel) : undefined);
 			const modelsUrl = platform(str(params.platform) ?? channel?.platform)?.modelsUrl;
-			return this.providers.fetchModels({ baseUrl: str(params.baseUrl), api: str(params.api), apiKey, provider: channel?.source === "pi" ? channel.provider : undefined, modelsUrl });
+			const listed = await this.providers.fetchModels({ baseUrl: str(params.baseUrl), api: str(params.api), apiKey, provider: channel?.source === "pi" ? channel.provider : undefined, modelsUrl });
+			const config = {
+				platform: str(params.platform) ?? channel?.platform ?? null,
+				kind: (str(params.kind) as ChannelKind | undefined) ?? channel?.kind ?? "relay" as const,
+				source: channel?.source ?? "df" as const,
+			};
+			return listed.map((model) => ({ ...model, defaults: channelModelDefaults(config, model.id) }));
 		});
 		core.register("gateway.testChannel", async (params) => {
 			const channel = this.channel(requireStr(params.channel, "channel"));
@@ -1118,26 +1172,53 @@ export function redact(text: string, secrets: (string | undefined)[]): string {
 	return out;
 }
 
+type ChannelCatalog = Pick<ChannelInfo, "platform" | "source"> & { kind?: ChannelKind };
+
+function channelModelDefaults(channel: ChannelCatalog, id: string) {
+	const preset = platform(channel.platform) ?? piPresets().find((p) => p.id === channel.platform);
+	const provider = preset?.catalog;
+	if (channel.source === "df" && ((channel.kind ?? preset?.kind) === "relay" || !channel.platform)) return catalogDefaults(provider, id);
+	return catalogModel(provider, id) ? catalogDefaults(provider, id) : undefined;
+}
+
 /**
- * What Pi registers for a channel's model. Thinking levels and compatibility
- * settings come from Pi's catalog for the platform when it knows the model
- * (served by the same API), else from the model list's efforts and the
- * platform's defaults; Pi guesses the rest from the address.
+ * The old editor wrote this complete set of placeholder capabilities for bare
+ * model IDs. Explicit levels, non-placeholder output, imports and other input
+ * modes remain authoritative. The old format cannot distinguish a manually
+ * picked value identical to every placeholder.
  */
+function legacyRelayModel(model: ChannelModel, kind: string, platformId: string | null, origin?: string): ChannelModel {
+	if (kind !== "relay" || origin || model.capabilitiesConfigured || model.thinkingLevels || model.efforts?.length || model.thinkingLevelMap
+		|| model.reasoning !== false || model.input?.length !== 1 || model.input[0] !== "text" || model.maxTokens !== 16_384
+		|| model.cost?.input !== 0 || model.cost.output !== 0 || model.cost.cacheRead !== 0 || model.cost.cacheWrite !== 0
+		|| !catalogDefaults(platform(platformId)?.catalog, model.id)) return model;
+	const { input: _input, reasoning: _reasoning, maxTokens: _max, ...explicit } = model;
+	return explicit;
+}
+
+function inputForModel(channel: ChannelInfo, model: ChannelModel): ("text" | "image")[] {
+	const input = model.input ?? channelModelDefaults(channel, model.id)?.input ?? [];
+	// This transport supports text/images. Keep video capability in the channel document.
+	return input.includes("image") ? ["text", "image"] : ["text"];
+}
+
+/** Register the model, preserving channel-specific transport options. */
 export function modelConfig(channel: ChannelInfo, m: ChannelModel): Record<string, unknown> {
 	const preset = platform(channel.platform) ?? piPresets().find((p) => p.id === channel.platform);
 	const known = catalogModel(preset?.catalog, m.id);
+	const defaults = channelModelDefaults(channel, m.id);
 	const sameApi = known?.api === channel.api;
-	const thinkingLevelMap = m.thinkingLevels ? selectedLevelMap(m.thinkingLevels) : m.thinkingLevelMap ?? (sameApi ? known?.thinkingLevelMap : undefined) ?? levelMap(m.efforts);
+	const thinkingLevelMap = m.thinkingLevels ? selectedLevelMap(m.thinkingLevels) : m.thinkingLevelMap ?? levelMap(m.efforts)
+		?? defaults?.thinkingLevelMap ?? (defaults?.thinkingLevels ? selectedLevelMap([...defaults.thinkingLevels]) : undefined);
 	const compat = m.compat ?? (channel.api === "openai-completions" && (preset?.compat || (sameApi && known?.compat)) ? { ...preset?.compat, ...(sameApi ? known?.compat : {}) } : undefined);
 	return {
 		...m,
 		id: m.id,
-		name: m.name || m.id,
-		reasoning: m.reasoning ?? known?.reasoning ?? false,
-		input: m.input?.length ? m.input : (known?.input ?? ["text"]),
-		contextWindow: m.contextWindow ?? known?.contextWindow ?? 128_000,
-		maxTokens: m.maxTokens ?? known?.maxTokens ?? 16_384,
+		name: m.name || defaults?.name || m.id,
+		reasoning: m.reasoning ?? defaults?.reasoning ?? false,
+		input: inputForModel(channel, m),
+		contextWindow: m.contextWindow ?? defaults?.contextWindow ?? 128_000,
+		maxTokens: m.maxTokens ?? defaults?.maxTokens ?? 16_384,
 		cost: { input: m.cost?.input ?? 0, output: m.cost?.output ?? 0, cacheRead: m.cost?.cacheRead ?? 0, cacheWrite: m.cost?.cacheWrite ?? 0 },
 		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
 		...(compat ? { compat } : {}),

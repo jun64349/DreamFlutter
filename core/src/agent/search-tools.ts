@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ExecEnv, HarnessState } from "./state.ts";
 import { MASK, redact } from "../security/redaction.ts";
+import { redactSandboxFile } from "./fs-tools.ts";
 
 /**
  * dsh's glob and grep (packages/fs/tool-fs-search): ripgrep with dsh's fixed
@@ -119,8 +120,9 @@ export function globTool(state: HarnessState, rg: string): ToolDefinition {
 		} as never,
 		async execute(_id, params: { pattern: string; path?: string }, signal) {
 			if (params.pattern.trim().length === 0) throw new Error("pattern must be a non-empty string");
-			await state.security?.authorize(state.local(state.resolve(params.path ?? ".")), "glob");
-			const run = await runRg(state.env, rg, globArgs(params.pattern, params.path), state.cwd, signal);
+			const directory = state.resolve(params.path ?? ".");
+			if (!state.env.files) await state.security?.authorize(state.local(directory), "glob");
+			const run = await runRg(state.env, rg, globArgs(params.pattern, state.env.files ? directory : params.path), state.cwd, signal);
 			const failure = rgFailure(run);
 			if (failure) throw failure;
 			let paths = run.stdout
@@ -128,7 +130,7 @@ export function globTool(state: HarnessState, rg: string): ToolDefinition {
 				.map((line) => line.replace(/\r$/, ""))
 				.filter((line) => line.length > 0)
 				.map((line) => state.resolve(line));
-			if (state.security) {
+			if (state.security && !state.env.files) {
 				const permitted: string[] = [];
 				for (const path of paths) if (await state.security.authorize(state.local(path), "glob", true)) permitted.push(path);
 				paths = permitted;
@@ -217,8 +219,9 @@ export function grepTool(state: HarnessState, rg: string): ToolDefinition {
 		} as never,
 		async execute(_id, params: { pattern: string; path?: string; include?: string }, signal) {
 			if (params.pattern.length === 0) throw new Error("pattern must be a non-empty string");
-			await state.security?.authorize(state.local(state.resolve(params.path ?? ".")), "grep");
-			if (state.security) {
+			const requested = state.resolve(params.path ?? ".");
+			if (!state.env.files) await state.security?.authorize(state.local(requested), "grep");
+			if (state.security && !state.env.files) {
 				// Enumerate names first. Never let rg recursively open unchecked descendants.
 				const listing = await runRg(state.env, rg, ["--files", ...(params.include === undefined ? [] : [`--glob=${params.include}`]), "--", params.path ?? "."], state.cwd, signal);
 				const listingError = rgFailure(listing);
@@ -255,11 +258,27 @@ export function grepTool(state: HarnessState, rg: string): ToolDefinition {
 			}
 			const args = ["--json", `--regexp=${params.pattern}`];
 			if (params.include !== undefined) args.push(`--glob=${params.include}`);
-			if (params.path !== undefined) args.push("--", params.path);
+			if (state.env.files) args.push("--", requested);
+			else if (params.path !== undefined) args.push("--", params.path);
 			const run = await runRg(state.env, rg, args, state.cwd, signal);
 			const failure = rgFailure(run);
 			if (failure) throw failure;
 			const matches = parseGrep(run.stdout, (p) => state.resolve(p));
+			if (state.env.files) {
+				const safeLines = new Map<string, string[] | null>();
+				for (const match of matches.slice(0, GREP_MAX_MATCHES)) {
+					if (!safeLines.has(match.path)) {
+						try {
+							const file = await state.env.files.read(match.path, signal);
+							safeLines.set(match.path, redactSandboxFile(state, match.path, file.data.toString("utf8"), true).split(/\r?\n/));
+						} catch {
+							signal?.throwIfAborted();
+							safeLines.set(match.path, null);
+						}
+					}
+					match.line = safeLines.get(match.path)?.[match.lineNumber - 1] ?? MASK;
+				}
+			}
 			return { content: [{ type: "text", text: formatGrep(matches) }], details: { count: matches.length } };
 		},
 	};

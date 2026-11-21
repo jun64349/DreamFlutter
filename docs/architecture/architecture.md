@@ -1,6 +1,10 @@
 # DreamFlutter 架构设计
 
-## 当前架构（2026-11-06 审查候选，V0.5 开发中）
+## Windows V1.1.0
+
+Flutter 通过带令牌的本机 WebSocket 连接 Node 后台。后台在同一进程装配 Cordis 系统插件，工作台和蝶君的会话由官方 DSH AgentLoop 驱动。梦蝶提供模型渠道、请求账本、审批、原工具接口和窗口历史投影。蝶君的文件及子进程通过 Windows AppContainer 运行。详见 [系统插件与内核升级](v1.1-system-plugins.md) 及 [Windows 交付记录](../releases/v1.1.0.md)。
+
+## 历史架构（2026-11-06 审查候选，V0.5 开发中）
 
 下面的 V0.1.0 章节保留为历史设计，不能作为当前启动、数据目录或进程模型的说明。
 

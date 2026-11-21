@@ -10,6 +10,7 @@
 | [目标与日程](goals-schedules.md) | 目标、作业、日程、巡检及关注项 |
 | [记忆](memory.md) | 记忆条目、历史、任务边界、后台作业 |
 | [技能、模板与 MCP](skills-mcp.md) | 登记、启停、提议和使用范围 |
+| [插件](plugins.md) | 实测目录、装卸和启停、用量仪表盘与窗口快捷键 |
 | [模型与花费](models-usage.md) | 渠道、模型组、迁移、OAuth、账本及网页搜索 |
 | [沙箱与维护](storage-maintenance.md) | 沙箱、备份、迁移、更新、安全审计、Git |
 | [卡片与本机 HTTP](cards.md) | 卡片管理、授权和 WebView 资源 |

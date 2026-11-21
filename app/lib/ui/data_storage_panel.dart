@@ -77,7 +77,7 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
   }
 
   Future<void> _move(Json row) async {
-    final destination = await showDialog<String>(context: context, builder: (_) => _MoveLocationDialog(label: '${row['label']}', database: row['id'] == 'database'));
+    final destination = await showDialog<String>(context: context, builder: (_) => _MoveLocationDialog(label: '${row['label']}', database: row['id'] == 'database', gitCompatible: row['gitCompatibility'] == true));
     if (destination == null || !mounted) return;
     if (destination.isEmpty) { setState(() => _error = '请输入目标新目录'); return; }
     await _run(() async {
@@ -173,10 +173,10 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
           Expanded(child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(color: colors.sunk, borderRadius: BorderRadius.circular(9)),
-            child: Tooltip(message: '${row['path']}', child: Text('${row['path']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: mono)),
+            child: Tooltip(message: '${row['workspaceDir'] ?? row['path']}', child: Text('${row['workspaceDir'] ?? row['path']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: mono)),
           )),
           const SizedBox(width: 8),
-          Tooltip(message: '打开文件夹', child: ShellButton('打开', small: true, onPressed: () => _agent!.revealInExplorer('${row['path']}'))),
+          Tooltip(message: '打开文件夹', child: ShellButton('打开', small: true, onPressed: () => _agent!.revealInExplorer('${row['workspaceDir'] ?? row['path']}'))),
           if (row['movable'] == true) ...[
             const SizedBox(width: 8),
             Tooltip(message: row['id'] == 'database' ? '记忆跟着搬' : '换一个文件夹', child: ShellButton('搬到别处', small: true, onPressed: _busy || _moveId != null ? null : () => _move(row))),
@@ -241,9 +241,10 @@ class _DataStoragePanelState extends State<DataStoragePanel> {
 }
 
 class _MoveLocationDialog extends StatefulWidget {
-  const _MoveLocationDialog({required this.label, required this.database});
+  const _MoveLocationDialog({required this.label, required this.database, required this.gitCompatible});
   final String label;
   final bool database;
+  final bool gitCompatible;
   @override
   State<_MoveLocationDialog> createState() => _MoveLocationDialogState();
 }
@@ -256,7 +257,9 @@ class _MoveLocationDialogState extends State<_MoveLocationDialog> {
   Widget build(BuildContext context) => AlertDialog(
     title: Text('搬迁${widget.label}？'),
     content: SizedBox(width: 480, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('先停止相关任务并自动备份，再复制和校验。后台会重启，在新位置启动验证通过后才清理旧文件；失败退回原位置。'),
+      Text(widget.gitCompatible
+        ? '后台会重启，把工作文件复制到新位置的标准工作区。原 Git 兼容工作区的文件留在磁盘上。'
+        : '先停止相关任务并自动备份，再复制和校验。后台会重启，在新位置启动验证通过后才清理旧文件；失败退回原位置。'),
       const SizedBox(height: 12),
       TextField(controller: _target, autofocus: true, decoration: InputDecoration(labelText: '目标新目录（绝对路径）',
         helperText: widget.database ? '请选择本地磁盘；不支持网络路径或映射网络盘。父目录需已存在，目标目录不能已存在' : '父目录需已存在，目标目录不能已存在', helperMaxLines: 3)),

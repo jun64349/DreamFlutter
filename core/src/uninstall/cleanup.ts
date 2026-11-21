@@ -7,6 +7,7 @@ import { redact } from "../security/redaction.ts";
 import { unregisterSandbox, type WslRunner } from "../sandbox/sandbox.ts";
 import { isInside } from "../backup/path-map.ts";
 import { keepMarker, planUninstall, preservedReceipt, relocatePreservedLocations, safePath, type DeleteTarget, type LegacyPaths, type UninstallPlan } from "./plan.ts";
+import { gitWorkspaceRoot, ownsGitWorkspace, type GitWorkspacePlacement } from "../sandbox/appcontainer-placements.ts";
 
 type LogEntry = { step: string; status: "start" | "ok" | "skip" | "retry" | "remaining" | "scheduled"; path?: string; reason?: string };
 export type UninstallDeps = {
@@ -17,6 +18,8 @@ export type UninstallDeps = {
 	wsl: WslRunner;
 	// A name match alone is insufficient: stale distro.txt may name a different registration.
 	registeredDisk(distro: string): Promise<string | undefined>;
+	retireNativeProfiles?(sandboxDir: string): Promise<void>;
+	retireGitWorkspace?(dataDir: string, entry: GitWorkspacePlacement): Promise<void>;
 	remove?(path: string, tree: boolean): Promise<"scheduled" | void>;
 	retryDelayMs?: number;
 };
@@ -60,8 +63,6 @@ export async function cleanInstallation(root: string, deps: UninstallDeps, exist
 		left("plan", resolve(root, "data"), "cannot_confirm_data_paths");
 		return { ok: false, logPath, remaining };
 	}
-	for (const review of plan.review) left("plan", review.path, review.reason);
-
 	let stopped = false;
 	log({ step: "core.stop", status: "start" });
 	try {
@@ -69,8 +70,23 @@ export async function cleanInstallation(root: string, deps: UninstallDeps, exist
 		stopped = true;
 		log({ step: "core.stop", status: "ok" });
 	} catch { left("core.stop", plan.dataDir, "core_still_running_or_unverified"); }
+	if (stopped) {
+		try { plan = planUninstall(root, deps.legacy, [...(deps.protectedPaths ?? []), dirname(logPath)]); }
+		catch {
+			left("plan", resolve(root, "data"), "cannot_confirm_data_paths_after_stop");
+			return { ok: false, logPath, remaining };
+		}
+	}
+	for (const review of plan.review) left("plan", review.path, review.reason);
 
 	let sandboxReady = stopped && !plan.review.some(item => item.reason === "distro_ownership_unconfirmed");
+	if (sandboxReady && deps.retireNativeProfiles) {
+		try { await deps.retireNativeProfiles(plan.sandboxDir); }
+		catch {
+			left("sandbox.profile", plan.sandboxDir, "native_profile_cleanup_failed");
+			sandboxReady = false;
+		}
+	}
 	if (sandboxReady && plan.distro) {
 		try {
 			log({ step: "sandbox.owner", status: "start", path: plan.sandboxDir });
@@ -124,6 +140,20 @@ export async function cleanInstallation(root: string, deps: UninstallDeps, exist
 		return false;
 	};
 
+	let gitWorkspacesReady = stopped && !plan.review.some(item => item.reason === "native_workspace_ownership_unconfirmed");
+	if (gitWorkspacesReady) for (const entry of plan.gitWorkspaces ?? []) {
+		const path = gitWorkspaceRoot(entry);
+		try {
+			if (!deps.retireGitWorkspace) throw new Error("native_profile_cleanup_unavailable");
+			await deps.retireGitWorkspace(plan.dataDir, entry);
+			if (!plan.preserveTo && (!ownsGitWorkspace(plan.dataDir, entry) || !await erase({ path, kind: "sandbox", tree: true }))) {
+				throw new Error("native_workspace_cleanup_failed");
+			}
+		} catch {
+			left("sandbox.profile", path, "native_git_workspace_cleanup_failed");
+			gitWorkspacesReady = false;
+		}
+	}
 	const sandboxFiles = plan.remove.filter(target => target.kind === "sandbox" && !target.tree);
 	const sandboxTree = plan.remove.find(target => target.kind === "sandbox" && target.tree);
 	if (sandboxReady && sandboxTree) {
@@ -142,13 +172,18 @@ export async function cleanInstallation(root: string, deps: UninstallDeps, exist
 				preserveExceptSandbox(plan.dataDir, plan.preserveTo, plan.sandboxDir);
 			} else renameSync(plan.dataDir, plan.preserveTo);
 			relocatePreservedLocations(plan.dataDir, plan.preserveTo);
-			writeFileSync(join(plan.preserveTo, preservedReceipt), '{"version":1}\n', { flag: "wx" });
+			const nativeWorkspaces = plan.gitWorkspaces?.map(entry => join(gitWorkspaceRoot(entry), "workspace"));
+			writeFileSync(join(plan.preserveTo, preservedReceipt), JSON.stringify({ version: 1, ...(nativeWorkspaces?.length ? { nativeWorkspaces } : {}) }) + "\n", { flag: "wx" });
 			rmSync(join(plan.preserveTo, keepMarker), { force: true });
 			log({ step: "preserve", status: "ok", path: plan.preserveTo });
 		} catch { left("preserve", plan.dataDir, "could_not_move_preserved_data"); }
 	} else if (stopped) {
 		for (const target of plan.remove) {
 			if (target.kind === "sandbox") continue;
+			if (!gitWorkspacesReady && target.kind === "data") {
+				left("remove.data", target.path, "contains_native_workspace_ownership_record");
+				continue;
+			}
 			if (!sandboxReady && isInside(target.path, plan.sandboxDir)) {
 				left("remove." + target.kind, target.path, "contains_remaining_sandbox");
 				continue;

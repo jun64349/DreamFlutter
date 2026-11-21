@@ -25,7 +25,8 @@ List<Color> chartPalette(BuildContext context) {
 
 /// One bar per day; hovering a bar shows its label and value.
 class DayBarChart extends StatefulWidget {
-  const DayBarChart({super.key, required this.labels, required this.values, required this.format, this.height = 120});
+  const DayBarChart({super.key, required this.labels, required this.values, required this.format, this.height = 120, this.title = '近 30 天'});
+  final String title;
   final List<String> labels;
   final List<double> values;
   final String Function(double) format;
@@ -49,7 +50,7 @@ class _DayBarChartState extends State<DayBarChart> {
       final hover = _hover;
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          Text('近 30 天', style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600, height: 1.6)),
+          Text(widget.title, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600, height: 1.6)),
           const SizedBox(width: 8),
           Expanded(child: Text(hover == null || hover >= n
               ? '悬停看当天明细'

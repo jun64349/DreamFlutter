@@ -1,16 +1,39 @@
 import { execFile, spawn } from "node:child_process";
 import { appendFileSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import WebSocket from "ws";
 import { pidAlive } from "../instance.ts";
 import { runWsl } from "../sandbox/sandbox.ts";
+import { appContainerProvisioned, removeAppContainerProfile } from "../sandbox/appcontainer.ts";
+import { compatibleParent, gitWorkspaceRoot, ownsGitWorkspace, type GitWorkspacePlacement } from "../sandbox/appcontainer-placements.ts";
 import { quarantine, type UninstallDeps } from "./cleanup.ts";
 import { safePath, systemProtectedPaths } from "./plan.ts";
 
 const exec = promisify(execFile);
+
+/** Only retire profiles whose runner marker belongs to this exact directory. */
+export async function retireNativeProfiles(sandboxDir: string, bridgePath: string): Promise<void> {
+	const dataDir = join(sandboxDir, "native-windows");
+	safePath(dataDir);
+	if (!lstatSync(dataDir, { throwIfNoEntry: false })) return;
+	for (const entry of await readdir(dataDir, { withFileTypes: true })) {
+		const match = /^appcontainer-([0-9a-f]{32})$/.exec(entry.name);
+		if (!match || !entry.isDirectory() || entry.isSymbolicLink()) continue;
+		const config = { dataDir, profileId: match[1], bridgePath };
+		if (await appContainerProvisioned(config)) await removeAppContainerProfile(config);
+	}
+}
+
+export async function retireGitWorkspace(dataDir: string, entry: GitWorkspacePlacement, bridgePath: string): Promise<void> {
+	const path = gitWorkspaceRoot(entry);
+	safePath(path);
+	if (!ownsGitWorkspace(dataDir, entry)) throw new Error("native_workspace_ownership_unconfirmed");
+	const config = { dataDir: compatibleParent(entry.standardDir), profileId: entry.profileId, bridgePath };
+	if (await appContainerProvisioned(config)) await removeAppContainerProfile(config);
+}
 const ps = join(process.env.SystemRoot ?? "C:\\Windows", "System32/WindowsPowerShell/v1.0/powershell.exe");
 
 export async function stopCore(dataDir: string): Promise<void> {
@@ -64,6 +87,8 @@ export function windowsDependencies(root: string, legacy: UninstallDeps["legacy"
 	const pending: { path: string; directory: string }[] = [];
 	const deps: UninstallDeps = {
 		legacy, stopCore, registeredDisk, wsl: runWsl,
+		retireNativeProfiles: dir => retireNativeProfiles(dir, join(root, "current", "core", "bin", "appcontainer-runner.exe")),
+		retireGitWorkspace: (dir, entry) => retireGitWorkspace(dir, entry, join(root, "current", "core", "bin", "appcontainer-runner.exe")),
 		protectedPaths: systemProtectedPaths(),
 		async remove(path, tree) {
 			if (!tree) { await rm(path, { force: true }); return; }

@@ -89,6 +89,50 @@ export const BLOCKS = [
 /** Kinds a user-stated memory starts at level 2 with (the rest start at 1, §3). */
 const STABLE_KINDS: readonly ItemKind[] = ["preference", "background", "agreement", "persona", "decision"];
 
+/** Preserve existing memory data in backups even when its runtime is detached. */
+export function declareMemoryBackup(core: Core): void {
+	core.declareBackup({
+		id: "memory",
+		title: "记忆",
+		tables: [
+			"memories",
+			"memory_blocks",
+			"memory_snapshots",
+			"memory_extraction",
+			"workspaces",
+			"workspace_groups",
+			"workspace_group_members",
+			"memory_items",
+			"memory_versions",
+			"memory_sources",
+			"memory_links",
+			"memory_batches",
+			"memory_ops",
+			"memory_pending",
+			"memory_jobs",
+			"memory_materials",
+			"memory_suppressions",
+			"memory_task_views",
+			"memory_boundary_decisions",
+			"memory_reply_receipts",
+			"memory_session_modes",
+			"memory_message_preparations",
+			"memory_deferred_extractions",
+			"memory_purge_log",
+		],
+		paths: {
+			memories: { cwd: "path", source_session: "path" },
+			workspaces: { path: "path", path_key: "key" },
+			memory_sources: { ref: "path" },
+			memory_deferred_extractions: { session_file: "path", cwd: "path" },
+			memory_batches: { session_ref: "path" },
+			memory_reply_receipts: { session_file: "path" },
+			memory_pending: { session_ref: "path", op: "json" },
+			memory_suppressions: { source_ref: "path" },
+		},
+	});
+}
+
 /**
  * Long-term memory (docs/architecture/memory-design.md). The store and its gate live in
  * src/memory/; this module wires them into sessions (snapshot, agent tools,
@@ -138,46 +182,6 @@ export class MemoryModule implements CoreModule {
 		this.tasks = new TaskViews(core.db, clock);
 		this.work = new MemoryWork(core, this.store, this.workspaces, llm, (cwd) => this.scopesFor(cwd), clock);
 		this.store.onChange((batchId) => core.broadcast({ event: "memory.changed", batchId }));
-		core.declareBackup({
-			id: "memory",
-			title: "记忆",
-			tables: [
-				"memories",
-				"memory_blocks",
-				"memory_snapshots",
-				"memory_extraction",
-				"workspaces",
-				"workspace_groups",
-				"workspace_group_members",
-				"memory_items",
-				"memory_versions",
-				"memory_sources",
-				"memory_links",
-				"memory_batches",
-				"memory_ops",
-				"memory_pending",
-				"memory_jobs",
-				"memory_materials",
-				"memory_suppressions",
-				"memory_task_views",
-				"memory_boundary_decisions",
-				"memory_reply_receipts",
-				"memory_session_modes",
-				"memory_message_preparations",
-				"memory_deferred_extractions",
-				"memory_purge_log",
-			],
-			paths: {
-				memories: { cwd: "path", source_session: "path" },
-				workspaces: { path: "path", path_key: "key" },
-				memory_sources: { ref: "path" },
-				memory_deferred_extractions: { session_file: "path", cwd: "path" },
-				memory_batches: { session_ref: "path" },
-				memory_reply_receipts: { session_file: "path" },
-				memory_pending: { session_ref: "path", op: "json" },
-				memory_suppressions: { source_ref: "path" },
-			},
-		});
 		core.exemptFromApproval(...MEMORY_TOOLS);
 		const report = migrateV02(core.db, this.store, this.workspaces, core.paths.butterflyDir);
 		if (report) core.log.info(`memory: moved v0.2 memory over (${report.items} items, ${report.blockLines} block lines, ${report.pending} waiting, ${report.skipped.length} left out)`);
@@ -517,18 +521,24 @@ export class MemoryModule implements CoreModule {
 
 	/** A persisted user entry, rather than an RPC request or model-call count, owns preparation. */
 	async prepareMessage(slot: Slot, model?: { contextWindow: number; maxTokens: number; provider?: string; id?: string }, nonMemory = 0): Promise<void> {
+		const user = slot.session.sessionManager.getBranch().findLast(e => e.type === "message" && e.message.role === "user");
+		if (!user || user.type !== "message") return;
+		const message = user.message as { content: unknown; dfDsh?: { messageId?: string } };
+		return this.prepareInput(slot, { id: message.dfDsh?.messageId ?? user.id, prompt: textOf(message.content), piEntryId: user.id }, model, nonMemory);
+	}
+
+	/** An officially claimed DSH inbox message owns preparation before the request is assembled. */
+	async prepareInput(slot: Slot, input: { id: string; prompt: string; piEntryId?: string }, model?: { contextWindow: number; maxTokens: number; provider?: string; id?: string }, nonMemory = 0): Promise<void> {
 		if (this.store.writeBlocked() || this.core.maintenance) return;
 		const sessionId = slot.session.sessionId;
-		const branch = slot.session.sessionManager.getBranch();
-		const user = [...branch].reverse().find(e => e.type === "message" && e.message.role === "user");
-		if (!user || user.type !== "message") return;
-		const key = sessionId + ":" + user.id;
+		if (!this.enabled || slot.incognito || this.sessionMode(sessionId) === "off") return;
+		const key = sessionId + ":" + input.id;
 		if (this.preparing.has(key)) return this.preparing.get(key);
-		if (this.db.get("SELECT 1 FROM memory_message_preparations WHERE session_id=? AND entry_id=?", sessionId, user.id)) return;
+		if (this.db.get("SELECT 1 FROM memory_message_preparations WHERE session_id=? AND entry_id=?", sessionId, input.id)) return;
 		const prepare = async () => {
-			const prompt = textOf((user.message as {content:unknown}).content);
+			const prompt = input.prompt;
 			const entries = slot.session.sessionManager.buildContextEntries();
-			const recent = entries.flatMap(e => e.type === "message" && e.id !== user.id && (e.message.role === "user" || e.message.role === "assistant") ? [textOf(e.message.content)] : []).slice(-4).join("\n");
+			const recent = entries.flatMap(e => e.type === "message" && e.id !== input.piEntryId && (e.message.role === "user" || e.message.role === "assistant") ? [textOf(e.message.content)] : []).slice(-4).join("\n");
 			const {task, fresh} = await this.boundary({sessionId, prompt, set:this.scopesFor(slot.cwd), unattended:slot.unattended, recent, cwd:slot.cwd});
 			if (fresh) this.flushDeferred(sessionId);
 			const inContext = entries.some(e => e.type === "custom_message" && e.customType === MEMORY_MESSAGE_TYPE);
@@ -537,7 +547,7 @@ export class MemoryModule implements CoreModule {
 				const built = this.buildSnapshot(sessionId, fresh ? prompt : (task.prompt ?? "") + "\n" + prompt, slot.cwd, model, nonMemory, fresh ? "task_start" : "refresh");
 				if (built) slot.session.sessionManager.appendCustomMessageEntry(MEMORY_MESSAGE_TYPE, built.content, false, {snapshotId:built.snapshotId, memoryIds:Object.keys(built.itemVersions ?? {})});
 			}
-			this.db.run("INSERT OR IGNORE INTO memory_message_preparations VALUES(?, ?)", sessionId, user.id);
+			this.db.run("INSERT OR IGNORE INTO memory_message_preparations VALUES(?, ?)", sessionId, input.id);
 		};
 		const pending = prepare(); this.preparing.set(key, pending);
 		try { await pending; } finally { this.preparing.delete(key); }

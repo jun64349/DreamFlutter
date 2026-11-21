@@ -67,7 +67,7 @@ export class RunRecorder {
 	private readonly ctx: RunContext;
 	private readonly listener: RunListener;
 	private run: Run | undefined;
-	private readonly toolSteps = new Map<string, { stepId: number; startedAt: number }>();
+	private readonly toolSteps = new Map<string, { stepId: number; startedAt: number; file?: string }>();
 	private readonly files = new Set<string>();
 
 	constructor(db: Db, ctx: RunContext, listener: RunListener = {}) {
@@ -199,9 +199,9 @@ export class RunRecorder {
 		this.run.toolCalls++;
 		const input = (args ?? {}) as Record<string, unknown>;
 		const path = typeof input.file_path === "string" ? input.file_path : input.path;
-		if (FILE_TOOLS.has(toolName) && typeof path === "string") this.files.add(path);
+		const file = FILE_TOOLS.has(toolName) && typeof path === "string" ? path : undefined;
 		const stepId = this.step("tool", toolName, summarizeArgs(toolName, input), "running");
-		this.toolSteps.set(toolCallId, { stepId, startedAt: now() });
+		this.toolSteps.set(toolCallId, { stepId, startedAt: now(), file });
 	}
 
 	private onToolEnd(toolCallId: string, isError: boolean, durationMs: number | undefined): void {
@@ -210,6 +210,7 @@ export class RunRecorder {
 		const step = this.toolSteps.get(toolCallId);
 		if (!step) return;
 		this.toolSteps.delete(toolCallId);
+		if (!isError && step.file) this.files.add(step.file);
 		this.db.run(
 			"UPDATE run_steps SET status = ?, duration_ms = ? WHERE id = ?",
 			isError ? "error" : "done",

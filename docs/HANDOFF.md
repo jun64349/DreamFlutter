@@ -1,5 +1,21 @@
 # DreamFlutter 开发交接
 
+**2026-11-21 · Windows V1.1.0 源码收尾（+23）。** 纳入真机反馈以及发送、流式输出和工具停止修正。普通向导移除了「连接一个模型」和「蝶君」两页。朋友内测的激活码入口和设置内原有操作继续可用。见[版本记录](releases/v1.1.0.md)。
+
+**Windows 1.1.1-test.1 · 1.1.0 真机反馈复测。** 渠道与联网设置、子代理、关于页、文件栏和上下文更新见[七项复测说明](releases/v1.1.1-test.1.md)，同页列出发送到首段文字的本机对照。[实窗帧时间](testing/v1.1-windows-frames.md)记录了首页、设置与流式输入的分别表现。
+
+**V1.1.0 · Windows x64 本地交付**　工作台、蝶君和后台任务已接入随包的官方 DeepSeek Harness。1.0 旧对话保留可看，点击「继续」另开带所选分支上文的对话。蝶君已在 Windows 原生工作区交付模拟研究和软件插件兼容性报告。插件目录开放两个实测样例，内置记忆可停用或重新启用，重启生效、保留原数据。程序、免安装包、完整验收结果及适用范围见 [Windows V1.1.0 交付记录](releases/v1.1.0.md)。三轮需求确认及独立侧栏模块的后续安排保存在[开发计划](architecture/v1.1-development-plan.md)。
+
+**Windows 窗口已经验过的部分**　在插件设置里安装用量仪表盘和窗口快捷键，按 Ctrl+Shift+U 打开花费，卸载后图表与快捷键同步撤下。同一条真实 DSH 对话用同一测试数据库启动三次，从界面停用记忆后，第二次模型输入保留对话、去掉记忆快照。重新启用后，第三次恢复了原记忆及其编号。[窗口验收](../app/integration_test/v11_plugins_test.dart) · [插件 API 与上游复用范围](api/plugins.md)
+
+**会话和交付**　已从工作台协议验证只读旧会话及另开续聊、所选分支的工具结果和图片、无痕与侧边对话。Windows 原生蝶君实际执行了三种负载的排队模拟，以及 CommonJS/ESM 样例插件在两种宿主版本和启停状态下的八项检查，脚本、数据、报告均从交办入口取回。另从蝶君前台对话通过本地网页读取工具取得 MIT 的公开排队课程资料。对话使用本机合成模型，解释器、网络、文件与 AppContainer 均实际运行。[会话契约](../core/test/api-contract/dsh-workbench.test.ts) · [两类交办](../core/test/dsh-appcontainer-workloads.test.ts) · [公开资料读取](../core/test/dsh-appcontainer-tasks.test.ts)
+
+**2026-11-20 · V1.1.0 后台迁移**　用户已完成 macOS 1.0 preview。当前工作树为 `E:\claude\DreamFlutter-2.0`，分支 `codex/2.0-foundation`，起点是 macOS 预览提交 `11d6a4d`。工作树和分支沿用最初的研究名称，本阶段版本号以 **V1.1.0** 为准。V1.1.0 只交付 Windows，macOS 迁移等 V2.0.0 完成后再做。已有功能尽量作为随包固定装配的系统插件迁到官方 DSH，Windows 蝶君去掉 Linux 并验收新的工作空间；V1.2.0、V1.3.0 待本版完成后规划。见 [范围和验收标准](roadmap.md)。
+
+**后台和原生工作区**　Windows 工作台、蝶君、目标、日程、巡检和子代理使用本地 DSH。模型渠道、账本、原工具的审批以及 Flutter 窗口协议继续由梦蝶提供。个人数据中仍然保存窗口需要的历史索引和消息。早期的 [POC-1](research/dsh-2.0/poc-1-windows.md)、[POC-2](research/dsh-2.0/poc-2-model.md) 和 [工作区探针记录](../tools/appcontainer-poc/results.md) 保留供复查。以 [V1.1.0 交付记录](releases/v1.1.0.md) 为准。
+
+**兼容基线**　2026-11-20 在 Windows 复跑原有窗口协议，发现 macOS 迁移时为 Windows 版 `butterfly.info` 多返回了一个空字段，已恢复 Windows 原响应用法，同时保留原生工作区的路径字段，增加相应回归用例。另修正接口清点在 macOS 会重复注册沙箱，以及桌面协议测试将 Core 版本写死为 0.7.0 的问题。后端相关 32 项通过，Dart 协议与历史读取 30 项通过，1 项因本机没有该测试需要的默认 Pi 会话目录跳过。未在 Mac 上复跑。下面保留 1.0 的交接记录。
+
 > **到 1.0 的最后路线（用户 2026-11-17 定，按此执行，不要另起规划）**：0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [roadmap 页首★节](roadmap.md)。每步先交用户验收；推送、标签、合并逐次问。**当前（2026-11-19）：第 0–5 步完成，第 6 步朋友内测进行中。内测包 `dist/beta.1` 已交用户自己发；修卸载卡住后发了 1.0.0-preview.2（`eaf4a47`，标签 `v1.0.0-preview.2`，GitHub 最新发布）。`macos_preview_migration` 分支已完成 Apple Silicon（arm64）macOS 内测版迁移开发（`sandbox-exec` 轻量沙箱 + GitHub Actions 自动出 `.dmg` 包，详见 [macOS 内测指南](releases/macos-beta-guide.md)），待验收与打包。文档已整理，总目录 [docs/README.md](README.md)。**
 
 

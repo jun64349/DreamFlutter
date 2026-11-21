@@ -198,7 +198,7 @@ test("Pi migration queries and synthetic OAuth flow never use a real login", asy
 	assert.deepEqual(await api.call("piMigration.oauthLogout", { provider: "openai" }), { ok: true });
 });
 
-const webStatus = ["configured", "state", "lastError", "backend", "keyMasked", "pendingToolRefresh", "month", "usage"];
+const webStatus = ["configured", "state", "lastError", "lastErrorTool", "backend", "keyMasked", "pendingToolRefresh", "month", "usage"];
 
 test("gateway failover and quota notices are emitted once through the window connection", { skip: !win32 }, async t => {
 	let api: ContractHarness;

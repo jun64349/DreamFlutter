@@ -11,14 +11,13 @@ import 'common.dart';
 import 'shell_widgets.dart' show ShellColors;
 
 const personaWords = {
-  'quiet': ('静','安静可靠，话少','嗯，资料都整理好了。还差一项，明天你确认就行。','嗯，资料都整理好了。'),
-  'warm': ('暖','亲切，关心你','辛苦啦！两份资料都整理好了，还差一项明天等你看看，不急哦～','辛苦啦，都整理好了～'),
-  'crisp': ('利落','只说结论和下一步','两份已完成，1 项待你明天确认。','已完成，1 项待确认。'),
-  'lively': ('灵动','活泼，爱用比喻','两份资料已经乖乖排好队啦，只剩一位等你明天点名～','资料乖乖排好队啦～'),
+  'quiet': ('静','安静可靠，话少','嗯，资料都整理好了。还差一项，明天你确认就行。'),
+  'warm': ('暖','亲切，关心你','辛苦啦！两份资料都整理好了，还差一项明天等你看看，不急哦～'),
+  'crisp': ('利落','只说结论和下一步','两份已完成，1 项待你明天确认。'),
+  'lively': ('灵动','活泼，爱用比喻','两份资料已经乖乖排好队啦，只剩一位等你明天点名～'),
 };
 class PersonaChoices extends StatefulWidget {
-  const PersonaChoices({super.key,this.wizard=false});
-  final bool wizard;
+  const PersonaChoices({super.key});
   @override State<PersonaChoices> createState()=>_PersonaChoicesState();
 }
 class _PersonaChoicesState extends State<PersonaChoices> {
@@ -29,32 +28,32 @@ class _PersonaChoicesState extends State<PersonaChoices> {
   Future<void> choose(String id)async{setState(()=>busy=true);try{await agent!.updateCoreSettings({'butterflyPersona':id});if(mounted)setState(()=>error=null);}catch(e){if(mounted)setState(()=>error=SessionRuntime.describeError(e));}finally{if(mounted)setState(()=>busy=false);}}
   @override Widget build(BuildContext context){final selected=AgentScope.of(context).coreSettings['butterflyPersona'] as String? ?? 'quiet';return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
     Padding(
-      padding:EdgeInsets.symmetric(vertical:widget.wizard?0:12),
+      padding:const EdgeInsets.symmetric(vertical:12),
       child:LayoutBuilder(builder:(context,box){
-        final columns=widget.wizard||box.maxWidth<520?2:4;
-        final gap=widget.wizard?8.0:10.0;
+        final columns=box.maxWidth<520?2:4;
+        const gap=10.0;
         final colors=context.colors;
         return Wrap(spacing:gap,runSpacing:gap,children:[
           for(final entry in personaWords.entries)SizedBox(width:(box.maxWidth-gap*(columns-1))/columns,
             child:OutlinedButton(
               style:OutlinedButton.styleFrom(
-                padding:widget.wizard?const EdgeInsets.all(12):const EdgeInsets.symmetric(horizontal:12,vertical:10),
-                backgroundColor:widget.wizard?(selected==entry.key?colors.accentSoft:null):colors.background,
-                side:BorderSide(color:selected==entry.key?colors.accent:colors.hairline,width:!widget.wizard&&selected==entry.key?2:1),
-                shape:widget.wizard?null:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12)),
+                padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),
+                backgroundColor:colors.background,
+                side:BorderSide(color:selected==entry.key?colors.accent:colors.hairline,width:selected==entry.key?2:1),
+                shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12)),
                 alignment:Alignment.centerLeft,
               ),
               onPressed:busy||!ids.contains(entry.key)?null:()=>choose(entry.key),
               child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-                Text(entry.value.$1,style:context.serif(context.text.titleMedium).copyWith(fontSize:widget.wizard?null:17)),
-                SizedBox(height:widget.wizard?6:2),
-                Text(widget.wizard?entry.value.$4:entry.value.$2,style:context.text.bodySmall?.copyWith(fontSize:widget.wizard?null:12,color:widget.wizard?null:colors.muted)),
+                Text(entry.value.$1,style:context.serif(context.text.titleMedium).copyWith(fontSize:17)),
+                const SizedBox(height:2),
+                Text(entry.value.$2,style:context.text.bodySmall?.copyWith(fontSize:12,color:colors.muted)),
               ]),
             )),
         ]);
       }),
     ),
-    if(!widget.wizard)Padding(padding:const EdgeInsets.only(bottom:12),child:Container(
+    Padding(padding:const EdgeInsets.only(bottom:12),child:Container(
       padding:const EdgeInsets.all(12),
       decoration:BoxDecoration(color:context.colors.sunk,borderRadius:BorderRadius.circular(12)),
       child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[

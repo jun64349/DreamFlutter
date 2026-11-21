@@ -80,7 +80,8 @@ class _SandboxPanelState extends State<SandboxPanel> {
       _error = null;
     });
     try {
-      final result = await _agent!.backend.call(method, params, const Duration(minutes: 3));
+      final timeout = method == 'sandbox.setGitCompatibility' ? const Duration(minutes: 30) : const Duration(minutes: 3);
+      final result = await _agent!.backend.call(method, params, timeout);
       if (!mounted) return;
       if (method == 'sandbox.selfTest') {
         setState(() => _checks = [for (final item in (asJsonMap(result)['items'] as List? ?? const [])) asJsonMap(item)]);
@@ -116,8 +117,18 @@ class _SandboxPanelState extends State<SandboxPanel> {
     final state = status?['state'] as String?;
     // The app ships the sandbox image: no download (an older core does not say: assume it downloads).
     final bundled = status?['bundled'] == true;
+    final appContainer = status?['kind'] == 'appcontainer';
+    final gitCompatibility = status?['gitCompatibility'];
     final muted = context.text.bodySmall?.copyWith(color: colors.muted);
     final children = <Widget>[];
+    final legacyDisk = status?['legacyDisk'];
+    if (appContainer && legacyDisk is String) {
+      children.addAll([
+        Text('1.0 工作文件仍保存在旧磁盘中。要在这里接着用，可从「数据与安全」恢复含蝶君文件的 1.0 备份。',style:muted),
+        SelectableText(legacyDisk,style:muted),
+        const SizedBox(height:AppTokens.gap),
+      ]);
+    }
 
     if (status == null) {
       children.add(Text(_error ?? '正在查看沙箱状态…', style: muted));
@@ -169,13 +180,13 @@ class _SandboxPanelState extends State<SandboxPanel> {
         LinearProgressIndicator(value: progress),
         const SizedBox(height: 6),
         Text(
-          bundled ? '用应用自带的系统镜像建立，不用联网，一般 1–2 分钟。' : '第一次要下载约 650 MB 的系统镜像，网速一般约 10 分钟。可以先去做别的，好了会在这里显示。',
+          appContainer ? '正在用随包的工具建立本地工作区。' : bundled ? '用应用自带的系统镜像建立，不用联网，一般 1–2 分钟。' : '第一次要下载约 650 MB 的系统镜像，网速一般约 10 分钟。可以先去做别的，好了会在这里显示。',
           style: muted,
         ),
       ]);
     } else if (state == 'absent' || state == 'error') {
       children.addAll([
-        Text('蝶君在自己的沙箱里干活：一个独立的 Linux 系统，看不到你的文件，在里面做什么都不用你批准。', style: context.text.bodyMedium),
+        Text(appContainer ? '蝶君在 Windows 隔离工作区里使用随包的工具处理文件。' : '蝶君在自己的沙箱里干活：一个独立的 Linux 系统，看不到你的文件，在里面做什么都不用你批准。', style: context.text.bodyMedium),
         if (state == 'error') ...[
           const SizedBox(height: AppTokens.gap),
           Text('上次建立没有成功：${status['error'] ?? ''}', style: context.text.bodySmall?.copyWith(color: colors.danger)),
@@ -189,8 +200,8 @@ class _SandboxPanelState extends State<SandboxPanel> {
             label: Text(state == 'error' ? '重新建立' : '建立沙箱'),
           ),
         ),
-        const SizedBox(height: 6),
-        Text(
+        if (!appContainer) const SizedBox(height: 6),
+        if (!appContainer) Text(
           bundled
               ? '用应用自带的 Debian 系统镜像建立，已经装好 Python、pandas、matplotlib、git 等工具，不用联网，一般 1–2 分钟，建好后占用约 4 GB 磁盘。'
               : '第一次会下载约 650 MB 的系统镜像（已经装好 Python、pandas、matplotlib、git 等工具），网速一般约 10 分钟，之后不用再下；建好后占用约 4 GB 磁盘。',
@@ -207,7 +218,7 @@ class _SandboxPanelState extends State<SandboxPanel> {
               : ' · 占用 ${(disk / 1024 / 1024 / 1024).toStringAsFixed(1)} GB');
       children.addAll([
         SettingRow('沙箱已就绪',
-          desc: seatbelt
+          desc: appContainer ? '蝶君在 Windows 隔离工作区里处理文件$diskLabel' : seatbelt
               ? '蝶君在 macOS 原生轻量隔离沙箱里干活，只能读写自己的工作目录$diskLabel'
               : '蝶君在这台电脑上一个隔离的 Linux 里干活，碰不到你的系统${disk == null ? '' : ' · 占用 ${(disk / 1024 / 1024 / 1024).toStringAsFixed(1)} GB'}',
           child:Wrap(
@@ -225,7 +236,7 @@ class _SandboxPanelState extends State<SandboxPanel> {
                   : () async {
                       if (await _confirm(
                         '重置沙箱？',
-                        seatbelt
+                        appContainer ? '蝶君会使用一个新的工作区。旧工作区的文件留在磁盘上。' : seatbelt
                             ? '清空蝶君在沙箱工作区里的所有文件和临时缓存，回到初始干净状态。'
                             : '沙箱会回到刚建好时的样子：蝶君在里面装的东西、做的文件（包括 outbox 里还没保存的产物）都会清空。',
                         '重置',
@@ -240,7 +251,7 @@ class _SandboxPanelState extends State<SandboxPanel> {
                 onPressed: _busy != null
                     ? null
                     : () async {
-                        if (await _confirm('删除沙箱？', '沙箱和里面的所有文件都会删除，释放磁盘空间。以后可以重新建立。', '删除')) {
+                        if (await _confirm('删除沙箱？', appContainer ? '将移除蝶君的隔离环境。已有工作文件留在磁盘上。' : '沙箱和里面的所有文件都会删除，释放磁盘空间。以后可以重新建立。', '删除')) {
                           await _do('删除', 'sandbox.remove');
                         }
                       },
@@ -248,6 +259,30 @@ class _SandboxPanelState extends State<SandboxPanel> {
               ),
           ],
         )),
+      ]);
+    }
+
+    if (appContainer && status != null && gitCompatibility is Map && state != 'provisioning') {
+      final enabled = gitCompatibility['enabled'] == true;
+      final alternativePath = gitCompatibility['alternativePath'];
+      final workspaceDir = status['workspaceDir'];
+      final retained = status['retainedWorkspaceDir'];
+      final action = enabled ? '切回标准工作区' : '启用 Git 兼容工作区';
+      children.addAll([
+        const SizedBox(height: AppTokens.gap),
+        SettingRow('Git 兼容工作区',
+          desc: enabled ? '已启用' : '适用于标准工作区里的 Git 无法建库时',
+          child: ShellButton(action, small: true,
+            onPressed: _busy != null || alternativePath is! String ? null : () async {
+              final note = workspaceDir is String ? '会把工作文件复制到新位置，原文件会留在原处。' : '会在下面的位置建立新工作区。';
+              if (await _confirm('$action？', '$note\n\n$alternativePath', action) && mounted) {
+                await _do('切换工作区', 'sandbox.setGitCompatibility', {'enabled': !enabled, 'workspaceDir': alternativePath});
+              }
+            },
+          ),
+        ),
+        if (workspaceDir is String) SelectableText(workspaceDir, style: muted),
+        if (retained is String) SelectableText('最近保留的工作区  $retained', style: muted),
       ]);
     }
 

@@ -1,0 +1,2 @@
+{"type":"session","version":4,"id":"compatibility-fixture","createdAt":1795153961533,"isSeeded":false,"delegationDepth":0}
+{"type":"user/message","seq":0,"time":1795153961537,"data":{"id":"msg-01","role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"DreamFlutter offline fixture"}]},"surfaceOp":"append"}

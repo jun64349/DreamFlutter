@@ -49,7 +49,21 @@ export class RenderHtmlFilesModule implements CoreModule {
 					if (slot.sandboxed && !provider) return;
 					const sandboxRoot = provider ? (provider.workspaceDir ?? "/workspace").replaceAll("\\", "/") : undefined;
 					const sandboxDir = provider && sandboxRoot ? posix.join(sandboxRoot, "outbox", scope) : undefined;
-					const dir = provider && sandboxDir ? resolveSandboxEnv(provider).local(sandboxDir) : join(this.core.paths.dataDir, "artifacts", scope);
+					const env = provider && resolveSandboxEnv(provider);
+					const files = env?.files;
+					if (files && sandboxDir) return async (png, signal) => {
+						await files.makeDirectory(sandboxDir, signal);
+						const file = sandboxDir + "/html-" + randomUUID() + ".png";
+						const discard = () => files.removeInput(file);
+						try { await files.write(file, png, null, signal); }
+						catch (error) {
+							if (signal.aborted) await discard().catch(cleanup => this.core.log.warn("删除未登记的截图失败", cleanup));
+							throw error;
+						}
+						// The Butterfly artifact scan enumerates the native outbox through the same broker.
+						return { path: file, discard, record: () => {} };
+					};
+					const dir = env && sandboxDir ? env.local(sandboxDir) : join(this.core.paths.dataDir, "artifacts", scope);
 					return async (png, signal) => {
 						await checkDir(dir);
 						signal.throwIfAborted();

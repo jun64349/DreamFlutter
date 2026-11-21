@@ -63,7 +63,7 @@ export function plan(root) {
   for (const file of candidates) { const row = classes[file.rule] ??= { reason: reasons[file.rule], bytes: 0, files: 0 }; row.bytes += file.bytes; row.files++; }
   for (const row of Object.values(classes)) row.mib = mib(row.bytes);
   return { ruleVersion: RULE_VERSION, root, beforeBytes: files.reduce((n,f)=>n+f.bytes,0), beforeFiles: files.length, savedBytes: candidates.reduce((n,f)=>n+f.bytes,0), classes, candidates,
-    preserved: ['all core source/assets and selected JavaScript entrypoints/source maps; only audited unused PDF alternative modules are removed', 'Pi SDK docs/examples/public declarations', 'all licenses and diagnostic information', 'all Python/uv/rg/fd/Node binaries and every Python module the app imports (only library self-tests and IDLE/turtle demos go)', 'sandbox image and offline provisioning', 'canvas platform binary and QuickJS WASI .so extensions'] };
+    preserved: ['all core source/assets and selected JavaScript entrypoints/source maps; only audited unused PDF alternative modules are removed', 'Pi SDK docs/examples/public declarations', 'all licenses and diagnostic information', 'all Python/uv/rg/fd/Node binaries and every Python module the app imports (only library self-tests and IDLE/turtle demos go)', 'bundled sandbox launcher and offline provisioning assets', 'canvas platform binary and QuickJS WASI .so extensions'] };
 }
 export function trim(root, evidence) {
   const report = plan(root);

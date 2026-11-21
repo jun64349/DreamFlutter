@@ -1,12 +1,28 @@
-import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getSupportedThinkingLevels, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
+import type { Context } from "@deepseek-ai/cordis";
+import type { Agent } from "@deepseek-ai/dsh-agent";
+import { ReasoningEffortId } from "@deepseek-ai/dsh-llm";
+import { SessionSeq } from "@deepseek-ai/dsh-session";
+import { estimateMessage } from "@deepseek-ai/dsh-token-meter/estimate";
+import type { CompactionResult as NativeCompactionResult } from "@deepseek-ai/dsh-compaction";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, openSync, closeSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { inheritedIds, sideConversation } from "../pi/session-metadata.ts";
 import { SessionManager, type AgentSession, type AgentSessionEvent, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import { AGENT_MODES, type AgentMode, recordedMode } from "../agent/harness.ts";
+import { AGENT_MODES, type AgentMode, dshCompactionSettings, recordedMode } from "../agent/harness.ts";
+import { MINIMAL_PERSONA, workingDirectoryContext } from "../agent/dsh-text.ts";
 import type { TodoItem } from "../agent/state.ts";
 import type { Db } from "../db.ts";
 import { now } from "../db.ts";
+import { DshEvents, projectUsage } from "../dsh/events.ts";
+import { bindToolProgress } from "../dsh/tool-progress.ts";
+import type { AutomaticCompaction, DshSummaryRequest } from "../dsh/compaction.ts";
+import { readWireImages, type DshSlotContent } from "../dsh/session-content.ts";
+import { buildLegacyDshSeed, DSH_ENTRY, DSH_LEGACY_ENTRY, LEGACY_SOURCE_ENTRY, readLegacySession } from "../dsh/session-legacy.ts";
+import { DshWorkbenchHooks } from "../dsh/session-pi-hooks.ts";
+import { bindWorkbenchTools } from "../dsh/session-tools.ts";
+import type { DshHistoryRef, DshSession } from "../dsh/session.ts";
 import { createSessionRuntime, type OpenTarget, type PiHostConfig, recordedSandbox } from "../pi/host.ts";
 import { toJsonEvent } from "../pi/json-event.ts";
 import { UiBridge, type DialogOutcome, type UiRequest, type UiResponse } from "../pi/ui-bridge.ts";
@@ -40,6 +56,7 @@ export interface SlotInfo {
 	agentMode: AgentMode | null;
 	/** Standard mode: plan mode is on. */
 	planMode: boolean;
+	readOnly?: true;
 }
 
 export interface SlotHooks {
@@ -75,6 +92,29 @@ export interface SlotOptions {
 
 type Command = { id?: string; type: string } & Record<string, unknown>;
 
+const DSH_BRANCH_ENTRY = "df.dshBranch";
+
+interface DshBranch {
+	owner: string;
+	id: string;
+	fork?: DshHistoryRef;
+	seedProjection?: true;
+	summaryIds?: string[];
+	summaryId?: string;
+}
+
+function dshEntryReference(entry: ReturnType<SessionManager["getEntries"]>[number]): DshHistoryRef | undefined {
+	if (entry.type === "message") return dshReference(entry.message);
+	return entry.type === "compaction" && entry.details && typeof entry.details === "object" ? dshReference(entry.details) : undefined;
+}
+
+export interface DshTaskOptions {
+	scopeId: string;
+	setupDsh?(ctx: Context): void | Promise<void>;
+	dshSystemPrompt?: string;
+	dshTools?: readonly string[];
+}
+
 /**
  * One live Pi session runtime hosted by the core: the in-process equivalent
  * of a `pi --mode rpc` child. It accepts the same command records and emits
@@ -109,7 +149,15 @@ export class Slot {
 	/** The harness's todo list and plan mode, as last reported. */
 	agentState: { todos: TodoItem[] | null; planMode: boolean } = { todos: null, planMode: false };
 	private config: PiHostConfig | undefined;
+	private legacyPath: string | undefined;
 	private runtime!: AgentSessionRuntime;
+	private dsh: { session: DshSession; events: DshEvents; content: DshSlotContent; workbench?: DshWorkbenchHooks; id: string; task?: DshTaskOptions } | undefined;
+	private dshOpening: Promise<NonNullable<Slot["dsh"]>> | undefined;
+	private taskDsh: DshTaskOptions | undefined;
+	private dshNavigating = false;
+	private appendingProactive = false;
+	private dshSendGeneration = 0;
+	private dshCompactionAbort?: AbortController;
 	private readonly hooks: SlotHooks;
 	private readonly recorder: RunRecorder;
 	private unsubscribe: (() => void) | undefined;
@@ -170,7 +218,21 @@ export class Slot {
 	async start(config: PiHostConfig, target: OpenTarget): Promise<void> {
 		this.config = config;
 		try {
+			let legacyLeaf: string | null | undefined;
+			if (target.sessionFile && config.dshWorkbench?.()) {
+				const legacySnapshot = readLegacySession(target.sessionFile);
+				if (legacySnapshot) {
+					this.legacyPath = target.sessionFile;
+					legacyLeaf = legacySnapshot.getLeafId();
+					target = { ...target, legacySnapshot };
+				}
+			}
 			this.runtime = await createSessionRuntime(config, { slotId: this.slotId }, this.ui, target);
+			if (legacyLeaf !== undefined) {
+				if (legacyLeaf === null) this.session.sessionManager.resetLeaf();
+				else this.session.sessionManager.branch(legacyLeaf);
+				this.session.refreshContext();
+			}
 		} catch (error) {
 			this.ui.cancelAll();
 			throw error;
@@ -190,6 +252,10 @@ export class Slot {
 	get session(): AgentSession {
 		return this.runtime.session;
 	}
+
+	get readOnlyLegacy(): string | undefined { return this.legacyPath; }
+
+	get nativeSession() { return this.incognito ? undefined : this.dsh?.session.agent.session; }
 
 	get isSideConversation(): boolean {
 		return this.started ? !!sideConversation(this.session.sessionManager) : this.initialParent !== null;
@@ -229,7 +295,7 @@ export class Slot {
 		return {
 			slotId: this.slotId,
 			cwd: this.cwd,
-			sessionFile: session?.sessionFile ?? null,
+			sessionFile: this.legacyPath ?? session?.sessionFile ?? null,
 			sessionId: session?.sessionId ?? null,
 			sessionName: session?.sessionName ?? null,
 			running: this.running,
@@ -242,7 +308,8 @@ export class Slot {
 			incognito: this.incognito,
 			forkOf: this.forkOf,
 			sessionType: this.isSideConversation ? "side" : "ordinary",
-			willPersist: !this.incognito,
+			willPersist: !this.incognito && !this.legacyPath,
+			...(this.legacyPath && { readOnly: true }),
 			sandbox: this.sandboxed,
 			model: model ? `${model.provider}/${model.id}` : null,
 			agentMode: session ? (recordedMode(session.sessionManager) ?? "standard") : null,
@@ -265,7 +332,7 @@ export class Slot {
 	liveSnapshot(): Record<string, unknown>[] {
 		if (!this.started || !this.running) return [];
 		const records: Record<string, unknown>[] = [{ type: "agent_start" }];
-		const partial = this.session.agent.state.streamingMessage;
+		const partial = this.dsh?.events.streamingMessage ?? this.session.agent.state.streamingMessage;
 		if (partial) records.push({ type: "message_start", message: partial });
 		return records;
 	}
@@ -288,10 +355,14 @@ export class Slot {
 					return { cancelled: result.cancelled };
 				},
 				navigateTree: async (targetId, options) => {
-					const result = await runtime.session.navigateTree(targetId, options);
+					const result = runtime === this.runtime && this.hasDshHistory()
+						? await this.navigateDshTree(targetId, options) : await runtime.session.navigateTree(targetId, options);
 					return { cancelled: result.cancelled };
 				},
-				switchSession: async (sessionPath, options) => runtime.switchSession(sessionPath, options),
+				switchSession: async (sessionPath, options) => {
+					if (this.config?.dshWorkbench?.() && readLegacySession(sessionPath)) throw new Error("请单独打开旧会话");
+					return runtime.switchSession(sessionPath, options);
+				},
 				reload: async () => {
 					await runtime.session.reload();
 				},
@@ -302,6 +373,12 @@ export class Slot {
 	}
 
 	private async rebind(): Promise<void> {
+		if (this.dsh && this.dsh.id !== this.session.sessionId) {
+			await this.dsh.session.dispose();
+			this.dsh.content.clear();
+			this.dsh = undefined;
+			this.taskDsh = undefined;
+		}
 		await this.bind(this.runtime);
 		const session = this.session;
 		this.unsubscribe?.();
@@ -311,7 +388,7 @@ export class Slot {
 
 	private onEvent(event: AgentSessionEvent): void {
 		this.lastActivity = now();
-		this.recorder.handle(event);
+		if (!this.incognito) this.recorder.handle(event);
 		let changed = false;
 		switch (event.type) {
 			case "agent_start":
@@ -336,11 +413,21 @@ export class Slot {
 		}
 		this.hooks.event?.(this, event);
 		this.emit(toJsonEvent(event));
+		// A DSH turn can contain several model requests and long tool batches.
+		if (event.type === "message_end" && event.message.role === "assistant" && (!this.dsh || event.message.stopReason !== "error"))
+			this.emitContextUsage();
+		else if (event.type === "compaction_end" && event.result) this.emitContextUsage();
 		if (changed) this.hooks.changed(this);
+	}
+
+	private emitContextUsage(): void {
+		this.emit({ type: "df_context_usage_changed", contextUsage: this.contextUsage() });
 	}
 
 	/** Compacts now (dsh's compactNow: nothing recent kept back), with an optional focus for the summary. */
 	async compactNow(customInstructions?: string, regenerateEntryId?: string): Promise<unknown> {
+		if (this.legacyPath) throw new Error("旧会话只读，请先选择「继续」");
+		if (this.dsh || this.hasDshHistory()) return this.compactDsh(customInstructions, regenerateEntryId);
 		await this.refreshModelConfig();
 		if (this.closing || this.compacting) throw new Error("会话正在关闭或压缩");
 		if (regenerateEntryId && this.running) throw new Error("请等待当前回复结束后重新生成摘要");
@@ -371,6 +458,149 @@ export class Slot {
 			this.compacting = false;
 			this.hooks.changed(this);
 		}
+	}
+
+	private async compactDsh(customInstructions?: string, regenerateEntryId?: string): Promise<unknown> {
+		if (this.running || this.closing || this.compacting || this.dshOpening || this.dshNavigating) throw new Error("请等待当前会话操作结束");
+		this.dshSendGeneration++;
+		const controller = new AbortController();
+		this.dshCompactionAbort = controller;
+		const hooks = this.config?.compaction?.(this);
+		const regenerate = regenerateEntryId ? hooks?.takeRegenerate?.() : undefined;
+		const kind = regenerateEntryId ? "regenerate" : "manual";
+		const began = Date.now();
+		this.onEvent({ type: "compaction_start", reason: "manual" });
+		let fork: DshBranch | undefined;
+		try {
+			await this.refreshModelConfig();
+			let projection = await this.openDsh();
+			const request: DshSummaryRequest = {};
+			let note: string | undefined;
+			if (regenerateEntryId) {
+				const previous = await this.dshRegeneration(projection.session, regenerateEntryId);
+				if (previous.branch) {
+					fork = previous.branch;
+					projection = await this.openDsh(fork);
+				}
+				request.originals = previous.originals;
+				const source = previous.branch || previous.originals ? "original" : "previous_summary";
+				hooks?.regenerated?.(source);
+				note = `The user reported the previous checkpoint as wrong: ${regenerate?.note ?? "摘要有误"}\n${source === "original" ? "Rebuild it from the original conversation." : "Correct the previous summary using the conversation available above."}`;
+			}
+			request.focus = [customInstructions?.trim() && `The user asked this checkpoint to focus on: ${customInstructions.trim()}`, note].filter(Boolean).join("\n\n");
+			const tokensBefore = projection.session.contextTokens;
+			const native = await projection.session.compact(controller.signal, request);
+			if (!native) throw new Error("没有可压缩的会话内容");
+			if (fork && regenerateEntryId) {
+				const manager = this.session.sessionManager;
+				const replaced = manager.getEntry(regenerateEntryId);
+				if (replaced?.parentId) manager.branch(replaced.parentId);
+				manager.appendCustomEntry(DSH_BRANCH_ENTRY, fork);
+			}
+			const result = this.projectDshCompaction(projection.session, projection.events, native, kind, tokensBefore, began);
+			this.onEvent({ type: "compaction_end", reason: "manual", result, aborted: false, willRetry: false });
+			return result;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (fork && this.dsh?.session.agent.id === fork.id) {
+				const failed = this.dsh;
+				this.dsh = undefined;
+				await failed.session.dispose();
+				failed.content.clear();
+			}
+			hooks?.record?.({ kind, outcome: "failed", reason: message, waitMs: Date.now() - began });
+			this.onEvent({ type: "compaction_end", reason: "manual", result: undefined, aborted: controller.signal.aborted, willRetry: false, errorMessage: message });
+			throw error;
+		} finally {
+			this.dshCompactionAbort = undefined;
+		}
+	}
+
+	private async dshRegeneration(session: DshSession, entryId: string): Promise<{ branch?: DshBranch; originals?: DshSummaryRequest["originals"] }> {
+		const manager = this.session.sessionManager;
+		const checkpoint = manager.getEntry(entryId);
+		const ref = checkpoint && dshEntryReference(checkpoint);
+		const native = session.agent.session;
+		const end = ref && native.eventAt(SessionSeq(ref.seq));
+		if (!end || end.type !== "compaction/end" || end.data.error) return {};
+		const id = end.data.compactionId;
+		const events = native.snapshotEvents();
+		const start = events.find(event => event.type === "compaction/start" && event.data.compactionId === id);
+		const summary = events.find(event => event.type === "compaction/summary" && event.data.compactionId === id);
+		if (!summary || summary.type !== "compaction/summary") return {};
+		const replacement = native.eventAt(SessionSeq(summary.seq + 1));
+		if (replacement?.type !== "user/message") return {};
+		const messages = summary.data.shadowedSeqs.flatMap(seq => {
+			const source = native.eventAt(seq);
+			const message = source && native.deriveEventMessage(source);
+			return message ? [message] : [];
+		});
+		const writer = await this.dshSummaryModel();
+		const limit = (writer?.contextWindow || 128_000) * 0.7;
+		if (!messages.length || session.contextTokens + messages.reduce((total, message) => total + estimateMessage(message), 0) > limit) return {};
+		if (!this.incognito && manager.getLeafId() === entryId && start?.type === "compaction/start" && start.data.turn === null && start.seq > 0) {
+			return { branch: { owner: this.session.sessionId, id: randomUUID(), fork: { id: native.id, seq: start.seq - 1 } } };
+		}
+		return { originals: new Map([[replacement.data.id, messages]]) };
+	}
+
+	private async dshSummaryModel(): Promise<Model<never> | undefined> {
+		const model = this.session.model as Model<never> | undefined;
+		return model && (await this.config?.compaction?.(this)?.summaryModel?.(model) ?? model);
+	}
+
+	private dshCompactionPressure() {
+		const model = this.session.model;
+		const window = model && (this.hooks.modelWindow ? this.hooks.modelWindow(model) : model.contextWindow);
+		if (!this.config?.autoCompaction() || !model || !window) return;
+		const forWindow = { contextWindow: window, maxTokens: model.maxTokens };
+		const base = dshCompactionSettings(forWindow, true);
+		const settings = this.config.compaction?.(this)?.settings?.(forWindow, base) ?? base;
+		return { threshold: window - settings.reserveTokens, retain: settings.keepRecentTokens };
+	}
+
+	private async autoCompactDsh(request: AutomaticCompaction, events: DshEvents): Promise<boolean> {
+		const session = this.dsh?.session;
+		if (!session || this.compacting || this.closing) return false;
+		const began = Date.now();
+		const tokensBefore = session.contextTokens;
+		this.onEvent({ type: "compaction_start", reason: request.reason });
+		try {
+			const native = await request.run();
+			const result = native ? this.projectDshCompaction(session, events, native, "normal", tokensBefore, began) : undefined;
+			this.onEvent({ type: "compaction_end", reason: request.reason, result, aborted: false, willRetry: !!result && request.reason === "overflow" });
+			return !!result;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this.config?.compaction?.(this)?.record?.({ kind: "normal", outcome: "failed", reason: message, waitMs: Date.now() - began });
+			this.onEvent({ type: "compaction_end", reason: request.reason, result: undefined, aborted: false, willRetry: false, errorMessage: message });
+			return false;
+		}
+	}
+
+	private projectDshCompaction(session: DshSession, events: DshEvents, native: NativeCompactionResult,
+		kind: "normal" | "manual" | "regenerate", tokensBefore: number, began: number) {
+		const summary = native.summary.flatMap(block => block.type === "text" ? [block.text] : []).join("\n");
+		const manager = this.session.sessionManager;
+		const retainedSeqs = new Set<number>(session.agent.session.surface.nodes);
+		const imported = this.dshImportedEntries();
+		const retained = manager.getBranch().find(entry => {
+			if (entry.type !== "message") return false;
+			return retainedSeqs.has(dshReference(entry.message)?.seq ?? imported.get(entry.id)?.seq ?? -1);
+		});
+		const written = session.agent.session.eventAt(native.summarySeq);
+		const data = written?.type === "compaction/summary" ? written.data : undefined;
+		const writer = data && this.session.modelRuntime.getModel(data.provider, data.model);
+		const receipt = session.takeSummaryLedgerReceipt();
+		const usage = data?.usage ? events.usage(data.usage, writer, receipt) : undefined;
+		const record = manager.appendCompaction(summary, retained?.id ?? null, tokensBefore, { dfDsh: { id: session.agent.id, seq: native.endSeq } }, false, usage);
+		this.session.refreshContext();
+		const entry = manager.getEntry(record);
+		if (entry) this.onEvent({ type: "entry_appended", entry });
+		const estimatedTokensAfter = session.contextTokens;
+		this.config?.compaction?.(this)?.record?.({ kind, outcome: "done", tokensBefore, tokensAfter: estimatedTokensAfter, waitMs: Date.now() - began,
+			cost: usage?.cost.total, model: data && `${data.provider}/${data.model}` });
+		return { summary, firstKeptEntryId: retained?.id ?? "", tokensBefore, estimatedTokensAfter, usage };
 	}
 
 	/** Handles one inbound record: a command or an extension UI response. */
@@ -412,16 +642,243 @@ export class Slot {
 	}
 
 	private async sendPrompt(message: string, options: Record<string, unknown> = {}): Promise<string> {
+		if (this.legacyPath) throw new Error("旧会话只读，请先选择「继续」");
 		await this.refreshModelConfig();
 		if (this.closing) throw new Error("会话正在关闭");
 		if (this.firstSend) throw new Error("侧边对话正在保存并发送，请等待结果");
 		this.lastActivity = now();
 		this.lastPrompt = message;
-		if (!this.isSideConversation || this.incognito || this.session.sessionFile) return this.submit(this.session, message, options);
+		if (!this.isSideConversation || this.incognito || this.session.sessionFile) return this.useDsh()
+			? this.sendDsh(message, options.images, typeof options.streamingBehavior === "string" ? options.streamingBehavior : undefined)
+			: this.submit(this.session, message, options);
 		const operation = this.persistAndSend(message, options);
 		this.firstSend = operation;
 		try { return await operation; }
 		finally { this.firstSend = undefined; }
+	}
+
+	private useDsh(): boolean {
+		if (process.platform === "win32" && this.sandboxed && !this.unattended && this.config?.dshWorkbench?.()) return true;
+		const { sessionManager } = this.session;
+		const mode = recordedMode(sessionManager);
+		return this.hasDshHistory() || !!this.taskDsh || !!(this.config?.dshWorkbench?.() && !this.sandboxed && !this.unattended &&
+			(mode === "minimal" || mode === "standard" && this.config.dshStandardWorkbench?.()) &&
+			(this.incognito || this.isSideConversation || !sessionManager.getEntries().some((entry) => entry.type === "message" && entry.message.role !== "system")));
+	}
+
+	hasDshHistory(): boolean {
+		return this.dshHistoryKind() !== undefined;
+	}
+
+	private selectedDshBranch(): DshBranch | undefined {
+		const entry = this.session.sessionManager.getBranch().findLast(entry => entry.type === "custom" && entry.customType === DSH_BRANCH_ENTRY &&
+			(entry.data as DshBranch | undefined)?.owner === this.session.sessionId);
+		return entry?.type === "custom" ? entry.data as DshBranch : undefined;
+	}
+
+	private dshImportedEntries(): Map<string, DshHistoryRef> {
+		const { sessionManager, sessionId } = this.session;
+		const references = new Map<string, DshHistoryRef>();
+		for (const entry of sessionManager.getEntries()) {
+			if (entry.type !== "custom" || entry.customType !== DSH_LEGACY_ENTRY) continue;
+			const data = entry.data as { owner?: string; id: string; references: Record<string, number> } | undefined;
+			if (!data || (data.owner ?? data.id) !== sessionId) continue;
+			for (const [entryId, seq] of Object.entries(data.references)) references.set(entryId, { id: data.id, seq });
+		}
+		return references;
+	}
+
+	private dshHistoryKind(): "workbench" | "task" | undefined {
+		const marker = this.dshHistoryMarker();
+		return marker ? marker.kind === "task" ? "task" : "workbench" : undefined;
+	}
+
+	private dshHistoryMarker(): { kind?: string; needsSeed?: boolean } | undefined {
+		const { sessionManager, sessionId } = this.session;
+		const entry = sessionManager.getEntries().findLast((entry) => entry.type === "custom" && entry.customType === DSH_ENTRY &&
+			(entry.data as { id?: string } | undefined)?.id === sessionId);
+		return entry?.type === "custom" ? entry.data as { kind?: string; needsSeed?: boolean } : undefined;
+	}
+
+	prepareDshTask(options: DshTaskOptions): boolean {
+		if (!this.config?.dshWorkbench?.() || this.incognito || this.isSideConversation || this.closing || this.legacyPath) return false;
+		if (this.sandboxed && !this.config.sandbox?.()?.appContainer) return false;
+		if (this.taskDsh?.scopeId === options.scopeId) return true;
+		if (this.taskDsh || this.running || this.compacting || this.dshOpening || this.dshNavigating || this.session.isStreaming ||
+			(this.dsh && this.dsh.session.agent.status !== "idle")) return false;
+		if (!this.hasDshHistory() && this.session.sessionManager.getEntries().some(entry => entry.type === "message" && entry.message.role !== "system")) return false;
+		this.taskDsh = options;
+		this.dshSendGeneration++;
+		return true;
+	}
+
+	releaseDshTask(scopeId: string): void {
+		if (this.taskDsh?.scopeId !== scopeId) return;
+		this.taskDsh = undefined;
+		this.dshSendGeneration++;
+	}
+
+	private dshModel() {
+		const { model, thinkingLevel } = this.session;
+		if (!model) throw new Error("请先为会话选择模型");
+		return { provider: model.provider, model: model.id,
+			...(thinkingLevel !== "off" ? { reasoningEffort: ReasoningEffortId(thinkingLevel) } : {}) };
+	}
+
+	private async openDsh(overrideBranch?: DshBranch): Promise<NonNullable<Slot["dsh"]>> {
+		const task = this.taskDsh;
+		if (!task && this.dshHistoryKind() === "task") throw new Error("这个会话由后台任务管理，请从对应任务继续");
+		const nativeWorkspace = this.sandboxed ? this.config?.sandbox?.()?.workspaceDir : undefined;
+		if (this.sandboxed && (!nativeWorkspace || !this.config?.sandbox?.()?.appContainer)) throw new Error("蝶君的 Windows 工作区还没准备好");
+		if (this.dsh && this.dsh.task === task && !overrideBranch) return this.dsh;
+		if (this.dshOpening) return this.dshOpening;
+		const previous = this.dsh;
+		if (previous && previous.session.agent.status !== "idle") throw new Error("请等待当前会话操作结束");
+		const root = this.config?.dsh?.();
+		const services = this.incognito ? root?.temporary : root;
+		if (!services) throw new Error("会话后台没有准备好，请重启 DreamFlutter 后重试");
+		const pi = this.session;
+		const model = this.dshModel();
+		const branch = this.incognito ? undefined : overrideBranch ?? this.selectedDshBranch();
+		const id = branch?.id ?? pi.sessionId;
+		const hasHistory = this.hasDshHistory();
+		const legacy = this.dshHistoryMarker()?.needsSeed === true;
+		const resume = !this.incognito && hasHistory && !legacy && (!branch || pi.sessionManager.getBranch().some(entry => dshEntryReference(entry)?.id === id));
+		const seedHistory = legacy || !hasHistory && this.isSideConversation || this.incognito || branch?.seedProjection && !resume;
+		const standard = !task && recordedMode(pi.sessionManager) === "standard";
+		const workbench = standard ? new DshWorkbenchHooks(pi, () => !this.incognito && !this.isSideConversation && this.config?.memoryAvailable?.() !== false,
+			(id, prompt) => this.config?.prepareDshInput?.({ slotId: this.slotId }, id, prompt) ?? Promise.resolve()) : undefined;
+		const content = services.createContentStore(this.incognito);
+		const compactionHooks = () => this.config?.compaction?.(this);
+		const events = new DshEvents({
+			model: () => pi.model,
+			messages: () => pi.messages.filter((message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult"),
+			content: (blocks) => content.fromDsh(blocks),
+			persist: (message, seq, messageId) => {
+				const projected = { ...message, dfDsh: { id, seq, ...(messageId && { messageId }) } };
+				const entryId = pi.sessionManager.appendMessage(projected);
+				pi.refreshContext();
+				const entry = pi.sessionManager.getEntry(entryId);
+				if (entry) this.onEvent({ type: "entry_appended", entry });
+			},
+			emit: (event) => this.onEvent(event),
+		});
+		this.dshOpening = (async () => {
+			// Task tools are installed on the owning Agent scope. A context change
+			// reopens the same durable DSH branch with a fresh scope and releases
+			// the old registrations before admitting another request.
+			if (previous) {
+				await previous.session.dispose();
+				previous.content.clear();
+				if (this.dsh === previous) this.dsh = undefined;
+			}
+			await services.refreshModels();
+			const imported = seedHistory ? await buildLegacyDshSeed(pi.sessionManager, content) : undefined;
+			const summaries = (branch?.summaryIds ?? (branch?.summaryId ? [branch.summaryId] : [])).flatMap(id => {
+				const entry = pi.sessionManager.getEntry(id);
+				return entry?.type === "branch_summary" ? [{ text: entry.summary, time: Date.parse(entry.timestamp) }] : [];
+			});
+			const session = await services.open({ id, cwd: this.cwd, resume, branch: !!branch, fork: branch?.fork, seed: imported?.events, model, content,
+				branchSummaries: summaries,
+				ledgerContext: () => ({ ...this.config?.ledgerContext?.({ slotId: this.slotId }), sessionId: pi.sessionId, workspace: this.cwd }),
+				modelRuntime: () => pi.modelRuntime,
+				compaction: {
+					pressure: () => this.dshCompactionPressure(),
+					summaryModel: () => this.dshSummaryModel(),
+					invalidatedFacts: () => compactionHooks()?.invalidatedFacts?.(),
+					baseSystemPrompt: () => workbench?.compactionSystemPrompt,
+					automatic: request => this.autoCompactDsh(request, events),
+					record: entry => compactionHooks()?.record?.(entry),
+					background: {
+						enabled: () => compactionHooks()?.background?.enabled() ?? false,
+						lead: () => compactionHooks()?.background?.lead() ?? 0.85,
+						allowed: () => compactionHooks()?.background?.allowed() ?? false,
+						model: async () => {
+							const selected = this.session.model as Model<never> | undefined;
+							return selected && (await compactionHooks()?.background?.model(selected) ?? selected);
+						},
+						charge: (usage, writer, receipt) => {
+							const billed = events.usage(usage, writer, receipt);
+							compactionHooks()?.background?.charge(billed, writer);
+							return billed.cost.total;
+						},
+					},
+				},
+				setup: async (ctx, agent) => {
+					if (workbench) workbench.bind(ctx);
+					else ctx.systemPrompt.section({ name: "dreamflutter-workbench", order: 0, interpolate: false, complete: true,
+						text: () => {
+							const cwd = pi.sessionManager.getBranch().findLast(entry => entry.type === "custom" && entry.customType === "df.cwd");
+							const selected = cwd?.type === "custom" ? (cwd.data as { cwd?: string } | undefined)?.cwd : undefined;
+							return `${task?.dshSystemPrompt ?? MINIMAL_PERSONA}\n\n${workingDirectoryContext(selected ?? nativeWorkspace ?? this.cwd)}`;
+						} });
+					bindWorkbenchTools(ctx, pi, content, event => this.onEvent(event), task ? task.dshTools ?? [] :
+						standard ? pi.getAllTools().map(tool => tool.name) : undefined, () => this.taskDsh === task);
+					bindToolProgress(ctx, agent);
+					await task?.setupDsh?.(ctx);
+					for (const message of [...agent.inbox.nextStep, ...agent.inbox.nextTurn]) await content.restore(message.content);
+				},
+				onEvent: (event) => {
+					if (this.appendingProactive) return;
+					events.event(event);
+					if (event.type === "assistant/attempt") this.emitContextUsage();
+				}, onStream: (frame) => events.stream(frame), onStatus: (status) => events.status(status),
+				onQueue: (agent) => this.onEvent({ type: "queue_update", ...dshQueue(agent) }), onDiscard: (blocks) => content.release(blocks) });
+			if (this.closing || this.session !== pi || this.taskDsh !== task) {
+				await session.dispose();
+				throw new Error("会话已关闭，未发送消息");
+			}
+			if (imported) pi.sessionManager.appendCustomEntry(DSH_LEGACY_ENTRY, { owner: pi.sessionId, id, references: imported.references });
+			if (!hasHistory || legacy) pi.sessionManager.appendCustomEntry(DSH_ENTRY, { id: pi.sessionId, kind: task ? "task" : "workbench" });
+			return this.dsh = { session, events, content, workbench, id: pi.sessionId, task };
+		})();
+		try { return await this.dshOpening; }
+		finally { this.dshOpening = undefined; }
+	}
+
+	/** The proactive sender presents one window message. Keep its native history in the same branch. */
+	async appendProactiveMessage(message: AssistantMessage & { dfProactiveRef: string }, beginDelivery: () => void): Promise<string> {
+		const pi = this.session, manager = pi.sessionManager, leaf = manager.getLeafId();
+		if (this.legacyPath) throw new Error("旧会话只读");
+		const native = this.useDsh() ? await this.openDsh() : undefined;
+		if (this.closing || this.running || this.compacting || this.dshNavigating || this.session !== pi || manager.getLeafId() !== leaf)
+			throw new Error("会话已经发生变化");
+		this.appendingProactive = true;
+		try {
+			beginDelivery();
+			const ref = native?.session.appendProactive(message);
+			const projected = ref ? { ...message, dfDsh: ref } : message;
+			const entryId = manager.appendMessage(projected);
+			pi.refreshContext();
+			return entryId;
+		} finally { this.appendingProactive = false; }
+	}
+
+	private async sendDsh(message: string, images: unknown, streamingBehavior?: string): Promise<string> {
+		if (this.dshNavigating || this.compacting) throw new Error("请等待当前会话操作结束");
+		const suppliedImages = readWireImages(images);
+		if (!message.trim() && !suppliedImages?.length) throw new Error("消息不能为空");
+		const previous = this.session;
+		const generation = this.dshSendGeneration;
+		const { session, content, workbench } = await this.openDsh();
+		const behavior = streamingBehavior === "steer" || streamingBehavior === "followUp" ? streamingBehavior : undefined;
+		const input = workbench ? await workbench.input(message, suppliedImages, behavior) : { text: message, images: suppliedImages };
+		if (!input) return "handled";
+		const blocks = await content.admit(input.text, input.images);
+		await this.config?.dsh?.()?.refreshModels();
+		try {
+			if (this.closing || this.session !== previous) throw new Error("会话已关闭，未发送消息");
+			const running = session.agent.status === "running";
+			if (running && !behavior) throw new Error("请等待当前回复结束");
+			if (!running) await workbench?.prepare(input.text, input.images);
+			if (this.dshNavigating || this.compacting || generation !== this.dshSendGeneration || this.dsh?.session !== session) throw new Error("消息发送已取消");
+			session.agent.model.select(this.dshModel());
+			session.send(blocks, behavior === "steer");
+			return running ? "queued" : "started";
+		} catch (error) {
+			content.release(blocks);
+			throw error;
+		}
 	}
 
 	/** F-01: retain the original runtime until the replacement accepts the first message. */
@@ -452,7 +909,7 @@ export class Slot {
 			this.runtime = candidate;
 			this.unsubscribe = candidate.session.subscribe((event) => this.onEvent(event));
 			active = true;
-			const disposition = await this.submit(candidate.session, message, options);
+			const disposition = await (this.useDsh() ? this.sendDsh(message, options.images) : this.submit(candidate.session, message, options));
 			const control = controls.get(this.slotId);
 			if (control) config.harnessControls?.set(this.slotId, control);
 			// This is not a new conversation: no sessionCreated/sessionReplaced hook.
@@ -474,12 +931,110 @@ export class Slot {
 	}
 
 	async prompt(message: string, options: { images?: unknown[] } = {}): Promise<void> {
-		await this.sendPrompt(message, { images: options.images, streamingBehavior: this.session.isStreaming ? "followUp" : undefined });
+		await this.sendPrompt(message, { images: options.images, streamingBehavior: this.running || this.session.isStreaming ? "followUp" : undefined });
+	}
+
+	async abortActive(): Promise<void> {
+		this.dshSendGeneration++;
+		if (this.dshNavigating) this.session.abortBranchSummary();
+		this.dshCompactionAbort?.abort();
+		if (this.dsh) {
+			const stopped = this.dsh.session.abort();
+			this.ui.cancelAll();
+			await stopped;
+		}
+		else await this.session.abort();
+	}
+
+	clearActiveQueue(): ReturnType<AgentSession["clearQueue"]> {
+		if (!this.dsh) return this.session.clearQueue();
+		const { agent } = this.dsh.session;
+		const result = dshQueue(agent);
+		agent.inbox.clear();
+		return result;
+	}
+
+	private async navigateDshTree(entryId: string, options: Parameters<AgentSession["navigateTree"]>[1]): Promise<Awaited<ReturnType<AgentSession["navigateTree"]>>> {
+		if (this.running || this.compacting || this.dshOpening || this.dshNavigating) throw new Error("请等待当前会话操作结束");
+		const services = this.config?.dsh?.();
+		if (!services) throw new Error("会话后台没有准备好");
+		this.dshNavigating = true;
+		this.dshSendGeneration++;
+		const session = this.session;
+		const manager = session.sessionManager;
+		const oldLeaf = manager.getLeafId();
+		const originalStream = session.agent.streamFunction;
+		try {
+			if (options?.summarize) {
+				const complete = this.config?.completeDshBranchSummary;
+				if (!complete) throw new Error("分支摘要后台没有准备好");
+				session.agent.streamFunction = (model, context, request) => {
+					const stream = createAssistantMessageEventStream();
+					void complete({ slotId: this.slotId }, session, model, context, { signal: request?.signal, maxTokens: request?.maxTokens }).then(message => {
+						const reason = message.stopReason;
+						if (reason === "error" || reason === "aborted") stream.push({ type: "error", reason, error: message });
+						else if (reason === "pending") stream.push({ type: "error", reason: "error", error: { ...message, stopReason: "error", errorMessage: "摘要模型没有完成回复" } });
+						else {
+							stream.push({ type: "start", partial: message });
+							stream.push({ type: "done", reason, message });
+						}
+					}, error => {
+						const reason = request?.signal?.aborted ? "aborted" : "error";
+						stream.push({ type: "error", reason, error: { role: "assistant", content: [], api: model.api, provider: model.provider,
+							model: model.id, usage: projectUsage(undefined, model), stopReason: reason, timestamp: now(),
+							errorMessage: error instanceof Error ? error.message : String(error) } });
+					});
+					return stream;
+				};
+			}
+			const result = await session.navigateTree(entryId, options);
+			if (result.cancelled || oldLeaf === manager.getLeafId()) return result;
+			if (this.incognito) {
+				await this.dsh?.session.dispose();
+				this.dsh?.content.clear();
+				this.dsh = undefined;
+				return result;
+			}
+			const imported = this.dshImportedEntries();
+			const branch = manager.getBranch();
+			const anchor = branch.findLast(entry => dshEntryReference(entry) !== undefined || imported.has(entry.id));
+			const ref = anchor ? dshEntryReference(anchor) ?? imported.get(anchor.id) : undefined;
+			// A summary is a new piece of history. Fork even at the tip so revisiting
+			// the old branch does not inherit the summary of the branch being left.
+			const afterAnchor = anchor ? branch.slice(branch.indexOf(anchor) + 1) : branch;
+			const entries = manager.getEntries();
+			const legacyBoundary = entries.findIndex(entry => entry.type === "custom" && entry.customType === LEGACY_SOURCE_ENTRY &&
+				(entry.data as { sessionId?: string } | undefined)?.sessionId === session.sessionId);
+			const legacySummaries = new Set(legacyBoundary === -1 ? [] : entries.slice(0, legacyBoundary).filter(entry => entry.type === "branch_summary").map(entry => entry.id));
+			const summaryIds = afterAnchor.filter(entry => entry.type === "branch_summary" && !legacySummaries.has(entry.id)).map(entry => entry.id);
+			const seedProjection = !ref && legacyBoundary !== -1 && branch.some(entry => entry.type === "message" && entry.message.role === "user");
+			const next: DshBranch = !summaryIds.length && ref && await services.latestVisibleMessage(ref)
+				? { owner: this.session.sessionId, id: ref.id }
+				: { owner: this.session.sessionId, id: randomUUID(), ...(ref && { fork: ref }), ...(summaryIds.length && { summaryIds }), ...(seedProjection && { seedProjection: true }) };
+			await this.dsh?.session.dispose();
+			this.dsh = undefined;
+			manager.appendCustomEntry(DSH_BRANCH_ENTRY, next);
+			return result;
+		} catch (error) {
+			if (oldLeaf === null) manager.resetLeaf();
+			else manager.branch(oldLeaf);
+			this.session.refreshContext();
+			throw error;
+		} finally {
+			session.agent.streamFunction = originalStream;
+			this.dshNavigating = false;
+		}
 	}
 
 	private async replaceAndRebind<T extends { cancelled: boolean }>(operation: () => Promise<T>): Promise<T> {
+		if (this.dshOpening || this.dshNavigating || (this.dsh && (this.running || this.compacting))) throw new Error("请等待当前回复结束");
+		const sourceFile = this.hasDshHistory() ? this.session.sessionFile : undefined;
 		const result = await operation();
 		if (!result.cancelled) {
+			const manager = this.session.sessionManager;
+			if (sourceFile && manager.getHeader()?.parentSession === sourceFile && !this.hasDshHistory()) {
+				manager.appendCustomEntry(DSH_ENTRY, { id: this.session.sessionId, kind: "workbench", needsSeed: true });
+			}
 			// Another session now: its task is looked up (or created) at its next run.
 			this.taskId = null;
 			await this.rebind();
@@ -513,6 +1068,11 @@ export class Slot {
 	}
 
 	contextUsage(): ReturnType<AgentSession["getContextUsage"]> | null {
+		if (this.dsh && this.session.model) {
+			const contextWindow = this.hooks.modelWindow ? this.hooks.modelWindow(this.session.model) ?? 0 : this.session.model.contextWindow;
+			const tokens = this.dsh.session.contextTokens;
+			return { tokens, contextWindow, percent: contextWindow ? tokens / contextWindow * 100 : 0 };
+		}
 		const usage = this.session.getContextUsage();
 		if (!usage) return null;
 		if (this.session.model && this.hooks.modelWindow?.(this.session.model) === null) return { ...usage, contextWindow: 0, percent: 0 };
@@ -524,6 +1084,8 @@ export class Slot {
 		const id = command.id;
 		const session = this.session;
 		const str = (key: string) => (typeof command[key] === "string" ? (command[key] as string) : undefined);
+		if (this.legacyPath && !command.type.startsWith("get_") && !["df_agent_state", "df_context_usage", "df_tree", "df_branches", "df_navigate_tree"].includes(command.type))
+			throw new Error("旧会话只读，请先选择「继续」");
 		switch (command.type) {
 			case "prompt": {
 				const key = `${requestScope}:${JSON.stringify([session.sessionId, id, command.message, command.images])}`;
@@ -535,15 +1097,17 @@ export class Slot {
 			}
 			case "steer":
 				if (this.isSideConversation && !this.incognito && !session.sessionFile) throw new Error("请先发送第一条消息");
+				if (this.useDsh()) return ok(id, "steer", { disposition: await this.sendDsh(String(command.message ?? ""), command.images, "steer") });
 				return ok(id, "steer", { disposition: await session.steer(String(command.message ?? ""), command.images as never, { source: "rpc" }) });
 			case "follow_up":
 				if (this.isSideConversation && !this.incognito && !session.sessionFile) throw new Error("请先发送第一条消息");
+				if (this.useDsh()) return ok(id, "follow_up", { disposition: await this.sendDsh(String(command.message ?? ""), command.images, "followUp") });
 				return ok(id, "follow_up", { disposition: await session.followUp(String(command.message ?? ""), command.images as never, { source: "rpc" }) });
 			case "abort":
-				await session.abort();
+				await this.abortActive();
 				return ok(id, "abort");
 			case "clear_queue":
-				return ok(id, "clear_queue", session.clearQueue());
+				return ok(id, "clear_queue", this.clearActiveQueue());
 			case "new_session": {
 				const parentSession = str("parentSession");
 				const mode = str("agentMode");
@@ -557,16 +1121,17 @@ export class Slot {
 				return ok(id, "get_state", {
 					model: session.model ? this.presentModel(session.model) : undefined,
 					thinkingLevel: session.thinkingLevel,
-					isStreaming: session.isStreaming,
-					isCompacting: session.isCompacting,
+					isStreaming: this.running || session.isStreaming,
+					isCompacting: this.compacting || session.isCompacting,
 					steeringMode: session.steeringMode,
 					followUpMode: session.followUpMode,
-					sessionFile: session.sessionFile,
+					sessionFile: this.legacyPath ?? session.sessionFile,
+					...(this.legacyPath && { readOnly: true }),
 					sessionId: session.sessionId,
 					sessionName: session.sessionName,
 					autoCompactionEnabled: session.autoCompactionEnabled,
 					messageCount: session.messages.length,
-					pendingMessageCount: session.pendingMessageCount,
+					pendingMessageCount: this.dsh ? this.dsh.session.agent.inbox.nextStep.length + this.dsh.session.agent.inbox.nextTurn.length : session.pendingMessageCount,
 				});
 			case "set_model": {
 				const model = session.modelRuntime.getAvailableSnapshot().find((m) => m.provider === command.provider && m.id === command.modelId);
@@ -650,12 +1215,13 @@ export class Slot {
 					stats.cost = Math.max(0, stats.cost - usage.cost.total);
 				}
 				stats.tokens.total = stats.tokens.input + stats.tokens.output + stats.tokens.cacheRead + stats.tokens.cacheWrite;
-				return ok(id, "get_session_stats", stats);
+				return ok(id, "get_session_stats", this.dsh ? { ...stats, contextUsage: this.contextUsage() } : stats);
 			}
 			case "export_html":
 				return ok(id, "export_html", { path: await session.exportToHtml(str("outputPath")) });
 			case "switch_session": {
 				if (this.hooks.fileTaken?.(this, String(command.sessionPath ?? ""))) return failure(id, "switch_session", "这个会话已经在别处打开了");
+				if (this.config?.dshWorkbench?.() && readLegacySession(String(command.sessionPath ?? ""))) return failure(id, "switch_session", "请单独打开旧会话");
 				const result = await this.replaceAndRebind(() => this.runtime.switchSession(String(command.sessionPath ?? "")));
 				return ok(id, "switch_session", result);
 			}
@@ -711,10 +1277,18 @@ export class Slot {
 			// ---- DreamFlutter extensions ------------------------------------------------
 			case "df_navigate_tree": {
 				const entryId = String(command.entryId ?? "");
-				const result = await session.navigateTree(entryId, {
+				if (this.legacyPath) {
+					if (command.summarize || !session.sessionManager.getEntry(entryId)) throw new Error("找不到所选分支");
+					session.sessionManager.branch(entryId);
+					session.refreshContext();
+					return ok(id, "df_navigate_tree", { cancelled: false, editorText: null });
+				}
+				const nativeHistory = this.hasDshHistory();
+				const options = {
 					summarize: command.summarize === true,
 					customInstructions: str("customInstructions"),
-				});
+				};
+				const result = nativeHistory ? await this.navigateDshTree(entryId, options) : await session.navigateTree(entryId, options);
 				return ok(id, "df_navigate_tree", { cancelled: result.cancelled, editorText: result.editorText ?? null });
 			}
 			case "df_branches":
@@ -753,8 +1327,12 @@ export class Slot {
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
 		this.closing = true;
+		this.dshCompactionAbort?.abort();
 		this.ui.cancelAll();
 		await this.firstSend?.catch(() => {});
+		await this.dshOpening?.catch(() => {});
+		await this.dsh?.session.dispose().catch(() => {});
+		this.dsh?.content.clear();
 		this.disposed = true;
 		this.recorder.interrupt();
 		this.unsubscribe?.();
@@ -878,6 +1456,16 @@ export function questionTree(session: AgentSession): QuestionNode[] {
 
 function ok(id: string | undefined, command: string, data?: unknown): Record<string, unknown> {
 	return data === undefined ? { id, type: "response", command, success: true } : { id, type: "response", command, success: true, data };
+}
+
+function dshReference(message: object): DshHistoryRef | undefined {
+	const ref = (message as { dfDsh?: DshHistoryRef }).dfDsh;
+	return ref && typeof ref.id === "string" && Number.isSafeInteger(ref.seq) && ref.seq >= 0 ? ref : undefined;
+}
+
+function dshQueue(agent: Agent): { steering: string[]; followUp: string[] } {
+	const text = (messages: typeof agent.inbox.nextStep) => messages.map((message) => message.content.map((block) => block.type === "text" ? block.text : "").join(""));
+	return { steering: text(agent.inbox.nextStep), followUp: text(agent.inbox.nextTurn) };
 }
 
 function failure(id: string | undefined, command: string, message: string): Record<string, unknown> {

@@ -10,6 +10,19 @@ import { fields, startContractCore, type Json } from "./b-harness.ts";
 const intentFields = "id slot_id task_id goal restatement plan state created_at start_at missing error".split(" ");
 const taskFields = "id title goal cwd sessionFile source status noteId scheduleId materialIds result error runs turns cost durationMs currentStep createdAt updatedAt endedAt".split(" ");
 
+it("Butterfly reports the native workspace and its inbox and outbox together", async test => {
+	const ws = await startContractCore();
+	test.after(ws.cleanup);
+	const nativeDir = join(ws.t.dir, "蝶君 工作区");
+	ws.t.core.sandboxProvider = () => ({
+		distro: "native-fixture", workspaceDir: nativeDir, ready: async () => {}, online: () => false,
+	});
+	const info = fields(await ws.call("butterfly.info"), ["home", "distro", "inbox", "outbox", "workspaceDir"]);
+	assert.equal(info.workspaceDir, nativeDir);
+	assert.equal(info.inbox, nativeDir.replaceAll("\\", "/") + "/inbox");
+	assert.equal(info.outbox, nativeDir.replaceAll("\\", "/") + "/outbox");
+});
+
 it("old Butterfly workflow is still reachable by authenticated windows", async test => {
 	const ws = await startContractCore();
 	test.after(ws.cleanup);

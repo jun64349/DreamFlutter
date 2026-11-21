@@ -8,7 +8,7 @@
 - **用途** 列出渠道配置和遮蔽后的凭据概况。
 - **调用方** 窗口，工作台和蝶君共用。
 - **参数** 无。
-- **返回** `ChannelInfo[]`。
+- **返回** `ChannelInfo[]`。已有模型的 `defaults?` 字段给出随包目录中的能力。
 - **错误** 无专属 RpcError；未分类异常按通用 `internal` 返回。
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。
@@ -19,8 +19,8 @@
 
 - **用途** 获取现有渠道或未保存配置的模型目录。
 - **调用方** 窗口，工作台和蝶君共用。
-- **参数** channel?: string；或提供未保存配置的 platform、baseUrl、api、apiKey（string，按平台所需填写）
-- **返回** `DescribedModel[]`。
+- **参数** channel?: string；或提供未保存配置的 platform、kind、baseUrl、api、apiKey（按平台所需填写）。
+- **返回** `DescribedModel[]`。带 `defaults?` 的模型可从随包目录补齐能力。接口明确返回的模型字段优先于目录默认值。
 - **错误** `bad_request`（缺接口地址）；`network`（连接失败）；`http`（接口返回非成功状态）。
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。
@@ -37,6 +37,17 @@
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。
 - **源码** [gateway/gateway.ts:1036](../../core/src/gateway/gateway.ts#L1036)
+
+## gateway.modelDefaults
+<!-- api:method -->
+
+- **用途** 按完整模型 ID 查询随包能力，无需连接模型渠道。
+- **调用方** 窗口的渠道编辑器。
+- **参数** `id: string`，可选 `platform: string`、`kind: ChannelKind`。
+- **返回** `ModelDefaults | null`。可包含上下文、最大输出、输入类型和思考档位。视频为模型能力记录，当前对话传输支持文本和图片。
+- **错误** `bad_request`（缺少模型 ID）。
+- **事件** 无。
+- **开放范围** 仅内部。
 
 ## gateway.modelWindow
 <!-- api:method -->
@@ -480,7 +491,7 @@
 - **用途** 删除 DeepSeek 搜索凭据。
 - **调用方** 窗口，工作台和蝶君共用。
 - **参数** 无。
-- **返回** `{ configured: boolean; state: string; lastError: string | null; backend: "local" | "deepseek"; keyMasked: string; pendingToolRefresh: number; month: string; usage: { estimatedCostCny: number; currency: string; estimated: boolean; priceSource: string; calls: number; requests: number; billableCalls: number; uncertainCalls: number; deepseekCalls: number; }; }`。
+- **返回** `{ configured: boolean; state: string; lastError: string | null; lastErrorTool: "web_fetch" | "web_search" | null; backend: "local" | "deepseek"; keyMasked: string; pendingToolRefresh: number; month: string; usage: { estimatedCostCny: number; currency: string; estimated: boolean; priceSource: string; calls: number; requests: number; billableCalls: number; uncertainCalls: number; deepseekCalls: number; }; }`。
 - **错误** 无专属 RpcError；未分类异常按通用 `internal` 返回。
 - **事件** [`webSearch.changed`](events.md#websearchchanged)；按实际状态变化推送，次数与顺序见事件和本节说明。
 - **开放范围** 仅内部。
@@ -504,7 +515,7 @@
 - **用途** 保存 DeepSeek 搜索凭据。
 - **调用方** 窗口，工作台和蝶君共用。
 - **参数** `key: string`
-- **返回** `{ configured: boolean; state: string; lastError: string | null; backend: "local" | "deepseek"; keyMasked: string; pendingToolRefresh: number; month: string; usage: { estimatedCostCny: number; currency: string; estimated: boolean; priceSource: string; calls: number; requests: number; billableCalls: number; uncertainCalls: number; deepseekCalls: number; }; }`。
+- **返回** `{ configured: boolean; state: string; lastError: string | null; lastErrorTool: "web_fetch" | "web_search" | null; backend: "local" | "deepseek"; keyMasked: string; pendingToolRefresh: number; month: string; usage: { estimatedCostCny: number; currency: string; estimated: boolean; priceSource: string; calls: number; requests: number; billableCalls: number; uncertainCalls: number; deepseekCalls: number; }; }`。
 - **错误** `bad_request`（请填写有效的 DeepSeek 官方密钥。）。
 - **事件** [`webSearch.changed`](events.md#websearchchanged)；按实际状态变化推送，次数与顺序见事件和本节说明。
 - **开放范围** 仅内部。
@@ -525,10 +536,10 @@
 ## webSearch.setBackend
 <!-- api:method -->
 
-- **用途** 切换网页搜索的本地或云端后端。
+- **用途** 选择打开已有网址时由本机读取或由 DeepSeek 服务读取。关键词搜索使用单独配置的 DeepSeek 官方密钥。
 - **调用方** 窗口，工作台和蝶君共用。
-- **参数** `backend?: string`（搜索后端）
-- **返回** `{ configured: boolean; state: string; lastError: string | null; backend: "local" | "deepseek"; keyMasked: string; pendingToolRefresh: number; month: string; usage: { estimatedCostCny: number; currency: string; estimated: boolean; priceSource: string; calls: number; requests: number; billableCalls: number; uncertainCalls: number; deepseekCalls: number; }; }`。
+- **参数** `backend: "local" | "deepseek"`（网页读取方式）
+- **返回** `{ configured: boolean; state: string; lastError: string | null; lastErrorTool: "web_fetch" | "web_search" | null; backend: "local" | "deepseek"; keyMasked: string; pendingToolRefresh: number; month: string; usage: { estimatedCostCny: number; currency: string; estimated: boolean; priceSource: string; calls: number; requests: number; billableCalls: number; uncertainCalls: number; deepseekCalls: number; }; }`。
 - **错误** `bad_request`（请选择网页抓取方式。）；`not_configured`（请先保存独立的 DeepSeek 官方密钥。）。
 - **事件** [`webSearch.changed`](events.md#websearchchanged)；按实际状态变化推送，次数与顺序见事件和本节说明。
 - **开放范围** 仅内部。
@@ -537,10 +548,10 @@
 ## webSearch.status
 <!-- api:method -->
 
-- **用途** 读取网页搜索后端和配置状态。
+- **用途** 读取关键词搜索配置、网页读取方式和本月用量。`deepseekCalls` 包括由 DeepSeek 处理的关键词搜索及网页读取，`calls - deepseekCalls` 是本机读取次数。
 - **调用方** 窗口，工作台和蝶君共用。
 - **参数** 无。
-- **返回** `{ configured: boolean; state: string; lastError: string | null; backend: "local" | "deepseek"; keyMasked: string; pendingToolRefresh: number; month: string; usage: { estimatedCostCny: number; currency: string; estimated: boolean; priceSource: string; calls: number; requests: number; billableCalls: number; uncertainCalls: number; deepseekCalls: number; }; }`。
+- **返回** `{ configured: boolean; state: string; lastError: string | null; lastErrorTool: "web_fetch" | "web_search" | null; backend: "local" | "deepseek"; keyMasked: string; pendingToolRefresh: number; month: string; usage: { estimatedCostCny: number; currency: string; estimated: boolean; priceSource: string; calls: number; requests: number; billableCalls: number; uncertainCalls: number; deepseekCalls: number; }; }`。
 - **错误** 无专属 RpcError；未分类异常按通用 `internal` 返回。
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。

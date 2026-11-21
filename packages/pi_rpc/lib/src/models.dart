@@ -56,6 +56,7 @@ class SessionState {
     required this.messageCount,
     required this.pendingMessageCount,
     this.autoCompactionEnabled = true,
+    this.readOnly = false,
   });
 
   factory SessionState.fromJson(Json json) => SessionState(
@@ -69,6 +70,7 @@ class SessionState {
     messageCount: asInt(json['messageCount']),
     pendingMessageCount: asInt(json['pendingMessageCount']),
     autoCompactionEnabled: asBool(json['autoCompactionEnabled'], true),
+    readOnly: asBool(json['readOnly']),
   );
 
   final PiModel? model;
@@ -83,6 +85,7 @@ class SessionState {
   final int messageCount;
   final int pendingMessageCount;
   final bool autoCompactionEnabled;
+  final bool readOnly;
 }
 
 class SessionStats {
@@ -126,6 +129,23 @@ class SessionStats {
   }
 
   static const empty = SessionStats(totalTokens: 0, cost: 0, contextTokens: 0, contextWindow: 0, contextPercent: 0);
+
+  SessionStats withContextUsage(Json context) => SessionStats(
+    totalTokens: totalTokens,
+    inputTokens: inputTokens,
+    outputTokens: outputTokens,
+    cacheReadTokens: cacheReadTokens,
+    cacheWriteTokens: cacheWriteTokens,
+    cost: cost,
+    contextTokens: asInt(context['tokens']),
+    contextWindow: asInt(context['contextWindow']),
+    contextPercent: asDouble(context['percent']),
+    contextKnown: context['tokens'] is num,
+    userMessages: userMessages,
+    assistantMessages: assistantMessages,
+    toolCalls: toolCalls,
+    totalMessages: totalMessages,
+  );
 
   final int totalTokens;
   final int inputTokens;

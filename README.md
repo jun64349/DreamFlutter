@@ -144,7 +144,7 @@ flutter analyze
 flutter run -d windows
 ```
 
-协议层：进入 `packages/pi_rpc`，先 `dart pub get`，再 `dart test -x integration`。打安装包用 `scripts/package-windows.ps1 -UpdatePackage`（输出到 `dist/`，需要 Velopack 工具，见脚本开头）；它随附 Node、搜索工具、便携 Python 和 MinGit，沙箱镜像和语音模型不进包，第一次用时下载。第一次启动走设置向导，接上你自己的模型渠道和密钥。
+协议层：进入 `packages/pi_rpc`，先 `dart pub get`，再 `dart test -x integration`。打 Windows 安装包用 `scripts/package-windows.ps1 -UpdatePackage`（输出到 `dist/`，需要 Velopack）。程序随附 Node、DeepSeek Harness、搜索工具、便携 Python 和 MinGit。蝶君使用随包的 Windows 原生工作区工具，本机语音模型可在设置中下载。普通版首次启动确认数据位置、称呼和常用项目文件夹，随后在工作台的「设置 › 模型」添加自己的渠道和密钥。
 
 ## 文档导航
 

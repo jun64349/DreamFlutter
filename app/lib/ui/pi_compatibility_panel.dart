@@ -252,7 +252,7 @@ class _PiOAuthDialogState extends State<PiOAuthDialog> {
         if (canLogin && running) TextButton(onPressed: _busy ? null : () => _call('piMigration.oauthCancel', {'id': state?['id']}), child: const Text('取消登录')),
         if (!running && configured) TextButton(onPressed: _busy ? null : () => _call('piMigration.oauthLogout', {'provider': widget.provider}), child: const Text('退出登录')),
         if (canLogin && !running && status != 'done') FilledButton(onPressed: _busy ? null : () => _call('piMigration.oauthStart', {'provider': widget.provider}), child: Text(configured ? '重新登录' : '登录 ChatGPT')),
-        if (status == 'done') FilledButton(onPressed: () => Navigator.pop(context), child: const Text('完成'))
+        if (status == 'done') FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('完成'))
         else TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭')),
       ],
     );

@@ -2,6 +2,10 @@
 
 文档总目录在 [docs/README.md](docs/README.md)。开工前先读 [docs/NEW-AGENT-START.md](docs/NEW-AGENT-START.md)（接手须知：用户、规矩、方向、环境）、[docs/HANDOFF.md](docs/HANDOFF.md) 最上面的当前状态和 [docs/dev-guide.md](docs/dev-guide.md)。界面以 [docs/design/v1-redesign-spec.md](docs/design/v1-redesign-spec.md) 和原型 [docs/design/prototype/v1-redesign.html](docs/design/prototype/v1-redesign.html) 为准（2026-11-14 用户要求整体 UI 重做；概念、流程、用词仍看 [docs/design/interaction-design.md](docs/design/interaction-design.md)）。跟用户说话一律用平实的中文。
 
+## 当前工作树 · V1.1.0 后台迁移（用户 2026-11-20 定）
+
+V1.1.0 只交付 Windows。macOS 等 V2.0.0 完成后再迁移。本阶段将现有平台迁到 DeepSeek Harness 官方后台架构。已有功能尽量做成随软件内置、由程序固定装配的系统插件。Windows 蝶君改用原生工作空间，验收包括实际工作、文件隔离、联网开关和退出清理。完成 V1.1.0 后再规划 V1.2.0 和 V1.3.0。范围与完成标准见 [roadmap 页首](docs/roadmap.md)，进度见 [HANDOFF](docs/HANDOFF.md)。工作树、分支和历史调研路径中的 `2.0` 是早期名称。
+
 ## 到 1.0 的最后路线（用户 2026-11-17 定，必须照做）
 
 0.13.0（已完成）→ **0.13.1** 修真实验证剩余问题 → 完整安装与升级验证 → 性能与包体瘦身、启动速度、安装流程（选目录等）→ 降低上手门槛 → **1.0 preview** 打包推送 → preview 阶段做朋友内测 → **1.0 正式版**。详表在 [docs/roadmap.md 页首★节](docs/roadmap.md)。

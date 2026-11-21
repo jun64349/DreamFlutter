@@ -1,7 +1,7 @@
 name: dreamflutter
-description: "Personal AI agent desktop app on the Pi runtime"
+description: "DreamFlutter personal AI desktop workspace"
 publish_to: 'none'
-version: 1.0.0-preview.2+20
+version: 1.1.0+23
 
 environment:
   sdk: ^3.13.7

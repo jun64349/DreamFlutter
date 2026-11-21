@@ -7,6 +7,7 @@ import { levelMap, readModelList } from "../src/gateway/catalog.ts";
 import { classifyFailure, resetAtOf } from "../src/gateway/classify.ts";
 import { type ChannelStatus, channelProvider, defaultCommon, type Transport, turnHasImage } from "../src/gateway/gateway.ts";
 import { HealthBook } from "../src/gateway/health.ts";
+import { SecretStore } from "../src/modules/secrets.ts";
 import { platformForUrl } from "../src/gateway/platforms.ts";
 import { readQuota } from "../src/gateway/quota.ts";
 import { type CandidateInfo, type GroupEntry, type ModelGroup, pickEntry } from "../src/gateway/router.ts";
@@ -150,6 +151,31 @@ describe("gateway: in a session", () => {
 		const ends = t!.records(slotId).filter((r) => r.type === "message_end" && (r.message as { role?: string }).role === "assistant");
 		return ends.at(-1)!.message as AssistantMessage;
 	}
+
+	it("decrypts a managed relay key once after restart across concurrent DSH sessions and uses a replacement immediately", async (ctx) => {
+		t = await startTestCore(undefined, { dshWorkbench: true,
+			gatewayTransport: (model, context, options) => t!.faux.streamSimple(model as never, context as never, options) });
+		const id = await channel("Local relay", "openai-relay", ["first-fixture-key"]);
+		t = await t.reopen();
+		t.core.settings.update({ defaultModel: `${channelProvider(id)}/m` });
+		for (const slotId of ["left", "right"]) await t.core.call("slot.open", { slotId, cwd: t.workspace, agentMode: "minimal" }, t.client);
+		const read = ctx.mock.method(SecretStore.prototype, "get");
+		const received: string[] = [];
+		const reply: FauxResponseFactory = (_context, options) => {
+			received.push(options?.apiKey ?? "");
+			return fauxAssistantMessage("ok");
+		};
+		t.respond(reply, reply, reply);
+		await Promise.all([ask("left", "one"), ask("right", "two")]);
+		await ask("left", "three");
+		assert.equal(read.mock.callCount(), 1);
+		assert.deepEqual(received, Array(3).fill("first-fixture-key"));
+		await t.core.call("gateway.saveChannel", { id, name: "Local relay", platform: "openai-relay", api: "openai-completions",
+			baseUrl: "https://example.invalid/v1", models: [{ id: "m" }], keys: [{ secret: "replacement-fixture-key" }] });
+		t.respond(reply);
+		await ask("right", "four");
+		assert.equal(received.at(-1), "replacement-fixture-key");
+	});
 
 	it("moves a conversation to the next channel when the first one's money runs out, and stays there", async () => {
 		await start();

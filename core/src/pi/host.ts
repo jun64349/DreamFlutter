@@ -11,12 +11,13 @@ import {
 	SessionManager,
 	SettingsManager,
 	type AgentSessionRuntime,
+	type AgentSession,
 	type CreateAgentSessionRuntimeFactory,
 	type ExtensionFactory,
 	type InlineExtension,
 	type Skill,
 } from "@earendil-works/pi-coding-agent";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Context as ModelContext, Model } from "@earendil-works/pi-ai";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { CompactionHooks } from "../agent/background-compaction.ts";
@@ -39,9 +40,21 @@ import type { Ledger } from "../ledger/ledger.ts";
 import { withLedgerContext, type LedgerContext } from "../ledger/types.ts";
 import { locator, type LibraryRegistry } from "../modules/library-registry.ts";
 import { mergeBuiltinSkills } from "../modules/builtin-skills.ts";
+import type { DshSessions } from "../dsh/session.ts";
 
 /** Fixed inputs shared by every session the core hosts. */
 export interface PiHostConfig {
+	/** The official agent runtime, made available after Core startup. */
+	dsh?: () => DshSessions | undefined;
+	/** Admit new eligible workbench conversations to the DSH migration lane. */
+	dshWorkbench?: () => boolean;
+	/** The standard-mode workbench uses additional compatibility hooks during migration. */
+	dshStandardWorkbench?: () => boolean;
+	/** Actual installation status of the separately owned Memory service. */
+	memoryAvailable?: () => boolean;
+	prepareDshInput?: (slot: SlotIdentity, id: string, prompt: string) => Promise<void>;
+	completeDshBranchSummary?: (slot: SlotIdentity, session: AgentSession, model: Model<Api>, context: ModelContext,
+		options: { signal?: AbortSignal; maxTokens?: number }) => Promise<AssistantMessage>;
 	ledger?: () => Ledger | undefined;
 	ledgerContext?: (slot: SlotIdentity) => LedgerContext;
 	restoreSessionModel?: (ref: string, runtime: import("@earendil-works/pi-coding-agent").ModelRuntime, recordedAt?: number) => Model<never> | Model<any> | undefined;
@@ -159,6 +172,8 @@ export interface OpenTarget {
 	cwd: string;
 	/** Existing session file to open; omitted = new session. */
 	sessionFile?: string;
+	/** An old session whose parsed entries are held in a read-only snapshot. */
+	legacySnapshot?: SessionManager;
 	/** Temporary chat: never written to disk (and so never indexed or remembered). */
 	inMemory?: boolean;
 	/** Opened by the scheduler: nobody can answer the trust prompt, so untrusted project resources stay off. */
@@ -175,19 +190,35 @@ export interface OpenTarget {
 	side?: { quote: string; quoteEntryId: string | null };
 }
 
+/** The SDK tracks file operations under `path`; our wrapped tools accept `file_path`. */
+const branchFileTracking: ExtensionFactory = pi => {
+	pi.on("session_before_tree", ({ preparation }) => {
+		if (!preparation.userWantsSummary) return;
+		for (const [index, entry] of preparation.entriesToSummarize.entries()) {
+			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+			const content = entry.message.content.map(block => {
+				if (block.type !== "toolCall" || !["read", "write", "edit"].includes(block.name) ||
+					typeof block.arguments.file_path !== "string" || typeof block.arguments.path === "string") return block;
+				return { ...block, arguments: { ...block.arguments, path: block.arguments.file_path } };
+			});
+			preparation.entriesToSummarize[index] = { ...entry, message: { ...entry.message, content } };
+		}
+	});
+};
+
 /**
  * Creates a Pi session runtime the way the CLI does for RPC mode, with the
  * core's extensions and trust prompt. The returned runtime handles new/switch/
  * fork in place, recreating cwd-bound services as needed.
  */
 export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdentity, ui: UiBridge, target: OpenTarget): Promise<AgentSessionRuntime> {
-	const sessionManager = target.inMemory || target.side
+	const sessionManager = target.legacySnapshot ?? (target.inMemory || target.side
 		? target.forkOf || target.forkEntries
 			? SessionManager.inMemory(target.cwd, { parentSession: target.forkOf }, target.forkEntries ?? SessionManager.open(target.forkOf!, config.sessionDir).getBranch())
 			: SessionManager.inMemory(target.cwd)
 		: target.sessionFile
 			? SessionManager.open(target.sessionFile, config.sessionDir)
-			: SessionManager.create(target.cwd, config.sessionDir);
+			: SessionManager.create(target.cwd, config.sessionDir));
 	if (target.side) {
 		const lastEntryId = sessionManager.getLeafId();
 		sessionManager.appendCustomEntry(HISTORY_ENTRY, { sessionId: sessionManager.getSessionId(), lastEntryId });
@@ -202,13 +233,13 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 		const needsTrust = hasTrustRequiringProjectResources(cwd);
 		const stored = new ProjectTrustStore(agentDir).get(cwd);
 		const cached = config.trustDecisions.get(cwd.toLowerCase());
-		const mustAsk = needsTrust && cached === undefined && stored === null && !target.unattended;
+		const mustAsk = needsTrust && cached === undefined && stored === null && !target.unattended && !target.legacySnapshot;
 		const projectTrusted = !needsTrust || (cached ?? stored === true);
 		// 蝶君's sessions run in the sandbox, in standard mode; the session file remembers it.
 		const sandboxed = target.sandbox === true || recordedSandbox(sessionManager);
 		const mode = sandboxed ? "standard" : modeFor(sessionManager, config.newSessionMode(slot));
 		const sandbox = sandboxed ? config.sandbox?.() : undefined;
-		if (sandboxed && !sandbox) throw new Error("蝶君的沙箱还没有准备好");
+		if (sandboxed && !sandbox && !target.legacySnapshot) throw new Error("蝶君的沙箱还没有准备好");
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: mustAsk ? false : projectTrusted });
 		// Pi's "Block images" setting (made for terminals) swaps every image for
 		// "Image reading is disabled." before it reaches the model. The window only
@@ -298,7 +329,8 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 					}
 				: undefined,
 			resourceLoaderOptions: {
-				extensionFactories: [...(config.library ? [config.library.extension(sandboxed, () => ({ skills: services?.resourceLoader.getSkills().skills ?? [], prompts: services?.resourceLoader.getPrompts().prompts ?? [] }), () => `${slot.slotId}:${securityContext().runId ?? requestId}`)] : []), ...(security ? [security.extension()] : []), ...builtIns, sourceHarness, ...config.extensions({ ...slot, sideConversation: side, sandboxed }, mode)],
+				extensionFactories: target.legacySnapshot ? [] : [...(config.library ? [config.library.extension(sandboxed, () => ({ skills: services?.resourceLoader.getSkills().skills ?? [], prompts: services?.resourceLoader.getPrompts().prompts ?? [] }), () => `${slot.slotId}:${securityContext().runId ?? requestId}`)] : []), ...(security ? [security.extension()] : []), ...builtIns, sourceHarness,
+					...(config.dshWorkbench?.() ? [branchFileTracking] : []), ...config.extensions({ ...slot, sideConversation: side, sandboxed }, mode)],
 				skillsOverride: skillsOverride as never,
 				promptsOverride: (base) => ({ ...base, prompts: base.prompts.filter((prompt) => config.library?.fileAllowed("template", prompt.filePath) !== false) }),
 			},
@@ -319,7 +351,7 @@ export async function createSessionRuntime(config: PiHostConfig, slot: SlotIdent
 			noTools: "builtin",
 			// read_document reads on this machine: not for 蝶君, whose files are in the sandbox.
 			tools: [
-				...(mode === "minimal" ? MINIMAL_TOOLS : sandbox ? [...SANDBOX_TOOLS(), ...STANDARD_EXTRA_TOOLS.filter((t) => t !== "read_document")] : [...STANDARD_TOOLS, ...STANDARD_EXTRA_TOOLS]),
+				...(mode === "minimal" ? MINIMAL_TOOLS : sandbox ? [...SANDBOX_TOOLS(sandbox.appContainer !== undefined), ...STANDARD_EXTRA_TOOLS.filter((t) => t !== "read_document")] : [...STANDARD_TOOLS, ...STANDARD_EXTRA_TOOLS]),
 				...GOAL_TOOLS, "goal_propose",
 			],
 		});

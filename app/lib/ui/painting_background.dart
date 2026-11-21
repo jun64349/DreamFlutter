@@ -42,7 +42,10 @@ class PaintingBackdrop extends StatelessWidget {
                 Positioned(
                   right: constraints.maxWidth * .03,
                   bottom: constraints.maxHeight * .03,
-                  child: PaintingMotif(width: motifWidth, height: motifWidth * 2 / 3, animate: animate),
+                  // Keep the moving motif's paint inside this small area.
+                  child: RepaintBoundary(
+                    child: PaintingMotif(width: motifWidth, height: motifWidth * 2 / 3, animate: animate),
+                  ),
                 ),
               if (surface == PaintingSurface.sidebar && constraints.maxHeight > 220)
                 Positioned(right: 8, bottom: 64, child: PaintingInscription(theme)),
@@ -232,9 +235,15 @@ class PaperGrain extends StatelessWidget {
     final dark = context.painting.isDark;
     return ExcludeSemantics(
       child: IgnorePointer(
-        child: Opacity(
-          opacity: dark ? strength * .6 : strength,
-          child: const Image(image: _noise, repeat: ImageRepeat.repeat, gaplessPlayback: true),
+        child: RepaintBoundary(
+          // Blend each tile at the chosen strength without a full-window
+          // opacity layer. The tiles are static until appearance changes.
+          child: Image(
+            image: _noise,
+            opacity: AlwaysStoppedAnimation(dark ? strength * .6 : strength),
+            repeat: ImageRepeat.repeat,
+            gaplessPlayback: true,
+          ),
         ),
       ),
     );

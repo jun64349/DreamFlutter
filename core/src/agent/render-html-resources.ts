@@ -29,7 +29,7 @@ class ResourceError extends Error {}
 export class RenderInputError extends Error {}
 
 export function renderAccessError(state: HarnessState, workspace: string, path: string): RenderInputError {
-	const rel = relativeTo(state.local(workspace), path);
+	const rel = relativeTo(state.env.files ? workspace : state.local(workspace), path);
 	const location = rel && rel.split(sep).every(validSegment)
 		? state.env.kind === "sandbox" ? posix.join(workspace, ...rel.split(sep)) : rel
 		: "工作区以外的文件";
@@ -39,10 +39,13 @@ export function renderAccessError(state: HarnessState, workspace: string, path: 
 export function publicEntryError(state: HarnessState, workspace: string, file: string, error: unknown): RenderInputError {
 	if (error instanceof RenderInputError) return error;
 	const sandbox = state.env.kind === "sandbox";
-	const requested = state.resolve(file);
-	const rel = sandbox ? posix.relative(workspace, requested) : relativeTo(workspace, requested);
-	const location = localPathArgument(file) && rel && rel.split(sandbox ? "/" : sep).every(validSegment)
-		? (sandbox ? requested : rel) : "工作区以外的文件";
+	let location = "工作区以外的文件";
+	try {
+		const requested = state.resolve(file);
+		const linuxPaths = sandbox && !state.env.files;
+		const rel = linuxPaths ? posix.relative(workspace, requested) : relativeTo(workspace, requested);
+		if (localPathArgument(file) && rel && rel.split(linuxPaths ? "/" : sep).every(validSegment)) location = linuxPaths ? requested : rel;
+	} catch {}
 	const code = (error as NodeJS.ErrnoException | undefined)?.code;
 	const reason = error instanceof ResourceError ? error.message : code === "ENOENT" ? "找不到截图入口" : "无法读取截图入口";
 	return new RenderInputError(`${reason}（${location}）。`);
@@ -174,15 +177,16 @@ export class RenderHtmlResources {
 		if (!localPathArgument(filePath)) throw new ResourceError("请选择工作区里的本地 HTML 文件");
 		if (sandbox && /^[a-z]:/i.test(filePath)) throw new ResourceError("请选择蝶君沙箱里的本地 HTML 文件");
 		const volumes = sandbox ? undefined : new RenderLocalVolumes();
-		const rootPath = state.local(workspace);
+		const native = state.env.files;
+		const rootPath = native ? workspace : state.local(workspace);
 		await volumes?.check(rootPath, signal);
 		const logical = state.resolve(filePath);
-		const requested = state.local(logical);
+		const requested = native ? logical : state.local(logical);
 		await volumes?.check(requested, signal);
 		signal.throwIfAborted();
-		const root = await realpath(rootPath);
+		const root = native ? rootPath : await realpath(rootPath);
 		await volumes?.check(root, signal);
-		const path = await realpath(requested);
+		const path = native ? requested : await realpath(requested);
 		await volumes?.check(path, signal);
 		const rel = relativeTo(root, path);
 		if (!rel) throw new RenderInputError("截图入口必须在授权工作区里（工作区以外的文件）。");
@@ -236,7 +240,7 @@ export class RenderHtmlResources {
 			const type = types[extname(segments.at(-1)!).toLowerCase()];
 			if (!type || type === HTML) throw new ResourceError("本地资源类型不支持");
 			if (requestedTypes[resourceType] && !requestedTypes[resourceType](type)) throw wrongType();
-			const path = await realpath(resolve(this.root, ...segments));
+			const path = this.state.env.files ? resolve(this.root, ...segments) : await realpath(resolve(this.root, ...segments));
 			const logical = this.state.env.resolve(this.workspace, segments.join("/"));
 			if (this.goal && !await this.goal(logical, path)) {
 				const key = this.requestPath(raw);
@@ -267,6 +271,30 @@ async function readResource(state: HarnessState, path: string, type: string, sig
 		})) throw denied();
 	}
 	signal.throwIfAborted();
+	const native = state.env.files;
+	let bytes: Buffer;
+	if (native) {
+		const info = await native.stat(path, signal);
+		if (!info?.isFile || info.nlink !== 1 || info.size > MAX_FILE) throw new ResourceError("本地资源不是可读取的常规文件或文件过大");
+		reserve?.(info.size);
+		const read = await native.read(path, signal);
+		if (read.version !== info.version || read.data.length !== info.size) throw new ResourceError("本地资源在读取时发生变化");
+		bytes = read.data;
+	} else {
+		bytes = await readLocalResource(path, signal, reserve);
+	}
+	const text = checkedText(bytes, type);
+	const body = text !== undefined && state.security ? Buffer.from(await state.security.read(path, text)) : bytes;
+	const headers: Header[] = [
+		{ name: "Content-Type", value: type + (utf8(type) ? "; charset=utf-8" : "") },
+		{ name: "Cache-Control", value: "no-store" }, { name: "X-Content-Type-Options", value: "nosniff" },
+	];
+	if (type === HTML) headers.push({ name: "Content-Security-Policy", value: CSP }, { name: "Referrer-Policy", value: "no-referrer" },
+		{ name: "X-DNS-Prefetch-Control", value: "off" });
+	return { resource: { body: body.toString("base64"), headers }, bytes: bytes.length };
+}
+
+async function readLocalResource(path: string, signal: AbortSignal, reserve?: (bytes: number) => void): Promise<Buffer> {
 	const handle = await open(path, "r");
 	try {
 		const info = await handle.stat();
@@ -281,15 +309,6 @@ async function readResource(state: HarnessState, path: string, type: string, sig
 			length += bytesRead;
 		}
 		if (length !== info.size) throw new ResourceError("本地资源在读取时发生变化");
-		const bytes = buffer.subarray(0, length);
-		const text = checkedText(bytes, type);
-		const body = text !== undefined && state.security ? Buffer.from(await state.security.read(path, text)) : bytes;
-		const headers: Header[] = [
-			{ name: "Content-Type", value: type + (utf8(type) ? "; charset=utf-8" : "") },
-			{ name: "Cache-Control", value: "no-store" }, { name: "X-Content-Type-Options", value: "nosniff" },
-		];
-		if (type === HTML) headers.push({ name: "Content-Security-Policy", value: CSP }, { name: "Referrer-Policy", value: "no-referrer" },
-			{ name: "X-DNS-Prefetch-Control", value: "off" });
-		return { resource: { body: body.toString("base64"), headers }, bytes: length };
+		return buffer.subarray(0, length);
 	} finally { await handle.close(); }
 }

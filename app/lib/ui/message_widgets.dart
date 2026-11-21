@@ -115,12 +115,13 @@ class ReplyInfo {
 }
 
 class ChatRowView extends StatelessWidget {
-  const ChatRowView({super.key, required this.row, required this.transcript});
+  const ChatRowView({super.key, required this.row, required this.transcript, this.replyFrames});
 
   static const replyGutter = 34.0;
 
   final ChatRow row;
   final Transcript transcript;
+  final Listenable? replyFrames;
 
   @override
   Widget build(BuildContext context) => switch (row) {
@@ -128,7 +129,7 @@ class ChatRowView extends StatelessWidget {
     final ReplyRow reply => Padding(
       padding: const EdgeInsets.only(left: replyGutter),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _ReplyView(row: reply, transcript: transcript, live: transcript.isRunning && reply.info.isLatest),
+        _ReplyView(row: reply, transcript: transcript, live: transcript.isRunning && reply.info.isLatest, replyFrames: replyFrames),
         ReplyMemoryCorrections(replies: reply.assistants),
         UnsavedMemoryNote(replies: reply.assistants),
       ]),
@@ -216,7 +217,7 @@ class _UserBubbleState extends State<_UserBubble> {
                           showNote('已复制', brief: true);
                         },
                       ),
-                      if (branch != null) ...[
+                      if (branch != null && agent.active?.readOnly != true) ...[
                         _ActionButton(
                           icon: Icons.edit_outlined,
                           tooltip: busy ? '回复结束后才能编辑' : '编辑后重新发送',
@@ -508,21 +509,30 @@ extension<T> on T {
 }
 
 class _ReplyView extends StatelessWidget {
-  const _ReplyView({required this.row, required this.transcript, required this.live});
+  const _ReplyView({required this.row, required this.transcript, required this.live, this.replyFrames});
 
   final ReplyRow row;
   final Transcript transcript;
 
   /// The reply is still being written.
   final bool live;
+  final Listenable? replyFrames;
+  static final _idle = Listenable.merge(const []);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => _ReplyFrame(
+    row: row,
+    live: live,
+    child: ListenableBuilder(listenable: replyFrames ?? _idle, builder: (context, _) => _body(context)),
+  );
+
+  Widget _body(BuildContext context) {
     final colors = context.colors;
     // A failed attempt that a later (automatic or manual) retry recovered from leaves no error card or
     // retry notices behind; while the agent is still running, the retry is under way and gets no card yet.
-    final lastAssistant = row.assistants.lastOrNull;
-    final recovered = lastAssistant != null && !lastAssistant.failed && row.assistants.any((a) => a.failed);
+    final assistants = row.assistants;
+    final lastAssistant = assistants.lastOrNull;
+    final recovered = lastAssistant != null && !lastAssistant.failed && assistants.any((a) => a.failed);
     final retrying = live && AgentScope.of(context).isRunning;
     final failure = lastAssistant != null && lastAssistant.failed && !retrying ? lastAssistant : null;
     final attempts = row.items.whereType<NoticeItem>().where((n) => n.kind == NoticeKind.retry).length;
@@ -530,9 +540,9 @@ class _ReplyView extends StatelessWidget {
         .where((s) => !(recovered && s is _NoticeSegment && (s.notice.kind == NoticeKind.retry || s.notice.kind == NoticeKind.retryFailed)))
         .toList();
     final lastText = segments.lastIndexWhere((s) => s is _TextSegment);
-    final streaming = row.assistants.any((a) => a.streaming);
+    final streaming = assistants.any((a) => a.streaming);
     final children = <Widget>[];
-    final proactive = row.assistants.where((a) => a.proactiveRef != null).firstOrNull;
+    final proactive = assistants.where((a) => a.proactiveRef != null).firstOrNull;
     Widget? origin;
     if (proactive != null) {
       final at = DateTime.fromMillisecondsSinceEpoch(proactive.timestamp), now = DateTime.now();
@@ -577,7 +587,8 @@ class _ReplyView extends StatelessWidget {
       });
     }
     if (failure != null) children.add(ConversationErrorCard(reason: failure.errorMessage ?? '模型没有返回回复，请重试或换个模型', question: row.info.question, model: failure.model, attempts: attempts));
-    final content = Stack(clipBehavior: Clip.none, children: [
+    // Keep the reply's frame and footer mounted when streaming finishes.
+    return Stack(clipBehavior: Clip.none, children: [
       Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -589,8 +600,6 @@ class _ReplyView extends StatelessWidget {
       // In the conversation's side margin, so the text never moves when it comes or goes.
       Positioned(left: -ChatRowView.replyGutter, top: 2, child: _ReplyMark(shown: !live || hasText || awaitingApproval, writing: live && !awaitingApproval)),
     ]);
-    // The same frame while writing and after, so the reply (and its butterfly) keep their place.
-    return _ReplyFrame(row: row, live: live, child: content);
   }
 }
 
@@ -682,7 +691,8 @@ class _ReplyFrameState extends State<_ReplyFrame> {
     final busy = agent.isRunning;
     final question = info.question;
     final branch = question == null ? null : agent.active?.branchFor(question);
-    final canRegenerate = branch != null && !busy;
+    final readOnly = agent.active?.readOnly == true;
+    final canRegenerate = branch != null && !busy && !readOnly;
     final others = agent.models.where((m) => m != agent.model).toList();
     final visible = !widget.live && (_hovered || _focused);
     // Through a model group the reply says which channel answered it (0.8.3).
@@ -711,8 +721,8 @@ class _ReplyFrameState extends State<_ReplyFrame> {
                   showNote('已复制', brief: true);
                   agent.tourSignal('copied');
                 }),
-                _FactButton(icon: 'refresh', tooltip: '重新生成', onTap: canRegenerate ? () => agent.regenerate(question!) : null),
-                _FactButton(icon: 'branch', tooltip: '从这里重来', onTap: busy ? null : () => agent.forkAfterReply(info.nextQuestion)),
+                if (!readOnly) _FactButton(icon: 'refresh', tooltip: '重新生成', onTap: canRegenerate ? () => agent.regenerate(question!) : null),
+                if (!readOnly) _FactButton(icon: 'branch', tooltip: '从这里重来', onTap: busy ? null : () => agent.forkAfterReply(info.nextQuestion)),
                 PopupMenuButton<String>(
                   tooltip: '更多', padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 26, minHeight: 26), icon: ProtoIcon('more', size: 14, color: context.colors.muted),
                   itemBuilder: (_) => [
@@ -1279,25 +1289,47 @@ class _SubagentStep extends StatelessWidget {
     final d = run.details;
     final role = d['roleName'] as String? ?? '协作过程';
     final title = (d['description'] as String?) ?? (run.args['description'] as String?) ?? '';
-    final activity = run.isActive ? (d['status'] == 'waiting' ? '排队中' : d['activity'] as String?) : null;
     final turns = (d['turns'] as num?)?.toInt() ?? 0;
+    final limit = (d['maxTurns'] as num?)?.toInt() ?? 0;
     final calls = (d['toolCalls'] as num?)?.toInt() ?? 0;
     final cost = (d['cost'] as num?)?.toDouble() ?? 0;
+    final failed = d['status'] == 'failed' || run.status == ToolStatus.error;
+    final activity = !run.isActive ? null : switch (d['status']) {
+      'waiting' => '排队中',
+      'running' when limit > 0 && turns + 1 >= limit && d['activity'] == null => '正在汇报',
+      _ => _subagentActivity(d['activity'] as String?),
+    };
+    final status = run.isActive ? (limit > 0 ? '$turns/$limit 轮' : '') : switch (d['stoppedBy']) {
+      'maxTurns' => '达到轮数上限',
+      'aborted' => '已停止',
+      'maxTokens' => '回复未写完',
+      _ when failed => '执行失败',
+      _ when run.status == ToolStatus.interrupted => '已中断',
+      _ when d['resultKind'] == 'final' => '已汇报',
+      _ when d['resultKind'] == 'partial' => '留有阶段记录',
+      _ when d['resultKind'] == 'none' => '没有结果',
+      _ => '',
+    };
+    final output = run.outputText;
+    final report = run.isActive ? '' : _subagentReport(output, d['resultKind']);
+    final partial = d['resultKind'] == 'partial' || (d['resultKind'] == null && (d['stoppedBy'] == 'maxTurns' || d['stoppedBy'] == 'aborted'));
+    final statusStyle = context.text.bodySmall?.copyWith(color: failed ? colors.danger : colors.muted, fontStyle: AppTokens.processFontStyle);
     final stats = [
       if (d['model'] is String) (d['model'] as String).split('/').last,
       if (turns > 0) '$turns 轮',
       if (calls > 0) '$calls 次工具',
       if ((d['inputTokens'] as num? ?? 0) > 0) '输入 ${formatTokens((d['inputTokens'] as num).toInt())} / 输出 ${formatTokens((d['outputTokens'] as num? ?? 0).toInt())}',
       if (cost > 0) formatCost(cost),
-      if (d['stoppedBy'] == 'maxTurns') '到了轮数上限',
-      if (d['stoppedBy'] == 'aborted') '已停止',
     ].join(' · ');
     return _Expandable(
       line: (open, toggle) => _StepLine(
         icon: Icons.hub_outlined,
         verb: '子 Agent · $role',
-        subject: activity == null || activity.isEmpty ? title : '$title · $activity',
-        trailing: trailing,
+        subject: [title, ?activity].where((text) => text.isNotEmpty).join(' · '),
+        trailing: status.isEmpty ? trailing : Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(status, style: statusStyle),
+          if (run.isActive) ...[const SizedBox(width: 6), trailing],
+        ]),
         onTap: run.isActive ? null : toggle,
         open: run.isActive ? null : open,
       ),
@@ -1306,16 +1338,50 @@ class _SubagentStep extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (run.status == ToolStatus.error)
-              _OutputBox(text: run.outputText, error: true)
-            else
-              ReplyMarkdown(text: run.outputText.isEmpty ? '（没有回复）' : run.outputText, process: true),
+            if (failed && (d['error'] is String || d['resultKind'] == null && output.isNotEmpty))
+              _OutputBox(text: (d['error'] as String?) ?? output, error: true),
+            if (report.isEmpty)
+              Text('没有可交接的结果', style: statusStyle)
+            else if (!failed || d['resultKind'] != null) ...[
+              if (partial) Text('阶段记录', style: statusStyle),
+              ReplyMarkdown(text: report, process: true),
+            ],
             if (stats.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(stats, style: context.text.bodySmall?.copyWith(color: colors.muted, fontStyle: AppTokens.processFontStyle))),
           ],
         ),
       ),
-      startOpen: run.status == ToolStatus.error,
+      startOpen: failed,
     );
+  }
+}
+
+String _subagentActivity(String? activity) {
+  if (activity == null || activity.isEmpty) return '正在处理';
+  final separator = activity.indexOf(': ');
+  final toolName = separator < 0 ? activity : activity.substring(0, separator);
+  final toolLabel = switch (toolName) {
+    'read_document' => '读取文档',
+    'working_directory' => '查看工作目录',
+    _ => toolIconVerb(toolName).$2,
+  };
+  if (toolLabel == toolName) return '正在使用工具';
+  return separator < 0 ? '正在$toolLabel' : '正在$toolLabel ${activity.substring(separator + 2)}';
+}
+
+final _legacySubagentNote = RegExp(r'\n\n\[(The subagent reached its limit of \d+ turns and stopped; the reply above may be incomplete\.|The user stopped the subagent\.)\]$');
+
+String _subagentReport(String output, Object? kind) {
+  switch (kind) {
+    case 'none':
+      return '';
+    case 'final':
+      return output;
+    case 'partial':
+      final separator = output.indexOf('\n\n');
+      return separator < 0 ? output : output.substring(separator + 2);
+    default:
+      final reply = output.replaceFirst(_legacySubagentNote, '');
+      return reply == '(the subagent gave no final reply)' ? '' : reply;
   }
 }
 

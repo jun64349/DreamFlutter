@@ -53,10 +53,11 @@ class _BreathingDotState extends State<BreathingDot> with SingleTickerProviderSt
 /// Fades [child] in while it rises a few pixels, once, when first built with
 /// [animate] set (content arriving live; history appears at once).
 class FadeSlideIn extends StatefulWidget {
-  const FadeSlideIn({super.key, required this.child, this.animate = true});
+  const FadeSlideIn({super.key, required this.child, this.animate = true, this.visibleOnFirstFrame = false});
 
   final Widget child;
   final bool animate;
+  final bool visibleOnFirstFrame;
 
   @override
   State<FadeSlideIn> createState() => _FadeSlideInState();
@@ -84,6 +85,7 @@ class FadeIn extends StatelessWidget {
 
 class _FadeSlideInState extends State<FadeSlideIn> with SingleTickerProviderStateMixin {
   late final _controller = AnimationController(vsync: this, duration: AppTokens.medium, value: widget.animate ? 0 : 1);
+  late final _visibleOnFirstFrame = widget.visibleOnFirstFrame;
 
   @override
   void didChangeDependencies() {
@@ -104,7 +106,7 @@ class _FadeSlideInState extends State<FadeSlideIn> with SingleTickerProviderStat
     if (MediaQuery.disableAnimationsOf(context)) return widget.child;
     final curve = CurvedAnimation(parent: _controller, curve: AppTokens.curve);
     return FadeTransition(
-      opacity: curve,
+      opacity: _visibleOnFirstFrame ? curve.drive(Tween(begin: 0.82, end: 1.0)) : curve,
       child: SlideTransition(position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(curve), child: widget.child),
     );
   }

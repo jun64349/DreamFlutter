@@ -5,9 +5,10 @@
 #     core\       the background service (src, assets, production node_modules)
 #     core\bin\   rg.exe, fd.exe for the search tools (core/src/agent/search-tools.ts); uv for the workbench
 #     core\python\  portable Python for the workbench (core/scripts/fetch-toolchain.ts, core/src/agent/toolchain.ts)
-#     core\sandbox-image\  蝶君's sandbox image, Debian (core/scripts/build-sandbox-image.ts)
+#     core\bin\appcontainer-runner.exe  Windows isolated workspace launcher
+#     core\bin\html-render.exe  fixed offline HTML screenshot tool
 #     runtime\    node.exe (the window finds it: PiRuntimeLocator.findNode)
-#     licenses\   Node.js, ripgrep, fd, the Debian packages in the sandbox image
+#     licenses\   Node.js, DSH and bundled tools
 #
 # Run from the repository root in PowerShell:
 #   powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1
@@ -20,13 +21,15 @@
 param(
     [string]$OutDir = "dist",
     [switch]$SkipBuild,
-    # Leave 蝶君's sandbox image out (then the app builds it online when the sandbox is set up).
+    [string]$FlutterRelease,
+    # Accepted for compatibility with the 1.0 packaging commands.
     [switch]$NoSandboxImage,
     [switch]$UpdatePackage,
     [string]$PackageVersion,
     [string]$VelopackSdkDir,
     [string]$VelopackToolsDir,
     [string]$BundledCache,
+    [string]$NodeRuntime = $env:DREAMFLUTTER_NODE,
     [switch]$FailStartupForTest,
     # 内测版（第 6 步朋友内测，用户 2026-11-19 定）：激活码一步、只走随想 GPT Pro、不检查更新、沙箱镜像随包。
     [switch]$Beta
@@ -34,9 +37,21 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$candidates = if ($NodeRuntime) { @($NodeRuntime) } else { (Get-Command node.exe -All).Source }
+$node = foreach ($candidate in $candidates) {
+    $reported = & $candidate --version
+    if ($LASTEXITCODE -ne 0 -or $reported -notmatch '^v(\d+\.\d+\.\d+)$') { continue }
+    if ([version]$Matches[1] -lt [version]'24.9.0') { continue }
+    if ((& $candidate -p process.arch) -eq 'x64') { (Resolve-Path -LiteralPath $candidate).Path; break }
+}
+if (-not $node) { throw 'The bundled DSH backend requires x64 Node.js >=24.9. Pass -NodeRuntime with its full path.' }
+$npmCli = Join-Path (Split-Path -Parent (Get-Command npm.cmd -ErrorAction Stop).Source) 'node_modules/npm/bin/npm-cli.js'
+& $node (Join-Path $PSScriptRoot 'verify-dsh-runtime.mjs') (Join-Path $root 'core')
+if ($LASTEXITCODE -ne 0) { throw 'The source DSH runtime failed its compatibility check.' }
 $version = ((Select-String -Path "$root\app\pubspec.yaml" -Pattern '^version:\s*([^+\s]+)').Matches[0].Groups[1].Value)
 $buildNumber = ((Select-String -Path "$root\app\pubspec.yaml" -Pattern '^version:.*\+(\d+)').Matches | Select-Object -First 1).Groups[1].Value
 if ($PackageVersion) { $version = $PackageVersion.TrimStart('v') }
+if ($FlutterRelease -and -not $SkipBuild) { throw 'Pass -SkipBuild when providing a prebuilt -FlutterRelease.' }
 if ($FailStartupForTest -and (-not $UpdatePackage -or $version -notmatch '^\d+\.\d+\.\d+-test\.\d+$')) { throw 'A deliberately failing build is permitted only for an explicit test update package.' }
 if ($UpdatePackage) {
     if (-not (Test-Path -LiteralPath (Join-Path $VelopackSdkDir 'include/Velopack.hpp')) -or -not (Test-Path -LiteralPath (Join-Path $VelopackToolsDir 'dotnet/dotnet.exe'))) { throw 'Pass isolated -VelopackSdkDir and -VelopackToolsDir; no SDK is installed globally or shipped.' }
@@ -52,9 +67,8 @@ Write-Host "Packaging DreamFlutter $version -> $target"
 if (-not $BundledCache) { $BundledCache = if ($env:DREAMFLUTTER_BUNDLE_CACHE) { $env:DREAMFLUTTER_BUNDLE_CACHE } else { Join-Path $root 'core/bin/.bundle-cache' } }
 $BundledCache = [IO.Path]::GetFullPath($BundledCache)
 $bundleCheck = @('--offline', '--verify-only', '--cache', $BundledCache)
-if (-not $NoSandboxImage) { $bundleCheck += '--verify-image' }
-node (Join-Path $PSScriptRoot 'prepare-bundled-runtime.mjs') @bundleCheck
-if ($LASTEXITCODE -ne 0) { throw 'Pinned build assets or sandbox office layer validation failed; prepare the bundle cache/image before packaging.' }
+& $node (Join-Path $PSScriptRoot 'prepare-bundled-runtime.mjs') @bundleCheck
+if ($LASTEXITCODE -ne 0) { throw 'Bundled Windows runtime verification failed. Check the pinned asset cache before packaging.' }
 
 # A new version replaces the program; the data\ folder (the user's data) is never touched.
 if (Test-Path $target) {
@@ -69,7 +83,8 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "flutter build failed" }
     Pop-Location
 }
-$release = "$root\app\build\windows\x64\runner\Release"
+$release = if ($FlutterRelease) { (Resolve-Path -LiteralPath $FlutterRelease).Path } else { "$root\app\build\windows\x64\runner\Release" }
+if (-not (Test-Path -LiteralPath (Join-Path $release 'dreamflutter.exe') -PathType Leaf)) { throw "Flutter Release executable missing: $release" }
 New-Item -ItemType Directory -Force "$target\app" | Out-Null
 Copy-Item "$release\*" "$target\app" -Recurse
 # Machines without the VC++ redistributable still start the window.
@@ -89,7 +104,7 @@ foreach ($item in "src", "assets", "package.json", "package-lock.json") {
 robocopy "$root\core\node_modules" "$target\core\node_modules" /E /XJ /XD .vitest-cache .vite .cache /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "copying node_modules failed" }
 Push-Location "$target\core"
-npm prune --omit=dev --no-audit --no-fund --offline
+& $node $npmCli prune --omit=dev --no-audit --no-fund --offline
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "npm prune failed" }
 Pop-Location
 
@@ -112,36 +127,22 @@ if (-not $python) { throw "core\python has no Python: run scripts\fetch-toolchai
 # /XJ: uv's version-alias junction would copy Python twice.
 robocopy $python.FullName "$target\core\python\$($python.Name)" /E /XJ /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "copying Python failed" }
-node (Join-Path $PSScriptRoot 'prepare-bundled-runtime.mjs') --offline --target $target --cache $BundledCache
+& $node (Join-Path $PSScriptRoot 'prepare-bundled-runtime.mjs') --offline --target $target --cache $BundledCache
 if ($LASTEXITCODE -ne 0) { throw 'Installing pinned MinGit and Python office libraries failed' }
 # 0.13.1 step 3 (user 2026-11-18): the SenseVoice model (228 MB) is downloaded on first local use
 # (core/src/modules/voice/model.ts); tokens, VAD and the license still ship.
 Remove-Item -LiteralPath "$target\core\bin\voice\model.int8.onnx" -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath "$target\core\bin\voice\model.int8.onnx") { throw 'The voice model must not ship in the package' }
 
-# 3b. 蝶君's sandbox image (Debian with the tools): its description ships, the image is downloaded on first set-up.
-$image = "$root\core\sandbox-image\dreamflutter-sandbox.tar.gz"
-if (-not $NoSandboxImage) {
-    if (-not (Test-Path $image) -or -not (Test-Path "$root\core\sandbox-image\dreamflutter-sandbox.json")) {
-        throw "$image is missing: build it first (cd core; node --disable-warning=ExperimentalWarning scripts\build-sandbox-image.ts), or pass -NoSandboxImage."
-    }
-    New-Item -ItemType Directory -Force "$target\core\sandbox-image" | Out-Null
-    # 0.13.1 step 3 (user 2026-11-18): only the description ships; the image itself is downloaded on first
-    # set-up from the GitHub Release sandbox-image-<first 12 of its SHA-256> (core/src/sandbox/image.ts).
-    foreach ($item in "dreamflutter-sandbox.json", "dreamflutter-sandbox.packages.txt", "office-layer.json") {
-        Copy-Item "$root\core\sandbox-image\$item" "$target\core\sandbox-image"
-    }
-    # 内测版：镜像本身也随包，朋友建沙箱不用下载（core/src/sandbox/image.ts 优先用随包的镜像）。
-    if ($Beta) { Copy-Item $image "$target\core\sandbox-image" }
-}
+& (Join-Path $root 'tools/appcontainer-runner/build.ps1') -OutputPath "$target\core\bin\appcontainer-runner.exe"
+if (-not (Test-Path -LiteralPath "$target\core\bin\appcontainer-runner.exe")) { throw 'The Windows workspace launcher was not built.' }
+& (Join-Path $root 'tools/appcontainer-html-render/build.ps1') -OutputPath "$target\core\bin\html-render.exe"
 if ($Beta) {
-    if ($NoSandboxImage) { throw 'The beta package ships the sandbox image; do not pass -NoSandboxImage.' }
     # core/src/paths.ts BETA_EDITION: no update checks or downloads.
     [IO.File]::WriteAllText((Join-Path $target 'beta-edition.json'), '{"edition":"beta"}')
 }
 
 # 4. Node.js.
-$node = (Get-Command node -ErrorAction Stop).Source
 New-Item -ItemType Directory -Force "$target\runtime", "$target\licenses" | Out-Null
 Copy-Item $node "$target\runtime\node.exe"
 $nodeLicense = Join-Path (Split-Path $node) "LICENSE"
@@ -159,26 +160,12 @@ Python office libraries: python-docx, openpyxl, python-pptx, pypdf, pandas and m
 WenQuanYi Micro Hei: bundled in Matplotlib for Chinese labels, Apache-2.0 option; font copyright and Apache text retained beside it.
 desktop_drop (vendored in packages/desktop_drop): Apache-2.0, MixinNetwork/flutter-plugins.
 "@ | Set-Content -Encoding utf8 "$target\licenses\THIRD-PARTY.txt"
-if (-not $NoSandboxImage) {
-    @"
-
-The sandbox image (downloaded on first set-up as dreamflutter-sandbox.tar.gz) is a Debian 13 system built from
-unmodified Debian packages (https://www.debian.org). Each package keeps its own license, found inside
-the image under /usr/share/doc/<package>/copyright. The packages and exact versions are listed in
-licenses\Debian-packages.txt; their source code is available from Debian at those versions
-(https://snapshot.debian.org, or apt-get source). DreamFlutter adds configuration (/etc/wsl.conf,
-/etc/matplotlibrc font settings, the "agent" user, /workspace) and a hash-pinned Python office layer
-under /opt/dreamflutter/office. Its original license texts remain in the corresponding dist-info directories;
-versions and hashes are recorded in core\office-linux.requirements.txt and the image's office-layer.json.
-"@ | Add-Content -Encoding utf8 "$target\licenses\THIRD-PARTY.txt"
-    Copy-Item "$root\core\sandbox-image\dreamflutter-sandbox.packages.txt" "$target\licenses\Debian-packages.txt"
-}
 
 @"
 DreamFlutter $version（Windows x64 免安装版）
 
 启动：双击 app\dreamflutter.exe。
-已包含 Node.js、rg / fd、uv、MinGit、便携 Python 与 Word/Excel/PPT/PDF/数据和图表库，以及蝶君的沙箱镜像；本地 Git 和这些办公库无需联网安装。
+已包含本地 DSH 后台、Node.js、蝶君的 Windows 隔离运行器、搜索工具、MinGit 和便携 Python 办公库。
 所有数据都在这个文件夹下的 data\ 里（会话、记忆、模型配置、技能、设置、蝶君的沙箱），整个文件夹拷走就带走了数据。
 升级：先从托盘「退出并停止后台」，再用新版本的文件覆盖这里（data\ 不要删）。
 "@ | Set-Content -Encoding utf8 "$target\使用说明.txt"
@@ -187,17 +174,21 @@ Write-Host "Done: $target"
 [IO.File]::WriteAllText((Join-Path $target 'build-info.json'), (@{version=$version;build=[string]$buildNumber;platform='win32';arch='x64';signed=$false;failStartup=[bool]$FailStartupForTest} | ConvertTo-Json))
 if (Test-Path -LiteralPath (Join-Path $root 'docs/releases')) { New-Item -ItemType Directory -Force -Path (Join-Path $target 'docs') | Out-Null; Copy-Item -LiteralPath (Join-Path $root 'docs/releases') -Destination (Join-Path $target 'docs/releases') -Recurse -Force }
 $flutterSdk = Split-Path -Parent (Split-Path -Parent (Get-Command flutter).Source)
-node --disable-warning=ExperimentalWarning (Join-Path $PSScriptRoot 'generate-third-party.mjs') $target $root $flutterSdk --offline --cache $BundledCache
+& $node --disable-warning=ExperimentalWarning (Join-Path $PSScriptRoot 'generate-third-party.mjs') $target $root $flutterSdk --offline --cache $BundledCache
 if ($LASTEXITCODE -ne 0) { throw 'Generating the third-party license manifest failed' }
 # Only audited production-only artifacts: retain runtime modules, source maps,
 # Pi self-help resources, all licenses/diagnostics and every bundled runtime/image.
-node (Join-Path $PSScriptRoot 'package-trim.mjs') $target (Join-Path $outputRoot 'packaging-trim.json') --apply
+& $node (Join-Path $PSScriptRoot 'package-trim.mjs') $target (Join-Path $outputRoot 'packaging-trim.json') --apply
 if ($LASTEXITCODE -ne 0) { throw 'Audited package trimming failed' }
+& "$target\runtime\node.exe" (Join-Path $PSScriptRoot 'verify-dsh-runtime.mjs') (Join-Path $target 'core')
+if ($LASTEXITCODE -ne 0) { throw 'The bundled DSH runtime failed its compatibility check.' }
+& "$target\runtime\node.exe" (Join-Path $PSScriptRoot 'verify-dsh-workbench.mjs') (Join-Path $target 'core')
+if ($LASTEXITCODE -ne 0) { throw 'The packaged workbench failed its offline session restart check.' }
 if ($UpdatePackage) {
     @"
 DreamFlutter $version（Windows x64 可更新免安装版，测试版未签名）
 从解压后的根目录 DreamFlutter.exe 启动；current 是可替换的程序目录，数据位于根目录 data，不在 current 内。
-已包含 Node.js、rg/fd、uv、MinGit、便携 Python 办公和图表库。蝶君的沙箱镜像在第一次建沙箱时下载，本机语音模型在第一次用语音输入时下载，下好后离线可用。通过设置的“关于”检查、下载、校验并确认安装。
+已包含本地 DSH 后台、Node.js、蝶君的 Windows 隔离运行器、搜索工具、MinGit 和便携 Python 办公库。本机语音模型在第一次用语音输入时下载。通过设置的“关于”检查、下载、校验并确认安装。
 安装前等待现有任务结束并自动备份，启动验证失败时由 Velopack 回到旧程序，并用更新前备份恢复数据。
 新版本已经接受用户写入后，不再自动恢复旧备份。请保留更新记录与诊断，按提示处理。
 安装版请运行 DreamFlutter-Installer.exe：先选安装位置（默认 %LOCALAPPDATA%\DreamFlutter），数据位置在第一次启动的向导里选；也可以直接用免安装版。

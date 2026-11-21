@@ -3,6 +3,8 @@ import { stat } from "node:fs/promises";
 import { isAbsolute, posix, resolve } from "node:path";
 import type { SandboxHandle } from "../core.ts";
 import { seatbeltSandboxEnv } from "../sandbox/seatbelt.ts";
+import { appContainerSandboxEnv } from "../sandbox/appcontainer.ts";
+import { appContainerFileAccess, type AppContainerFileAccess } from "../sandbox/appcontainer-fs.ts";
 import type { SecurityFileAccess } from "../security/service.ts";
 
 /** A file version as dsh's observation policy compares it. */
@@ -27,6 +29,8 @@ export interface TodoItem {
  */
 export interface ExecEnv {
 	readonly kind: "host" | "sandbox";
+	/** File operations executed in the sandbox instead of opening model paths in Core. */
+	readonly files?: AppContainerFileAccess;
 	/** A model-supplied path, made absolute against [cwd]. */
 	resolve(cwd: string, path: string): string;
 	/** The path Node opens for a resolved model path. */
@@ -58,7 +62,8 @@ export function sandboxEnv(distro: string): ExecEnv {
 }
 
 /** Resolves the active ExecEnv for either a Windows WSL sandbox or macOS Seatbelt sandbox. */
-export function resolveSandboxEnv(sandbox?: Pick<SandboxHandle, "distro" | "seatbelt">): ExecEnv {
+export function resolveSandboxEnv(sandbox?: Pick<SandboxHandle, "distro" | "seatbelt" | "appContainer">): ExecEnv {
+	if (sandbox?.appContainer) return { ...appContainerSandboxEnv(sandbox.appContainer), files: appContainerFileAccess(sandbox.appContainer) };
 	if (sandbox?.seatbelt) return seatbeltSandboxEnv(sandbox.seatbelt);
 	return sandboxEnv(sandbox?.distro ?? "");
 }
@@ -68,6 +73,7 @@ export class HarnessState {
 	cwd: string;
 	readonly env: ExecEnv;
 	readonly observations = new Map<string, Observation>();
+	readonly maskedSandboxFiles = new Set<string>();
 	todos: TodoItem[] | null = null;
 	planMode = false;
 	/** Plan mode the model was last told about (narration on change). */

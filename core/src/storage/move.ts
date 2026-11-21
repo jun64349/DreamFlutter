@@ -2,6 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Core } from "../core.ts";
+import { APP_ROOT } from "../paths.ts";
+import { WindowsAppContainerSandbox } from "../sandbox/appcontainer-module.ts";
+import { appContainerProvisioned, removeAppContainerProfile } from "../sandbox/appcontainer.ts";
 import { Db } from "../db.ts";
 import { PathMap, isInside, type PathRule } from "../backup/path-map.ts";
 import { remapColumns } from "../backup/parts.ts";
@@ -22,8 +25,9 @@ export interface MoveRecord {
   before: LocationConfig | null; stage: "requested" | "copying" | "validating" | "committed";
   dbFile: string; backup?: string; manifest?: CopyInventory; rules: PathRule[];
   edits: { path: string; backup: string | null }[]; distro?: string; diskBytes?: number; wslMoved?: boolean;
+  nativeWorkspace?: { archive?: string; previousPath?: string };
 }
-export interface MoveHooks { wsl?: WslRunner; afterCopy?: () => void; }
+export interface MoveHooks { wsl?: WslRunner; afterCopy?: () => void; appContainerBridgePath?: string; }
 
 /** Keep the raw WSL diagnostic while identifying an occupied disk after rollback succeeds. */
 class SandboxInUseError extends Error {
@@ -45,7 +49,7 @@ function checkTarget(source: string, target: string, kind: StorageKind, location
 }
 
 /** The RPC schedules work; copying starts only after normal shutdown releases writers. */
-export function requestMove(root: string, kind: StorageKind, target: string, agentDir: string, sessionsDir: string | undefined, dbFile: string, distro?: string): MoveRecord {
+export function requestMove(root: string, kind: StorageKind, target: string, agentDir: string, sessionsDir: string | undefined, dbFile: string, distro?: string, nativeWorkspace?: MoveRecord["nativeWorkspace"]): MoveRecord {
   if (existsSync(pendingMoveFile(root))) throw new Error("已有数据搬迁等待重启完成");
   const locations = storageLocations(root, agentDir, sessionsDir);
   const source = locations[kind];
@@ -54,12 +58,15 @@ export function requestMove(root: string, kind: StorageKind, target: string, age
     ? (kind === "database" ? ["core.db"] : ["core.log", "core.log.1"]).map((name) => ({ from: join(source, name), to: join(target, name) }))
     : [{ from: source, to: target }, ...Object.entries(locations).filter(([key, path]) => key !== kind && isInside(source, path) && path !== source).map(([, path]) => ({ from: path, to: path }))];
   const record: MoveRecord = { version: 1, id: randomUUID(), kind, source, target: resolve(target), locations,
-    before: readLocationConfig(root) ?? null, stage: "requested", dbFile, rules, edits: [], distro };
+    before: readLocationConfig(root) ?? null, stage: "requested", dbFile, rules, edits: [], distro, nativeWorkspace };
   atomicJson(pendingMoveFile(root), record);
   return record;
 }
 
 function selected(record: MoveRecord): CopyInventory {
+  // Native ACLs and registration belong to one workspace. The new location
+  // imports the portable archive into a freshly provisioned profile.
+  if (record.nativeWorkspace) return { files: [], directories: [""], bytes: 0 };
   if (!existsSync(record.source)) return { files: [], directories: [""], bytes: 0 };
   if (realpathSync(record.source).toLowerCase() !== resolve(record.source).toLowerCase()) throw new Error("源目录不能经过链接");
   // A legacy DB/log directory also holds unrelated categories: never copy or delete those.
@@ -138,7 +145,12 @@ export async function preparePendingMove(root: string, hooks: MoveHooks = {}): P
     const expected = { ...record.manifest, directories: [...record.manifest.directories].sort(), files: [...record.manifest.files].sort((a, b) => a.path.localeCompare(b.path)) };
     if (JSON.stringify(after) !== JSON.stringify(expected) || JSON.stringify(selected(record)) !== JSON.stringify(record.manifest)) throw new Error("文件数量、大小或SHA-256校验未通过，原位置保留");
     if (record.kind === "database") checkDatabase(join(record.target, "core.db"));
-    if (record.kind === "sandbox" && existsSync(join(record.source, "disk", "ext4.vhdx"))) {
+    if (record.nativeWorkspace?.archive) {
+      const archive = record.nativeWorkspace.archive;
+      if (dirname(archive) !== join(root, "backups", "storage")) throw new Error("工作区搬迁归档位置无效");
+      copyFileSync(archive, join(record.target, "pending-restore.tar.gz"), 1);
+    }
+    if (record.kind === "sandbox" && !record.nativeWorkspace && existsSync(join(record.source, "disk", "ext4.vhdx"))) {
       const help = await wsl(["--help"], { timeoutMs: 20_000 });
       // wsl.exe --help can return -1 even when it prints a complete capability list.
       // The public option itself, rather than the help process's exit code, is the gate.
@@ -218,12 +230,31 @@ export function remapMovedDatabase(core: Core, record: MoveRecord): void {
 export async function validateMove(core: Core, record: MoveRecord, hooks: MoveHooks = {}): Promise<void> {
   checkDatabase(core.paths.dbFile);
   await core.call("core.hello", {});
+  if (record.nativeWorkspace?.archive) {
+    const provider = core.module(WindowsAppContainerSandbox);
+    if (!provider) throw new Error("新位置未装配 Windows 工作区");
+    await provider.restorePending({ preserveNetworkConsent: true, sourceWorkspace: record.nativeWorkspace.previousPath });
+    const status = provider.status();
+    if (status.state !== "ready" || !status.workspaceDir) throw new Error("新位置的 Windows 工作区未就绪");
+    const checks = await core.call("sandbox.selfTest", {}) as { items: { passed: boolean }[] };
+    if (!checks.items.length || checks.items.some(item => !item.passed)) throw new Error("新工作区读写自检失败，保留原位置");
+    if (record.nativeWorkspace.previousPath) {
+      const relocatedPath = new PathMap(record.rules).map(record.nativeWorkspace.previousPath);
+      core.db.transaction(() => remapColumns(core.db, core.backupParts, {
+        map: new PathMap([{ from: relocatedPath, to: status.workspaceDir! }]), secretRef: ref => ref,
+      }, true));
+    }
+  }
   if (record.wslMoved) {
     const check = await (hooks.wsl ?? runWsl)(["-d", record.distro!, "-u", "root", "--", "sh", "-c", "test -d /workspace && test -d /home/agent"], { timeoutMs: 120_000 });
     if (check.code !== 0) throw new Error("WSL新位置启动验证失败");
   }
   save(core.paths.dataDir, { ...record, stage: "committed" });
   record.stage = "committed";
+  if (record.nativeWorkspace?.previousPath) {
+    await core.module(WindowsAppContainerSandbox)?.retireMovedGitWorkspace(record.nativeWorkspace.previousPath)
+      .catch(error => core.log.warn("搬迁已完成，旧 Git 兼容工作区 profile 待清理", error));
+  }
   try { finishMove(core.paths.dataDir, record); }
   catch (error) { core.log.warn("新位置已验证；清理或回执未完成，保留已提交记录供下次启动重试", error); }
   core.maintenance = undefined;
@@ -232,7 +263,10 @@ export async function validateMove(core: Core, record: MoveRecord, hooks: MoveHo
 function finishMove(root: string, record: MoveRecord): void {
   let warning: string | undefined;
   try {
-    if (record.manifest && JSON.stringify(selected(record)) === JSON.stringify(record.manifest)) {
+    if (record.nativeWorkspace) {
+      const original = record.nativeWorkspace.previousPath ?? record.source;
+      if (existsSync(original)) warning = "新位置已就绪，原始工作文件保留在 " + original;
+    } else if (record.manifest && JSON.stringify(selected(record)) === JSON.stringify(record.manifest)) {
       for (const file of record.manifest.files) rmSync(join(record.source, file.path));
       if (record.kind === "sandbox" && record.wslMoved && existsSync(join(record.source, "disk"))) {
         try { rmdirSync(join(record.source, "disk")); } catch { warning = "旧沙箱磁盘目录仍有其他文件，已保留供人工核对"; }
@@ -248,9 +282,27 @@ function finishMove(root: string, record: MoveRecord): void {
   rmSync(pendingMoveFile(root), { force: true });
 }
 
+async function revokeMovedProfiles(record: MoveRecord, hooks: MoveHooks): Promise<void> {
+  if (!record.nativeWorkspace?.archive || !ownedTarget(record)) return;
+  const dataDir = join(record.target, "native-windows");
+  if (!existsSync(dataDir)) return;
+  const info = lstatSync(dataDir);
+  if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(dataDir).toLowerCase() !== resolve(dataDir).toLowerCase()) {
+    throw new Error("新 Windows 工作区目录发生重定向；保留两端和搬迁记录");
+  }
+  const bridgePath = hooks.appContainerBridgePath ?? join(APP_ROOT, "core", "bin", "appcontainer-runner.exe");
+  for (const directory of readdirSync(dataDir)) {
+    const id = /^appcontainer-([0-9a-f]{32})$/.exec(directory)?.[1];
+    if (!id) continue;
+    const config = { dataDir, profileId: id, bridgePath, toolsSource: dataDir };
+    if (await appContainerProvisioned(config)) await removeAppContainerProfile(config);
+  }
+}
+
 /** Core/server must be closed first. Never deletes the source or a pre-existing target. */
 export async function rollbackMove(root: string, record: MoveRecord, error: string | Error, hooks: MoveHooks = {}): Promise<void> {
-  if (record.kind === "sandbox" && (record.wslMoved || (!existsSync(join(record.source, "disk", "ext4.vhdx")) && existsSync(join(record.target, "disk", "ext4.vhdx"))))) {
+  await revokeMovedProfiles(record, hooks);
+  if (record.kind === "sandbox" && !record.nativeWorkspace && (record.wslMoved || (!existsSync(join(record.source, "disk", "ext4.vhdx")) && existsSync(join(record.target, "disk", "ext4.vhdx"))))) {
     const wsl = hooks.wsl ?? runWsl;
     await wsl(["--terminate", record.distro!], { timeoutMs: 30_000 });
     const oldDisk = join(record.source, "disk");

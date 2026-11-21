@@ -12,6 +12,8 @@ import { writeArchive, type ArchiveFile } from "./archive.ts";
 import { seal } from "./crypto.ts";
 import { isInside } from "./path-map.ts";
 import { storageLocations, type StorageLocations } from "../storage/locations.ts";
+import { copyDshHistories, projectedDshIds } from "../dsh/backup.ts";
+import { LOCAL_NATIVE_FLAGS, nativePlacementsFile } from "../sandbox/appcontainer-placements.ts";
 
 /**
  * Making a backup package (docs/history/v0.3.1-backup-design.md §三–四): take a
@@ -33,7 +35,7 @@ export function excludedFromData(name: string): boolean {
 		["webview2", "core.json", "core.lock", "core-startup.json", "core.db", "core.db-wal", "core.db-shm", "sandbox", "backups", "trash", "secrets", "pi", "window", "cache", "migration.json"].includes(n) ||
 		n.startsWith("core.log") ||
 		["application-data", "user-content"].includes(n) || n.startsWith("storage-") ||
-		n === "updates" || n === "patrol-sessions" ||
+		n === "updates" || n === "patrol-sessions" || n === nativePlacementsFile || n.startsWith(".native-workspace-") ||
 		n.startsWith("restore-")
 	);
 }
@@ -77,6 +79,7 @@ export interface Manifest {
 		agentDir: string;
 		sessionsDir: string;
 		locations?: StorageLocations;
+		nativeWorkspaceDir?: string;
 		butterflyDir: string;
 		workspaces: string[];
 	};
@@ -105,6 +108,7 @@ export interface ExportOptions {
 	prefs?: Record<string, unknown>;
 	/** Writes 蝶君's /workspace and /home/agent as a tar.gz; false when there is no sandbox. */
 	sandbox?: (dest: string) => Promise<boolean>;
+	nativeWorkspaceDir?: string;
 	signal?: AbortSignal;
 	onProgress?: (step: string) => void;
 	/** Which indexed session files to take (default: all). */
@@ -139,20 +143,23 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 		await mkdir(dirname(dbCopy), { recursive: true });
 		source.db.exec(`VACUUM INTO '${dbCopy.replaceAll("'", "''")}'`);
 		const { DatabaseSync } = await import("node:sqlite");
-		const copy = new DatabaseSync(dbCopy, { readOnly: true });
+		const copy = new DatabaseSync(dbCopy);
 		let dbVersion: number;
 		let counts: Record<string, number>;
-		let sessionFiles: string[];
+		let sessionFiles: { path: string; session_id: string | null }[];
 		let materials: { id: string; path: string }[];
 		let workspaces: string[];
 		try {
+			if (copy.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_flags'").get()) {
+				copy.prepare("DELETE FROM app_flags WHERE key IN (?,?,?)").run(...LOCAL_NATIVE_FLAGS);
+			}
 			dbVersion = Number((copy.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
 			counts = tableCounts(copy);
-			sessionFiles = (copy.prepare("SELECT path FROM session_meta").all() as { path: string }[]).map((r) => r.path);
+			sessionFiles = copy.prepare("SELECT path,session_id FROM session_meta").all() as typeof sessionFiles;
 			if (copy.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_recycle'").get()) {
 				if (copy.prepare("SELECT 1 FROM session_recycle WHERE phase<>'stored' LIMIT 1").get()) throw new Error("回收站中有未完成的文件操作，请先完成恢复处理再备份");
-				const recycled = copy.prepare("SELECT stored_path FROM session_recycle WHERE phase='stored' AND expires_at>?").all(Date.now()) as { stored_path: string }[];
-				sessionFiles.push(...recycled.map((r) => r.stored_path));
+				const recycled = copy.prepare("SELECT stored_path AS path,json_extract(metadata,'$.session_id') AS session_id FROM session_recycle WHERE phase='stored' AND expires_at>?").all(Date.now()) as typeof sessionFiles;
+				sessionFiles.push(...recycled);
 			}
 			materials = options.includeMaterials ? (copy.prepare("SELECT id, path FROM materials WHERE path IS NOT NULL AND path != ''").all() as { id: string; path: string }[]) : [];
 			workspaces = workspacesOf(copy, source.paths.dataDir, options.prefs);
@@ -172,7 +179,10 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 
 		step("复制会话");
 		let sessions = 0;
-		for (const file of sessionFiles) {
+		const dshIds = new Set<string>();
+		const dshRoot = join(source.sessionsDir, ".dsh");
+		const hasDshLogs = existsSync(dshRoot);
+		for (const { path: file, session_id } of sessionFiles) {
 			if (!isInside(source.sessionsDir, file) || isInside(join(source.paths.dataDir, "patrol-sessions"), file)
 				|| (options.sessionFilter && !options.sessionFilter(file))) continue;
 			let size: number;
@@ -187,7 +197,11 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 			if (size > 0) await pipeline(createReadStream(file, { start: 0, end: size - 1 }), createWriteStream(dest));
 			else await writeFile(dest, "");
 			sessions++;
+			if (hasDshLogs && session_id) {
+				for (const id of await projectedDshIds(dest, session_id)) dshIds.add(id);
+			}
 		}
+		await copyDshHistories(dshRoot, join(data, "dsh"), { ids: dshIds, signal: options.signal });
 
 		step("复制 Pi 的设置");
 		const pi: string[] = [];
@@ -270,6 +284,7 @@ export async function createBackup(source: ExportSource, options: ExportOptions)
 				home: homedir(),
 				dataDir: source.paths.dataDir,
 				locations,
+				...(sandbox && options.nativeWorkspaceDir ? { nativeWorkspaceDir: options.nativeWorkspaceDir } : {}),
 				agentDir: source.agentDir,
 				sessionsDir: source.sessionsDir,
 				butterflyDir: source.paths.butterflyDir,
@@ -313,7 +328,7 @@ export function estimateSize(source: Omit<ExportSource, "db">, sessionFiles: str
 	for (const name of safeReaddir(source.paths.dataDir)) if (!excludedFromData(name) && !["cards", "butterfly"].includes(name)) dataBytes += sizeOf(join(source.paths.dataDir, name));
 	dataBytes += sizeOf(locations.cards) + sizeOf(source.paths.butterflyDir);
 	for (const name of PI_FILES) dataBytes += sizeOf(name === "skills" ? locations.skills : name === "prompts" ? locations.templates : join(source.agentDir, name));
-	let sessions = 0;
+	let sessions = sizeOf(join(source.sessionsDir, ".dsh"));
 	for (const file of sessionFiles) sessions += sizeOf(file);
 	let materials = 0;
 	for (const path of materialPaths) materials += sizeOf(path);

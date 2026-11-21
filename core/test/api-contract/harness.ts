@@ -98,8 +98,8 @@ async function connect(port: number, token: string, waitFor: TestCore["waitFor"]
 type CoreOptions = NonNullable<Parameters<typeof startTestCore>[1]>;
 
 /** Fresh temp data, a scripted model, an unavailable fake WSL by default and an authenticated loopback server. */
-export async function startContractHarness(t: TestContext, options: CoreOptions = {}): Promise<ContractHarness> {
-	const fixture = await startTestCore(undefined, {
+export async function startContractHarness(t: TestContext, options: CoreOptions = {}, existingDir?: string): Promise<ContractHarness> {
+	const fixture = await startTestCore(existingDir, {
 		gatewayTransport: () => { throw new Error("Contract fixtures prohibit real model transport"); },
 		...options,
 		sandbox: { image: null, wsl: async () => ({ code: 1, stdout: "", stderr: "fixture WSL unavailable" }), ...options.sandbox },

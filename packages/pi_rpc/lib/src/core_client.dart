@@ -212,7 +212,7 @@ class CoreLocator {
     final main = findMain(searchRoots);
     final node = PiRuntimeLocator.findNode(searchRoots);
     if (main == null || node == null) {
-      throw CoreException('missing_runtime', main == null ? '找不到后台程序（core/src/main.ts）。' : '找不到 Node.js，请先安装 Node.js 22.19 或更新版本。');
+      throw CoreException('missing_runtime', main == null ? '找不到后台程序（core/src/main.ts）。' : '找不到后台随附的 Node.js。开发环境需要 Node.js 24.9 或更新版本。');
     }
     final process = await Process.start(
       node,

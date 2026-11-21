@@ -5,6 +5,7 @@ import 'package:dreamflutter/theme.dart';
 import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/gateway_pages.dart';
 import 'package:dreamflutter/ui/pi_compatibility_panel.dart';
+import 'package:dreamflutter/ui/settings_workspace.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -43,7 +44,7 @@ void main() {
       ))); await tester.pumpAndSettle();
       expect(find.text('API key channel'), findsOneWidget); expect(find.text('Retained Codex legacy'), findsOneWidget);
       expect(find.text('Hidden Copilot'), findsNothing); expect(find.text('Hidden future OAuth'), findsNothing);
-      expect(find.text('登录 ChatGPT'), findsOneWidget); expect(find.text('重新登录'), findsNothing);
+      expect(find.text('登录 ChatGPT'), findsNothing); expect(find.text('重新登录'), findsNothing);
       expect(backend.callsTo('piMigration.oauthStart'), isEmpty);
       if (capture) { await expectLater(find.byType(Scaffold), matchesGoldenFile('../../Claude Codex Bridge/T70-oauth-${brightness.name}-150.png')); }
       await tester.ensureVisible(find.text('查看登录与退出')); await tester.pumpAndSettle(); await tester.tap(find.text('查看登录与退出')); await tester.pumpAndSettle();
@@ -53,7 +54,7 @@ void main() {
       expect(backend.callsTo('piMigration.oauthLogout').single['provider'], 'openai-codex'); expect(backend.callsTo('piMigration.oauthStart'), isEmpty);
       expect(find.text('已退出登录；此服务商不再支持重新登录。'), findsOneWidget);
       await tester.tap(find.text('关闭')); await agent.refreshGateway(); await tester.pumpAndSettle();
-      expect(find.text('Retained Codex legacy'), findsNothing); expect(find.text('登录 ChatGPT'), findsOneWidget);
+      expect(find.text('Retained Codex legacy'), findsNothing); expect(find.text('登录 ChatGPT'), findsNothing);
       expect(backend.callsTo('gateway.saveChannel'), isEmpty); expect(backend.callsTo('gateway.removeChannel'), isEmpty); expect(tester.takeException(), isNull);
     });
   }
@@ -69,16 +70,23 @@ void main() {
     backend.handlers['piMigration.oauthLogout'] = (_) => {'ok': true};
     final agent = AgentController(preferences: await Preferences.load(), sessionStore: SessionStore(sessionsDir: root.path), backend: backend);
     addTearDown(() { agent.dispose(); root.deleteSync(recursive: true); }); await agent.refreshGateway();
-    await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: const Scaffold(body: SingleChildScrollView(child: ChannelList()))))); await tester.pumpAndSettle();
+    await tester.binding.setSurfaceSize(const Size(1150, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(AgentScope(controller: agent, child: MaterialApp(theme: buildTheme(Brightness.light), home: const Scaffold(body: SettingsPage(category: '模型'))))); await tester.pumpAndSettle();
+    final add = find.text('添加渠道');
+    await tester.scrollUntilVisible(add, 200, scrollable: find.descendant(of: find.byKey(const ValueKey('settings-模型')), matching: find.byType(Scrollable)).first);
+    expect(find.text('登录 ChatGPT'), findsNothing);
+    await tester.tap(add); await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('登录 ChatGPT')); await tester.pumpAndSettle(); await tester.tap(find.text('登录 ChatGPT')); await tester.pumpAndSettle(); expect(backend.callsTo('piMigration.oauthStart'), isEmpty);
     await tester.tap(find.widgetWithText(FilledButton, '登录 ChatGPT')); await tester.pump(); await tester.pump(const Duration(milliseconds: 300));
     // 0.8.2: the login page opens in the browser by itself; no raw link or English steps.
+    final fields = find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField));
     expect(opened.single.toString(), 'https://auth.example.invalid/t70'); expect(find.textContaining('auth.example.invalid'), findsNothing); expect(find.textContaining('Synthetic code'), findsNothing);
-    expect(find.textContaining('已在浏览器里打开'), findsOneWidget); expect(find.byType(TextField), findsNothing, reason: 'pasting the address is a folded fallback');
+    expect(find.textContaining('已在浏览器里打开'), findsOneWidget); expect(fields, findsNothing, reason: 'pasting the address is a folded fallback');
     await tester.tap(find.text('取消登录')); await tester.pumpAndSettle(); expect(backend.callsTo('piMigration.oauthCancel').single['id'], 't70-flow');
     await tester.tap(find.widgetWithText(FilledButton, '登录 ChatGPT')); await tester.pump(); await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('登录完没有自动回来？')); await tester.pump(); await tester.pump(const Duration(milliseconds: 300));
-    await tester.enterText(find.byType(TextField), 'T70_SYNTHETIC_CODE'); await tester.tap(find.text('继续登录')); await tester.pumpAndSettle();
+    await tester.enterText(fields, 'T70_SYNTHETIC_CODE'); await tester.tap(find.text('继续登录')); await tester.pumpAndSettle();
     expect(find.text('已登录 ChatGPT'), findsOneWidget); expect(find.text('T70_SYNTHETIC_CODE'), findsNothing); expect(find.widgetWithText(FilledButton, '完成'), findsOneWidget);
     await tester.tap(find.text('退出登录')); await tester.pumpAndSettle(); expect(find.text('已退出登录'), findsOneWidget);
     expect(backend.callsTo('piMigration.oauthStart').map((p) => p['provider']), [chatGptPiProviderId, chatGptPiProviderId]);

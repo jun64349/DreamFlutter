@@ -10,27 +10,22 @@ import 't87_fixture.dart';
 import 't88_fixture.dart';
 
 void main() {
-  testWidgets('R6 wizard fits its card and tests a pasted key once without a button', (tester) async {
+  testWidgets('R6 wizard fits the last step and allows going back', (tester) async {
     final fixture = (await tester.runAsync(T88Fixture.create))!;
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(fixture.dispose);
+      await tester.binding.setSurfaceSize(null);
     });
     await tester.binding.setSurfaceSize(const Size(760, 900));
     await tester.pumpWidget(DreamFlutterApp(controller: fixture.agent, home: SetupWizard(status: {'dataRoot': fixture.root.path}, initialStep: 3, onComplete: () {})));
     await tester.pumpAndSettle();
-    expect(find.text('连接一个模型'), findsOneWidget);
-    expect(find.text('跳过'), findsOneWidget);
-    await tester.enterText(find.byKey(const ValueKey('setup-model-key')), 'test-only-not-a-key');
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
-    expect(find.text('连接成功'), findsOneWidget);
-    expect(fixture.backend.callsTo('setup.testChannel'), hasLength(1));
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(fixture.backend.callsTo('setup.testChannel'), hasLength(1));
-    await tester.tap(find.text('跳过'));
-    await tester.pumpAndSettle();
     expect(find.text('常用的项目文件夹'), findsOneWidget);
+    expect(find.text('跳过'), findsOneWidget);
+    expect(find.text('开始使用'), findsOneWidget);
+    await tester.tap(find.text('上一步'));
+    await tester.pumpAndSettle();
+    expect(find.text('怎么称呼你'), findsOneWidget);
     expect(fixture.backend.callsTo('setup.complete'), isEmpty);
     expect(tester.takeException(), isNull);
   });

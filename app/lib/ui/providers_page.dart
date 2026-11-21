@@ -10,12 +10,14 @@ import 'notes.dart';
 /// One model of a provider, as the core reports it.
 class ModelEntry {
   Json metadata = {};
+  Json defaults = {};
   ModelEntry({
     required this.id,
     this.name = '',
     this.contextWindow = 0,
     this.maxTokens = 16384,
     this.images = false,
+    this.video = false,
     this.reasoning = false,
     this.inputPrice = 0,
     this.outputPrice = 0,
@@ -32,13 +34,16 @@ class ModelEntry {
       contextWindow: (json['contextWindow'] as num?)?.toInt() ?? 0,
       maxTokens: (json['maxTokens'] as num?)?.toInt() ?? 16384,
       images: (json['input'] as List? ?? const []).contains('image'),
+      video: (json['input'] as List? ?? const []).contains('video'),
       reasoning: json['reasoning'] == true,
       inputPrice: (cost['input'] as num?)?.toDouble() ?? 0,
       outputPrice: (cost['output'] as num?)?.toDouble() ?? 0,
       cacheReadPrice: (cost['cacheRead'] as num?)?.toDouble() ?? 0,
       efforts: [for (final e in json['efforts'] as List? ?? const []) e as String],
       thinkingLevels: (json['thinkingLevels'] as List?)?.cast<String>().toList(),
-    )..metadata = Map.of(json);
+    )
+      ..metadata = (Map.of(json)..remove('defaults'))
+      ..defaults = asJsonMap(json['defaults']);
   }
 
   String id;
@@ -46,14 +51,23 @@ class ModelEntry {
   int contextWindow;
   int maxTokens;
   bool images;
+  bool video;
   bool reasoning;
   double inputPrice;
   double outputPrice;
   double cacheReadPrice;
 
   /// The model's own thinking values from the model list (kept, not edited here).
-  final List<String> efforts;
+  List<String> efforts;
   List<String>? thinkingLevels;
+
+  String get effectiveName => name.isEmpty ? (defaults['name'] as String? ?? id) : name;
+  int get effectiveWindow => contextWindow > 0 ? contextWindow : (defaults['contextWindow'] as num?)?.toInt() ?? 0;
+  bool get effectiveReasoning => metadata['reasoning'] as bool? ?? defaults['reasoning'] == true;
+  List<String> get effectiveInput => ((metadata['input'] ?? defaults['input']) as List? ?? const []).cast<String>();
+
+  // The channel editor sends only supplied values and preserves advanced fields.
+  Json toChannelJson() => {...metadata, 'id': id.trim()};
 
   Json toJson() => {
     ...metadata,
@@ -61,7 +75,7 @@ class ModelEntry {
     'name': name.trim().isEmpty ? id.trim() : name.trim(),
     if (contextWindow > 0) 'contextWindow': contextWindow,
     'maxTokens': maxTokens,
-    'input': ['text', if (images) 'image'],
+    'input': ['text', if (images) 'image', if (video) 'video'],
     'reasoning': reasoning,
     'cost': {'input': inputPrice, 'output': outputPrice, 'cacheRead': cacheReadPrice, 'cacheWrite': (metadata['cost'] as Map?)?['cacheWrite'] ?? 0},
     if (efforts.isNotEmpty) 'efforts': efforts,
@@ -638,7 +652,15 @@ class _ModelThinkingLevelsState extends State<ModelThinkingLevels> {
   @override
   Widget build(BuildContext context) {
     final model = widget.model;
-    final selected = model.thinkingLevels ?? (model.reasoning ? ['off', if (model.efforts.isEmpty) ...['minimal', 'low', 'medium', 'high'] else ...model.efforts.where(levels.containsKey)] : ['off']);
+    final map = asJsonMap(model.metadata['thinkingLevelMap']);
+    final automatic = (model.defaults['thinkingLevels'] as List?)?.cast<String>();
+    final stored = model.metadata['reasoning'] as bool?;
+    final selected = model.thinkingLevels ?? (
+      stored == false ? ['off'] :
+      map.isNotEmpty ? [for (final level in levels.keys) if (map.containsKey(level) ? map[level] != null : level != 'xhigh' && level != 'max') level] :
+      model.efforts.isNotEmpty ? ['off', ...model.efforts.where(levels.containsKey)] :
+      automatic ?? (model.reasoning ? const ['off', 'minimal', 'low', 'medium', 'high'] : const ['off'])
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,

@@ -1,0 +1,12 @@
+{
+  "name": "dreamflutter-dsh-poc",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.9.0" },
+  "scripts": { "test": "node --test session.test.mjs model-budget.test.mjs" },
+  "dependencies": {
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-llm-pi-ai": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-sdk-client": "0.2.2-rc.5"
+  }
+}

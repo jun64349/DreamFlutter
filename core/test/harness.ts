@@ -36,7 +36,7 @@ export interface TestCore {
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 /** Fresh core on temp dirs, with a scripted faux model as the only model. */
-export async function startTestCore(existingDir?: string, options: { gatewayTransport?: Transport; platformMemory?: boolean; sandbox?: SandboxOptions; legacyData?: LegacyData; webSearch?: import("../src/web/deepseek.ts").DeepSeekWebOptions; patrolClock?: PatrolClock; personaClock?: () => number; selfwork?: SelfworkOptions } = {}): Promise<TestCore> {
+export async function startTestCore(existingDir?: string, options: { gatewayTransport?: Transport; platformMemory?: boolean; sandbox?: SandboxOptions; legacyData?: LegacyData; webSearch?: import("../src/web/deepseek.ts").DeepSeekWebOptions; patrolClock?: PatrolClock; personaClock?: () => number; selfwork?: SelfworkOptions; dshWorkbench?: boolean; dshStandardWorkbench?: boolean } = {}): Promise<TestCore> {
 	const dir = existingDir ?? mkdtempSync(join(tmpdir(), "df-core-"));
 	const workspace = join(dir, "workspace");
 	const agentDir = join(dir, "agent");
@@ -66,6 +66,8 @@ export async function startTestCore(existingDir?: string, options: { gatewayTran
 		log: new Logger(undefined, process.env.DF_TEST_LOG === "1"),
 		notifier,
 		modelRuntime: () => modelRuntime,
+		dshWorkbench: options.dshWorkbench ?? false,
+		dshStandardWorkbench: options.dshStandardWorkbench,
 		gatewayTransport: options.gatewayTransport,
 		webSearch: options.webSearch,
 		sandbox: options.sandbox,

@@ -6,7 +6,7 @@ const hanWord = /^\p{Script=Han}{2,8}$/u;
 const englishWord = /^[a-z][a-z0-9-]{1,19}(?: [a-z0-9-]+)?$/i;
 
 export function memoryHotwords(core: Core, workspaceId?: string): string[] {
-	if (!core.settings.get().memoryEnabled) return fixed.slice();
+	if (!core.cordis.get("dfMemory") || !core.settings.get().memoryEnabled) return fixed.slice();
 	const rows = core.db.all<{ content: string }>(`
 		SELECT content FROM memory_items WHERE status = 'active'
 		  AND (valid_until IS NULL OR valid_until > ?)

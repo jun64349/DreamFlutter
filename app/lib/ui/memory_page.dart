@@ -21,7 +21,23 @@ class MemoryOverlay extends StatelessWidget {
   const MemoryOverlay({super.key, required this.onClose});
   final VoidCallback onClose;
   @override
-  Widget build(BuildContext context) => ShellOverlay(label: '梦君记', width: 1000, height: 760, padding: 24, color: context.colors.background, onClose: onClose, child: MemoryPage(onClose: onClose));
+  Widget build(BuildContext context) {
+    final agent = AgentScope.read(context);
+    return ShellOverlay(label: '梦君记', width: 1000, height: 760, padding: 24,
+      color: context.colors.background, onClose: onClose,
+      child: ListenableBuilder(listenable: agent.desktopPlugins, builder: (context, _) {
+        if (agent.desktopPlugins.active('memory', fallback: true)) return MemoryPage(onClose: onClose);
+        return Column(children: [
+          Align(alignment: Alignment.topRight, child: OverlayCloseButton(onClose: onClose)),
+          Expanded(child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('记忆插件已停用，原有记忆已保留。'),
+            const SizedBox(height: 12),
+            ShellButton('管理插件', onPressed: () => agent.openSettings('插件')),
+          ]))),
+        ]);
+      }),
+    );
+  }
 }
 
 enum _MemoryTab { recent, log, settings }

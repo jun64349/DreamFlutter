@@ -6,11 +6,13 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { syncBuiltinESMExports } from "node:module";
+import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { it, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { fauxAssistantMessage, fauxToolCall, type Context } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { imageSize } from "../src/agent/fs-tools.ts";
@@ -21,6 +23,8 @@ import { LOCAL_DISK_REQUIRED, RenderHtmlResources, RenderLocalVolumes } from "..
 import { HarnessState, type ExecEnv } from "../src/agent/state.ts";
 import { textOf } from "../src/runs.ts";
 import { SandboxHtmlBrowser } from "../src/sandbox/html-browser.ts";
+import { appContainerWorkspacePath, provisionAppContainer, removeAppContainerProfile, type AppContainerConfig } from "../src/sandbox/appcontainer.ts";
+import { appContainerFileAccess } from "../src/sandbox/appcontainer-fs.ts";
 import { runWsl } from "../src/sandbox/sandbox.ts";
 import { settledCount, startTestCore, type TestCore } from "./harness.ts";
 
@@ -28,6 +32,7 @@ const SLOT = "t104";
 const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aPqkAAAAASUVORK5CYII=";
 const windows = { skip: process.platform !== "win32" };
 const realEdge = { skip: !await new EdgeHtmlBrowser().find() };
+const nativeNode = process.env.DREAMFLUTTER_APPCONTAINER_TEST_NODE;
 type ToolArgs = Parameters<typeof fauxToolCall>[1];
 type Text = { type: "text"; text: string };
 type Image = { type: "image"; mimeType: string; data: string };
@@ -60,6 +65,93 @@ function image(result: Result): Image {
 	assert.ok(image && image.mimeType === "image/png", textOf(result.content));
 	return image;
 }
+
+it("Windows native render_html captures inert local styles through the protected workspace", {
+	skip: process.platform !== "win32" || !nativeNode, timeout: 60_000,
+}, async test => {
+	const root = await fsPromises.mkdtemp(join(tmpdir(), "df-v11-window-butterfly-"));
+	const t = await startTestCore(root, { dshWorkbench: true, dshStandardWorkbench: true });
+	const source = join(t.dir, "native-render-tools");
+	const bridge = join(t.dir, "appcontainer-runner.exe");
+	const dataDir = join(t.dir, "data", "sandbox", "native-windows");
+	const profileId = createHash("sha256").update(t.dir).digest("hex").slice(0, 32);
+	const processes: ChildProcess[] = [];
+	const config: AppContainerConfig = {
+		dataDir, profileId, bridgePath: bridge, toolsSource: source, allowNetwork: () => true,
+		track: child => { processes.push(child); },
+	};
+	let ready = false;
+	test.after(async () => {
+		try { await t.core.shutdown(); }
+		finally {
+			if (ready) await removeAppContainerProfile(config);
+			await t.cleanup();
+		}
+	});
+	await fsPromises.mkdir(source);
+	await fsPromises.mkdir(dataDir, { recursive: true });
+	await fsPromises.copyFile(nativeNode!, join(source, "node.exe"));
+	const powershell = join(process.env.SystemRoot!, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+	const build = (name: string, output: string) => promisify(childProcess.execFile)(powershell, ["-NoProfile", "-NonInteractive", "-File",
+		fileURLToPath(new URL(`../../tools/${name}/build.ps1`, import.meta.url)), "-OutputPath", output], { windowsHide: true });
+	await Promise.all([build("appcontainer-runner", bridge), build("appcontainer-html-render", join(source, "html-render.exe"))]);
+	await provisionAppContainer(config);
+	ready = true;
+	const workspaceDir = appContainerWorkspacePath(config);
+	const files = appContainerFileAccess(config);
+	t.core.sandboxProvider = () => ({ kind: "appcontainer", appContainer: config, distro: "render", workspaceDir, ready: async () => {}, online: () => true });
+	let contacted = 0;
+	const server = createServer((_req, res) => { contacted++; res.end(); });
+	server.listen(0, "127.0.0.1");
+	await once(server, "listening");
+	test.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+	const address = server.address();
+	assert.ok(address && typeof address === "object");
+	const url = `http://127.0.0.1:${address.port}/outside.png`;
+	await files.write("/workspace/theme.css", '@import "palette.css"; body { margin:0; color:#fff }', null);
+	await files.write("/workspace/palette.css", "body { background:#1268ab }", null);
+	await files.write("/workspace/local.png", Buffer.from(PIXEL, "base64"), null);
+	await files.write("/workspace/page.html", `<!doctype html><link rel="stylesheet" href="theme.css">
+		<h1>离线报告</h1><img src="local.png"><img src="${url}"><img src="file:///C:/outside-local.png">
+		<script>document.body.style.backgroundColor = "red"</script>`, null);
+	t.core.settings.update({ approvalMode: "off" });
+	await t.core.call("slot.open", { slotId: SLOT, cwd: workspaceDir, sandbox: true, agentMode: "standard" }, t.client);
+	let language: string | undefined;
+	t.respond(fauxAssistantMessage(fauxToolCall("pwsh", { description: "检查工作区 PowerShell 模式", command: "$ExecutionContext.SessionState.LanguageMode", timeoutMs: 5000 }),
+		{ stopReason: "toolUse" }), context => {
+		const output = context.messages.findLast(message => message.role === "toolResult" && message.toolName === "pwsh");
+		if (output?.role === "toolResult") language = textOf(output.content).match(/(?:Constrained|Full)Language/)?.[0];
+		return fauxAssistantMessage("已检查模式");
+	});
+	await t.send(SLOT, { id: "native-shell-mode", type: "prompt", message: "检查 PowerShell 模式" });
+	await t.waitFor(() => settledCount(t.records(SLOT)) > 0);
+	assert.ok(language, "the product PowerShell tool should report the system language mode");
+	test.diagnostic(`PowerShell in the render profile: ${language}`);
+	const result = await prompt(t, { width: 320, height: 220 });
+	const preview = Buffer.from(image(result).data, "base64");
+	const summary = textOf(result.content);
+	assert.deepEqual(imageSize(preview, "image/png"), { width: 320, height: 220 });
+	assert.match(summary, /静态截图/);
+	assert.ok(summary.includes(new URL(url).origin));
+	assert.ok(summary.includes("file:"));
+	assert.equal(contacted, 0);
+	assert.ok(processes.some(child => child.spawnargs[1] === "run-input" && child.spawnargs[4]?.endsWith("\\html-render.exe")));
+	const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+	const canvas = createCanvas(320, 220), ctx = canvas.getContext("2d");
+	ctx.drawImage(await loadImage(preview), 0, 0);
+	assert.deepEqual(Array.from(ctx.getImageData(250, 160, 1, 1).data), [18, 104, 171, 255]);
+	const path = /^已生成图片：(.+\.png)$/m.exec(summary)?.[1];
+	assert.ok(path && path.includes("/outbox/"));
+	assert.deepEqual((await files.read(path)).data, preview);
+	const basename = path.split("/").at(-1)!;
+	const taskId = t.core.slot(SLOT).taskId;
+	assert.ok(taskId);
+	await t.waitFor(() => t.messages.some(message => message.event === "butterfly.delivery" && message.taskId === taskId &&
+		Array.isArray(message.files) && message.files.some(file => typeof file.name === "string" && file.name.endsWith(basename))));
+	const artifacts = await t.core.call("artifacts.list", { taskId }) as { path: string; exists: boolean }[];
+	assert.ok(artifacts.some(artifact => artifact.exists && artifact.path.endsWith(basename)));
+	await t.waitFor(() => processes.length > 0 && processes.every(child => child.exitCode !== null || child.signalCode !== null));
+});
 
 function observeEdge(test: TestContext, netLog?: string) {
 	const launches: { profile: string; child: ChildProcess; args: string[]; preferences?: { net?: { network_prediction_options?: number } } }[] = [];

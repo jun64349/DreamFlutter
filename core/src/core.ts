@@ -14,6 +14,11 @@ import { approvalExtension } from "./ext/approval.ts";
 import type { Logger } from "./log.ts";
 import { NotificationCenter, type Notifier } from "./notify.ts";
 import { StartupProgress } from "./startup.ts";
+import { SystemPlugins } from "./dsh/system-plugins.ts";
+import { DshBackend } from "./dsh/backend.ts";
+import { readLegacySession } from "./dsh/session-legacy.ts";
+import { MemoryModule } from "./modules/memory.ts";
+import { MEMORY_MESSAGE_TYPE } from "./memory/types.ts";
 import type { CorePaths } from "./paths.ts";
 import { dialogKind } from "./pi/dialogs.ts";
 import { createSessionRuntime, isProjectTrusted, recordedSandbox, STANDARD_EXTRA_TOOLS, type PiHostConfig } from "./pi/host.ts";
@@ -26,6 +31,8 @@ import { Slot, type SlotHooks, type SlotInfo } from "./slots/slot.ts";
 import type { WebTools } from "./web/types.ts";
 import { currentToolEnvironment, withToolEnvironment, type ToolEnvironmentProvider } from "./agent/tool-environment.ts";
 import type { Ledger } from "./ledger/ledger.ts";
+import { withLedgerContext } from "./ledger/types.ts";
+import { completeModel } from "./modules/llm.ts";
 import { GoalsModule } from "./modules/goals.ts";
 import { ButterflyModule } from "./modules/butterfly.ts";
 import { chatPrompt, structuredChatInput } from "./modules/goals/chat-task.ts";
@@ -42,7 +49,7 @@ import { RenderHtmlFilesModule } from "./agent/render-html-files.ts";
 // The host allowlist admits these names; the patrol extension registers them only in the sandbox.
 STANDARD_EXTRA_TOOLS.push("patrol_update_log", "watch_add", "watch_done");
 
-export const CORE_VERSION = "0.8.3";
+export const CORE_VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
 // Only legacy workbench schedule runs register this internal state tool.
 STANDARD_EXTRA_TOOLS.push("save_monitor_state");
@@ -56,6 +63,8 @@ export interface CoreOptions {
 	paths: CorePaths;
 	agentDir: string;
 	sessionDir?: string;
+	dshWorkbench?: boolean;
+	dshStandardWorkbench?: boolean;
 	log: Logger;
 	notifier: Notifier;
 	/** Test hook, see PiHostConfig.modelRuntime. */
@@ -148,10 +157,11 @@ export function samePath(a: string | null | undefined, b: string | null | undefi
 }
 
 export interface SandboxHandle {
-	kind?: "wsl" | "seatbelt";
+	kind?: "wsl" | "seatbelt" | "appcontainer";
 	distro: string;
 	workspaceDir?: string;
 	seatbelt?: import("./sandbox/seatbelt.ts").SeatbeltConfig;
+	appContainer?: import("./sandbox/appcontainer.ts").AppContainerConfig;
 	ready: () => Promise<void>;
 	online: () => boolean;
 }
@@ -197,6 +207,13 @@ export class Core {
 	/** Port of the local HTTP/WebSocket server (0 until it listens). */
 	httpPort = 0;
 	private readonly modules: CoreModule[] = [];
+	private readonly systemPlugins = new SystemPlugins();
+	readonly cordis = this.systemPlugins.context;
+	get dshBackend(): DshBackend | undefined {
+		return this.hostConfig.dshWorkbench?.() ? this.module(DshBackend) : undefined;
+	}
+	private startTask?: Promise<void>;
+	private shutdownTask?: Promise<void>;
 	/** Core-owned tools that never need approval (memory, desk bookkeeping...). */
 	private readonly exemptTools = new Set<string>();
 	private readonly hostConfig: PiHostConfig;
@@ -255,6 +272,17 @@ export class Core {
 			this.log.info(`recovered: ${this.interruptedAtStartup.length} interrupted run(s), ${expired} expired dialog(s)`);
 		}
 		this.hostConfig = {
+			dsh: () => this.module(DshBackend)?.sessions,
+			dshWorkbench: () => (options.dshWorkbench ?? process.platform === "win32") && !!this.module(DshBackend),
+			dshStandardWorkbench: () => options.dshStandardWorkbench !== false,
+			memoryAvailable: () => !!this.cordis.get("dfMemory"),
+			prepareDshInput: async (slot, id, prompt) => {
+				const live = this.slotOrOpening(slot.slotId);
+				if (live) await this.module(MemoryModule)?.prepareInput(live, { id, prompt }, live.session.model, live.contextUsage()?.tokens ?? 0);
+			},
+			completeDshBranchSummary: (slot, session, model, context, options) => withLedgerContext(
+				{ ...this.hostConfig.ledgerContext?.(slot), sessionId: session.sessionId, purpose: "compaction" },
+				() => completeModel(this, session.modelRuntime, model, context, options)),
 			ledger: () => this.ledger,
 			ledgerContext: (slot) => ({ purpose: "conversation", slotId: slot.slotId, runId: this.slotOrOpening(slot.slotId)?.currentRun?.id, workspace: this.slotOrOpening(slot.slotId)?.info().cwd }),
 			restoreSessionModel: (ref, runtime, recordedAt) => this.restoreSessionModel?.(ref, runtime, recordedAt),
@@ -274,6 +302,7 @@ export class Core {
 					const extensions = m.extensions?.(slot) ?? [];
 					return m instanceof SubagentsModule ? extensions.map(withSubagentImages) : extensions;
 				}),
+				...(!this.module(MemoryModule) ? [withoutSavedMemorySnapshots] : []),
 			],
 			newSessionMode: (slot) => this.slotOrOpening(slot.slotId)?.newSessionMode ?? this.settings.get().agentMode,
 			autoCompaction: () => this.settings.get().autoCompaction,
@@ -301,15 +330,15 @@ export class Core {
 		if (!STANDARD_EXTRA_TOOLS.includes(AUTONOMY_DRAFT_TOOL)) STANDARD_EXTRA_TOOLS.push(AUTONOMY_DRAFT_TOOL);
 		this.autonomy = new AutonomyModule(this, options.modelRuntime);
 		this.persona = new PersonaModule(this, options.personaClock);
-		this.use(this.persona);
-		this.use(new GoalsModule(this));
-		this.use(this.autonomy);
-		this.use(new SelfworkModule(this, options.modelRuntime, options.selfwork));
+		this.use(this.persona, "dfPersona");
+		this.use(new GoalsModule(this), "dfGoals");
+		this.use(this.autonomy, "dfAutonomy", ["dfGoals"]);
+		this.use(new SelfworkModule(this, options.modelRuntime, options.selfwork), "dfSelfwork", ["dfAutonomy"]);
 		this.patrol = new PatrolModule(this, options.patrolClock);
-		this.use(this.patrol);
-		this.use(new JobsModule(this));
-		this.use(new PythonFilesModule(this));
-		this.use(new RenderHtmlFilesModule(this));
+		this.use(this.patrol, "dfPatrol");
+		this.use(new JobsModule(this), "dfJobs");
+		this.use(new PythonFilesModule(this), "dfPythonFiles");
+		this.use(new RenderHtmlFilesModule(this), "dfHtmlFiles");
 	}
 
 	/** Whether [cwd]'s project resources (.pi/ skills, packages…) may be loaded. */
@@ -318,10 +347,8 @@ export class Core {
 	}
 
 	/**
-	 * A Pi runtime for a subagent working for [parentSlotId]: in memory,
-	 * standard mode, the parent's approval rules (including a schedule's
-	 * restrictions), and only the modules marked forSubagents. Its dialogs go
-	 * through [ui] (the parent's, so they appear in the parent conversation).
+	 * In-memory tools and extensions for a subagent working for [parentSlotId].
+	 * Uses the parent's approvals, schedule restrictions, and dialog channel.
 	 */
 	openSubagentRuntime(parentSlotId: string, childId: string, cwd: string, ui: Slot["ui"], sandbox = false): Promise<AgentSessionRuntime> {
 		const goals = this.module(GoalsModule)?.executor;
@@ -358,7 +385,8 @@ export class Core {
 		for (const tool of tools) this.exemptTools.add(tool);
 	}
 
-	use(module: CoreModule): void {
+	use(module: CoreModule, service?: string, requires: readonly string[] = []): void {
+		if (service) this.systemPlugins.add(service, module, requires);
 		this.modules.push(module);
 	}
 
@@ -367,7 +395,12 @@ export class Core {
 		return this.modules.find((m): m is T => m instanceof type);
 	}
 
-	async start(): Promise<void> {
+	start(): Promise<void> {
+		if (this.stopped) return Promise.reject(new RpcError("unavailable", "后台正在退出"));
+		return this.startTask ??= this.startModules();
+	}
+
+	private async startModules(): Promise<void> {
 		// Timed so a slow start can be traced to its module (V07-07).
 		const slow: string[] = [];
 		for (const module of this.modules) {
@@ -375,7 +408,7 @@ export class Core {
 			const label = module.constructor.name === "MemoryModule" ? "正在准备记忆……" : module.constructor.name === "Sandbox" ? "正在检查蝶君……" : "正在准备后台服务……";
 			this.startup.mark(module.constructor.name, label);
 			const at = performance.now();
-			await module.start?.();
+			await this.systemPlugins.start(module);
 			const ms = performance.now() - at;
 			if (ms >= 50) slow.push(`${module.constructor.name} ${Math.round(ms)}ms`);
 			this.beforeModuleStart?.();
@@ -510,6 +543,8 @@ export class Core {
 		if (isSide && !parentSlot && (!parentFile || !existsSync(parentFile))) throw new RpcError("not_found", "主会话文件不存在");
 		if (parentFile && this.deletingSessionFiles.has(normalizeCwd(parentFile))) throw new RpcError("conflict", "主会话正在删除");
 		if (parentFile && this.pendingSessionFiles.has(normalizeCwd(parentFile))) throw new RpcError("conflict", "主会话正在保存");
+		if (isSide && this.hostConfig.dshWorkbench?.() && (parentSlot?.readOnlyLegacy || !parentSlot && readLegacySession(parentFile!)))
+			throw new RpcError("bad_request", "请先继续旧会话，再打开侧边对话");
 		const parentManager = parentSlot?.session.sessionManager ?? (isSide ? SessionManager.open(parentFile!, this.sessionDir) : undefined);
 		if (parentManager && !samePath(parentManager.getCwd(), options.cwd)) throw new RpcError("bad_request", "侧边对话必须在同一工作区");
 		const target = {
@@ -602,7 +637,7 @@ export class Core {
 		const operation = Promise.resolve().then(async () => {
 			await slot.dispose();
 			this.hostConfig.harnessControls?.delete(slotId);
-			for (const module of this.modules) module.onSlotClosed?.(slot);
+			if (!slot.readOnlyLegacy) for (const module of this.modules) module.onSlotClosed?.(slot);
 			this.broadcast({ event: "slot.closed", slotId });
 		});
 		this.closingSlots.set(slotId, { slot, done: operation });
@@ -631,9 +666,10 @@ export class Core {
 			},
 			changed: (slot) => {
 				if (this.slots.has(slot.slotId)) this.broadcast({ event: "slot.changed", info: slot.info() });
-				for (const module of this.modules) module.onSlotChanged?.(slot);
+				if (!slot.readOnlyLegacy) for (const module of this.modules) module.onSlotChanged?.(slot);
 			},
 			dialogOpened: (slot, request) => {
+				if (slot.incognito) return;
 				if (this.patrol.owns(slot.slotId)) {
 					queueMicrotask(() => slot.ui.cancelAll());
 					return;
@@ -650,7 +686,7 @@ export class Core {
 				});
 			},
 			dialogClosed: (slot, id, outcome, response) => {
-				if (this.patrol.owns(slot.slotId)) return;
+				if (slot.incognito || this.patrol.owns(slot.slotId)) return;
 				this.confirmations.closed(id, outcome, response);
 				this.broadcast({ event: "confirm.changed", confirmation: this.confirmations.get(id) });
 			},
@@ -809,7 +845,9 @@ export class Core {
 			if (this.stopped && record.type === "prompt") throw new RpcError("unavailable", "后台正在退出");
 			if (this.maintenance && record.type === "prompt") throw new RpcError("busy", `${this.maintenance}，请稍后再发`);
 			const chat = this.module(ButterflyModule)?.chat;
-			if (chat && await chat.route(slot, record, client?.id, structured)) {
+			if (slot.readOnlyLegacy) {
+				void slot.handle(record as { type: string }, client?.id);
+			} else if (chat && await chat.route(slot, record, client?.id, structured)) {
 				const reply = { id: (record as Params).id, type: "response", command: "prompt", success: true, data: { disposition: "handled" } };
 				client?.send({ event: "slot.record", slotId: slot.slotId, record: reply });
 				void chat.refresh().catch(error => this.log.warn("无法刷新交办会话索引", error));
@@ -855,9 +893,13 @@ export class Core {
 		});
 	}
 
-	async shutdown(): Promise<void> {
-		if (this.stopped) return;
+	shutdown(): Promise<void> {
+		return this.shutdownTask ??= this.stopModules();
+	}
+
+	private async stopModules(): Promise<void> {
 		this.stopped = true;
+		await this.startTask?.catch(() => {});
 		if (this.reaper) clearInterval(this.reaper);
 		// Timed so a slow exit can be traced (V07-07).
 		const began = performance.now();
@@ -868,7 +910,7 @@ export class Core {
 		for (const module of [...this.modules].reverse()) {
 			const at = performance.now();
 			try {
-				await module.stop?.();
+				await this.systemPlugins.stop(module);
 			} catch (error) {
 				this.log.warn("module stop failed", error);
 			}
@@ -881,10 +923,18 @@ export class Core {
 		for (const slotId of [...this.slots.keys()]) await this.closeSlot(slotId);
 		await Promise.all([...this.closingSlots.values()].map((c) => c.done));
 		this.log.info(`shutdown: modules ${Math.round(modulesDone - began)}ms${slow.length ? ` (${slow.join(", ")})` : ""}, ${slots} session(s) closed in ${Math.round(performance.now() - modulesDone)}ms`);
+		await this.cordis.fiber.dispose();
 		this.db.close();
 		for (const listener of this.shutdownListeners) listener();
 	}
 }
+
+/** Old Pi conversations can contain a snapshot written before the plugin was removed. */
+const withoutSavedMemorySnapshots: ExtensionFactory = pi => {
+	pi.on("context", event => ({
+		messages: event.messages.filter(message => message.role !== "custom" || message.customType !== MEMORY_MESSAGE_TYPE),
+	}));
+};
 
 let cachedPiVersion: string | null | undefined;
 

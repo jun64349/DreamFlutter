@@ -1,4 +1,4 @@
-"""Line-framed worker for one DreamFlutter Python session, launched as the WSL agent."""
+"""Line-framed worker for one DreamFlutter sandboxed Python session."""
 import ast
 import base64
 import hashlib
@@ -107,7 +107,9 @@ def show_plots(folder):
             print("图像超过 1600 万像素，已按比例缩小。")
         name = f"python-{os.urandom(12).hex()}.png"
         if folder:
-            os.makedirs(folder, mode=0o700, exist_ok=True)
+            # Windows Python 3.13 treats 0700 as a separate user-only ACL.
+            # The AppContainer's broker needs the workspace's inherited ACL.
+            os.makedirs(folder, mode=0o777 if os.name == "nt" else 0o700, exist_ok=True)
             if os.path.realpath(folder) != folder:
                 raise ValueError("Python 产物目录不能是符号链接")
             with open(os.path.join(folder, name), "xb") as file:
@@ -140,6 +142,9 @@ def capture_before(action):
     return captured
 
 
+# The input pipe is ready. A fresh Windows profile may still need to build
+# matplotlib's font cache; the first request waits in the pipe in the meantime.
+send("ready")
 try:
     import matplotlib.pyplot as plt
     plt.show = capture_before(plt.show)
@@ -147,8 +152,6 @@ try:
 except ImportError:
     pass
 
-
-send("ready")
 
 for line in input_pipe:
     request = json.loads(line)

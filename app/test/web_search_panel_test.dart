@@ -29,9 +29,9 @@ void main() {
       final dir = Directory.systemTemp.createTempSync('df-web-widget-');
       final backend = FakeBackend();
       var configured = false, selected = 'local', calls = 0;
-      String? lastError;
+      String? lastError = 'fetch failed';
       var fail = false;
-      Json status() => {'configured': configured, 'backend': selected, 'lastError': lastError, 'month': '2026-11', 'usage': {'calls': calls, 'deepseekCalls': calls, 'billableCalls': calls, 'estimatedCostCny': calls * 0.005, 'uncertainCalls': 0}};
+      Json status() => {'configured': configured, 'backend': selected, 'lastError': lastError, 'lastErrorTool': 'web_fetch', 'month': '2026-11', 'usage': {'calls': calls + 61, 'deepseekCalls': calls, 'billableCalls': calls, 'estimatedCostCny': calls * 0.005, 'uncertainCalls': 0}};
       backend.handlers['webSearch.status'] = (_) => status();
       backend.handlers['webSearch.saveKey'] = (_) { configured = true; return status(); };
       backend.handlers['webSearch.deleteKey'] = (_) { configured = false; selected = 'local'; lastError = null; return status(); };
@@ -49,15 +49,18 @@ void main() {
         home: const Scaffold(body: SingleChildScrollView(child: WebSearchPanel())),
       )));
       await tester.pumpAndSettle();
-      expect(find.text('未配置'), findsOneWidget);
-      expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '测试连接')).onPressed, isNull);
+      expect(find.text('本月本机读取 61 次 · DeepSeek 服务 0 次'), findsOneWidget);
+      expect(find.textContaining('上次读取网页失败'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('测试搜索'), findsNothing);
+      await tester.tap(find.text('配置搜索')); await tester.pumpAndSettle();
       expect(backend.callsTo('webSearch.test'), isEmpty);
       await tester.tap(find.text('保存密钥')); await tester.pumpAndSettle();
-      expect(find.text('上次错误：请填写 DeepSeek 官方密钥'), findsOneWidget);
+      expect(find.text('设置未完成：请填写 DeepSeek 官方密钥'), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'T64_SYNTHETIC_UI_KEY');
       expect(tester.widget<TextField>(find.byType(TextField)).obscureText, isTrue);
       await tester.tap(find.text('保存密钥')); await tester.pumpAndSettle();
-      expect(find.text('已配置'), findsOneWidget);
+      expect(find.text('使用 DeepSeek 官方搜索服务'), findsOneWidget);
       expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, isEmpty);
       expect(find.text('T64_SYNTHETIC_UI_KEY'), findsNothing);
       expect(backend.callsTo('webSearch.test'), isEmpty, reason: 'saving must not cause a paid request');
@@ -65,27 +68,27 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('web-backend'))); await tester.pumpAndSettle();
       await tester.tap(find.text('DeepSeek 抓取').last); await tester.pumpAndSettle();
       expect(selected, 'deepseek');
-      await tester.ensureVisible(find.text('测试连接'));
+      await tester.ensureVisible(find.text('测试搜索'));
       expect(find.byTooltip('会真的搜一次，约 ¥0.005'), findsOneWidget);
-      await tester.tap(find.text('测试连接')); await tester.pumpAndSettle();
+      await tester.tap(find.text('测试搜索')); await tester.pumpAndSettle();
       expect(backend.callsTo('webSearch.test'), hasLength(1));
       expect(find.textContaining('连接成功，返回 1 项结果'), findsOneWidget);
       fail = true;
-      await tester.tap(find.text('测试连接')); await tester.pumpAndSettle();
+      await tester.tap(find.text('测试搜索')); await tester.pumpAndSettle();
       expect(find.textContaining('余额不足'), findsOneWidget);
       if (capture) {
-        await tester.ensureVisible(find.text('联网搜索与抓取')); await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('关键词搜索')); await tester.pumpAndSettle();
         await expectLater(find.byType(Scaffold), matchesGoldenFile('../../Claude Codex Bridge/T64-web-${brightness.name}-150.png'));
       }
       fail = false;
-      await tester.ensureVisible(find.text('测试连接')); await tester.tap(find.text('测试连接')); await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('测试搜索')); await tester.tap(find.text('测试搜索')); await tester.pumpAndSettle();
       expect(find.textContaining('余额不足'), findsNothing);
       await tester.ensureVisible(find.text('删除…')); await tester.tap(find.text('删除…')); await tester.pumpAndSettle();
       await tester.tap(find.text('取消')); await tester.pumpAndSettle();
       expect(backend.callsTo('webSearch.deleteKey'), isEmpty);
       await tester.tap(find.text('删除…')); await tester.pumpAndSettle();
       await tester.tap(find.text('删除密钥')); await tester.pumpAndSettle();
-      expect(find.text('未配置'), findsOneWidget);
+      expect(find.text('配置搜索'), findsOneWidget);
       expect(selected, 'local');
       expect(tester.takeException(), isNull);
     });

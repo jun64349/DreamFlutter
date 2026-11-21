@@ -13,8 +13,12 @@ import 'package:test/test.dart';
 void main() {
   late Directory temp;
   late CoreClient core;
+  late String expectedCoreVersion;
 
   setUpAll(() async {
+    final mainPath = CoreLocator.findMain([Directory.current.path])!;
+    final manifest = File(p.join(p.dirname(p.dirname(mainPath)), 'package.json'));
+    expectedCoreVersion = (jsonDecode(await manifest.readAsString()) as Map)['version'] as String;
     temp = await Directory.systemTemp.createTemp('df-core-dart-');
     core = await CoreLocator.ensureRunning(
       searchRoots: [Directory.current.path],
@@ -36,7 +40,7 @@ void main() {
 
   test('hello reports the core version and no slots', () async {
     final hello = asJsonForTest(await core.call('core.hello'));
-    expect(hello['version'], '0.7.0');
+    expect(hello['version'], expectedCoreVersion);
     expect(hello['slots'], isEmpty);
   });
 
@@ -85,7 +89,16 @@ void main() {
     final workspace = await Directory(p.join(temp.path, 'side-ws')).create();
     final path = p.join(temp.path, 'sessions', 'source.jsonl');
     await File(path).writeAsString(jsonEncode({'type': 'session', 'version': 3, 'id': 'source', 'timestamp': '2026-11-06T00:00:00.000Z', 'cwd': workspace.path}) + '\n');
-    final launched = launchInCore(core, SessionTarget(cwd: workspace.path, forkOf: path, sideQuote: 'quoted', quoteEntryId: 'entry'));
+    final oldSide = launchInCore(core, SessionTarget(cwd: workspace.path, forkOf: path, sideQuote: 'quoted', quoteEntryId: 'entry'));
+    await expectLater(oldSide.ready, throwsA(predicate((error) => error.toString().contains('先继续旧会话'))));
+    await oldSide.client.dispose();
+    // A new side conversation belongs to its DSH parent. The original 1.0 log above stays read-only.
+    final parentPath = p.join(temp.path, 'sessions', 'dsh-parent.jsonl');
+    await File(parentPath).writeAsString([
+      jsonEncode({'type':'session','version':3,'id':'dsh-parent','timestamp':'2026-11-20T00:00:00.000Z','cwd':workspace.path}),
+      jsonEncode({'type':'custom','id':'marker','parentId':null,'timestamp':'2026-11-20T00:00:01.000Z','customType':'df.dshSession','data':{'id':'dsh-parent','kind':'workbench'}}),
+    ].join('\n')+'\n');
+    final launched = launchInCore(core, SessionTarget(cwd: workspace.path, forkOf: parentPath, sideQuote: 'quoted', quoteEntryId: 'entry'));
     await launched.ready;
     final slotId = launched.slotId!()!;
     final info = (await core.call('slot.list') as List).cast<Map>().firstWhere((r) => r['slotId'] == slotId);
@@ -114,7 +127,7 @@ void main() {
       // The running core "comes up" in this data dir after 3 s.
       Future<void>.delayed(const Duration(seconds: 3), () => File(p.join(temp.path, 'data', 'core.json')).copySync(p.join(dir.path, 'core.json')));
       final client = await CoreLocator.waitForStart(dir.path, 1234, isAlive: (_) async => true, startTimeout: const Duration(seconds: 30));
-      expect(asJsonForTest(await client.call('core.hello'))['version'], '0.7.0');
+      expect(asJsonForTest(await client.call('core.hello'))['version'], expectedCoreVersion);
       await client.close();
     });
 

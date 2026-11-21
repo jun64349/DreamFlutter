@@ -20,9 +20,9 @@ const definitions: { name: string; label: string; description: string; propertie
 
 import type { SandboxHandle } from "../core.ts";
 
-export function gitTools(state: HarnessState, sandbox?: Pick<SandboxHandle, "ready" | "distro" | "seatbelt">): ToolDefinition[] {
+export function gitTools(state: HarnessState, sandbox?: Pick<SandboxHandle, "ready" | "distro" | "seatbelt" | "appContainer">): ToolDefinition[] {
 	const runner = state.env.kind === "sandbox"
-		? sandboxGitRunner(sandbox ? sandboxGitEnvironment(sandbox) : state.env, sandbox?.ready ?? (async () => { throw new Error("沙箱尚未准备好。"); }))
+		? sandboxGitRunner(sandbox && !sandbox.appContainer ? sandboxGitEnvironment(sandbox) : state.env, sandbox?.ready ?? (async () => { throw new Error("沙箱尚未准备好。"); }))
 		: hostGitRunner();
 	return definitions.map((definition) => ({
 		...definition,

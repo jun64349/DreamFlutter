@@ -6,7 +6,7 @@ import { withLedgerContext } from "../ledger/types.ts";
 import type { Model } from "@earendil-works/pi-ai";
 import type { Core } from "../core.ts";
 import type { Db } from "../db.ts";
-import type { Llm } from "../modules/llm.ts";
+import { completeModel, type Llm } from "../modules/llm.ts";
 import { textOf } from "../runs.ts";
 import { type AgentRun, runMemoryAgent, waitForMemory } from "./agent.ts";
 import { type JobOutcome, type MemoryJob, MemoryJobInterrupted, MemoryJobs, PRIORITY } from "./jobs.ts";
@@ -771,6 +771,7 @@ export class MemoryWork {
 		const model = await waitForMemory(() => this.model(runtime), this.stopWaiting.signal);
 		if (!model) throw new Error("没有可用的模型");
 		const run = await withLedgerContext({ purpose: "memory", workspace: cwd, runId: job.id, sessionId: null, slotId: null }, () => runMemoryAgent({
+			complete: (context, options) => completeModel(this.core, runtime, model, context, options),
 			runtime,
 			model,
 			system,
@@ -851,7 +852,7 @@ export class MemoryWork {
 			const signal = AbortSignal.any([this.shutdown.signal, timeout.signal]);
 			// Account for a response even if it arrives after our decision deadline.
 			// stop() waits for these writes before Core closes the database.
-			const request = waitForMemory(() => withLedgerContext({ purpose: "memory", workspace: input.cwd, sessionId: null, slotId: null, runId: null }, () => runtime.completeSimple(model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 256, signal } as never)), this.stopWaiting.signal).then((answer) => {
+			const request = waitForMemory(() => withLedgerContext({ purpose: "memory", workspace: input.cwd, sessionId: null, slotId: null, runId: null }, () => completeModel(this.core, runtime, model, { systemPrompt: "你只做一件事：判断对话里是不是换了任务。只输出 JSON。", messages: [{ role: "user", content: [{ type: "text", text }], timestamp: this.now() }] } as never, { maxTokens: 256, signal } as never)), this.stopWaiting.signal).then((answer) => {
 				const u = answer.usage ?? {};
 				const boundaryEntry = `boundary:${this.now()}:${Math.random().toString(36).slice(2, 8)}`, boundaryAt = this.now();
 				this.core.ledger?.linkIndex(boundaryEntry, boundaryAt, answer.provider ?? model.provider, answer.model ?? model.id, u);

@@ -94,7 +94,7 @@ class SlotConnection implements PiConnection {
 
 /// What to open in the core.
 class SessionTarget {
-  const SessionTarget({required this.cwd, this.sessionPath, this.attachSlotId, this.incognito = false, this.agentMode, this.sandbox = false, this.forkOf, this.sideQuote, this.quoteEntryId, this.parentSlotId});
+  const SessionTarget({required this.cwd, this.sessionPath, this.attachSlotId, this.continueFromSlotId, this.incognito = false, this.agentMode, this.sandbox = false, this.forkOf, this.sideQuote, this.quoteEntryId, this.parentSlotId});
 
   /// Working directory for a new session.
   final String cwd;
@@ -104,6 +104,9 @@ class SessionTarget {
 
   /// Live slot to attach to instead of opening anything.
   final String? attachSlotId;
+
+  /// Open a new session using the legacy slot's currently selected branch.
+  final String? continueFromSlotId;
 
   /// Temporary chat: kept in memory only, never saved or remembered.
   final bool incognito;
@@ -156,8 +159,9 @@ LaunchedSession launchInCore(CoreClient core, SessionTarget target, {String Func
       deferred = [...asJsonList(result['replay']), ...asJsonList(result['live'])];
       return;
     }
-    final info = asJson(
-      await core.call('slot.open', {
+    final info = asJson(target.continueFromSlotId != null
+      ? await core.call('sessions.continue', {'slotId': requested, 'sourceSlotId': target.continueFromSlotId}, const Duration(minutes: 30))
+      : await core.call('slot.open', {
         'slotId': requested,
         'cwd': target.cwd,
         'sessionFile': ?target.sessionPath,

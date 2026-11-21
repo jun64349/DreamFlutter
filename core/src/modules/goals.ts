@@ -5,7 +5,8 @@ import type { SQLInputValue } from "node:sqlite";
 import { type Core, type CoreModule, type Params, RpcError, normalizeCwd, samePath, requireStr, str } from "../core.ts";
 import { type Db, json, now, parseJson } from "../db.ts";
 import type { Slot } from "../slots/slot.ts";
-import { SessionManager, type AgentSessionEvent, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent, ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { readSessionSnapshot } from "../dsh/session-legacy.ts";
 import type { Run } from "../runs.ts";
 import { recordedSandbox } from "../pi/host.ts";
 import { redact } from "../security/redaction.ts";
@@ -320,7 +321,7 @@ export class GoalScheduler {
 		if (sessionFile) {
 			this.core.assertTaskSession(sessionFile);
 			if (!statSync(sessionFile).isFile()) throw new RpcError("not_found", "找不到目标会话");
-			const manager = slot?.session.sessionManager ?? SessionManager.open(sessionFile);
+			const manager = slot?.session.sessionManager ?? readSessionSnapshot(sessionFile);
 			const sandbox = slot?.sandboxed ?? recordedSandbox(manager);
 			sessionScope = { cwd: slot?.cwd ?? manager.getHeader()?.cwd ?? null, partition: sandbox ? "butterfly" : "workbench", sandbox };
 		}

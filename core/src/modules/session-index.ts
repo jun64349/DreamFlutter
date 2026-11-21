@@ -1,6 +1,7 @@
 import { inheritedIds, readSessionEntries, sideFromEntries } from "../pi/session-metadata.ts";
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { SessionRecycle } from "../sessions/recycle.ts";
+import { createLegacyProjection } from "../dsh/session-legacy.ts";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Core, CoreModule } from "../core.ts";
 import { normalizeCwd, requireStr, RpcError, samePath, str } from "../core.ts";
@@ -506,6 +507,24 @@ export class SessionIndex implements CoreModule {
 			const archived = params.archived === "only" || params.archived === "include" ? params.archived : "exclude";
 			return this.list({ cwd: str(params.cwd), archived });
 		});
+		core.register("sessions.continue", async (params, client) => {
+			if (this.stopping || core.maintenance) throw new RpcError("busy", "正在维护数据，请稍后继续");
+			const source = core.slot(requireStr(params.sourceSlotId, "sourceSlotId"));
+			const path = source.readOnlyLegacy;
+			if (!path) throw new RpcError("bad_request", "请打开要继续的旧会话");
+			if (core.deletingSessionFiles.has(normalizeCwd(path))) throw new RpcError("conflict", "旧会话正在删除");
+			const manager = source.session.sessionManager;
+			const branchId = str(params.branchId) ?? manager.getLeafId();
+			if (branchId !== null && !manager.getEntry(branchId)) throw new RpcError("not_found", "找不到所选分支");
+			const newFile = createLegacyProjection(path, manager, branchId, source.cwd, this.sessionsDir);
+			try {
+				const continued = await core.openSlot({ sessionFile: newFile, cwd: source.cwd, slotId: str(params.slotId), client });
+				return continued.info();
+			} catch (error) {
+				rmSync(newFile, { force: true });
+				throw error;
+			}
+		});
 		core.register("sessions.markSeen", params => {
 			const file = requireStr(params.sessionFile, "sessionFile");
 			if (!isAbsolute(file) || !file.toLowerCase().endsWith(".jsonl") || !statSync(file, { throwIfNoEntry: false })?.isFile()) {
@@ -591,7 +610,7 @@ function listJsonl(root: string): string[] {
 			return;
 		}
 		for (const entry of entries) {
-			if (entry.name.toLowerCase() === ".recycle") continue;
+			if (entry.name.toLowerCase() === ".recycle" || (depth === 0 && entry.name === ".dsh")) continue;
 			const path = join(dir, entry.name);
 			if (entry.isDirectory() && depth < 3) walk(path, depth + 1);
 			else if (entry.isFile() && entry.name.endsWith(".jsonl")) out.push(path);

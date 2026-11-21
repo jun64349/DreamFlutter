@@ -1,13 +1,14 @@
 import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { BUILT_IN_ROLES, type RoleCard, roleById, roleTools } from "../agent/roles.ts";
 import type { Core, CoreModule } from "../core.ts";
+import { runDshSubagent } from "../dsh/subagent.ts";
 import { APPROVAL_TITLE } from "../pi/dialogs.ts";
 import { textOf } from "../runs.ts";
 import { JobsModule } from "./jobs.ts";
 
 /**
  * The `agent` tool: the main agent sends a role card off with a task; the
- * subagent works in its own in-memory Pi session (fresh context, the parent's
+ * subagent works in its own in-memory session (fresh context, the parent's
  * approval rules, channel models) and hands back its final reply. Several
  * calls in one turn run side by side. See docs/history/v0.3-design.md.
  */
@@ -25,6 +26,7 @@ export interface SubagentDetails {
 	/** What it is doing now (running), e.g. "grep: TODO". */
 	activity: string | null;
 	turns: number;
+	maxTurns: number;
 	toolCalls: number;
 	tools: Record<string, number>;
 	inputTokens: number;
@@ -32,7 +34,8 @@ export interface SubagentDetails {
 	cost: number;
 	model: string | null;
 	/** Why it stopped early: the turn cap or the user. */
-	stoppedBy?: "maxTurns" | "aborted";
+	stoppedBy?: "maxTurns" | "aborted" | "maxTokens";
+	resultKind?: "final" | "partial" | "none";
 	error?: string;
 }
 
@@ -144,6 +147,7 @@ export class SubagentsModule implements CoreModule {
 			status: "waiting",
 			activity: null,
 			turns: 0,
+			maxTurns: role.maxTurns,
 			toolCalls: 0,
 			tools: {},
 			inputTokens: 0,
@@ -152,18 +156,39 @@ export class SubagentsModule implements CoreModule {
 			model: null,
 		};
 		const files = new Set<string>();
+		const writes = new Map<string, string>();
 		const update = () => onUpdate?.({ content: [{ type: "text", text: details.activity ?? "" }], details: { ...details, tools: { ...details.tools } } });
 		update();
 		const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 		let runtime: Awaited<ReturnType<Core["openSubagentRuntime"]>> | undefined;
 		let acquired = false;
 		let failure: string | undefined;
+		let report = "";
+		let lastReply = "";
+		let lastStopReason: string | undefined;
+		const finish = () => {
+			details.activity = null;
+			details.status = details.stoppedBy ? "stopped" : details.error ? "failed" : "done";
+			const final = !details.stoppedBy && !details.error && !!report;
+			const reply = final ? report : lastReply;
+			details.resultKind = final ? "final" : reply ? "partial" : "none";
+			update();
+			const reason = details.stoppedBy === "maxTurns" ? `子 Agent 达到 ${role.maxTurns} 轮上限。`
+				: details.stoppedBy === "aborted" ? "子 Agent 已停止。"
+				: details.stoppedBy === "maxTokens" ? "子 Agent 的回复达到输出上限。"
+				: details.error ? "子 Agent 执行失败。" : "";
+			const text = final ? reply
+				: reply ? `${reason}以下是阶段记录，任务可能未完成。\n\n${reply}`
+				: `${reason}子 Agent 未留下可交接的结果。`;
+			return { content: [{ type: "text" as const, text }], details };
+		};
 		try {
 			await this.acquire(runSignal);
 			acquired = true;
 			details.status = "running";
 			update();
-			runtime = await this.core.openSubagentRuntime(parentSlotId, `${parentSlotId}/agent-${++this.counter}`, cwd, parent.ui, parent.sandboxed);
+			const childId = `${parentSlotId}/agent-${++this.counter}`;
+			runtime = await this.core.openSubagentRuntime(parentSlotId, childId, cwd, parent.ui, parent.sandboxed);
 			const session = runtime.session;
 			await session.bindExtensions({
 				uiContext: labelApprovals(parent.ui.context(), `${role.name} · ${description}`),
@@ -190,7 +215,15 @@ export class SubagentsModule implements CoreModule {
 			details.model = session.model ? `${session.model.provider}/${session.model.id}` : null;
 			session.setActiveToolsByName(roleTools(role, session.getAllTools().map((t) => t.name)));
 
-			const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+			const onStep = () => {
+				details.turns++;
+				details.activity = null;
+				if (details.turns >= role.maxTurns && lastStopReason === "toolUse") details.stoppedBy ??= "maxTurns";
+				update();
+				return details.stoppedBy === "maxTurns";
+			};
+			const onAbort = () => { details.stoppedBy ??= "aborted"; };
+			const onEvent = (event: AgentSessionEvent) => {
 				const e = event as AgentSessionEvent & Record<string, unknown>;
 				if (e.type === "tool_execution_start") {
 					const name = String(e.toolName);
@@ -199,20 +232,26 @@ export class SubagentsModule implements CoreModule {
 					details.tools[name] = (details.tools[name] ?? 0) + 1;
 					details.activity = brief(name, args);
 					const path = args.file_path ?? args.path;
-					if (FILE_TOOLS.has(name) && typeof path === "string") files.add(path);
+					if (FILE_TOOLS.has(name) && typeof path === "string") writes.set(e.toolCallId, path);
 					update();
-				} else if (e.type === "turn_end") {
-					details.turns++;
-					if (details.turns >= role.maxTurns && !details.stoppedBy) {
-						details.stoppedBy = "maxTurns";
-						void session.abort();
-					}
-					update();
+				} else if (e.type === "tool_execution_end") {
+					const path = writes.get(e.toolCallId);
+					writes.delete(e.toolCallId);
+					if (path !== undefined && !e.isError) files.add(path);
+				} else if (e.type === "message_start" && e.message.role === "assistant") {
+					lastStopReason = undefined;
+					report = "";
 				} else if (e.type === "message_end") {
 					const message = e.message as Record<string, unknown>;
 					if (message.role !== "assistant") return;
+					lastStopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
 					const text = textOf(message.content);
-					if (text) job?.append(text.endsWith("\n") ? text : text + "\n");
+					if (text && lastStopReason !== "error") {
+						lastReply = text;
+						report = lastStopReason === "stop" ? text : "";
+						if (report) delete details.error;
+						job?.append(text + "\n");
+					}
 					const u = (message.usage ?? {}) as Record<string, unknown>;
 					usage.input += num(u.input);
 					usage.output += num(u.output);
@@ -222,39 +261,43 @@ export class SubagentsModule implements CoreModule {
 					details.inputTokens = usage.input + usage.cacheRead + usage.cacheWrite;
 					details.outputTokens = usage.output;
 					details.cost = usage.cost;
-					if (message.stopReason === "error") details.error = typeof message.errorMessage === "string" ? message.errorMessage : "模型返回错误";
+					if (lastStopReason === "error") details.error = typeof message.errorMessage === "string" ? message.errorMessage : "模型返回错误";
 				}
-			});
-			const stop = () => {
-				if (!details.stoppedBy) details.stoppedBy = "aborted";
-				void session.abort();
 			};
-			runSignal.addEventListener("abort", stop, { once: true });
-			try {
-				// Stopped while the child was being set up: it never starts.
-				if (runSignal.aborted) stop();
-				else {
-					await session.prompt(`${role.instructions}\n\n## Task\n\n${prompt}`, { source: "rpc" });
-					await session.waitForIdle();
+			const input = `${role.instructions}\n\n## Task\n\n${prompt}`;
+			const backend = this.core.dshBackend;
+			if (backend) {
+				const dsh = backend.sessions?.temporary;
+				if (!dsh) throw new Error("子 Agent 会话后台没有准备好");
+				await runDshSubagent(dsh, session, { cwd, prompt: input, maxTurns: role.maxTurns, signal: runSignal, onEvent, onStep, onAbort,
+					ledgerContext: () => ({ purpose: "subagent", slotId: childId, runId: parent.currentRun?.id, workspace: cwd }),
+				});
+			} else {
+				const unsubscribe = session.subscribe((event) => {
+					if (event.type === "turn_end" && onStep()) void session.abort();
+					onEvent(event);
+				});
+				const stop = () => { onAbort(); void session.abort(); };
+				runSignal.addEventListener("abort", stop, { once: true });
+				try {
+					if (runSignal.aborted) stop();
+					else {
+						await session.prompt(input, { source: "rpc" });
+						await session.waitForIdle();
+					}
+				} finally {
+					runSignal.removeEventListener("abort", stop);
+					unsubscribe();
 				}
-			} finally {
-				runSignal.removeEventListener("abort", stop);
-				unsubscribe();
 			}
 
-			const reply = session.getLastAssistantText()?.trim() ?? "";
-			details.activity = null;
-			details.status = details.stoppedBy ? "stopped" : details.error && !reply ? "failed" : "done";
-			update();
-			const note =
-				details.stoppedBy === "maxTurns"
-					? `\n\n[The subagent reached its limit of ${role.maxTurns} turns and stopped; the reply above may be incomplete.]`
-					: details.stoppedBy === "aborted"
-						? "\n\n[The user stopped the subagent.]"
-						: "";
-			if (details.status === "failed") throw new Error(`the subagent failed: ${details.error}`);
-			return { content: [{ type: "text", text: (reply || "(the subagent gave no final reply)") + note }], details };
+			if (lastStopReason === "length") details.stoppedBy ??= "maxTokens";
+			return finish();
 		} catch (error) {
+			if (runSignal.aborted) {
+				details.stoppedBy ??= "aborted";
+				return finish();
+			}
 			failure = error instanceof Error ? error.message : String(error);
 			throw error;
 		} finally {

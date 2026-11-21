@@ -4,6 +4,7 @@ import { QUESTION_TITLE } from "./interaction-tools.ts";
 import { EdgeHtmlBrowser } from "./render-html-browser.ts";
 import { captureHtmlPage, HTML_RENDER_TIMEOUT_MS, MAX_RENDER_PIXELS, type BrowserPipe, type CaptureOptions } from "./render-html-cdp.ts";
 import { RenderHtmlResources, RenderInputError, publicEntryError, renderAccessError, type RenderGoalScope } from "./render-html-resources.ts";
+import { captureWindowsStaticHtml } from "./render-html-static.ts";
 import type { HarnessState } from "./state.ts";
 import { CHROMIUM_DOWNLOAD_MB, SandboxHtmlBrowser, type HtmlSandbox } from "../sandbox/html-browser.ts";
 
@@ -72,7 +73,8 @@ function browserInstallPrompt(browser: SandboxHtmlBrowser, pi: ExtensionAPI) {
 export function renderHtmlTool(pi: ExtensionAPI, state: HarnessState, workspace: string | undefined, sandbox?: HtmlSandbox): ToolDefinition {
 	const closed = new AbortController();
 	const active = new Set<Promise<Result>>();
-	const browser = sandbox ? new SandboxHtmlBrowser(sandbox) : new EdgeHtmlBrowser();
+	const native = sandbox?.appContainer;
+	const browser = native ? undefined : sandbox ? new SandboxHtmlBrowser(sandbox) : new EdgeHtmlBrowser();
 	const askToInstall = browser instanceof SandboxHtmlBrowser && !sandbox?.seatbelt ? browserInstallPrompt(browser, pi) : undefined;
 	const root = () => sandbox ? (sandbox.workspaceDir ?? "/workspace") : workspace ?? state.cwd;
 	const security = state.security;
@@ -98,7 +100,8 @@ export function renderHtmlTool(pi: ExtensionAPI, state: HarnessState, workspace:
 	return {
 		name: "render_html",
 		label: "HTML 截图",
-		description: "Render a local workspace HTML file as PNG using local images, styles and scripts. External requests are blocked.",
+		description: native ? "Render a static HTML/CSS report as PNG in the isolated Windows workspace. JavaScript execution is disabled. Only approved local resources can be used."
+			: "Render a local workspace HTML file as PNG using local images, styles and scripts. External requests are blocked.",
 		parameters: {
 			type: "object", required: ["file_path"], properties: {
 				file_path: { type: "string", description: "Path to an HTML file inside this workspace." },
@@ -135,9 +138,9 @@ export function renderHtmlTool(pi: ExtensionAPI, state: HarnessState, workspace:
 					} finally { remaining -= performance.now() - started; }
 				}
 				const find = async (signal: AbortSignal) => {
-					const binary = await browser.find(signal);
+					const binary = await browser?.find(signal);
 					signal.throwIfAborted();
-					if (binary) await sandbox?.ready();
+					if (binary || native) await sandbox?.ready();
 					return binary;
 				};
 				let resources: RenderHtmlResources, binary: string | undefined;
@@ -165,21 +168,23 @@ export function renderHtmlTool(pi: ExtensionAPI, state: HarnessState, workspace:
 					log?.("", "截图浏览器准备失败", error);
 					throw new Error("截图浏览器准备失败。");
 				}
-				if (!binary) return textResult(sandbox ? CHROMIUM_MISSING : EDGE_MISSING);
+				if (!binary && !native) return textResult(sandbox ? CHROMIUM_MISSING : EDGE_MISSING);
 				const deadline = AbortSignal.timeout(HTML_RENDER_TIMEOUT_MS);
 				const renderSignal = AbortSignal.any([cancel, deadline]);
 				let pipe: BrowserPipe | undefined;
 				let stored: StoredHtmlImage | undefined;
 				let stage = "截图浏览器无法完成截图";
 				try {
-					pipe = await browser.launch(binary, renderSignal);
-					const result = await captureHtmlPage(pipe, resources, options, renderSignal);
+					if (binary && browser) pipe = await browser.launch(binary, renderSignal);
+					const result = native ? await captureWindowsStaticHtml(native, resources, options, renderSignal)
+						: await captureHtmlPage(pipe!, resources, options, renderSignal);
 					renderSignal.throwIfAborted();
 					stage = "无法保存截图产物";
 					stored = await store?.(result.png, renderSignal);
 					renderSignal.throwIfAborted();
 					const file = stored?.path;
 					const info = [file ? "已生成图片：" + file : "已生成 HTML 截图", result.width + "×" + result.height];
+					if (native) info.push("Windows 静态截图使用 HTML 和 CSS，JavaScript 已停用。");
 					if (result.cropped) info.push("页面超出像素上限，截图已裁切。");
 					if (result.blocked.length) info.push("已拦截的资源：", ...result.blocked.map(([url, reason]) => "- " + url + "（" + reason + "）"));
 					const outsideGoal = resources.goalBlockedCount;
@@ -188,7 +193,8 @@ export function renderHtmlTool(pi: ExtensionAPI, state: HarnessState, workspace:
 					stored?.record();
 					return {
 						content: [{ type: "text", text: info.join("\n") }, { type: "image", data: result.png.toString("base64"), mimeType: "image/png" }],
-						details: { imagePaths: [file ?? ""], blocked: result.blocked.map(([url]) => url), width: result.width, height: result.height },
+						details: { imagePaths: [file ?? ""], blocked: result.blocked.map(([url]) => url), width: result.width, height: result.height,
+							...(native && { renderMode: "static" }) },
 					};
 				} catch (error) {
 					await stored?.discard().catch(error => log?.("", "删除未登记的截图失败", error));

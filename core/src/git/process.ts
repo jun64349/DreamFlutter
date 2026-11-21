@@ -59,11 +59,11 @@ export async function findGit(options: { bundledPath?: string | null; env?: Node
 	throw new GitError("not_installed", "未安装 Git：请安装 Git 并加入 PATH，或配置 DREAMFLUTTER_BUNDLED_GIT 为随包 Git 的绝对路径。");
 }
 
-export function collectGit(child: ChildProcess, signal?: AbortSignal, timeoutMs = 30_000, maxBytes = 2 * 1024 * 1024): Promise<GitOutput> {
+export function collectGit(child: ChildProcess, signal?: AbortSignal, timeoutMs = 30_000, maxBytes = 2 * 1024 * 1024, jobOwned = false): Promise<GitOutput> {
 	return new Promise((resolve, reject) => {
 		let stdout = "", stderr = "", size = 0, failure: GitError | undefined;
 		child.stdout?.setEncoding("utf8"); child.stderr?.setEncoding("utf8");
-		const stop = (error: GitError) => { failure ??= error; killTree(child); };
+		const stop = (error: GitError) => { failure ??= error; if (jobOwned) child.kill(); else killTree(child); };
 		const abort = () => stop(new GitError("cancelled", "Git 操作已取消；请重新检查状态。"));
 		const timer = setTimeout(() => stop(new GitError("timeout", "Git 操作超时；请重新检查状态。")), timeoutMs);
 		signal?.addEventListener("abort", abort, { once: true });
@@ -132,6 +132,17 @@ export function sandboxGitEnvironment(distroOrSandbox: string | Pick<SandboxHand
 const SANDBOX_UNSET = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE", "EMAIL"];
 
 export function sandboxGitRunner(env: ExecEnv, ready: () => Promise<void>): GitRunner {
+	const files = env.files;
+	if (files) return {
+		async exists(paths, signal) { await ready(); return Promise.all(paths.map(async (path) => Boolean(await files.stat(path, signal)))); },
+		async run(cwd, args, signal) {
+			signal?.throwIfAborted();
+			await ready();
+			signal?.throwIfAborted();
+			const child = env.spawn("git", [...GLOBAL_ARGS, ...args], cwd);
+			return collectGit(child, signal, undefined, undefined, true);
+		},
+	};
 	return { async exists(paths, signal) {
 		await ready();
 		// One fixed probe per status instead of bootstrapping wsl.exe once per marker.

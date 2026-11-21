@@ -49,7 +49,7 @@ test.6 包的结果见 [test.6 发布说明](../releases/v0.12.0-test.6.md) 和 
 
 | 设计流程 | 自动场景 | 操作→应看到什么 | 验证边界 |
 |---|---|---|---|
-| 4.1 安装、首次启动 | t88_pages_test：wizard tests once…；t88_bootstrap_notifications_test：new install… / existing data… | 欢迎、五步向导、推荐值、进度、上一步 | 安装位置、磁盘空间、OS权限另验 |
+| 4.1 安装、首次启动 | `t88_pages_test`、`t88_bootstrap_notifications_test`、`v0131_wizard_skip_test` | 欢迎、数据位置、称呼、常用项目文件夹；空渠道直接进工作台，从设置打开添加渠道；已有数据直接进工作台 | 安装位置、磁盘空间和系统目录权限另验 |
 | 4.2 再次打开 | t88_bootstrap_notifications_test：existing root is read only；t84_window_behavior_test；T-92 耗时回执另记 | 单实例、启动进度、托盘、忙时退出确认 | 冷启动/再次启动/退出耗时要实际测 |
 | 4.3 开始一件事 | T91-4.3 | 顶栏换项目、新对话、附件、输入、Faux回复、无痕不保存 | 文件事件注入，不冒充外部系统拖放；真实图片理解另验 |
 | 4.4 看过程、批准 | T91-4.4 | 真工具写前批准、允许才写/拒绝不写、停止、错误卡和重试恢复 | 统一处理页由 t88_pages_test 覆盖；系统通知真实呈现另验 |

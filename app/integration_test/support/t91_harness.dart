@@ -16,18 +16,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../test/support/clean_env.dart';
 
 class T91Backend implements AgentBackend {
-  T91Backend(this.client,this.zone);
+  T91Backend(this.client,this.zone,{this.nativeSandbox=false});
   final CoreClient client;
   final Zone zone;
+  final bool nativeSandbox;
   @override Future<Json> connect() async => asJsonMap(await call('core.hello'));
   @override bool get isConnected => !client.isClosed;
   @override Future<void> get disconnected => client.closed;
   @override Stream<Json> get events => client.events;
   @override Future<Object?> call(String method,[Json params=const {},Duration timeout=const Duration(seconds:60)]) {
-    if(method=='sandbox.status')return Future.value({'state':'ready','fixture':true});
+    if(!nativeSandbox&&method=='sandbox.status')return Future.value({'state':'ready','fixture':true});
     return zone.run(()=>client.call(method,params,timeout));
   }
   @override LaunchedSession launch(SessionTarget target) {
+    if(nativeSandbox)return zone.run(()=>launchInCore(client,target));
     final local=target.sandbox?SessionTarget(cwd:target.cwd,sessionPath:target.sessionPath,attachSlotId:target.attachSlotId,incognito:target.incognito,agentMode:target.agentMode,forkOf:target.forkOf,sideQuote:target.sideQuote,quoteEntryId:target.quoteEntryId,parentSlotId:target.parentSlotId):target;
     final launched=zone.run(()=>launchInCore(client,local));
     Future<void> ready() async {await launched.ready;if(target.sandbox)await call('test.butterflyRole',{'slotId':launched.slotId!()});}
@@ -47,16 +49,17 @@ class T91Harness {
   final shots=Directory(p.join(Directory.current.path,'build',const String.fromEnvironment('T91_SHOTS',defaultValue:'t91_shots')))..createSync(recursive:true);
   String get workspace=>info['workspace'] as String;
   String get home=>info['home'] as String;
-  static Future<T91Harness> start() async {
+  static Future<T91Harness> start({String? persistentRoot,String? nativePackage}) async {
     HeldKeys.askWindows=false;
-    final process=await Process.start('node',['--disable-warning=ExperimentalWarning','integration_test/support/t91_core.ts'],environment:testCoreEnvironment(),includeParentEnvironment:false);
+    final executable = nativePackage == null ? 'node' : p.join(nativePackage,'runtime','node.exe');
+    final process=await Process.start(executable,['--disable-warning=ExperimentalWarning',if(nativePackage!=null) ...['integration_test/support/v11_butterfly_core.ts',nativePackage] else if(persistentRoot==null)'integration_test/support/t91_core.ts' else ...['integration_test/support/v11_core.ts',persistentRoot]],environment:testCoreEnvironment(),includeParentEnvironment:false);
     final errors=<String>[];process.stderr.transform(utf8.decoder).listen(errors.add);
     final ready=Completer<Json>();
     process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line){if(line.startsWith('{')&&!ready.isCompleted)ready.complete(asJsonMap(jsonDecode(line)));});
     process.exitCode.then((code){if(!ready.isCompleted)ready.completeError(StateError('T91 Core exited $code: ${errors.join()}'));});
-    final info=await ready.future.timeout(const Duration(seconds:60));
+    final info=await ready.future.timeout(Duration(seconds:nativePackage==null?60:110));
     final client=await CoreClient.connect(port:info['port'] as int,token:info['token'] as String);
-    final backend=T91Backend(client,Zone.current);
+    final backend=T91Backend(client,Zone.current,nativeSandbox:nativePackage!=null);
     SharedPreferences.setMockInitialValues({'workspace':info['workspace'],'recentWorkspaces':[info['workspace'],info['other']],'onboarded':true,'migratedToCore':true,'themeMode':'light'});
     final agent=AgentController(preferences:await Preferences.load(),backend:backend,sessionStore:SessionStore(sessionsDir:info['sessions'] as String));
     return T91Harness(process,backend,info,agent,errors);
@@ -104,7 +107,7 @@ class T91Harness {
       try{await rpc('test.shutdown');}catch(_){}
       await process.stdin.close();await process.exitCode.timeout(const Duration(seconds:15),onTimeout:(){process.kill();return -1;});
       if(!backend.client.isClosed)await backend.dispose();
-      if(Directory(info['root'] as String).existsSync())throw StateError('T91 fixture did not clean ${info['root']}');
+      if(info['persistent']!=true && Directory(info['root'] as String).existsSync())throw StateError('T91 fixture did not clean ${info['root']}');
     });
   }
 }

@@ -20,7 +20,14 @@ You work inside your own Linux sandbox (Ubuntu 24.04) as the user "agent". It is
 This is a conversation. Greetings, questions and small talk get a normal, short reply; do not turn them into tasks or plans.
 When the user hands you real work, say in one or two sentences what you understood and how you will do it, then start right away in the same reply. Ask (with ask_user_question) only when information you cannot reasonably infer is missing and it blocks the work; never ask about style preferences. When you finish, give a short summary of the result and the files you put in /workspace/outbox.`;
 
-export function sandboxEnvironmentText(workspaceDir?: string): string {
+export function sandboxEnvironmentText(workspaceDir?: string, nativeWindows = false): string {
+	if (nativeWindows && workspaceDir) return `# Environment
+You work in a Windows AppContainer. Your private workspace is \`${workspaceDir}\`. Use PowerShell or Python and Windows paths for commands. File tools also accept /workspace as the workspace root.
+Use the bundled node, python and git commands by name from PowerShell. For a PowerShell script with commands after the executable, check $LASTEXITCODE to use its exit status.
+The workspace starts offline. If the user enables Internet access, commands receive the Internet client capability; local services remain isolated. The bundled tool files are read-only. Keep work in your workspace and put completed files in its outbox.
+
+# Working with the user
+Treat greetings as conversation. When given work, briefly say what you understood and start. Ask only for information required to proceed.`;
 	if (!workspaceDir) return SANDBOX_ENVIRONMENT;
 	return `# Environment
 You work inside your own macOS isolated sandbox (\`sandbox-exec\`). Only your sandbox workspace (\`${workspaceDir}\`) and sandbox temp directory are writable; sensitive system/personal directories and host files outside the sandbox are blocked, so nothing you do here needs user approval.

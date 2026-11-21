@@ -88,6 +88,7 @@ class SessionRuntime extends ChangeNotifier {
     this.sideQuote,
     this.parentSlotId,
     this.rejectDialogsOnEnd = false,
+    this.frameStreamedText = false,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now,
        lastActivity = (clock ?? DateTime.now)();
@@ -110,6 +111,11 @@ class SessionRuntime extends ChangeNotifier {
   final String? parentSlotId;
   /// Side panels own their prompts; closing one must not leave approvals running.
   final bool rejectDialogsOnEnd;
+  /// The workbench's live reply can repaint independently from the rest of the session.
+  final bool frameStreamedText;
+  final _replyFrames = ValueNotifier<int>(0);
+  final _visibleTextParts = <int>{};
+  Listenable get replyFrames => _replyFrames;
   bool get willPersist => _launched?.willPersist?.call() ?? !incognito;
   final ClientLauncher launch;
   final DateTime Function() _clock;
@@ -139,6 +145,8 @@ class SessionRuntime extends ChangeNotifier {
   List<PiModel> models = const [];
   List<String> thinkingLevels = const [];
   SessionStats stats = SessionStats.empty;
+  var _contextRevision = 0;
+  Json _liveContextUsage = const {};
 
   /// Extension commands, prompt templates and skills, runnable as `/name`.
   List<SlashCommand> commands = const [];
@@ -195,6 +203,7 @@ class SessionRuntime extends ChangeNotifier {
   /// Session file path. Pi assigns it when the session is created, before the
   /// file is first written.
   String? get sessionPath => state?.sessionFile;
+  bool get readOnly => state?.readOnly == true;
 
   /// A session nobody has typed into yet.
   bool get isPristine => transcript.items.isEmpty && !isRunning;
@@ -214,7 +223,7 @@ class SessionRuntime extends ChangeNotifier {
   /// Opens a new session, [sessionPath] to resume one, or attaches to the
   /// live core slot [attachSlotId] (a session that kept running while no
   /// window was open). The core applies the default model to new sessions.
-  Future<void> start({String? sessionPath, String? attachSlotId}) async {
+  Future<void> start({String? sessionPath, String? attachSlotId, String? continueFromSlotId}) async {
     await _stopClient();
     if (_disposed) return;
     transcript.clear();
@@ -226,7 +235,7 @@ class SessionRuntime extends ChangeNotifier {
 
     try {
       final launched = launch(
-        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, incognito: incognito, agentMode: requestedAgentMode, sandbox: sandbox, forkOf: forkOf, sideQuote: sideQuote, parentSlotId: parentSlotId),
+        SessionTarget(cwd: workspace, sessionPath: sessionPath, attachSlotId: attachSlotId, continueFromSlotId: continueFromSlotId, incognito: incognito, agentMode: requestedAgentMode, sandbox: sandbox, forkOf: forkOf, sideQuote: sideQuote, parentSlotId: parentSlotId),
       );
       final client = launched.client;
       _launched = launched;
@@ -249,7 +258,7 @@ class SessionRuntime extends ChangeNotifier {
       } catch (_) {
         commands = const [];
       }
-      if (sessionPath != null || attachSlotId != null) transcript.loadHistory(await client.getMessages());
+      if (sessionPath != null || attachSlotId != null || continueFromSlotId != null) transcript.loadHistory(await client.getMessages());
       launched.afterHistory();
       await _refreshState(client);
       await _refreshBranches();
@@ -266,9 +275,11 @@ class SessionRuntime extends ChangeNotifier {
   Future<void> _refreshState(PiRpcClient client) async {
     // The levels follow the model: re-read them with the state, or a session that
     // started before any channel existed keeps offering only 「关闭」 (extra test 1, 2).
+    final revision = _contextRevision;
     final results = await Future.wait([client.getState(), client.getSessionStats(), client.getAvailableThinkingLevels()]);
+    if (_disposed || !identical(_client, client)) return;
     state = results[0] as SessionState;
-    stats = results[1] as SessionStats;
+    _applyStats(results[1] as SessionStats, revision);
     thinkingLevels = results[2] as List<String>;
     try {
       _applyAgentState(await client.send('df_agent_state'));
@@ -350,6 +361,7 @@ class SessionRuntime extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     _notifyTimer?.cancel();
+    _replyFrames.dispose();
     unawaited(_stopClient());
     super.dispose();
   }
@@ -359,6 +371,34 @@ class SessionRuntime extends ChangeNotifier {
   void _onEvent(PiEvent event) {
     _touch();
     final changed = transcript.apply(event);
+    if (frameStreamedText) {
+      switch (event) {
+        case MessageStartEvent(:final message):
+          _visibleTextParts.clear();
+          if (changed && message is UserMessage) {
+            _notifyNow();
+            return;
+          }
+        case MessageUpdateEvent(:final delta) when changed:
+          if (delta.kind == AssistantDeltaKind.textStart) _visibleTextParts.remove(delta.contentIndex);
+          if (delta.kind == AssistantDeltaKind.textDelta && delta.delta.isNotEmpty) {
+            if (_visibleTextParts.contains(delta.contentIndex)) {
+              // Flutter coalesces dirty widgets in a frame. Only the latest
+              // reply depends on this notifier; session state still uses the
+              // regular notification path for structural and tool events.
+              _replyFrames.value++;
+              return;
+            }
+            if (delta.delta.trim().isNotEmpty) {
+              _visibleTextParts.add(delta.contentIndex);
+              _notifyNow();
+              return;
+            }
+          }
+        default:
+          break;
+      }
+    }
     switch (event) {
       case AgentStartEvent():
         lastMessageAt = _clock();
@@ -372,12 +412,18 @@ class SessionRuntime extends ChangeNotifier {
       case UnknownEvent(:final raw) when raw['type'] == 'df_agent_state':
         _applyAgentState(raw);
         _notifyNow();
+      case UnknownEvent(:final raw) when raw['type'] == 'df_context_usage_changed':
+        _contextRevision++;
+        final usage = raw['contextUsage'];
+        _liveContextUsage = usage is Json ? usage : const {};
+        stats = stats.withContextUsage(_liveContextUsage);
+        _scheduleNotify();
       case SessionInfoChangedEvent() || ThinkingLevelChangedEvent():
         final client = _client;
         if (client != null) unawaited(_refreshState(client).then((_) => _notifyNow(), onError: (_) {}));
       case TurnEndEvent() || CompactionEndEvent():
         if (event is TurnEndEvent) lastMessageAt = _clock();
-        // Long runs have many turns: keep the context ring current instead of waiting for the end.
+        // Refresh totals too once the turn or compaction ends.
         if (changed) _scheduleNotify();
         unawaited(_refreshStats());
       default:
@@ -387,12 +433,20 @@ class SessionRuntime extends ChangeNotifier {
 
   var _statsInFlight = false;
 
+  void _applyStats(SessionStats result, int revision) {
+    // A request started before the latest context event can return an older snapshot.
+    stats = revision == _contextRevision ? result : result.withContextUsage(_liveContextUsage);
+  }
+
   Future<void> _refreshStats() async {
     final client = _client;
     if (client == null || _statsInFlight) return;
     _statsInFlight = true;
+    final revision = _contextRevision;
     try {
-      stats = await client.getSessionStats();
+      final result = await client.getSessionStats();
+      if (_disposed || !identical(_client, client)) return;
+      _applyStats(result, revision);
       _scheduleNotify();
     } catch (_) {
     } finally {
@@ -480,7 +534,7 @@ class SessionRuntime extends ChangeNotifier {
     editorTextRevision++;
   }
 
-  /// Coalesces streaming updates to ~25 rebuilds per second.
+  /// Coalesces session and process updates that do not need the next frame.
   void _scheduleNotify() {
     _notifyTimer ??= Timer(const Duration(milliseconds: 40), _notifyNow);
   }

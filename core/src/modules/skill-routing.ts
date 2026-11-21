@@ -124,7 +124,7 @@ export class SkillRouting {
 		const select = async (ctx: ExtensionContext) => {
 			const router = this.state(ctx), all = await this.list(ctx.cwd), live = this.core.slots.get(slotId);
 			if (!router.prompt) router.observe(textOf(live?.session.messages.filter((message) => message.role === "user").at(-1)?.content ?? ""));
-			const memoryTask = this.core.db.get<{ id: string }>("SELECT id FROM memory_task_views WHERE session_id=? AND status='active' ORDER BY started_at DESC,rowid DESC LIMIT 1", ctx.sessionManager.getSessionId())?.id;
+			const memoryTask = this.core.cordis.get("dfMemory") ? this.core.db.get<{ id: string }>("SELECT id FROM memory_task_views WHERE session_id=? AND status='active' ORDER BY started_at DESC,rowid DESC LIMIT 1", ctx.sessionManager.getSessionId())?.id : undefined;
 			const loaded = loadSecurityMcpConfig(this.core.agentDir, ctx.cwd, this.core.isProjectTrusted(ctx.cwd));
 			const mcp = loaded.servers.filter((entry) => this.core.library.mcpAllowed(entry, live?.info().sandbox === true)).map((entry) => ({ name: entry.name, description: entry.config.description }));
 			const result = await router.select(all, { window: ctx.model ? this.core.modelWindow(ctx.model as never) ?? 120_000 : 120_000, scope: `${ctx.cwd}:${live?.info().sandbox ? "butterfly" : "workbench"}`, memoryTask, mcp, prefilterEnabled: this.prefilterEnabled }, (input) => this.llm.complete(JSON.stringify(redactValue(input)), {

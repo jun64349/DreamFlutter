@@ -2,6 +2,16 @@
 
 字段后缀 `?` 表示可省略。通用传输及错误格式见[调用约定](README.md)，类型见[数据结构](types.md)。
 
+## Windows 原生工作区
+
+蝶君默认在该安装的沙箱数据目录中建立标准 Windows 工作区。`sandbox.status.workspaceDir` 给出正在使用的实际路径。蝶君在 AppContainer 中读写该工作区，随包工具目录为只读。联网由用户单独开启，文件传递和归档进程始终离线。
+
+`pwsh` 中仅含字面参数的 `node`、`python`、`git`、`rg`、`fd`、`uv` 命令直接调用随包程序，参数中有空格时可用 PowerShell 单引号。变量、管道等表达式由 Windows PowerShell 处理，并受 Windows 当前语言模式约束。
+
+标准工作区中的随包 Git 无法建库时，可在「设置 › 蝶君 › 蝶君沙箱」选择「启用 Git 兼容工作区」。确认框会显示同一磁盘根下的新路径。梦蝶通过归档复制工作文件，确认随包 Git 能在新位置建库和查询状态后才切换。原文件保留，失败可继续使用原工作区。「切回标准工作区」会把文件复制到一个新的标准工作区。工作树指向原工作区内部的标准链接随归档重定位。
+
+备份带走工作文件和来源路径。盘根目录的归属和联网授权留在本安装。按「数据位置」搬迁沙箱后，新址使用标准工作区，原文件留在原处。 [工作区设置接口](storage-maintenance.md#sandboxsetgitcompatibility) [卸载中的归属核对](uninstall.md)
+
 ## attention.list
 <!-- api:method -->
 
@@ -227,7 +237,7 @@
 - **用途** 读取蝶君工作目录、沙箱与收发目录。
 - **调用方** 窗口或后台，蝶君。
 - **参数** 无。
-- **返回** `{ home: string; distro: string | null; inbox: string; outbox: string; }`。
+- **返回** `{ home: string; distro: string | null; inbox: string; outbox: string; workspaceDir?: string }`。沙箱使用宿主上的原生工作目录时提供 `workspaceDir`，收发目录指向该目录下的 `inbox` 和 `outbox`。WSL 沿用逻辑路径 `/workspace`。
 - **错误** 无专属 RpcError；未分类异常按通用 `internal` 返回。
 - **事件** 没有专属于本方法的推送。
 - **开放范围** 仅内部。

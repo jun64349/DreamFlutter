@@ -111,6 +111,53 @@ void main() {
     expect(find.text('新组'), findsOneWidget);
   });
 
+  testWidgets('现有渠道在设置内编辑，保存时保留原密钥和模型高级字段', (t) async {
+    await start(t);
+    channels.first['keys'] = [{'id': 'saved-key', 'enabled': true, 'label': '原备注', 'hint': '1234'}];
+    channels.first['models'] = [{'id': 'm1', 'name': '测试模型', 'compat': {'supportsStore': false}}];
+    await t.runAsync(f.agent.refreshGateway);
+    await t.pumpAndSettle();
+    final before = routes.pushes;
+    await tapVisible(t, find.text('现有渠道'));
+    expect(routes.pushes, before);
+    expect(t.widget<TextField>(field('渠道名称')).controller!.text, '现有渠道');
+    expect(find.text('已保存 · 尾号 1234'), findsOneWidget);
+    await t.enterText(field('渠道名称'), '修改后');
+    await tapVisible(t, find.widgetWithText(FilledButton, '保存'));
+    final saved = f.backend.callsTo('gateway.saveChannel').single;
+    expect(saved['id'], 'c1');
+    expect(saved['keys'], [{'id': 'saved-key', 'enabled': true, 'label': '原备注'}]);
+    expect(saved['models'], channels.first['models']);
+    expect(field('渠道名称'), findsNothing);
+  });
+
+  testWidgets('手输已知模型预览能力，手动覆盖后仍保留自动上下文', (t) async {
+    await start(t);
+    f.backend.handlers['gateway.modelDefaults'] = (input) => input['id'] == 'gemini-3.1-pro-preview'
+        ? {'contextWindow': 1048576, 'maxTokens': 65536, 'input': ['text', 'image', 'video'], 'reasoning': true, 'thinkingLevels': ['low', 'medium', 'high']}
+        : null;
+    await tapVisible(t, find.text('添加渠道'));
+    await tapVisible(t, find.text('手动添加'));
+    await t.enterText(field('模型 ID'), 'gemini-3.1-pro-preview');
+    await t.pump(const Duration(milliseconds: 200));
+    await t.pumpAndSettle();
+    final image = find.widgetWithText(SwitchListTile, '能看图');
+    final video = find.widgetWithText(SwitchListTile, '模型支持视频');
+    expect(t.widget<SwitchListTile>(image).value, isTrue);
+    expect(t.widget<SwitchListTile>(video).value, isTrue);
+    expect(t.widget<TextField>(field('上下文长度')).decoration!.hintText, '1048576');
+    final off = find.widgetWithText(FilterChip, '关闭');
+    expect(t.widget<FilterChip>(off).selected, isFalse);
+    await t.tap(image);
+    await t.pumpAndSettle();
+    await t.tap(find.text('确定'));
+    await t.pumpAndSettle();
+    await tapVisible(t, find.widgetWithText(FilledButton, '保存'));
+    expect(f.backend.callsTo('gateway.saveChannel').single['models'], [
+      {'id': 'gemini-3.1-pro-preview', 'name': '', 'input': ['text', 'video']},
+    ]);
+  });
+
   testWidgets('收起和切换分类先确认，可继续编辑或放弃', (t) async {
     await start(t);
     await channelDraft(t);

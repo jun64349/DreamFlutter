@@ -13,6 +13,8 @@ import { SecretStore } from "../src/modules/secrets.ts";
 import { SessionIndex } from "../src/modules/session-index.ts";
 import { MIGRATIONS } from "../src/schema.ts";
 import { startTestCore, type TestCore } from "./harness.ts";
+import { SessionId } from "@deepseek-ai/dsh-session";
+import { createUserMessage } from "@deepseek-ai/dsh-llm";
 
 /** v0.3.1 backup, migration and restore (docs/history/v0.3.1-backup-design.md §九). */
 
@@ -115,6 +117,13 @@ describe("backup", () => {
 	it("round-trips everything to another machine, moving every path, and undoes the restore", { timeout: 300_000 }, async () => {
 		const a = await start();
 		const { sessionFile } = await populate(a);
+		const id = SessionId("s1");
+		const history = a.core.cordis.sessions.create(id, { meta: { cwd: a.workspace } });
+		const writer = await a.core.cordis.sessionPersistence.create(history.header);
+		try {
+			history.append("user/message", createUserMessage({ content: [{ type: "text", text: "测试迁移" }], source: { kind: "user" } }), { surfaceOp: "append" });
+			await a.core.cordis.sessions.flush(history);
+		} finally { await writer.close(); }
 		const out = join(a.dir, "out", "我的备份");
 		const exported = await exportBackup(a, {
 			path: out,
@@ -155,6 +164,11 @@ describe("backup", () => {
 		assert.equal(JSON.parse(readFileSync(moved, "utf8").split("\n")[0]!).cwd, b.workspace);
 		assert.ok(db.get("SELECT 1 AS ok FROM session_meta WHERE path = ?", moved), "the index points at it");
 		assert.notEqual(moved, sessionFile);
+		const restoredLog = await b.core.cordis.sessionPersistence.open(id, "read");
+		try {
+			assert.equal(restoredLog.header.cwd, b.workspace);
+			assert.match(JSON.stringify((await restoredLog.read()).events), /测试迁移/);
+		} finally { await restoredLog.close(); }
 		// The material's original is not on B: the copy from the package took its place.
 		const material = db.get<{ path: string }>("SELECT path FROM materials")!.path;
 		assert.ok(material.startsWith(b.core.paths.butterflyDir), material);

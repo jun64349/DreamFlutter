@@ -61,7 +61,7 @@ export const MIRRORS: Mirror[] = [
 export type SandboxState = "no-wsl" | "restart-needed" | "absent" | "provisioning" | "ready" | "error";
 
 export interface SandboxStatus {
-	kind?: "wsl" | "seatbelt";
+	kind?: "wsl" | "seatbelt" | "appcontainer";
 	state: SandboxState;
 	/** What provisioning is doing, for the window. */
 	step: string | null;

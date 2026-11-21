@@ -92,8 +92,11 @@ class ButterflyTasks extends ChangeNotifier {
         for (final row in rows) {
           final delivery = memoryMap(row['delivery']);
           final files = <Json>[];
-          for (final name in (delivery['files'] as List? ?? []).whereType<String>()) {
-            files.add(memoryMap(await root.backend.call('butterfly.chat.artifact', {'goalId': row['goalId'], 'name': name})));
+          for (final path in (delivery['files'] as List? ?? []).whereType<String>()) {
+            files.add(memoryMap(await root.backend.call('butterfly.chat.artifact', {
+              'goalId': row['goalId'],
+              'name': p.posix.basename(path),
+            })));
           }
           additions.add({...row, 'id': row['goalId'], 'sessionFile': file,
             if (delivery.isNotEmpty) 'delivery': {...delivery, 'files': files}});

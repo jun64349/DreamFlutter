@@ -1,13 +1,16 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { RpcError, type Core, type CoreModule } from "../core.ts";
 import { MemoryModule } from "../modules/memory.ts";
-import { compactMemoryHistory, memoryUsage } from "./memory-maintenance.ts";
+import { compactMemoryHistory, DEFAULT_MIN_FREE_BYTES, MemorySpaceGuard, memoryUsage } from "./memory-maintenance.ts";
 import { readSystemProxy } from "../agent/system-proxy.ts";
 import { STORAGE_KINDS, storageLocations, type StorageKind } from "./locations.ts";
 import { moveResultFile, requestMove } from "./move.ts";
 import { Sandbox } from "../sandbox/sandbox.ts";
 import { MacSeatbeltSandbox } from "../sandbox/seatbelt.ts";
+import { WindowsAppContainerSandbox } from "../sandbox/appcontainer-module.ts";
+import { randomUUID } from "node:crypto";
+import { mkdir, rm } from "node:fs/promises";
 
 /** Count owned files without following junctions/symlinks into someone else's data. */
 export function directoryBytes(path: string): number {
@@ -30,10 +33,28 @@ export class StorageModule implements CoreModule {
 			if (core.maintenance) throw new RpcError("busy", core.maintenance);
 			if (!STORAGE_KINDS.includes(params.kind as StorageKind) || typeof params.target !== "string") throw new RpcError("bad_request", "需要数据类别和目标目录");
 			if (existsSync(join(core.paths.dataDir, "restore-switch.json"))) throw new RpcError("busy", "请先完成待重启的备份恢复");
-			if (core.busySlots().length || core.module(MemoryModule)!.work.jobs.list({ status: ["running"] }).length) throw new RpcError("busy", "请先停止对话和记忆后台任务，再搬迁数据");
-			const sandbox = params.kind === "sandbox" ? await (core.module(Sandbox) ?? core.module(MacSeatbeltSandbox))?.status() : undefined;
+			if (core.busySlots().length || core.module(MemoryModule)?.work.busy) throw new RpcError("busy", "请先停止对话和记忆后台任务，再搬迁数据");
+			const sandbox = params.kind === "sandbox" ? await (core.module(WindowsAppContainerSandbox) ?? core.module(MacSeatbeltSandbox) ?? core.module(Sandbox))?.status() : undefined;
 			if (sandbox?.state === "provisioning") throw new RpcError("busy", "沙箱正在准备，请完成后再搬迁");
-			const move = requestMove(core.paths.dataDir, params.kind as StorageKind, params.target, core.agentDir, core.sessionDir, core.paths.dbFile, sandbox?.distro);
+			const native = params.kind === "sandbox" ? core.module(WindowsAppContainerSandbox) : undefined;
+			const workspace = native?.status().workspaceDir;
+			let archive: string | undefined;
+			let move;
+			try {
+				if (workspace && native) {
+					core.maintenance = "正在保存蝶君工作区";
+					const dir = join(core.paths.dataDir, "backups", "storage");
+					await mkdir(dir, { recursive: true });
+					archive = join(dir, "workspace-" + randomUUID() + ".tar.gz");
+					if (!await native.archiveWorkspace(archive)) throw new Error("蝶君工作区归档失败");
+				}
+				move = requestMove(core.paths.dataDir, params.kind as StorageKind, params.target, core.agentDir, core.sessionDir, core.paths.dbFile,
+					sandbox?.distro, native ? { archive, previousPath: workspace } : undefined);
+			} catch (error) {
+				if (workspace) core.maintenance = undefined;
+				if (archive) await rm(archive, { force: true });
+				throw error;
+			}
 			core.maintenance = "正在准备搬迁数据，后台即将重启";
 			core.broadcast({ event: "storage.restarting" });
 			setTimeout(() => void core.shutdown(), 300);
@@ -42,7 +63,8 @@ export class StorageModule implements CoreModule {
 		core.register("storage.memory", () => this.overview());
 		core.register("storage.compactMemory", () => {
 			if (core.maintenance) throw new RpcError("busy", core.maintenance);
-			const memory = core.module(MemoryModule)!;
+			const memory = core.module(MemoryModule);
+			if (!memory) throw new RpcError("unavailable", "启用记忆插件并重启后可以压缩记忆历史");
 			if (core.busySlots().length || memory.work.jobs.list({ status: ["running"] }).length)
 				throw new RpcError("busy", "请等对话和记忆后台任务结束后再压缩历史");
 			const status = memory.space.status();
@@ -61,14 +83,17 @@ export class StorageModule implements CoreModule {
 		const { core } = this;
 		return { path: core.paths.dbFile, ...memoryUsage(core.db),
 			databaseBytes: directoryBytes(core.paths.dbFile) + directoryBytes(core.paths.dbFile + "-wal"),
-			space: core.module(MemoryModule)!.space.status() };
+			space: (core.module(MemoryModule)?.space ?? new MemorySpaceGuard(dirname(core.paths.dbFile),
+				() => core.settings.get().memoryMinFreeBytes ?? DEFAULT_MIN_FREE_BYTES)).status() };
 	}
 
 	private locations() {
 		const core = this.core;
+		const native = core.module(WindowsAppContainerSandbox)?.status();
 		const paths = storageLocations(core.paths.dataDir, core.agentDir, core.sessionDir);
 		const names: Record<StorageKind, string> = { database: "后台数据库", configuration: "配置", secrets: "密钥存储", logs: "日志", sessions: "会话", skills: "技能", templates: "模板", cards: "卡片", cache: "缓存", sandbox: "沙箱" };
 		const rows = STORAGE_KINDS.map((id) => ({ id, label: names[id], path: paths[id], movable: true,
+			...(id === "sandbox" && native ? { workspaceDir: native.workspaceDir, retainedWorkspaceDir: native.retainedWorkspaceDir, gitCompatibility: native.gitCompatibility.enabled } : {}),
 			bytes: id === "database" ? directoryBytes(core.paths.dbFile) + directoryBytes(core.paths.dbFile + "-wal") : id === "logs" ? directoryBytes(core.paths.logFile) + directoryBytes(core.paths.logFile + ".1")
 				: id === "configuration" ? readdirOwnedBytes(paths[id], Object.entries(paths).filter(([kind, path]) => kind !== id && path !== paths[id]).map(([, path]) => path)) : directoryBytes(paths[id]),
 			layer: ["sessions", "skills", "templates", "cards"].includes(id) ? "用户内容" : id === "cache" ? "缓存" : "应用数据" }));

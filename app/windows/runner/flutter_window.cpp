@@ -1,12 +1,14 @@
 #include "flutter_window.h"
+#include "data_location.h"
 #include "single_instance.h"
 
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "flutter/standard_method_codec.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project, SingleInstance& single_instance)
+    : project_(project), single_instance_(single_instance) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -26,6 +28,25 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  if (DataLocation::Find()) {
+    installation_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+        flutter_controller_->engine()->messenger(), "dreamflutter/install_location",
+        &flutter::StandardMethodCodec::GetInstance());
+    installation_channel_->SetMethodCallHandler(
+        [this](const auto& call, auto result) {
+          if (call.method_name() != "remember") {
+            result->NotImplemented();
+            return;
+          }
+          const auto* path = call.arguments() ? std::get_if<std::string>(call.arguments()) : nullptr;
+          try {
+            result->Success(flutter::EncodableValue(path && single_instance_.SaveDataDirectory(
+                std::filesystem::path(std::u8string(path->begin(), path->end())), GetHandle())));
+          } catch (...) {
+            result->Success(flutter::EncodableValue(false));
+          }
+        });
+  }
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -41,6 +62,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  installation_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

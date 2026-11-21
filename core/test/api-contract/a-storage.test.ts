@@ -263,7 +263,7 @@ test("update checks and downloads use an in-memory transport and never install",
 		});
 	};
 	const statusKeys = ["state", "message", "checkedAt", "progress", "available", "downloaded", "signature", "application", "coreVersion",
-		"piVersion", "nodeVersion", "platform", "arch", "canInstall", "canStartup", "autoCheckUpdates", "startOnLogin", "closeBehavior", "recovery"];
+		"dshVersion", "piVersion", "nodeVersion", "platform", "arch", "canInstall", "canStartup", "autoCheckUpdates", "startOnLogin", "closeBehavior", "recovery"];
 	expectKeys(await api.call("updates.status"), statusKeys);
 	await expectRpcError(api.call("updates.download"), "internal");
 	await expectRpcError(api.call("updates.install"), "internal");

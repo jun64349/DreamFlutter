@@ -3,7 +3,8 @@ import { dirname, join } from "node:path";
 import type { CorePaths } from "../paths.ts";
 import { excludedFromData, PI_FILES } from "./export.ts";
 import type { Staged } from "./restore.ts";
-import { storageLocations } from "../storage/locations.ts";
+import { atomicJson, storageLocations } from "../storage/locations.ts";
+import { nativeArchiveSource, nativeArchiveSourceFile, nativePlacementsFile } from "../sandbox/appcontainer-placements.ts";
 
 /**
  * The live data cannot be replaced while the core uses it, so a restore
@@ -67,7 +68,10 @@ export function writeSwitchRecord(paths: CorePaths, agentDir: string, staged: St
 
 	// The data folder: the backup's entries replace the current ones, current ones it lacks move aside.
 	// Older exporters included private patrol transcripts. The local directory is kept by excludedFromData.
-	const stagedNames = new Set(existsSync(appdata) ? readdirSync(appdata).filter(name => name.toLowerCase() !== "patrol-sessions") : []);
+	const stagedNames = new Set(existsSync(appdata) ? readdirSync(appdata).filter(name => {
+		const lower = name.toLowerCase();
+		return lower !== "patrol-sessions" && lower !== nativePlacementsFile && !lower.startsWith(".native-workspace-");
+	}) : []);
 	for (const name of stagedNames) add(`数据 ${name}`, dataTarget(name), join(appdata, name));
 	for (const name of ["cards", "butterfly"]) if (!stagedNames.has(name) && existsSync(dataTarget(name))) add(`数据 ${name}`, dataTarget(name));
 	for (const suffix of ["-wal", "-shm"]) if (existsSync(paths.dbFile + suffix)) add(`数据库 ${suffix}`, paths.dbFile + suffix);
@@ -91,7 +95,19 @@ export function writeSwitchRecord(paths: CorePaths, agentDir: string, staged: St
 	for (const s of staged.sessionTargets) add("会话", s.target, join(staged.dir, "sessions", s.staged));
 
 	const tar = join(staged.dir, "raw", "data", "sandbox", "workspace.tar.gz");
-	if (existsSync(tar)) add("蝶君沙箱里的文件", sandboxRestoreFile(paths), tar);
+	if (existsSync(tar)) {
+		const pending = sandboxRestoreFile(paths);
+		add("蝶君沙箱里的文件", pending, tar);
+		if (process.platform === "win32") {
+			const info = join(dirname(pending), nativeArchiveSourceFile);
+			const source = nativeArchiveSource(staged.manifest.source.nativeWorkspaceDir);
+			if (source) {
+				const stagedSource = join(staged.dir, nativeArchiveSourceFile);
+				atomicJson(stagedSource, source);
+				add("蝶君工作文件来源", info, stagedSource);
+			} else if (existsSync(info)) add("旧蝶君工作文件来源", info);
+		}
+	}
 
 	const record: SwitchRecord = { version: 1, state: "pending", createdAt: Date.now(), staging: staged.dir, oldDir, items, result };
 	writeFileSync(recordFile(paths), JSON.stringify(record, null, 2), "utf8");

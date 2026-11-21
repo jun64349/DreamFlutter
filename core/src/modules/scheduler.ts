@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import type { Context } from "@deepseek-ai/cordis";
 import type { AgentSessionEvent, ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Cron, CronPattern } from "croner";
 import type { Core, CoreModule } from "../core.ts";
 import { num, RpcError, requireStr, str } from "../core.ts";
 import type { Db } from "../db.ts";
 import { json, now, parseJson } from "../db.ts";
+import { STANDARD_PERSONA } from "../agent/dsh-text.ts";
+import { sandboxEnvironmentText } from "../agent/host-text.ts";
 import { isReadOnlyCall, READ_ONLY_TOOLS, SHELL_TOOLS } from "../ext/approval.ts";
 import { recordedSandbox } from "../pi/host.ts";
 import type { Run } from "../runs.ts";
@@ -243,6 +246,8 @@ const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS = [60_000, 5 * 60_000];
 const NO_CHANGE = /^\s*[【\[]?无变化[】\]]?/;
 const WORKBENCH_STATE_TOOL = "save_monitor_state";
+const STATE_TOOL_DESCRIPTION = "Inside a scheduled run, save a small JSON object for the next run. Null removes a key.";
+const STATE_TOOL_PARAMETERS = { type: "object", properties: { state: { type: "object" } }, required: ["state"] } as const;
 const SAFE_SCHEDULE_TOOLS = new Set(["schedule_state", "schedule_list", WORKBENCH_STATE_TOOL]);
 const TOOL_VERSION_CONFLICT = "这件事刚被改过，请先用 schedule_list 重新读一次";
 
@@ -1040,7 +1045,13 @@ export class SchedulerModule implements CoreModule {
 		}
 		// Recheck persisted schedules too, before creating any general task.
 		try {
-			if (schedule.sessionMode === "bound" && schedule.sessionFile) this.core.assertTaskSession(schedule.sessionFile);
+			if (schedule.sessionMode === "bound" && schedule.sessionFile) {
+				this.core.assertTaskSession(schedule.sessionFile);
+				const existing = this.core.findSlotByFile(schedule.sessionFile);
+				// DSH closes its write handle asynchronously. Wait for an existing
+				// close before opening another writer for the bound history.
+				if (existing && this.core.isSlotClosing(existing.slotId)) await this.core.closeSlot(existing.slotId);
+			}
 		} catch (error) {
 			this.finishRun(run.id, "failed", { error: error instanceof Error ? error.message : String(error) });
 			return;
@@ -1086,9 +1097,23 @@ export class SchedulerModule implements CoreModule {
 		this.updateRun(run.id, { status: "running", started_at: this.clock(), task_id: taskId, retry_at: null, session_file: slot.info().sessionFile });
 		this.db.run("UPDATE schedules SET last_run_at = ? WHERE id = ?", this.clock(), schedule.id);
 		try {
+			if (this.core.dshBackend) {
+				const native = sandbox ? this.core.sandboxProvider?.() : undefined;
+				if (sandbox && !native?.appContainer) throw new RpcError("unavailable", "蝶君的 Windows 工作区还没准备好，计划没有执行");
+				const stateTool = sandbox ? "schedule_state" : WORKBENCH_STATE_TOOL;
+				const persona = STANDARD_PERSONA.replace("{{model}}", slot.session.model?.id ?? "unknown");
+				const prepared = slot.prepareDshTask({
+					scopeId: `schedule:${run.id}`,
+					dshSystemPrompt: native ? `${persona}\n\n${sandboxEnvironmentText(native.workspaceDir, true)}` : persona,
+					dshTools: slot.session.getActiveToolNames().filter(name => name !== stateTool),
+					setupDsh: ctx => this.registerDshStateTool(ctx, slot.slotId, stateTool),
+				});
+				if (!prepared) throw new RpcError("conflict", "这个会话无法加载日程工具和权限，计划没有执行");
+			}
 			await slot.prompt(this.composePrompt(schedule, this.getRun(run.id)!));
 		} catch (error) {
 			this.active.delete(slot.slotId);
+			slot.releaseDshTask(`schedule:${run.id}`);
 			this.finishRun(run.id, "failed", { error: error instanceof Error ? error.message : String(error) });
 		}
 	}
@@ -1115,6 +1140,7 @@ export class SchedulerModule implements CoreModule {
 		const runId = this.active.get(slot.slotId);
 		if (!runId) return;
 		this.active.delete(slot.slotId);
+		slot.releaseDshTask(`schedule:${runId}`);
 		const record = this.getRun(runId);
 		const schedule = record ? this.get(record.scheduleId) : undefined;
 		if (!record) return;
@@ -1282,20 +1308,31 @@ export class SchedulerModule implements CoreModule {
 		pi.registerTool({
 			name,
 			label: "保存定时任务状态",
-			description: "Inside a scheduled run, save a small JSON object for the next run. Null removes a key.",
-			parameters: { type: "object", properties: { state: { type: "object" } }, required: ["state"] } as never,
-			execute: async (_id, params: { state: Record<string, unknown> }) => {
-				const run = this.getRun(this.active.get(slotId) ?? "");
-				const schedule = run ? this.stillWanted(run) : undefined;
-				if (!schedule) return toolText("现在没有可保存状态的定时任务运行。");
-				const next = { ...schedule.state, ...params.state };
-				for (const key of Object.keys(next)) if (next[key] === null) delete next[key];
-				const serialized = json(next);
-				if (serialized.length > 4000) return toolText("状态太大（上限 4000 字符），请只保存关键结果。");
-				this.db.run("UPDATE schedules SET state = ? WHERE id = ?", serialized, schedule.id);
-				return toolText("已保存。");
-			},
+			description: STATE_TOOL_DESCRIPTION,
+			parameters: STATE_TOOL_PARAMETERS as never,
+			execute: async (_id, params: { state: Record<string, unknown> }) => toolText(this.saveMonitorState(slotId, params.state)),
 		});
+	}
+
+	private registerDshStateTool(ctx: Context, slotId: string, name: string): void {
+		ctx.tools.register({
+			name, description: STATE_TOOL_DESCRIPTION,
+			parameters: JSON.parse(JSON.stringify(STATE_TOOL_PARAMETERS)),
+			output: { schema: { type: "string" }, render: (_args, value) => [{ type: "text", text: String(value) }] },
+			execute: async args => this.saveMonitorState(slotId, (args as { state: Record<string, unknown> }).state),
+		}, { when: () => this.active.has(slotId) });
+	}
+
+	private saveMonitorState(slotId: string, patch: Record<string, unknown>): string {
+		const run = this.getRun(this.active.get(slotId) ?? "");
+		const schedule = run ? this.stillWanted(run) : undefined;
+		if (!schedule) return "现在没有可保存状态的定时任务运行。";
+		const next = { ...schedule.state, ...patch };
+		for (const key of Object.keys(next)) if (next[key] === null) delete next[key];
+		const serialized = json(next);
+		if (serialized.length > 4000) return "状态太大（上限 4000 字符），请只保存关键结果。";
+		this.db.run("UPDATE schedules SET state = ? WHERE id = ?", serialized, schedule.id);
+		return "已保存。";
 	}
 
 	private registerScheduleTools(pi: ExtensionAPI, slotId: string): void {

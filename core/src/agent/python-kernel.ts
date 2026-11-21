@@ -13,6 +13,7 @@ import { bundledPython, toolchainEnv } from "./toolchain.ts";
 import { redactValue } from "../security/redaction.ts";
 import { MACOS_PYTHON_FALLBACK_CLEANUP, MACOS_PYTHON_SUPERVISOR, PYTHON_FALLBACK_CLEANUP, PYTHON_SUPERVISOR } from "../sandbox/python-supervisor.ts";
 import { ensureSeatbeltProfile, resolveSeatbeltHostPath, type SeatbeltConfig } from "../sandbox/seatbelt.ts";
+import { appContainerSandboxEnv, appContainerWorkspacePath, startAppContainerPython, type AppContainerConfig } from "../sandbox/appcontainer.ts";
 
 const IDLE_MS = 30 * 60_000;
 const TIMEOUT_SECONDS = 300;
@@ -27,7 +28,7 @@ export const PYTHON_BACKGROUND_RESULT = "df.python_result";
 const WORKER = readFileSync(new URL("../../assets/python-kernel.py", import.meta.url)).toString("base64");
 const LOADER = "import base64,sys;exec(compile(base64.b64decode(sys.stdin.buffer.readline()),'df-python-kernel','exec'))";
 
-export interface PythonSandbox { distro: string; ready(): Promise<void>; workspaceDir?: string; seatbelt?: SeatbeltConfig }
+export interface PythonSandbox { distro: string; ready(): Promise<void>; workspaceDir?: string; seatbelt?: SeatbeltConfig; appContainer?: AppContainerConfig }
 export interface PythonFiles {
 	folder: string | null;
 	record(path: string): void;
@@ -77,7 +78,9 @@ class KernelConnection {
 	constructor(sandbox: PythonSandbox, cwd: string, log: KernelLog) {
 		this.sandbox = sandbox;
 		this.log = log;
-		if (sandbox.seatbelt) {
+		if (sandbox.appContainer) {
+			this.child = startAppContainerPython(sandbox.appContainer, ["-I", "-u", "-c", LOADER], cwd);
+		} else if (sandbox.seatbelt) {
 			const profile = ensureSeatbeltProfile(sandbox.seatbelt);
 			const hostCwd = realOrSelf(resolveSeatbeltHostPath(sandbox.seatbelt, cwd));
 			this.child = spawn("/usr/bin/sandbox-exec", [
@@ -133,7 +136,11 @@ class KernelConnection {
 		});
 	}
 
-	interrupt(): void { if (this.live) this.child.stdin!.write("interrupt\n"); }
+	interrupt(): void {
+		if (!this.live) return;
+		if (this.sandbox.appContainer) this.child.kill();
+		else this.child.stdin!.write("interrupt\n");
+	}
 
 	close(): Promise<void> {
 		return this.closing ??= (async () => {
@@ -144,7 +151,7 @@ class KernelConnection {
 				const ended = await Promise.race([this.exited.then(() => true), new Promise<boolean>(resolve => {
 					timer = setTimeout(() => resolve(false), CLEANUP_WAIT_MS);
 				})]);
-				if ((!ended || !this.cleaned) && !await this.fallbackCleanup()) {
+				if (!this.sandbox.appContainer && (!ended || !this.cleaned) && !await this.fallbackCleanup()) {
 					this.log("Python 内核清理失败，已停用该内核", { supervisorExited: ended });
 				}
 				if (!ended) {
@@ -299,7 +306,11 @@ export class PythonKernel {
 				return readySignal.aborted ? { ...result, status: "interrupted", text: "Python 执行已取消。" }
 					: { ...result, status: "failed", text: "蝶君的沙箱还没准备好" };
 			}
-		if (this.sandbox.seatbelt) {
+		if (this.sandbox.appContainer) {
+			const base = appContainerWorkspacePath(this.sandbox.appContainer);
+			const env = appContainerSandboxEnv(this.sandbox.appContainer);
+			request = { ...request, cwd: env.resolve(base, request.cwd), folder: request.folder ? env.resolve(base, request.folder) : null };
+		} else if (this.sandbox.seatbelt) {
 			request = {
 				...request,
 				cwd: realOrSelf(resolveSeatbeltHostPath(this.sandbox.seatbelt, request.cwd)),

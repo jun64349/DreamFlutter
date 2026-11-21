@@ -1,7 +1,7 @@
 #include "single_instance.h"
+#include "data_location.h"
 
 #include <cwchar>
-#include <cwctype>
 #include <string>
 
 namespace {
@@ -15,32 +15,17 @@ std::wstring DataKeySource() {
   if (length == 0 || length >= 32768) {
     length = GetModuleFileNameW(nullptr, buffer, 32768);
     if (length == 0 || length >= 32768) return L"dreamflutter";
-    std::wstring exe(buffer, length);
-    const size_t slash = exe.find_last_of(L"\\/");
-    return slash == std::wstring::npos ? exe : exe.substr(0, slash);
+    return std::filesystem::path(std::wstring(buffer, length)).parent_path().wstring();
   }
-  wchar_t full[32768];
-  const DWORD resolved = GetFullPathNameW(buffer, 32768, full, nullptr);
-  return resolved > 0 && resolved < 32768 ? std::wstring(full, resolved) : std::wstring(buffer, length);
-}
-
-unsigned long long Fnv1a(const std::wstring& text) {
-  unsigned long long hash = 1469598103934665603ULL;
-  for (wchar_t c : text) {
-    wchar_t lower = static_cast<wchar_t>(std::towlower(c));
-    if (lower == L'/') lower = L'\\';
-    hash ^= static_cast<unsigned long long>(lower);
-    hash *= 1099511628211ULL;
-  }
-  return hash;
+  return std::wstring(buffer, length);
 }
 
 }  // namespace
 
-SingleInstance::SingleInstance() {
-  std::wstring source = DataKeySource();
-  while (source.size() > 3 && (source.back() == L'\\' || source.back() == L'/')) source.pop_back();
-  swprintf_s(key_, L"DreamFlutter-%016llx", Fnv1a(source));
+SingleInstance::SingleInstance() : SingleInstance(DataKeySource()) {}
+
+SingleInstance::SingleInstance(const std::filesystem::path& path) {
+  swprintf_s(key_, L"DreamFlutter-%016llx", DataPathHash(NormalizeDataPath(path)));
 }
 
 SingleInstance::~SingleInstance() {
@@ -70,6 +55,21 @@ void SingleInstance::Publish(HWND window) {
   if (view == nullptr) return;
   *static_cast<volatile unsigned long long*>(view) = reinterpret_cast<unsigned long long>(window);
   UnmapViewOfFile(view);
+}
+
+bool SingleInstance::SaveDataDirectory(const std::filesystem::path& path, HWND window) {
+  const auto location = DataLocation::Find();
+  if (!location || !path.is_absolute()) return false;
+  auto alias = std::unique_ptr<SingleInstance>(new SingleInstance(path));
+  if (wcscmp(alias->key_, key_) == 0) return location->Save(path);
+  for (const auto& previous : selected_) {
+    if (wcscmp(alias->key_, previous->key_) == 0) return location->Save(path);
+  }
+  if (!alias->Acquire() || !alias->mutex_) return false;
+  alias->Publish(window);
+  if (!alias->mapping_ || !location->Save(path)) return false;
+  selected_.push_back(std::move(alias));
+  return true;
 }
 
 void SingleInstance::ActivateExisting() {

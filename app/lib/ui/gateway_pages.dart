@@ -18,7 +18,10 @@ import 'notes.dart';
 class ChannelManagementPage extends StatelessWidget {
   const ChannelManagementPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('渠道管理')), body: ListView(padding: const EdgeInsets.all(16), children: const [PiCompatibilityPanel(), ChannelList()]));
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('渠道管理'), actions: const [AddChannelLink()]),
+    body: ListView(padding: const EdgeInsets.all(16), children: const [PiCompatibilityPanel(), ChannelList()]),
+  );
 }
 
 /// Channels of the model gateway (docs/history/v0.2-gateway.md): the list under
@@ -49,7 +52,9 @@ ChannelTestResult channelTestResult(Json result) => result['ok'] == true
 /// Every channel with its state (0.8.2: one row each, like the prototype's list → detail):
 /// click a row to edit it; the test runs from the row.
 class ChannelList extends StatefulWidget {
-  const ChannelList({super.key});
+  const ChannelList({super.key, this.onEdit});
+
+  final ValueChanged<GatewayChannel>? onEdit;
 
   @override
   State<ChannelList> createState() => _ChannelListState();
@@ -70,9 +75,16 @@ class _ChannelListState extends State<ChannelList> {
     if (mounted) setState(() => _tests[channel.id] = result);
   }
 
-  void _edit(GatewayChannel? channel) => Navigator.of(context).push(MaterialPageRoute<void>(
-    builder: (_) => channel?.fromPi == true ? const ProvidersPage() : ChannelEditorPage(existing: channel),
-  ));
+  void _edit(GatewayChannel channel) {
+    final onEdit = widget.onEdit;
+    if (!channel.fromPi && onEdit != null) {
+      onEdit(channel);
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => channel.fromPi ? const ProvidersPage() : ChannelEditorPage(existing: channel),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,21 +100,19 @@ class _ChannelListState extends State<ChannelList> {
           onTest: () => _test(agent, channel),
           onEdit: () => _edit(channel),
         ),
-      for (final channel in channels.where((c) => c.oauth && (c.enabled || canLoginPiOAuth(c.provider))))
+      for (final channel in channels.where((c) => c.oauth && c.enabled))
         _OAuthRow(
           name: canLoginPiOAuth(channel.provider) ? 'ChatGPT' : channel.name,
           signedIn: channel.enabled,
           onCommon: channel.enabled && channel.models.length > 1 ? () => showDialog<void>(context: context, builder: (_) => CommonModelsDialog(channel: channel)) : null,
-          action: canLoginPiOAuth(channel.provider) ? (channel.enabled ? '管理 ChatGPT 登录' : '登录 ChatGPT') : '查看登录与退出',
-          onTap: () => showDialog<void>(context: context, builder: (_) => PiOAuthDialog(provider: channel.provider, configured: channel.enabled)),
+          action: canLoginPiOAuth(channel.provider) ? '管理 ChatGPT 登录' : '查看登录与退出',
+          onTap: () => showDialog<bool>(context: context, builder: (_) => PiOAuthDialog(provider: channel.provider, configured: channel.enabled)),
         ),
-      if (!channels.any((c) => c.oauth && canLoginPiOAuth(c.provider)))
-        _OAuthRow(name: 'ChatGPT', signedIn: false, action: '登录 ChatGPT', onTap: () => showDialog<void>(context: context, builder: (_) => const PiOAuthDialog(provider: chatGptPiProviderId, configured: false))),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (channels.where((c) => !c.oauth).isEmpty) const Padding(padding: EdgeInsets.only(top: 12), child: EmptyNote('还没有渠道。添加一个，例如 DeepSeek 或智谱编程套餐。')),
+        if (rows.isEmpty) const Padding(padding: EdgeInsets.only(top: 12), child: EmptyNote('还没有渠道。添加一个，例如 DeepSeek 或智谱编程套餐。')),
         for (final (i, row) in rows.indexed) ...[
           if (i > 0) Divider(height: 1, thickness: 0.5, color: colors.border),
           row,
@@ -272,7 +282,7 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
       k.secret.addListener(_changed);
       k.labelText.addListener(_changed);
     }
-    if (widget.existing != null || widget.inline) _saved = _fingerprint();
+    _saved = _fingerprint();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final list = jsonRows(await _agent.backend.call('gateway.platforms')).map(GatewayPlatform.fromJson).toList();
@@ -302,7 +312,7 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
     'kind': _kind,
     'api': _api,
     'baseUrl': _baseUrl.text.trim(),
-    'models': _models.where((m) => m.id.trim().isNotEmpty).map((m) => m.toJson()).toList(),
+    'models': _models.where((m) => m.id.trim().isNotEmpty).map((m) => m.toChannelJson()).toList(),
     'lowBalance': double.tryParse(_lowBalance.text.trim()),
     'topUp': double.tryParse(_topUp.text.trim()),
     'keys': [
@@ -355,6 +365,7 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
       final list = await _agent.backend.call('gateway.fetchModels', {
         'baseUrl': _baseUrl.text.trim(),
         'api': _api,
+        'kind': _kind,
         'platform': ?_platform,
         if (typed != null) 'apiKey': typed else if (_editing) 'channel': _id,
       });
@@ -362,7 +373,7 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
       final listed = {for (final m in jsonRows(list)) m['id'] as String: m};
       if (!mounted) return;
       final chosen = await showDialog<List<String>>(context: context, builder: (_) => PickModelsDialog(ids: listed.keys.toList(), existing: _models.map((m) => m.id).toSet()));
-      if (chosen != null) {
+      if (chosen != null && mounted) {
         setState(() {
           for (final id in chosen) {
             if (_models.every((m) => m.id != id)) _models.add(ModelEntry.fromJson(listed[id]!));
@@ -370,7 +381,7 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
         });
       }
     } catch (e) {
-      setState(() => _message = '获取失败：${describeChannelFailure(SessionRuntime.describeError(e))}');
+      if (mounted) setState(() => _message = '获取失败：${describeChannelFailure(SessionRuntime.describeError(e))}');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -448,20 +459,35 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
     if (!ok || !mounted) return;
     try {
       await _agent.backend.call('gateway.removeChannel', {'id': _id});
-      if (mounted) Navigator.of(context).pop();
+      await _agent.refreshGateway();
+      if (mounted) {
+        if (widget.inline) { widget.onSaved?.call(); } else { Navigator.of(context).pop(); }
+      }
     } catch (e) {
       if (mounted) setState(() => _message = SessionRuntime.describeError(e));
     }
   }
 
   Future<void> _editModel(ModelEntry? model) async {
-    final draft = model == null ? ModelEntry(id: '') : ModelEntry.fromJson(model.toJson());
-    final saved = await showDialog<ModelEntry>(context: context, builder: (_) => _ModelDialog(model: draft, adding: model == null));
+    final draft = model == null ? ModelEntry(id: '') : ModelEntry.fromJson({...model.toChannelJson(), 'defaults': model.defaults});
+    final backend = _agent.backend;
+    final saved = await showDialog<ModelEntry>(context: context, builder: (_) => _ModelDialog(
+      model: draft, adding: model == null,
+      lookup: (id) async => asJsonMap(await backend.call('gateway.modelDefaults', {'id': id, 'platform': ?_platform, 'kind': _kind})),
+    ));
     if (saved == null || !mounted) return;
     setState(() {
       final index = model == null ? -1 : _models.indexOf(model);
       if (index < 0) { _models.add(saved); } else { _models[index] = saved; }
     });
+  }
+
+  Future<void> _loginChatGpt() async {
+    final signedIn = await showDialog<bool>(context: context, builder: (_) => const PiOAuthDialog(provider: chatGptPiProviderId, configured: false));
+    if (signedIn != true || !mounted) return;
+    await _agent.refreshGateway(models: true);
+    if (!mounted || _dirty) return;
+    if (widget.inline) { widget.onSaved?.call(); } else { Navigator.of(context).pop(); }
   }
 
   Future<bool> confirmLeave() async {
@@ -493,6 +519,7 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
     final preset = _preset;
     final apis = <String>{_api, if (preset != null) ...preset.endpoints.map((e) => e.api), 'openai-completions', 'anthropic-messages', 'openai-responses', 'google-generative-ai'}.toList();
     final test = _test;
+    final showChatGpt = !_editing && !AgentScope.of(context).gatewayChannels.any((c) => c.oauth && c.enabled && canLoginPiOAuth(c.provider));
     final page = Scaffold(
         appBar: widget.inline ? null : AppBar(
           title: Text(_editing ? '编辑渠道' : '添加渠道'),
@@ -517,6 +544,8 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
+                        if (showChatGpt)
+                          ActionChip(label: const Text('登录 ChatGPT'), onPressed: _loginChatGpt),
                         for (final p in _platforms.where((p) => !p.id.startsWith('pi-builtin:')))
                           ChoiceChip(label: Text(p.name), selected: p.id == _platform, onSelected: (_) => _choose(p)),
                       ],
@@ -605,10 +634,12 @@ class ChannelEditorPageState extends State<ChannelEditorPage> {
                           : const SizedBox.shrink(),
                     ),
                     const SizedBox(width: 12),
+                    if (_editing && widget.inline)
+                      IconButton(tooltip: '删除渠道', onPressed: _busy || _testing ? null : _remove, icon: Icon(Icons.delete_outline, color: colors.danger)),
                     OutlinedButton.icon(onPressed: _busy || _testing ? null : _saveAndTest, icon: const Icon(Icons.network_check, size: 18), label: const Text('测试连接')),
                     const SizedBox(width: 10),
                     FilledButton(
-                      onPressed: _busy || _testing || (_editing && !_dirty && !widget.inline) ? null : () async { final wasNew = !_editing; if (await _save() && mounted) { if (widget.inline) { widget.onSaved?.call(); } else if (wasNew) { Navigator.of(this.context).pop(); } } },
+                      onPressed: _busy || _testing || (_editing && !_dirty) ? null : () async { final wasNew = !_editing; if (await _save() && mounted) { if (widget.inline) { widget.onSaved?.call(); } else if (wasNew) { Navigator.of(this.context).pop(); } } },
                       child: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('保存'),
                     ),
                   ]),
@@ -648,9 +679,10 @@ class _ModelLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final tags = <String>[
-      if (model.contextWindow > 0) '上下文 ${_tokens(model.contextWindow)}',
-      if (model.images) '看图',
-      if (model.reasoning || (model.thinkingLevels?.any((l) => l != 'off') ?? false)) '思考',
+      if (model.effectiveWindow > 0) '上下文 ${_tokens(model.effectiveWindow)}',
+      if (model.effectiveInput.contains('image')) '看图',
+      if (model.effectiveInput.contains('video')) '视频',
+      if (model.effectiveReasoning) '思考',
       if (model.inputPrice > 0 || model.outputPrice > 0) '\$${model.inputPrice} / \$${model.outputPrice}',
     ];
     return InkWell(
@@ -662,7 +694,7 @@ class _ModelLine extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(model.id.isEmpty ? '（没填模型 ID）' : model.name.trim().isEmpty || model.name == model.id ? model.id : '${model.name} · ${model.id}', maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(model.effectiveName == model.id ? model.id : '${model.effectiveName} · ${model.id}', maxLines: 1, overflow: TextOverflow.ellipsis),
               if (tags.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -680,9 +712,10 @@ class _ModelLine extends StatelessWidget {
 
 /// One model's details, edited in a dialog (0.8.2: the ten fields on one line were unreadable).
 class _ModelDialog extends StatefulWidget {
-  const _ModelDialog({required this.model, required this.adding});
+  const _ModelDialog({required this.model, required this.adding, required this.lookup});
   final ModelEntry model;
   final bool adding;
+  final Future<Json> Function(String id) lookup;
   @override
   State<_ModelDialog> createState() => _ModelDialogState();
 }
@@ -692,38 +725,99 @@ class _ModelDialogState extends State<_ModelDialog> {
   late final _id = TextEditingController(text: m.id);
   late final _name = TextEditingController(text: m.name == m.id ? '' : m.name);
   late final _context = TextEditingController(text: m.contextWindow > 0 ? '${m.contextWindow}' : '');
-  late final _max = TextEditingController(text: '${m.maxTokens}');
+  late final _max = TextEditingController(text: m.metadata['maxTokens']?.toString() ?? '');
   late final _input = TextEditingController(text: m.inputPrice == 0 ? '' : '${m.inputPrice}');
   late final _output = TextEditingController(text: m.outputPrice == 0 ? '' : '${m.outputPrice}');
   late final _cache = TextEditingController(text: m.cacheReadPrice == 0 ? '' : '${m.cacheReadPrice}');
+  Timer? _lookupTimer;
+  int _lookupRevision = 0;
+  List<String>? _manualInput;
+  bool _reset = false;
   String? _error;
 
   @override
   void dispose() {
+    _lookupTimer?.cancel();
     for (final c in [_id, _name, _context, _max, _input, _output, _cache]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  Widget _f(TextEditingController c, String label, {bool number = false, String? hint, String? suffix}) => TextField(
+  void _lookupChanged(String value) {
+    _lookupTimer?.cancel();
+    final revision = ++_lookupRevision;
+    final id = value.trim();
+    setState(() => m.defaults = {});
+    if (id.isEmpty) return;
+    _lookupTimer = Timer(const Duration(milliseconds: 160), () async {
+      try {
+        final defaults = await widget.lookup(id);
+        if (mounted && revision == _lookupRevision) setState(() => m.defaults = defaults);
+      } catch (_) {}
+    });
+  }
+
+  List<String> get _currentInput => _manualInput ?? (_reset ? (m.defaults['input'] as List? ?? const []).cast<String>() : m.effectiveInput);
+
+  void _setInput(String mode, bool enabled) {
+    final input = {..._currentInput, 'text'};
+    if (enabled) { input.add(mode); } else { input.remove(mode); }
+    setState(() => _manualInput = input.toList());
+  }
+
+  void _restoreDefaults() {
+    setState(() {
+      _context.clear();
+      _max.clear();
+      _manualInput = null;
+      _reset = true;
+      for (final field in ['input', 'reasoning', 'thinkingLevelMap', 'efforts', 'thinkingLevels']) {
+        m.metadata.remove(field);
+      }
+      m.thinkingLevels = null;
+      m.efforts = const [];
+      m.reasoning = false;
+    });
+  }
+
+  Widget _f(TextEditingController c, String label, {bool number = false, String? hint, String? suffix, ValueChanged<String>? onChanged}) => TextField(
     controller: c,
+    onChanged: onChanged,
     keyboardType: number ? const TextInputType.numberWithOptions(decimal: true) : null,
     decoration: InputDecoration(labelText: label, hintText: hint, suffixText: suffix, isDense: true),
   );
 
   void _done() {
-    if (_id.text.trim().isEmpty) { setState(() => _error = '请填写模型 ID'); return; }
+    final id = _id.text.trim();
+    if (id.isEmpty) { setState(() => _error = '请填写模型 ID'); return; }
     if (m.thinkingLevels?.isEmpty == true) { setState(() => _error = '思考档位至少选一个'); return; }
-    m
-      ..id = _id.text.trim()
-      ..name = _name.text.trim()
-      ..contextWindow = int.tryParse(_context.text.trim()) ?? 0
-      ..maxTokens = int.tryParse(_max.text.trim()) ?? m.maxTokens
-      ..inputPrice = double.tryParse(_input.text.trim()) ?? 0
-      ..outputPrice = double.tryParse(_output.text.trim()) ?? 0
-      ..cacheReadPrice = double.tryParse(_cache.text.trim()) ?? 0;
-    Navigator.pop(context, m);
+    final contextLength = int.tryParse(_context.text.trim()), maxTokens = int.tryParse(_max.text.trim());
+    if ((_context.text.trim().isNotEmpty && (contextLength == null || contextLength <= 0)) ||
+        (_max.text.trim().isNotEmpty && (maxTokens == null || maxTokens <= 0))) {
+      setState(() => _error = '上下文长度和最大输出需要是正整数');
+      return;
+    }
+    final cost = {...asJsonMap(m.metadata['cost'])};
+    for (final (field, value) in [('input', _input.text.trim()), ('output', _output.text.trim()), ('cacheRead', _cache.text.trim())]) {
+      if (value.isEmpty && !cost.containsKey(field)) continue;
+      final price = value.isEmpty ? 0.0 : double.tryParse(value);
+      if (price == null || !price.isFinite || price < 0) { setState(() => _error = '价格需要是非负数'); return; }
+      cost[field] = price;
+    }
+    final entry = {
+      ...m.toChannelJson(),
+      'id': id,
+      'name': _name.text.trim(),
+      if (contextLength != null || m.metadata.containsKey('contextWindow')) 'contextWindow': contextLength,
+      if (maxTokens != null || m.metadata.containsKey('maxTokens')) 'maxTokens': maxTokens,
+      if (_reset) ...{'input': null, 'reasoning': null, 'thinkingLevelMap': null, 'efforts': null, 'thinkingLevels': null},
+      if (_manualInput != null) 'input': _manualInput,
+      if (m.thinkingLevels != null) ...{'thinkingLevels': m.thinkingLevels, 'reasoning': m.reasoning},
+      if (cost.isNotEmpty) 'cost': cost,
+      'defaults': m.defaults,
+    };
+    Navigator.pop(context, ModelEntry.fromJson(entry));
   }
 
   @override
@@ -735,8 +829,11 @@ class _ModelDialogState extends State<_ModelDialog> {
         width: 520,
         child: SingleChildScrollView(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-            pair(_f(_id, '模型 ID'), _f(_name, '显示名', hint: '可不填')),
-            pair(_f(_context, '上下文长度', number: true, hint: '未知'), _f(_max, '最大输出', number: true)),
+            pair(_f(_id, '模型 ID', onChanged: _lookupChanged), _f(_name, '显示名', hint: m.defaults['name'] as String? ?? '可不填')),
+            pair(
+              _f(_context, '上下文长度', number: true, hint: m.defaults['contextWindow']?.toString() ?? '未知'),
+              _f(_max, '最大输出', number: true, hint: m.defaults['maxTokens']?.toString() ?? '未知'),
+            ),
             Padding(padding: const EdgeInsets.only(bottom: 12), child: Row(children: [
               Expanded(child: _f(_input, '输入价', number: true, hint: '未知', suffix: '\$/百万')),
               const SizedBox(width: 12),
@@ -744,9 +841,12 @@ class _ModelDialogState extends State<_ModelDialog> {
               const SizedBox(width: 12),
               Expanded(child: _f(_cache, '缓存价', number: true, hint: '未知', suffix: '\$/百万')),
             ])),
-            SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('能看图'), value: m.images, onChanged: (v) => setState(() => m.images = v)),
+            SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('能看图'), value: _currentInput.contains('image'), onChanged: (v) => _setInput('image', v)),
+            SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('模型支持视频'), subtitle: const Text('能力记录，当前对话支持发送图片'), value: _currentInput.contains('video'), onChanged: (v) => _setInput('video', v)),
             const SizedBox(height: 4),
             ModelThinkingLevels(model: m),
+            if (m.defaults.isNotEmpty)
+              Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: _restoreDefaults, child: const Text('使用自动配置'))),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(_error!, style: TextStyle(color: context.colors.danger))),
           ]),
         ),

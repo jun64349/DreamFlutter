@@ -85,8 +85,8 @@ function vSchedule(){
 const FEEDBACK_URL='https://docs.qq.com/doc/DVm1zU2VmU1JIVHZn';
 function vWizard(){
  const n=S.wz,man=S.ed==='managed';
- const dots=n>=1?`<div class="dots">${[1,2,3,4,5].map(i=>`<i class="${i===n?'on':i<n?'done':''}"></i>`).join('')}</div>`:'';
- const nav=(o={})=>`<div class="wnav">${n>1?'<button class="btn" style="background:none" data-a="wz" data-v="-1">上一步</button>':''}<span class="sp"></span>${o.skip?'<button class="btn" style="background:none;color:var(--muted)" data-a="wz" data-v="1">跳过</button>':''}<button class="btn pri" data-a="wz" data-v="1" ${o.block?'disabled':''}>${o.label||'下一步'}</button></div>`;
+ const dots=n>=1?`<div class="dots">${[1,2,3].map(i=>`<i class="${i===n?'on':i<n?'done':''}"></i>`).join('')}</div>`:'';
+ const nav=(finish=false)=>`<div class="wnav">${n>1?'<button class="btn" style="background:none" data-a="wz" data-v="-1">上一步</button>':''}<span class="sp"></span>${finish?`<button class="btn" style="background:none;color:var(--muted)" data-a="go" data-v="home">跳过</button><button class="btn pri" data-a="go" data-v="home">开始使用</button>`:'<button class="btn pri" data-a="wz" data-v="1">下一步</button>'}</div>`;
  let c='';
  // 内测版（2026-11-19 用户定）：第一次启动只有这一张卡片，激活成功直接进界面；其余几步全用默认。
  if(man){const t=S.wzT;c=`<div style="text-align:center;padding:20px 0 6px">${bf(96,'float')}<h2 class="poetic" style="font-size:30px;font-weight:400;margin-top:16px">输入激活码</h2>
@@ -97,12 +97,7 @@ function vWizard(){
  else if(n===0)c=`<div style="text-align:center;padding:20px 0 6px">${bf(96,'float')}<h2 class="poetic" style="font-size:30px;font-weight:400;margin-top:16px">你好，我是 DreamFlutter</h2><div class="sub">住在你电脑里的助手。花一分钟设好，就能开始。</div><button class="btn pri" style="padding:8px 34px" data-a="wz" data-v="1">开始</button></div>`;
  else if(n===1)c=`${dots}<h2>数据放在哪</h2><div class="sub">对话、记忆、设置都存在这里</div><div class="choice on"><span class="rd"></span><div>跟软件放在一起（推荐）<small>E:\\DreamFlutter\\data · 剩余 142 GB</small></div></div><div class="choice"><span class="rd"></span><div>选别的文件夹…</div></div>${nav()}`;
  else if(n===2)c=`${dots}<h2>怎么称呼你</h2><div class="sub">随时能改</div><div class="fld"><input value="小周"></div>${nav()}`;
- else if(n===3&&!man){const t=S.wzT;c=`${dots}<h2>连接一个模型</h2><div class="sub">密钥只存在这台电脑上</div><div class="provs">${['DeepSeek','智谱','OpenCode Go','其他'].map((p,i)=>`<div class="prov ${i===0?'on':''}">${p}</div>`).join('')}</div>
-  <div class="fld"><label>密钥<a class="lk">去 DeepSeek 拿密钥 ↗</a></label><input type="password" value="${t?'sk-••••••••••••••••':''}" placeholder="粘贴后自动测试"></div>
-  ${t==='busy'?`<div class="state" style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)"><span class="spin"></span>正在试连接…</div>`:t==='ok'?`<div style="font-size:13px" class="ok">${ic('check','width:14px;height:14px;vertical-align:-2px')} 连上了。对话用 DeepSeek V4.1 Flash，大任务用 DeepSeek V4.1，以后在输入框里能换。</div>`:t==='bad'?`<div style="font-size:13px" class="bad">${ic('x','width:14px;height:14px;vertical-align:-2px')} DeepSeek 说这个密钥无效。回网站重新复制一次，注意前后别多出空格。</div>`:''}
-  <div class="demo-sw" style="margin-top:8px">${['','busy','ok','bad'].map((v,i)=>`<button class="chip ${S.wzT===v?'on':''}" style="font-size:11px;padding:2px 8px;border-style:dashed" data-a="set" data-k="wzT" data-v="${v}">演示：${['未填','测试中','连上','不对'][i]}</button>`).join(' ')}</div>${nav({block:t!=='ok',skip:true})}`;}
- else if(n===4)c=`${dots}<h2>常用的项目文件夹</h2><div class="sub">工作台默认在这里干活</div><div style="display:flex;gap:8px"><div class="path" style="flex:1;color:var(--muted)">还没选</div><button class="btn">选一个</button></div>${nav({skip:true})}`;
- else c=`${dots}<h2>蝶君</h2><div class="sub">选一种说话的样子，以后可以在设置里改</div><div class="pcards" style="padding-top:0">${['静','暖','利落','灵动'].map(k=>`<button class="pcard ${S.persona===k?'on':''}" data-a="set" data-k="persona" data-v="${k}"><b>${k}</b></button>`).join('')}</div><div class="choice on"><span class="rd"></span><div>现在准备沙箱（推荐）<small>后台进行，大约 3 分钟，不影响先用工作台</small></div></div><div class="choice"><span class="rd"></span><div>以后再说</div></div>${nav({label:'开始使用'})}`;
+ elsec=`${dots}<h2>常用的项目文件夹</h2><div class="sub">工作台默认在这里干活</div><div style="display:flex;gap:8px"><div class="path" style="flex:1;color:var(--muted)">还没选</div><button class="btn">选一个</button></div>${nav(true)}`;
  return {full:`<div class="wzbg" style="position:relative;overflow:hidden"><div style="position:absolute;right:-60px;bottom:-80px;opacity:.07;transform:rotate(-14deg)">${bf(520)}</div><div class="inscr" style="right:auto;left:48px;top:60px;bottom:auto;font-size:22px;opacity:.18">昔者庄周梦为胡蝶</div><div class="wz" style="position:relative">${c}</div></div>`};
 }
 
@@ -116,7 +111,7 @@ settings:`<h4>设置（一方天地）</h4><ul><li>改成 HanaAgent 那样盖在
 memory:`<h4>记忆（梦君记）</h4><ul><li>浮在窗口上的面板，上面三个标签：最近 / 日志 / 设置。最近按天排成时间线，每条一个书法字当记号，标出来源和分组；改和删都在条目上。</li></ul>`,
 skills:`<h4>技能（百工）</h4><ul><li>浮层面板，「技能 / 连接的服务」两个标签；左边列表（等你确认在最上），右边详情：技能能看 SKILL.md 和文件；服务每个工具一个开关，底部固定测试连接、保存。</li></ul>`,
 spend:`<h4>花费（锱铢）</h4><ul><li>照旧是图表：近 30 天柱状、按用途和按模型两个环，金额 / 次数可切。上面三个大数字。</li></ul>`,
-wizard:`<h4>第一次启动</h4><ul><li>五步，每步一张卡片居中，顶上进度条。模型那步粘贴密钥自动测试，可以跳过；托管版（内测版）只有一张「输入激活码」卡片，激活成功点「进入」直接到首页，其余几步全用默认。</li></ul>`};
+wizard:`<h4>第一次启动</h4><ul><li>普通版依次确认数据位置、称呼和常用项目文件夹。项目文件夹可以跳过，随后进入工作台。托管版（内测版）只有一张「输入激活码」卡片，激活成功点「进入」直接到首页。</li></ul>`};
 
 /* ---------- render ---------- */
 const SCENES=[['home','首页'],['chat','对话'],['inbox','等你处理'],['schedule','日程'],['wizard','第一次启动']];
@@ -168,7 +163,7 @@ document.addEventListener('click',e=>{
  else if(a==='tog')S[v]=!S[v];
  else if(a==='set'){const k=t.dataset.k;if(k==='mode'){S.dark=v==='深色';}else if(k==='cloud')S.cloud=v==='云端';else S[k]=v;}
  else if(a==='day'){if(!v)return;S.selDay=+v;}
- else if(a==='wz')S.wz=Math.max(0,Math.min(5,S.wz+(+v)));
+ else if(a==='wz')S.wz=Math.max(0,Math.min(3,S.wz+(+v)));
  const sc=$('#main .scroll'),keep=sc?sc.scrollTop:0,sb=$('.sbody'),keep2=sb?sb.scrollTop:0;
  render();
  if(['wk','row','src','ans','plan','rtab','approval-answer','approval-history'].includes(a)){const s2=$('#main .scroll');if(s2)s2.scrollTop=keep;}
@@ -181,5 +176,5 @@ setInterval(()=>{if(S.space==='wb'&&!S.draft){S.tip++;const ta=$('[data-in="draf
 setInterval(()=>{if(S.scene==='chat'&&S.space==='bf'&&!S.ans&&S.ask>0){S.ask--;const el=$('.ask .tm');if(el)el.textContent=`${Math.floor(S.ask/60)}:${String(S.ask%60).padStart(2,'0')} 后按「先不算」继续`;}},1000);
 const q=new URLSearchParams(location.search);
 for(const k of ['scene','space','overlay','setTab','memTab','skTab','skSel','rtab','ed','day','night','approve','inboxEmpty'])if(q.get(k))S[k]=q.get(k);
-if(q.get('dark'))S.dark=true;if(q.get('plan'))S.plan=true;if(q.get('motion')==='off')S.motion=false;if(q.get('wz'))S.wz=+q.get('wz');if(q.get('wzT'))S.wzT=q.get('wzT');if(q.get('notes'))S.notes=true;
+if(q.get('dark'))S.dark=true;if(q.get('plan'))S.plan=true;if(q.get('motion')==='off')S.motion=false;if(q.get('wz'))S.wz=Math.max(0,Math.min(3,+q.get('wz')||0));if(q.get('wzT'))S.wzT=q.get('wzT');if(q.get('notes'))S.notes=true;
 render();

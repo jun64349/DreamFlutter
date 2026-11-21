@@ -4,8 +4,8 @@
  * and model lists that describe their models (OpenCode's does, models.dev style).
  */
 
-import type { Api, Model } from "@earendil-works/pi-ai";
-import { getModels } from "@earendil-works/pi-ai/compat";
+import { getSupportedThinkingLevels, type Api, type Model, type ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 
 /** A model as a list or the catalog describes it; [efforts] are the provider's own thinking values. */
 export interface DescribedModel {
@@ -19,6 +19,29 @@ export interface DescribedModel {
 	efforts?: string[];
 }
 
+export interface ModelDefaults extends DescribedModel {
+	thinkingLevels?: readonly string[];
+	thinkingLevelMap?: ThinkingLevelMap;
+}
+
+// Search exact IDs in first-party catalogs, in preference to listings from other relays.
+const FIRST_PARTY = ["openai", "anthropic", "google", "deepseek", "xai", "mistral", "moonshotai-cn",
+	"kimi-coding", "zai-coding-cn", "minimax-cn", "meta", "xiaomi", "qwen-token-plan-cn"];
+let firstPartyModels: Map<string, Model<Api>> | undefined;
+const deliveredRelayModels: Record<string, ModelDefaults> = {
+	// Existing bundled beta presets and the compatibility tests in docs/design/beta-pool.md.
+	"gpt-6.1-terra": { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", contextWindow: 500_000, maxTokens: 64_000,
+		input: ["text", "image"], reasoning: true, thinkingLevels: ["off", "low", "medium", "high"] },
+	"gpt-6.2-sol": { id: "gpt-6.2-sol", name: "GPT-6.2 Sol", contextWindow: 500_000, maxTokens: 64_000,
+		input: ["text", "image"], reasoning: true, thinkingLevels: ["off", "low", "medium", "high"] },
+};
+const videoModels = new Set([
+	// https://aistudio.google.com/docs/models/gemini-3.1-pro-preview
+	"gemini-3.1-pro-preview",
+	// https://aistudio.google.com/docs/models/gemini-3.5-flash
+	"gemini-3.5-flash",
+]);
+
 /** Pi's thinking levels above "off", in order. */
 const LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export const THINKING_LEVELS = ["off", ...LEVELS] as const;
@@ -31,11 +54,26 @@ export function selectedLevelMap(levels: string[]): Record<string, string | null
 /** [id] in Pi's built-in catalog of [provider]. */
 export function catalogModel(provider: string | undefined, id: string): Model<Api> | undefined {
 	if (!provider) return undefined;
-	try {
-		return (getModels(provider as never) as Model<Api>[]).find((m) => m.id === id);
-	} catch {
-		return undefined;
+	const model = getBuiltinModel(provider as never, id as never);
+	return model?.id === id ? model : undefined;
+}
+
+/** Safe to share across channels. Pricing, headers and provider-specific compat stay local. */
+export function catalogDefaults(provider: string | undefined, id: string): ModelDefaults | undefined {
+	id = id.trim();
+	let exact = catalogModel(provider, id);
+	if (!exact) {
+		firstPartyModels ??= new Map([...FIRST_PARTY].reverse().flatMap((p) =>
+			(getBuiltinModels(p as never) as Model<Api>[]).map((model) => [model.id, model])));
+		exact = firstPartyModels.get(id);
 	}
+	if (!exact) return Object.hasOwn(deliveredRelayModels, id) ? deliveredRelayModels[id] : undefined;
+	return {
+		id, name: exact.name, reasoning: exact.reasoning, input: [...exact.input, ...(videoModels.has(id) ? ["video"] : [])],
+		contextWindow: exact.contextWindow, maxTokens: exact.maxTokens,
+		thinkingLevels: getSupportedThinkingLevels(exact),
+		thinkingLevelMap: exact.thinkingLevelMap,
+	};
 }
 
 export function describeCatalogModel(model: Model<Api>): DescribedModel {
@@ -101,7 +139,7 @@ export function readModelList(body: unknown, api: string | undefined): Described
 		if (context) model.contextWindow = context;
 		if (output) model.maxTokens = output;
 		const input = item.modalities?.input;
-		if (Array.isArray(input)) model.input = input.some((m) => typeof m === "string" && m.startsWith("image")) ? ["text", "image"] : ["text"];
+		if (Array.isArray(input)) model.input = ["text", ...["image", "video"].filter((kind) => input.some((m) => m === kind || (typeof m === "string" && m.startsWith(`${kind}/`))))];
 		const reasoning = item.capabilities?.reasoning;
 		if (reasoning && typeof reasoning === "object") {
 			model.reasoning = reasoning.supported === true;

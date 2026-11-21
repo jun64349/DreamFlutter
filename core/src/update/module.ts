@@ -12,6 +12,7 @@ import { MemoryModule } from "../modules/memory.ts";
 import { APP_ROOT, BETA_EDITION } from "../paths.ts";
 import { bridgeCall, guardianExecDir, launchGuardian, makeFeed, prepareGuardian } from "./bridge.ts";
 import { buildInfo, dropLeftoverPackages, installation, piVersion, type BuildInfo } from "./installation.ts";
+import { dshVersion } from "../dsh/plugins/catalog.ts";
 import { compareVersions, LATEST_RELEASE, limitedText, localSource, parseRelease, request, UpdateError, type Release } from "./release.ts";
 import { downloadPackage, recheckPackage, type PackageSignature } from "./download.ts";
 import { JournalStore, pendingValidation } from "./state.ts";
@@ -117,7 +118,7 @@ export class UpdateModule implements CoreModule {
   status(): Record<string, unknown> {
     const journal = this.hasJournal ? this.store.read() : undefined;
     return { state: this.state, message: this.message, checkedAt: this.checkedAt || null, progress: this.progress, available: this.available ? { version: this.available.version, notes: this.available.notes, page: this.available.page, size: this.available.asset.size, sha256: this.available.asset.sha256 } : null,
-      downloaded: !!this.downloaded, signature: this.downloaded?.signature ?? null, application: this.build, coreVersion: CORE_VERSION, piVersion: piVersion(this.appRoot), nodeVersion: process.version, platform: process.platform, arch: process.arch,
+      downloaded: !!this.downloaded, signature: this.downloaded?.signature ?? null, application: this.build, coreVersion: CORE_VERSION, dshVersion, piVersion: piVersion(this.appRoot), nodeVersion: process.version, platform: process.platform, arch: process.arch,
       canInstall: !!this.installed && !!this.downloaded, canStartup: !!this.installed, autoCheckUpdates: this.core.settings.get().autoCheckUpdates, startOnLogin: this.core.settings.get().startOnLogin, closeBehavior: this.core.settings.get().closeBehavior,
       recovery: journal ? { phase: journal.phase, from: journal.from, to: journal.to, backup: journal.backup, error: journal.error ?? null, acceptedWrites: journal.acceptedWrites } : null };
   }

@@ -1,22 +1,46 @@
 {
   "name": "dreamflutter-core",
   "private": true,
-  "version": "0.8.3",
-  "description": "DreamFlutter background service: hosts Pi sessions in-process and serves the desktop UI over a local WebSocket.",
+  "version": "1.1.0",
+  "description": "DreamFlutter local desktop service with embedded DeepSeek Harness and Cordis system plugins.",
   "type": "module",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.9.0"
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/main.ts",
     "test": "node scripts/run-tests.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:dsh": "node ../scripts/verify-dsh-runtime.mjs .",
+    "test:dsh-upgrade": "node scripts/run-tests.mjs test/dsh-upgrade.test.ts test/dsh-models.test.ts test/dsh-plugins.test.ts test/dsh-goals.test.ts test/dsh-scheduler.test.ts test/subagents.test.ts test/api-contract/dsh-workbench.test.ts test/security-boundaries.test.ts test/autonomy-budget.test.ts test/session-index.test.ts test/backup.test.ts"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-agent-loop": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-attachment": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-attachment-local": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-client-shortcuts": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-compaction": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-compaction-basic": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-session-checkpoint-policy": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-session-persistence": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-session-projection": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-session-stats": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-token-meter": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
+    "@earendil-works/pi-agent-core": "1.4.0",
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@earendil-works/pi-mcp": "1.4.0",
     "croner": "9.1.0",
+    "css-tree": "3.2.1",
+    "parse5": "8.0.1",
     "pdfjs-dist": "4.10.38",
     "pinyin-pro": "3.29.5",
     "undici": "8.10.2",
@@ -25,6 +49,8 @@
     "yazl": "3.3.1"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-time-context": "0.2.2-rc.5",
+    "@types/css-tree": "3.2.0",
     "@types/jsdom": "30.0.0",
     "@types/node": "22.18.0",
     "@types/ws": "8.18.1",
@@ -34,8 +60,8 @@
     "typescript": "5.9.3"
   },
   "optionalDependencies": {
+    "sherpa-onnx-darwin-arm64": "1.13.8",
     "sherpa-onnx-node": "1.13.8",
-    "sherpa-onnx-win-x64": "1.13.8",
-    "sherpa-onnx-darwin-arm64": "1.13.8"
+    "sherpa-onnx-win-x64": "1.13.8"
   }
 }

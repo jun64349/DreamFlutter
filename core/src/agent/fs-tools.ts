@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname } from "node:path";
 import { generateUnifiedPatch, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { FsError, type HarnessState, remediate, versionOf } from "./state.ts";
+import { AppContainerFileError } from "../sandbox/appcontainer-fs.ts";
+import { MASK, redact } from "../security/redaction.ts";
 
 /**
  * dsh's file tools (packages/fs/tool-fs): read, write, edit and read_image
@@ -16,6 +18,42 @@ const READ_MAX_LINE_LENGTH = 2000;
 const READ_MAX_BYTES = 50 * 1024;
 
 type Tool = ToolDefinition;
+
+const fileInfo = (state: HarnessState, path: string, signal?: AbortSignal) =>
+	state.env.files ? state.env.files.stat(path, signal) : versionOf(state.local(path));
+
+async function readBytes(state: HarnessState, path: string, signal?: AbortSignal) {
+	return state.env.files ? state.env.files.read(path, signal) : { data: await readFile(state.local(path)), version: null };
+}
+
+async function writeText(state: HarnessState, path: string, content: string, expected: string | null, signal?: AbortSignal) {
+	if (state.env.files) return state.env.files.write(path, content, expected, signal);
+	const file = state.local(path);
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, content, "utf8");
+	return (await versionOf(file))?.version;
+}
+
+function fileError(error: unknown, path: string): unknown {
+	return remediate(error instanceof AppContainerFileError ? new FsError(error.message, error.code) : error, path);
+}
+
+async function authorizeFile(state: HarnessState, path: string, operation: string): Promise<void> {
+	if (!state.env.files) await state.security?.authorize(state.local(path), operation);
+}
+
+async function writableFile(state: HarnessState, path: string, content: string): Promise<void> {
+	if (!state.env.files) { await state.security?.assertWritable(state.local(path), content); return; }
+	if (content.includes(MASK) || state.maskedSandboxFiles.has(path.toLowerCase())) {
+		throw new FsError("文件内容曾被遮盖，或写入包含遮盖占位符。", "FS_REDACTED");
+	}
+}
+
+export function redactSandboxFile(state: HarnessState, path: string, content: string, preserveLines = false): string {
+	const safe = redact(content, false, preserveLines);
+	if (safe !== content) state.maskedSandboxFiles.add(path.toLowerCase());
+	return safe;
+}
 
 function text(value: string) {
 	return { content: [{ type: "text" as const, text: value }], details: {} as Record<string, unknown> };
@@ -79,20 +117,21 @@ export function readTool(state: HarnessState): Tool {
 			},
 			required: ["file_path"],
 		} as never,
-		async execute(_id, params: { file_path: string; offset?: number; limit?: number }) {
+		async execute(_id, params: { file_path: string; offset?: number; limit?: number }, signal) {
 			if (params.file_path.trim().length === 0) throw new Error("file_path must be a non-empty string");
 			const offset = params.offset === undefined ? 1 : positiveInteger(params.offset, "offset");
 			const limit = params.limit === undefined ? READ_LIMIT : positiveInteger(params.limit, "limit");
 			if (limit > READ_LIMIT) throw new Error(`limit must be less than or equal to ${READ_LIMIT}`);
 			const path = state.resolve(params.file_path);
-			await state.security?.authorize(state.local(path), "read");
-			const info = await versionOf(state.local(path));
+			await authorizeFile(state, path, "read");
+			const info = await fileInfo(state, path, signal);
 			if (!info) throw new FsError(`cannot read "${path}": not found`, "FS_NOT_FOUND");
 			if (!info.isFile) throw new FsError(`cannot read "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
-			const raw = stripBom(await readFile(state.local(path), "utf8"));
-			const content = state.security ? await state.security.read(state.local(path), raw) : raw;
+			const file = await readBytes(state, path, signal);
+			const raw = stripBom(file.data.toString("utf8"));
+			const content = state.env.files ? redactSandboxFile(state, path, raw) : state.security ? await state.security.read(state.local(path), raw) : raw;
 			const window = readWindow(content, offset, limit, path);
-			state.observe(path, { kind: "present", version: info.version });
+			state.observe(path, { kind: "present", version: file.version ?? info.version });
 			const result = text(formatRead(path, offset, window.lines, window.totalLines, window.truncatedByBytes));
 			result.details = { path, offset, totalLines: window.totalLines };
 			return result;
@@ -120,14 +159,14 @@ export function writeTool(state: HarnessState): Tool {
 			},
 			required: ["file_path", "content"],
 		} as never,
-		async execute(_id, params: { file_path: string; content: string }) {
+		async execute(_id, params: { file_path: string; content: string }, signal) {
 			if (params.file_path.trim().length === 0) throw new Error("file_path must be a non-empty string");
 			const path = state.resolve(params.file_path);
 			return state.withLock(path, async () => {
-			await state.security?.authorize(state.local(path), "write");
-			await state.security?.assertWritable(state.local(path), params.content);
+			await authorizeFile(state, path, "write");
+			await writableFile(state, path, params.content);
 			try {
-				const existing = await versionOf(state.local(path));
+				const existing = await fileInfo(state, path, signal);
 				if (existing && !existing.isFile) throw new FsError(`cannot write "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
 				const seen = state.observed(path);
 				if (seen?.kind === "present") {
@@ -136,17 +175,15 @@ export function writeTool(state: HarnessState): Tool {
 				} else if (existing) {
 					throw new FsError(`cannot overwrite existing "${path}" without reading it first`, "FS_NOT_OBSERVED");
 				}
-				const before = existing ? normalize(stripBom(await readFile(state.local(path), "utf8"))) : "";
-				await mkdir(dirname(state.local(path)), { recursive: true });
-				await writeFile(state.local(path), params.content, "utf8");
-				const after = await versionOf(state.local(path));
-				if (after) state.observe(path, { kind: "present", version: after.version });
+				const before = existing ? normalize(stripBom((await readBytes(state, path, signal)).data.toString("utf8"))) : "";
+				const after = await writeText(state, path, params.content, existing?.version ?? null, signal);
+				if (after) state.observe(path, { kind: "present", version: after });
 				const verb = existing ? "Updated" : "Created";
 				const result = text(`<path>${path}</path>\n<type>file</type>\n<content>\n${verb} file\n</content>`);
 				result.details = { path, patch: generateUnifiedPatch(path, before, normalize(params.content)), created: !existing };
 				return result;
 			} catch (error) {
-				throw remediate(error, path);
+				throw fileError(error, path);
 			}
 			});
 		},
@@ -192,24 +229,24 @@ export function editTool(state: HarnessState): Tool {
 			},
 			required: ["file_path", "old_string", "new_string"],
 		} as never,
-		async execute(_id, params: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }) {
+		async execute(_id, params: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }, signal) {
 			if (params.file_path.trim().length === 0) throw new Error("file_path must be a non-empty string");
 			if (params.old_string.length === 0) throw new Error("old_string must be a non-empty string");
 			if (params.old_string === params.new_string) throw new Error("old_string and new_string must differ");
 			const replaceAll = params.replace_all ?? false;
 			const path = state.resolve(params.file_path);
 			return state.withLock(path, async () => {
-			await state.security?.authorize(state.local(path), "edit");
-			await state.security?.assertWritable(state.local(path), params.old_string + params.new_string);
+			await authorizeFile(state, path, "edit");
+			await writableFile(state, path, params.old_string + params.new_string);
 			try {
 				const seen = state.observed(path);
 				if (seen === undefined) throw new FsError(`edit requires reading "${path}" first`, "FS_NOT_OBSERVED");
 				if (seen.kind === "absent") throw new FsError(`cannot edit "${path}": not found`, "FS_NOT_FOUND");
-				const existing = await versionOf(state.local(path));
+				const existing = await fileInfo(state, path, signal);
 				if (!existing) throw new FsError(`cannot edit "${path}": file changed since it was read`, "FS_STALE_VERSION");
 				if (!existing.isFile) throw new FsError(`cannot edit "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
 				if (existing.version !== seen.version) throw new FsError(`cannot edit "${path}": file changed since it was read`, "FS_STALE_VERSION");
-				const raw = await readFile(state.local(path), "utf8");
+				const raw = (await readBytes(state, path, signal)).data.toString("utf8");
 				const bom = raw.charCodeAt(0) === 0xfeff ? "﻿" : "";
 				const crlf = detectCrlf(raw);
 				const content = normalize(stripBom(raw));
@@ -221,16 +258,15 @@ export function editTool(state: HarnessState): Tool {
 					throw new FsError(`old_string matched ${matches} times in "${path}"; provide a more specific old_string or set replace_all to true`, "FS_AMBIGUOUS_EDIT");
 				}
 				const edited = content.split(oldNorm).join(newNorm);
-				await writeFile(state.local(path), bom + (crlf ? edited.split("\n").join("\r\n") : edited), "utf8");
-				const after = await versionOf(state.local(path));
-				if (after) state.observe(path, { kind: "present", version: after.version });
+				const after = await writeText(state, path, bom + (crlf ? edited.split("\n").join("\r\n") : edited), existing.version, signal);
+				if (after) state.observe(path, { kind: "present", version: after });
 				const result = text(
 					replaceAll ? `The file ${path} has been updated. All occurrences were successfully replaced.` : `The file ${path} has been updated successfully.`,
 				);
 				result.details = { path, patch: generateUnifiedPatch(path, content, edited) };
 				return result;
 			} catch (error) {
-				throw remediate(error, path);
+				throw fileError(error, path);
 			}
 			});
 		},
@@ -293,7 +329,7 @@ export function readImageTool(state: HarnessState, modelAcceptsImages: () => { o
 			},
 			required: ["file_path"],
 		} as never,
-		async execute(_id, params: { file_path: string }) {
+		async execute(_id, params: { file_path: string }, signal) {
 			if (params.file_path.trim().length === 0) throw new Error("file_path must be a non-empty string");
 			const route = modelAcceptsImages();
 			if (!route.ok) {
@@ -306,11 +342,11 @@ export function readImageTool(state: HarnessState, modelAcceptsImages: () => { o
 				);
 			}
 			const path = state.resolve(params.file_path);
-			await state.security?.authorize(state.local(path), "read_image");
-			const info = await versionOf(state.local(path));
+			await authorizeFile(state, path, "read_image");
+			const info = await fileInfo(state, path, signal);
 			if (!info) throw new FsError(`cannot read "${path}": not found`, "FS_NOT_FOUND");
 			if (!info.isFile) throw new FsError(`cannot read "${path}": not a regular file`, "FS_NOT_REGULAR_FILE");
-			const bytes = await readFile(state.local(path));
+			const { data: bytes } = await readBytes(state, path, signal);
 			const mediaType = sniffImage(bytes);
 			if (!mediaType) throw new Error(`cannot read "${path}": the file content is not a supported image format; read_image accepts PNG/JPEG/WebP/GIF`);
 			const size = imageSize(bytes, mediaType);
@@ -338,12 +374,12 @@ export function workingDirectoryTool(state: HarnessState, changed: (cwd: string)
 				cd: { type: "string", description: "Existing directory to enter. Omit to read the current directory." },
 			},
 		} as never,
-		async execute(_id, params: { cd?: string }) {
+		async execute(_id, params: { cd?: string }, signal) {
 			if (params.cd !== undefined) {
 				if (params.cd.length === 0) throw new Error("working-directory: cd must not be empty");
 				const target = state.resolve(params.cd);
-				await state.security?.authorize(state.local(target), "working_directory");
-				const info = await versionOf(state.local(target));
+				await authorizeFile(state, target, "working_directory");
+				const info = await fileInfo(state, target, signal);
 				if (!info || info.isFile) throw new Error(`working-directory: directory does not exist: ${JSON.stringify(params.cd)}`);
 				if (target !== state.cwd) {
 					state.cwd = target;

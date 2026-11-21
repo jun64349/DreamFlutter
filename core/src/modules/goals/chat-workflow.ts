@@ -24,10 +24,11 @@ type Delivery = { goalId: string; files: string[]; explanation: string; external
 type Control = { goalId: string; user: string; reply: string };
 
 export type ChatManifest = { name: string; hash: string; source?: string }[];
-type AttachmentStore = {
+type ChatFiles = {
 	prepare(goalId: string, input: ChatInput, prior: ChatManifest | null,
 		save: (manifest: ChatManifest) => void, active: () => void): Promise<string[]>;
 	discard(goalId: string, manifest: ChatManifest | null, cancelled: boolean): Promise<void>;
+	nativeArtifact(path: string): Promise<{ path: string; size: number } | undefined>;
 };
 type Preparation = {
 	goal_id: string; session_id: string; session_file: string; input_key: string;
@@ -37,14 +38,14 @@ type Preparation = {
 
 export class ButterflyChatWorkflow {
 	private readonly core: Core;
-	private readonly attachments: AttachmentStore;
+	private readonly attachments: ChatFiles;
 	private readonly routing = new Map<string, string>();
 	private readonly routes = new Set<Promise<boolean>>();
 	private readonly cleanups = new Map<string, Promise<void>>();
 	private publisher?: Promise<void>;
 	private closing = false;
 
-	constructor(core: Core, attachments: AttachmentStore) {
+	constructor(core: Core, attachments: ChatFiles) {
 		this.core = core;
 		this.attachments = attachments;
 		core.declareBackup({ id: "butterfly-chat-tasks", title: "蝶君对话交办", tables: ["butterfly_chat_tasks", "butterfly_chat_preparations"],
@@ -411,6 +412,11 @@ export class ButterflyChatWorkflow {
 		const delivered = parseJson<Delivery | null>(effect?.payload, null);
 		if (goal?.status !== "completed" || !delivered?.files.includes(logical) ||
 			name !== posix.basename(name)) throw new RpcError("not_found", "找不到这项交付文件");
+		if (this.core.sandboxProvider?.()?.appContainer) {
+			const artifact = await this.attachments.nativeArtifact(logical);
+			if (!artifact) throw new RpcError("not_found", "交付文件已不可用");
+			return { name, path: artifact.path, size: artifact.size };
+		}
 		const path = await this.core.autonomy.sandboxFile(logical);
 		const file = await lstat(path);
 		if (!file.isFile() || !file.size || file.nlink !== 1) throw new RpcError("not_found", "交付文件已不可用");

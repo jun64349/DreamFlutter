@@ -26,7 +26,7 @@ export class WebSearchModule implements CoreModule, WebTools {
 	readonly forSubagents = true;
 	private core: Core;
 	private client: DeepSeekWebClient;
-	private lastError: string | null = null;
+	private lastFailure: { tool: string | null; message: string } | null = null;
 	private pendingReload = new Set<string>();
 	private reloading = new Set<string>();
 	private inFlight = new Set<Promise<unknown>>();
@@ -41,18 +41,19 @@ export class WebSearchModule implements CoreModule, WebTools {
 			billable INTEGER, estimated_cost_cny REAL, currency TEXT NOT NULL, estimated INTEGER NOT NULL,
 			price_source TEXT NOT NULL, error_code TEXT, error_message TEXT, duration_ms INTEGER NOT NULL);
 			CREATE INDEX IF NOT EXISTS web_tool_usage_time ON web_tool_usage(time)`);
-		this.lastError = core.db.get<{ error_message: string | null }>("SELECT error_message FROM web_tool_usage ORDER BY time DESC, rowid DESC LIMIT 1")?.error_message ?? null;
+		const latest = core.db.get<{ tool: string; error_message: string | null }>("SELECT tool, error_message FROM web_tool_usage ORDER BY time DESC, rowid DESC LIMIT 1");
+		if (latest?.error_message) this.lastFailure = { tool: latest.tool, message: latest.error_message };
 		core.webTools = this;
 		core.declareBackup({ id: "web-search", title: "联网工具用量估算", tables: ["web_tool_usage"] });
 		core.register("webSearch.status", () => this.status());
 		core.register("webSearch.saveKey", async (p) => {
 			const key = requireStr(p.key, "key").trim();
 			if (!key || key.length > 8192 || /[\r\n\0]/.test(key)) throw new RpcError("bad_request", "请填写有效的 DeepSeek 官方密钥。");
-			await this.store.put(SECRET_NAME, key); this.lastError = null;
+			await this.store.put(SECRET_NAME, key); this.lastFailure = null;
 			await this.refreshTools(); this.changed(); return this.status();
 		});
 		core.register("webSearch.deleteKey", async () => {
-			this.store.remove(SECRET_NAME); core.settings.update({ webFetchBackend: "local" }); this.lastError = null;
+			this.store.remove(SECRET_NAME); core.settings.update({ webFetchBackend: "local" }); this.lastFailure = null;
 			await this.refreshTools(); this.changed(); return this.status();
 		});
 		core.register("webSearch.setBackend", (p) => {
@@ -101,7 +102,8 @@ export class WebSearchModule implements CoreModule, WebTools {
 			COUNT(DISTINCT CASE WHEN provider='deepseek' THEN invocation_id END) deepseekCalls FROM web_tool_usage WHERE time >= ?`, start)!;
 		const estimatedCostCny = this.core.db.get<{ amount: number | null }>("SELECT SUM(amount) amount FROM request_ledger WHERE purpose IN ('web_search','web_fetch') AND currency='CNY' AND requested_at>=?", start)?.amount;
 		const configured = this.configured();
-		return { configured, state: !configured ? "not_configured" : this.lastError ? "error" : "configured", lastError: this.lastError,
+		return { configured, state: !configured ? "not_configured" : this.lastFailure ? "error" : "configured",
+			lastError: this.lastFailure?.message ?? null, lastErrorTool: this.lastFailure?.tool ?? null,
 			backend: configured ? this.core.settings.get().webFetchBackend : "local", keyMasked: configured ? "••••••••" : "", pendingToolRefresh: this.pendingReload.size,
 			month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`, usage: { ...usage, estimatedCostCny: Math.round((estimatedCostCny ?? 0) * 1e6) / 1e6, currency: "CNY", estimated: true, priceSource: WEB_PRICE_SOURCE } };
 	}
@@ -119,7 +121,7 @@ export class WebSearchModule implements CoreModule, WebTools {
 					attempt.attempt, attempt.httpStatus, attempt.status, attempt.billable === null ? null : Number(attempt.billable), attempt.billable === null ? null : attempt.billable ? WEB_PRICE_CNY : 0, "CNY", 1,
 					provider === "deepseek" ? WEB_PRICE_SOURCE : "本机直接抓取，无供应商搜索费用（估算）", attempt.errorCode, attempt.errorMessage && redact(attempt.errorMessage, true), attempt.durationMs);
 				this.core.ledger?.tool(`web:${id}`, { at: attempt.at, completedAt: attempt.at + attempt.durationMs, provider, purpose: tool === "web_search" ? "web_search" : "web_fetch", success: ["success", "empty"].includes(attempt.status), amount: attempt.billable === null ? null : attempt.billable ? WEB_PRICE_CNY : 0, currency: "CNY", source: provider === "deepseek" ? WEB_PRICE_SOURCE : "local-fetch-v1", context: bookkeeping });
-				this.lastError = attempt.errorMessage; this.changed();
+				this.lastFailure = attempt.errorMessage ? { tool, message: attempt.errorMessage } : null; this.changed();
 			}, { started: (at: number, attempt: number) => { startedAttempt = attempt; this.core.ledger?.begin({ provider, id: tool }, { ...bookkeeping, purpose: tool === "web_search" ? "web_search" : "web_fetch" }, at, `web:${idFor(attempt)}`); } });
 		return { get count() { return count; }, get startedAttempt() { return startedAttempt; }, record };
 	}
@@ -139,7 +141,7 @@ export class WebSearchModule implements CoreModule, WebTools {
 			const results = await this.client.search(input, await this.key(), signal, sink.record);
 			return { results: redactValue(results), retrievedAt: new Date().toISOString() };
 		} catch (cause) {
-			const error = safeError(cause); this.lastError = error.message;
+			const error = safeError(cause); this.lastFailure = { tool: "web_search", message: error.message };
 			if (!sink.count) sink.record({ at: Date.now(), attempt: 0, httpStatus: null, status: error.code === "cancelled" ? "cancelled" : "error", billable: false, errorCode: error.code, errorMessage: error.message, durationMs: 0 });
 			this.changed(); throw error;
 		}
@@ -182,7 +184,7 @@ export class WebSearchModule implements CoreModule, WebTools {
 			const text = `Fetched ${safe.url} (HTTP ${safe.status})\n标题：${safe.title}\n抓取时间：${retrievedAt}\n\n${EXTERNAL_WEB_NOTICE}\n\n${safe.text || "（这一页没有可读的文字）"}`;
 			return { content: [{ type: "text" as const, text: text.slice(0, MAX_TOOL_CHARS) + (text.length > MAX_TOOL_CHARS ? "\n(Content truncated. Fetch a more specific URL or section for the full text.)" : "") }], details: { provider, url: safe.url, status: safe.status, title: safe.title, retrievedAt, estimated: true } };
 		} catch (cause) {
-			const error = safeError(cause); this.lastError = error.message;
+			const error = safeError(cause); this.lastFailure = { tool: "web_fetch", message: error.message };
 			if (!sink.count) sink.record({ at, attempt: sink.startedAttempt, httpStatus: null, status: error.code === "cancelled" ? "cancelled" : "error", billable: false, errorCode: error.code, errorMessage: error.message, durationMs: Date.now() - at });
 			this.changed(); throw error;
 		}
@@ -196,7 +198,7 @@ export class WebSearchModule implements CoreModule, WebTools {
 		if (this.stopping || slot.running || !slot.started || !this.pendingReload.has(slot.slotId) || this.reloading.has(slot.slotId) || this.core.isSlotClosing(slot.slotId)) return;
 		this.reloading.add(slot.slotId);
 		try { await slot.session.reload(); this.pendingReload.delete(slot.slotId); }
-		catch { this.lastError = "设置已保存，但对话工具刷新失败；请重新打开该会话。"; }
+		catch { this.lastFailure = { tool: null, message: "设置已保存，但对话工具刷新失败，请重新打开该会话。" }; }
 		finally { this.reloading.delete(slot.slotId); this.changed(); }
 	}
 	onSlotChanged(slot: Slot): void { if (this.pendingReload.has(slot.slotId) && !slot.running) void this.refreshSlot(slot); }

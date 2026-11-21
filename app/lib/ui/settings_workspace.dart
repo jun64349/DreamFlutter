@@ -15,6 +15,7 @@ import 'model_group_pages.dart';
 import 'sandbox_panel.dart';
 import 'backup_panel.dart';
 import 'data_storage_panel.dart';
+import 'desktop_plugins_panel.dart';
 import 'security_panel.dart';
 import 'web_search_panel.dart';
 import 'package_sources_panel.dart';
@@ -76,7 +77,8 @@ class SettingsPageState extends State<SettingsPage>{
   late String _selected=const {'模型与网关':'模型','对话':'工作台','安全与审批':'工作台','运行上限':'工作台','蝶君沙箱':'蝶君','工具':'工作台','数据与迁移':'数据与安全','关于':'关于与更新','已归档':'归档与回收','回收站':'归档与回收'}[widget.category] ?? widget.category ?? '通用';
   final _search=TextEditingController();String _query='';
   final _groupEditor=GlobalKey<GroupEditorPageState>();
-  final _channelEditor=GlobalKey<ChannelEditorPageState>();
+  var _channelEditor=GlobalKey<ChannelEditorPageState>();
+  GatewayChannel? _channelDraft;
   bool _groupOpen=false,_channelOpen=false,_navigating=false;
   void _edited()=>widget.onEditingChanged?.call(_groupOpen||_channelOpen);
   void _saved(bool group){setState((){if(group){_groupOpen=false;}else{_channelOpen=false;}});_edited();}
@@ -92,7 +94,29 @@ class SettingsPageState extends State<SettingsPage>{
     final open=group?_groupOpen:_channelOpen;
     if(open){final allowed=group?await (_groupEditor.currentState?.confirmLeave()??Future.value(true)):await (_channelEditor.currentState?.confirmLeave()??Future.value(true));if(!allowed||!mounted)return;}
     if(!mounted)return;
-    setState((){if(group){_groupOpen=!open;}else{_channelOpen=!open;}});_edited();
+    setState(() {
+      if (group) {
+        _groupOpen = !open;
+      } else {
+        _channelOpen = !open;
+        _channelDraft = null;
+      }
+    });
+    _edited();
+  }
+  Future<void> _editChannel(GatewayChannel channel) async {
+    if (_channelOpen && _channelDraft?.id == channel.id) return;
+    if (!await (_channelEditor.currentState?.confirmLeave() ?? Future.value(true)) || !mounted) return;
+    setState(() {
+      _channelDraft = channel;
+      _channelOpen = true;
+      _channelEditor = GlobalKey<ChannelEditorPageState>();
+    });
+    _edited();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final editor = _channelEditor.currentContext;
+      if (mounted && editor != null) Scrollable.ensureVisible(editor);
+    });
   }
   Future<void> _choose(String name)async{
     if(name==_selected&&_query.isEmpty)return;
@@ -109,11 +133,12 @@ class SettingsPageState extends State<SettingsPage>{
   }
   AgentController? _agent;
   void _jump(){if(widget.embedded)return;final target=_agent?.settingsTarget.value;if(target==null||!mounted)return;_agent!.settingsTarget.value=null;_choose(const {'已归档':'归档与回收','回收站':'归档与回收'}[target]??target);}
-  @override void didChangeDependencies(){super.didChangeDependencies();final a=AgentScope.read(context);if(identical(a,_agent))return;_agent?.settingsTarget.removeListener(_jump);_agent=a..settingsTarget.addListener(_jump);_jump();}
-  @override void dispose(){_agent?.settingsTarget.removeListener(_jump);_search.dispose();super.dispose();}
+  void _pluginsChanged(){if(mounted)setState((){});}
+  @override void didChangeDependencies(){super.didChangeDependencies();final a=AgentScope.read(context);if(identical(a,_agent))return;_agent?.settingsTarget.removeListener(_jump);_agent?.desktopPlugins.removeListener(_pluginsChanged);_agent=a..settingsTarget.addListener(_jump);a.desktopPlugins.addListener(_pluginsChanged);_jump();}
+  @override void dispose(){_agent?.settingsTarget.removeListener(_jump);_agent?.desktopPlugins.removeListener(_pluginsChanged);_search.dispose();super.dispose();}
   List<_SettingsGroup> _groups(AgentController a) {
     final byName = {for (final group in _storedGroups(a)) group.name: group};
-    return [for (final name in const ['通用', '蝶君', '记忆', '模型', '工作台', '外观', '窗口与通知', '数据与安全', '归档与回收', '关于与更新', '开发者选项']) byName[name]!];
+    return [for (final name in ['通用', '蝶君', '记忆', '模型', '工作台', '外观', '窗口与通知', if (Platform.isWindows) '插件', '数据与安全', '归档与回收', '关于与更新', '开发者选项']) byName[name]!];
   }
 
   List<_SettingsGroup> _storedGroups(AgentController a){
@@ -152,7 +177,10 @@ class SettingsPageState extends State<SettingsPage>{
         _Setting('看图模型 图片',card:'用哪个模型',model('看图','visionModel',desc:'对话模型看不了图时用它')),
         _Setting('默认思考深度',card:'用哪个模型',SettingsSeg<String>('思考深度',value:a.defaultThinkingLevel??'',options:const [('','自动'),('low','低'),('medium','中'),('high','高'),('xhigh','很高'),('max','最高')],save:(v)=>save('defaultThinking',v.isEmpty?null:v))),
         _Setting('模型组 自动切换 按顺序 订阅',card:'模型组',Column(children:[const GroupList(),if(_groupOpen)GroupEditorPage(key:_groupEditor,inline:true,onSaved:()=>_saved(true))]),trailing:SettingsHeadLink(_groupOpen?'收起':'新建模型组',onPressed:()=>_toggleEditor(true)),cardDesc:'排在前面的用不了，自动换下一个'),
-        _Setting('渠道 服务商 密钥 连接 添加',card:'渠道',Column(children:[const ChannelList(),if(_channelOpen)ChannelEditorPage(key:_channelEditor,inline:true,onSaved:()=>_saved(false))]),trailing:TourAnchor('gateway-add',child:SettingsHeadLink(_channelOpen?'收起':'添加渠道',onPressed:()=>_toggleEditor(false)))),
+        _Setting('渠道 服务商 密钥 连接 添加',card:'渠道',Column(children:[
+          ChannelList(onEdit: _editChannel),
+          if (_channelOpen) ChannelEditorPage(key: _channelEditor, existing: _channelDraft, inline: true, onSaved: () => _saved(false)),
+        ]),trailing:TourAnchor('gateway-add',child:SettingsHeadLink(_channelOpen?'收起':'添加渠道',onPressed:()=>_toggleEditor(false)))),
       ],[
         _Setting('标题 小任务',override('起标题时使用','title')),
         _Setting('记忆整理 模型',override('记忆整理时使用','memory')),
@@ -199,7 +227,9 @@ class SettingsPageState extends State<SettingsPage>{
         _Setting('联网 沙箱',card:'沙箱',SettingsSwitch('允许联网',desc:'按下马上生效',value:s['sandboxOnline'] as bool? ?? true,save:(v)async{await a.backend.call('sandbox.setOnline',{'online':v});})),
         _Setting('沙箱 轮数',card:'沙箱',number('单次最多轮数','maxTurnsUnattended',40,integer:true,min:1,desc:'没人看着时，一件事最多走这么多步')),
       ],const []),
-      _SettingsGroup('记忆','memory',[
+      if(!a.desktopPlugins.active('memory',fallback:true))
+        _SettingsGroup('记忆','memory',[_Setting('记忆 插件',SettingRow('记忆插件已停用',desc:'原有记忆已保留',child:ShellButton('管理插件',onPressed:()=>_choose('插件'))))],const [])
+      else _SettingsGroup('记忆','memory',[
         const _Setting('记忆 梦君记',MemorySettingsBanner()),
         _Setting('自动记忆',SettingsSwitch(
           '自动记忆',
@@ -243,6 +273,9 @@ class SettingsPageState extends State<SettingsPage>{
         _Setting('归档 对话 放回',card:'已归档',const ArchivedConversations(),trailing:a.archivedSessions.isEmpty?null:Text('${a.archivedSessions.length} 个',style:TextStyle(fontSize:12.5,color:context.colors.muted))),
         const _Setting('回收站 删除 恢复',card:'回收站',RecycledConversations(),cardDesc:'删掉的对话在这里留 30 天'),
       ],const []),
+      if (Platform.isWindows) const _SettingsGroup('插件','hub',[
+        _Setting('浏览 安装 停用 启用 卸载 记忆 用量 仪表盘 快捷键', DesktopPluginsPanel(), card:'插件目录'),
+      ],[]),
       _SettingsGroup('关于与更新','info',[
         const _Setting('使用说明 入门 教程 帮助 新手',card:'使用说明',GuideEntry()),
         const _Setting('版本 更新 检查 诊断 反馈 许可证',AboutPanel()),
@@ -318,7 +351,7 @@ class SettingsPageState extends State<SettingsPage>{
       );
     }
     void choose(String name)async{FocusManager.instance.primaryFocus?.unfocus();await Future<void>.delayed(Duration.zero);if(mounted)await _choose(name);}
-    const headings={'通用':'我与蝶君','蝶君':'我与蝶君','记忆':'我与蝶君','模型':'工作','工作台':'工作','外观':'应用','窗口与通知':'应用','数据与安全':'应用','归档与回收':'更多','关于与更新':'更多','开发者选项':'更多'};
+    const headings={'通用':'我与蝶君','蝶君':'我与蝶君','记忆':'我与蝶君','模型':'工作','工作台':'工作','外观':'应用','窗口与通知':'应用','插件':'应用','数据与安全':'应用','归档与回收':'更多','关于与更新':'更多','开发者选项':'更多'};
     Widget nav()=>ListView(padding:EdgeInsets.zero,children:[
       search(),
       const SizedBox(height:10),

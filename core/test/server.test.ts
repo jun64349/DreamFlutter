@@ -51,7 +51,8 @@ describe("websocket server", () => {
 	it("serves authenticated clients", async () => {
 		const socket = await connect(server.port, { Authorization: `Bearer ${token}` });
 		const hello = await call(socket, "core.hello");
-		assert.equal((hello.result as { version: string }).version, "0.8.3");
+		const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+		assert.equal((hello.result as { version: string }).version, manifest.version);
 		const bad = await call(socket, "nope.nope");
 		assert.equal((bad.error as { code: string }).code, "unknown_method");
 		socket.close();

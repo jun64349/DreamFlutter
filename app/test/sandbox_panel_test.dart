@@ -114,4 +114,30 @@ void main() {
     expect(find.text('下载系统镜像（阿里云）'), findsOneWidget);
     expect(tester.widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator)).value, 0.4);
   });
+
+  testWidgets('Git compatibility confirms the real destination before copying', (tester) async {
+    const standard = r'C:\Users\sample\DreamFlutter\workspace';
+    const compatibility = r'C:\appcontainer-0123456789abcdef0123456789abcdef\workspace';
+    const enable = '启用 Git 兼容工作区';
+    status = {
+      'kind': 'appcontainer', 'state': 'ready', 'online': false, 'distro': 'DreamFlutter-Windows',
+      'workspaceDir': standard, 'gitCompatibility': {'enabled': false, 'alternativePath': compatibility},
+    };
+    await openPanel(tester);
+    backend.handlers['sandbox.setGitCompatibility'] = (_) => status = {
+      ...status, 'workspaceDir': compatibility, 'retainedWorkspaceDir': standard,
+      'gitCompatibility': {'enabled': true, 'alternativePath': standard},
+    };
+    await tester.ensureVisible(find.text(enable));
+    await tester.tap(find.text(enable)); await tester.pumpAndSettle();
+    expect(find.textContaining(compatibility), findsOneWidget);
+    expect(backend.callsTo('sandbox.setGitCompatibility'), isEmpty);
+    await tester.tap(find.text('取消')); await tester.pumpAndSettle();
+    expect(backend.callsTo('sandbox.setGitCompatibility'), isEmpty);
+    await tester.tap(find.text(enable)); await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, enable)); await tester.pumpAndSettle();
+    expect(backend.callsTo('sandbox.setGitCompatibility').single, {'enabled': true, 'workspaceDir': compatibility});
+    expect(find.text('切回标准工作区'), findsOneWidget);
+    expect(find.text(compatibility), findsOneWidget);
+  });
 }

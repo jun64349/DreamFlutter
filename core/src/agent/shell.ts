@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { StringDecoder } from "node:string_decoder";
 import { isAbsolute, join, resolve } from "node:path";
@@ -19,11 +19,46 @@ import { currentToolEnvironment, type ToolEnvironment } from "./tool-environment
  */
 
 const ENCODING_PREAMBLE = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); ";
+const APPCONTAINER_POWERSHELL = readFileSync(new URL("../../assets/appcontainer-pwsh.ps1", import.meta.url), "utf8");
+
+/** Recognize a literal invocation of a fixed AppContainer tool. PowerShell handles everything else. */
+function appContainerExecutable(command: string): { bin: string; args: string[]; detached: false } | undefined {
+	const text = command.trim();
+	const tool = /^(node|python|git|rg|fd|uv)(?:\.exe)?(?=$|[ \t])/i.exec(text);
+	if (!tool) return;
+	// PowerShell's single-quoted strings double an embedded apostrophe. Leave smart quotes and
+	// all shell syntax to PowerShell, including expansions, redirection and pipelines.
+	const argument = /[ \t]+(?:'((?:[^'\u0000\r\n\u2018\u2019\u201c\u201d]|'')*)'|([A-Za-z0-9_.:\\/=+\-]+))(?=$|[ \t])/y;
+	const args: string[] = [];
+	argument.lastIndex = tool[0].length;
+	while (argument.lastIndex < text.length) {
+		const match = argument.exec(text);
+		if (!match) return;
+		args.push(match[1] === undefined ? match[2]! : match[1].replaceAll("''", "'"));
+	}
+	return { bin: tool[1]!.toLowerCase(), args, detached: false };
+}
+
+function appContainerPowerShell(command: string): string {
+	const script = command.replaceAll(/[`"$\u201c\u201d]/g, "`$&");
+	return [
+		`$dreamFlutterCommand = "${script}"`,
+		// Keep Windows' language policy. The packaged tool shim requires FullLanguage.
+		"if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {",
+		"    Invoke-Expression $dreamFlutterCommand",
+		"    if ($?) { exit 0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1",
+		"}",
+		ENCODING_PREAMBLE,
+		APPCONTAINER_POWERSHELL,
+		"Invoke-DreamFlutterWorkspaceCommand ([scriptblock]::Create($dreamFlutterCommand))",
+	].join("\n");
+}
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
 const MAX_OUTPUT_BYTES = 64_000;
 const JOB_WAIT_DEFAULT_MS = 30_000;
 const JOB_WAIT_MAX_MS = 600_000;
+const JOB_CANCEL_SETTLE_MS = 5_000;
 const JOB_INLINE_BYTES = 2048;
 
 let resolvedPwsh: string | undefined;
@@ -44,7 +79,8 @@ export function pwshPath(): string {
 export function killTree(child: ChildProcess): void {
 	if (child.pid === undefined || child.exitCode !== null) return;
 	if (process.platform === "win32") {
-		const res = spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+		const taskkill = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
+		const res = spawnSync(taskkill, ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", timeout: JOB_CANCEL_SETTLE_MS });
 		if (res.error || res.status !== 0) {
 			try { child.kill("SIGKILL"); } catch {}
 		}
@@ -204,6 +240,23 @@ function statusLine(job: Job): string {
 	return job.detail !== undefined ? `[status: ${job.status}, ${job.detail}]` : `[status: ${job.status}]`;
 }
 
+/** Stop waiting promptly even if the caller cancelled before the listener was installed. */
+async function waitForJob(job: Job, waitMs: number, signal?: AbortSignal): Promise<"done" | "timeout" | "aborted"> {
+	if (signal?.aborted) return "aborted";
+	type Outcome = "done" | "timeout" | "aborted";
+	let settle!: (outcome: Outcome) => void;
+	const result = new Promise<Outcome>(resolve => { settle = resolve; });
+	const timeout = setTimeout(() => settle("timeout"), waitMs);
+	const abort = () => settle("aborted");
+	signal?.addEventListener("abort", abort, { once: true });
+	void job.done.then(() => settle("done"));
+	try { return await result; }
+	finally {
+		clearTimeout(timeout);
+		signal?.removeEventListener("abort", abort);
+	}
+}
+
 /**
  * The session's background jobs (dsh jobs registry): processes keep running
  * past their tool call; output is read incrementally with job_output.
@@ -325,11 +378,13 @@ export function jobTools(jobs: JobRegistry): ToolDefinition[] {
 				required: ["job_id"],
 			} as never,
 			async execute(_id, params: { job_id: string; wait?: boolean; timeout_ms?: number }, signal) {
+				signal?.throwIfAborted();
 				const job = jobs.get(validateJobId(params.job_id));
 				if (params.wait === true && job.status === "running") {
 					const wait = Math.min(Math.max(1, params.timeout_ms ?? JOB_WAIT_DEFAULT_MS), JOB_WAIT_MAX_MS);
-					await Promise.race([job.done, new Promise((r) => setTimeout(r, wait)), new Promise((r) => signal?.addEventListener("abort", r, { once: true }))]);
+					await waitForJob(job, wait, signal);
 				}
+				signal?.throwIfAborted();
 				const text = jobs.read(job);
 				const body = text.length > 0 ? text : "(no new output)";
 				return { content: [{ type: "text", text: `${body}${body.endsWith("\n") ? "" : "\n"}${statusLine(job)}` }], details: { jobId: job.id, status: job.status } };
@@ -366,7 +421,8 @@ export function jobTools(jobs: JobRegistry): ToolDefinition[] {
 				job.killedByModel = true;
 				job.status = "cancelled";
 				if (params.reason) job.detail = params.reason;
-				if (job.child) killTree(job.child);
+				if (job.stopProcess) job.stopProcess();
+				else if (job.child) killTree(job.child);
 				return { content: [{ type: "text", text: `requested cancellation of job ${job.id}` }], details: {} };
 			},
 		},
@@ -454,10 +510,11 @@ function hostShellTool(
 			if (params.timeoutMs !== undefined && (!Number.isFinite(params.timeoutMs) || params.timeoutMs <= 0)) {
 				throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(params.timeoutMs)}`);
 			}
-			const workdir = params.workdir === undefined ? state.cwd : isAbsolute(params.workdir) ? params.workdir : resolve(state.cwd, params.workdir);
+			const workdir = params.workdir === undefined ? state.cwd : state.env.files ? state.resolve(params.workdir) : isAbsolute(params.workdir) ? params.workdir : resolve(state.cwd, params.workdir);
 			const timeoutMs = Math.min(params.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 			const { bin, args, detached } = config.spawnArgs(params.command);
-			const child = spawn(bin, args, {
+			signal?.throwIfAborted();
+			const child = state.env.files ? state.env.spawn(bin, args, workdir) : spawn(bin, args, {
 				cwd: workdir,
 				windowsHide: true,
 				detached,
@@ -474,34 +531,30 @@ function hostShellTool(
 			});
 			await spawned;
 			const job = jobs.start(config.name, params.command, child, stdout, stderr);
+			if (state.env.files) job.stopProcess = () => { child.kill(); };
 			const details = { cwd: workdir, description: params.description };
 			const background = { cwd: workdir, label: params.description, service: params.service === true };
-			if (params.run_in_background === true) {
+			if (params.run_in_background === true && !signal?.aborted) {
 				jobs.publish(job, background);
 				return { content: [{ type: "text", text: `started background job ${job.id}` }], details: { ...details, jobId: job.id } };
 			}
 			// Foreground: the job is announced only if it outlives its timeout.
 			job.killedByModel = true;
-			let timedOut = false;
-			const outcome = await Promise.race([
-				job.done.then(() => "done" as const),
-				new Promise<"timeout">((r) => setTimeout(() => r("timeout"), timeoutMs)),
-				new Promise<"aborted">((r) => signal?.addEventListener("abort", () => r("aborted"), { once: true })),
-			]);
-			if (outcome === "aborted") {
-				killTree(child);
-				jobs.jobs.delete(job.id);
-				throw new Error("tool call aborted");
+			const outcome = await waitForJob(job, timeoutMs, signal);
+			if (outcome === "aborted" || signal?.aborted) {
+				jobs.stop(job, "user");
+				const stopped = await waitForJob(job, JOB_CANCEL_SETTLE_MS);
+				if (stopped === "done") jobs.jobs.delete(job.id);
+				throw new DOMException(stopped === "done" ? "已停止命令" : "已请求停止命令，进程尚未退出", "AbortError");
 			}
 			if (outcome === "timeout") {
-				timedOut = true;
 				job.killedByModel = false;
 				jobs.publish(job, background);
 				const partial = jobs.read(job);
 				const body = partial.length > 0 ? (partial.endsWith("\n") ? partial : `${partial}\n`) : "";
 				return {
 					content: [{ type: "text", text: `${body}[still running after ${timeoutMs}ms; moved to background job ${job.id}]` }],
-					details: { ...details, jobId: job.id, timedOut },
+					details: { ...details, jobId: job.id, timedOut: true },
 				};
 			}
 			jobs.jobs.delete(job.id);
@@ -517,11 +570,15 @@ function hostShellTool(
 export function pwshTool(state: HarnessState, jobs: JobRegistry): ToolDefinition {
 	return hostShellTool(state, jobs, {
 		name: "pwsh",
-		description: PWSH_DESCRIPTION,
+		description: PWSH_DESCRIPTION + (state.env.files
+			? " In the AppContainer workspace, invoke bundled node, python, git, rg, fd and uv by name with literal arguments; use single quotes for arguments containing spaces."
+			: ""),
 		commandDescription: "The PowerShell command to execute.",
-		spawnArgs: (command) => ({
-			bin: pwshPath(),
-			args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `${ENCODING_PREAMBLE}${command}`],
+		spawnArgs: (command) => (state.env.files ? appContainerExecutable(command) : undefined) ?? ({
+			bin: state.env.files ? "powershell" : pwshPath(),
+			args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", state.env.files
+				? appContainerPowerShell(command)
+				: `${ENCODING_PREAMBLE}${command}`],
 			detached: false,
 		}),
 	});

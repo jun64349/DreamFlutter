@@ -35,7 +35,7 @@ void main() {
         await icons.load();
       }); }
       final dir = Directory.systemTemp.createTempSync('df-about-widget-'), backend = AboutBackend();
-      final status = <String, dynamic>{'application': {'version': '0.6.0-test.1', 'build': '11', 'signed': false}, 'coreVersion': '0.5.0', 'piVersion': '1.4.0', 'platform': 'win32', 'arch': 'x64', 'state': 'downloaded', 'message': '更新包校验通过；安装前需要确认。', 'downloaded': true, 'canInstall': true, 'canStartup': true, 'startOnLogin': false, 'available': {'version': '0.6.0-test.2', 'size': 123456, 'sha256': 'a' * 64, 'notes': '本机测试版本说明'}};
+      final status = <String, dynamic>{'application': {'version': '0.6.0-test.1', 'build': '11', 'signed': false}, 'coreVersion': '0.5.0', 'piVersion': '1.4.0', 'dshVersion': '0.2.2-rc.5', 'platform': 'win32', 'arch': 'x64', 'state': 'downloaded', 'message': '更新包校验通过；安装前需要确认。', 'downloaded': true, 'canInstall': true, 'canStartup': true, 'startOnLogin': false, 'available': {'version': '0.6.0-test.2', 'size': 123456, 'sha256': 'a' * 64, 'notes': '本机测试版本说明'}};
       backend.handlers['updates.status'] = (_) => status;
       backend.handlers['updates.install'] = (_) => status;
       backend.handlers['updates.diagnostics'] = (_) => {'path': '${dir.path}/diagnostics.zip'};
@@ -53,6 +53,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('测试版未签名'), findsOneWidget);
       expect(find.text('DreamFlutter'), findsOneWidget);
+      expect(find.text('DeepSeek Harness'), findsOneWidget);
+      expect(find.text('0.2.2-rc.5'), findsOneWidget);
+      expect(find.text('Pi 版本'), findsNothing);
       expect(find.text('v0.6.0-test.1'), findsOneWidget);
       expect(backend.callsTo('updates.check'), isEmpty);
       expect(backend.callsTo('app.setStartup'), isEmpty);

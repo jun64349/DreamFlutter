@@ -8,7 +8,6 @@ import 'package:dreamflutter/ui/agent_scope.dart';
 import 'package:dreamflutter/ui/settings_butterfly.dart';
 import 'package:dreamflutter/ui/settings_voice.dart';
 import 'package:dreamflutter/ui/settings_restore.dart';
-import 'package:dreamflutter/ui/setup_wizard.dart';
 import 'package:dreamflutter/ui/library_page.dart';
 import 'package:dreamflutter/theme.dart';
 import 'fake_backend.dart';
@@ -30,7 +29,7 @@ void main(){
     for(final m in ['persona.presets','selfwork.longGoals.list','selfwork.history','selfwork.longGoals.save','selfwork.longGoals.delete','selfwork.skills.list','selfwork.skills.adopt','voice.keyStatus','voice.modelStatus','voice.downloadModel','voice.setKey','uninstall.preservedData']){f.backend.useFixture(m);}
     addTearDown(()async{await t.pumpWidget(const SizedBox());await t.runAsync(f.dispose);});
     await t.binding.setSurfaceSize(const Size(1200,1000));
-    await t.pumpWidget(AgentScope(controller:f.agent,child:MaterialApp(theme:buildTheme(Brightness.light),home:Scaffold(body:child is SetupWizard?child:SingleChildScrollView(child:child)))));await settle(t);return f;
+    await t.pumpWidget(AgentScope(controller:f.agent,child:MaterialApp(theme:buildTheme(Brightness.light),home:Scaffold(body:SingleChildScrollView(child:child)))));await settle(t);return f;
   }
   testWidgets('persona, proactivity and budget write documented setting keys',(t)async{
     final f=await mount(t,const Column(children:[PersonaChoices(),ButterflyProactivity()]));
@@ -100,11 +99,6 @@ void main(){
   testWidgets('uninstall dialog cancel writes no marker and launches nothing',(t)async{
     final f=await mount(t,const UninstallSetting());await t.tap(find.text('卸载…'));await t.pumpAndSettle();await t.tap(find.text('保留我的数据'));await t.pump();
     await t.tap(find.text('取消'));await t.pumpAndSettle();expect(f.backend.calls.where((c)=>c.method.startsWith('uninstall.')),isEmpty);
-  });
-  testWidgets('wizard keeps sandbox choices and adds persona cards',(t)async{
-    final f=await mount(t,SetupWizard(status:const {},onComplete:(){},initialStep:5));
-    expect(find.text('现在准备沙箱（推荐）'),findsOneWidget);expect(find.text('选一种说话的样子，以后可以在设置里改'),findsOneWidget);
-    await t.tap(find.text('灵动'));await settle(t);expect(f.backend.callsTo('settings.update').last,{'butterflyPersona':'lively'});
   });
   test('voice sends 150ms PCM in order, corrected final text, then cancels separately',()async{
     final backend=FakeBackend(),source=FakeVoiceAudio();String text='';

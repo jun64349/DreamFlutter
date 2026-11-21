@@ -26,7 +26,7 @@ export class PythonFilesModule implements CoreModule {
 					return {
 						folder: posix.join(root, "outbox", scope),
 						record: path => {
-							if (taskId) this.core.module(TasksModule)?.recordArtifact(taskId, env.local(path));
+							if (taskId && !provider.appContainer) this.core.module(TasksModule)?.recordArtifact(taskId, env.local(path));
 						},
 					};
 				});

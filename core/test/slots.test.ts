@@ -101,6 +101,7 @@ describe("session slots", () => {
 		assert.equal(existsSync(target), false);
 		const run = t.core.runs.list()[0]!;
 		assert.equal(run.toolErrors, 1);
+		assert.deepEqual(run.files, [], "a rejected write must not appear as a changed file");
 	});
 
 	it("remembers a workspace-wide allow rule", async () => {

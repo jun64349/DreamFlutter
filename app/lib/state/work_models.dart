@@ -127,7 +127,8 @@ bool isSandboxPath(String path) {
   final lower = path.toLowerCase();
   if (lower.startsWith(r'\\wsl.localhost\') || lower.startsWith(r'\\wsl$\')) return true;
   final normalized = lower.replaceAll('\\', '/');
-  return normalized.contains('/dreamflutter/sandbox/') || normalized.contains('/sandbox/workspace/');
+  return normalized.contains('/dreamflutter/sandbox/') || normalized.contains('/sandbox/workspace/') ||
+      RegExp(r'/native-windows/appcontainer-[0-9a-f]{32}/workspace/').hasMatch(normalized);
 }
 
 /// A file 蝶君 delivered: in its sandbox's /workspace/outbox, opened from here through \\wsl.localhost.

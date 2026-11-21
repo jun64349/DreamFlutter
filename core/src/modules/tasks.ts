@@ -431,7 +431,9 @@ export class TasksModule implements CoreModule {
 		const provider = slot.sandboxed ? this.core.sandboxProvider?.() : undefined;
 		const env = provider ? resolveSandboxEnv(provider) : undefined;
 		const sandboxBase = provider?.workspaceDir ?? SANDBOX_WORKSPACE;
-		for (const file of run.files) {
+		// Butterfly publishes Windows AppContainer artifacts from its outbox
+		// through the sandbox file service after this run has settled.
+		for (const file of slot.sandboxed && (!env || provider?.appContainer) ? [] : run.files) {
 			const path = env ? env.local(posix.resolve(sandboxBase, file)) : isAbsolute(file) ? file : resolve(run.cwd, file);
 			if (existsSync(path)) this.addArtifact(task, path);
 		}
@@ -518,7 +520,7 @@ export class TasksModule implements CoreModule {
 			notice.createdAt,
 		);
 		this.core.log.info(`run ${run.id} stopped: ${title}`);
-		void slot.session.abort();
+		void slot.abortActive();
 		this.core.broadcast({ event: "notices.changed", notice });
 		// In quiet hours the task toast drops; the goal's own deferred notification can still resume.
 		const budgetKey = kind === "goal_budget" && goalId && !this.core.notifications.quiet() ? this.core.notifications.activeBudgetKey(goalId) : undefined;

@@ -51,9 +51,9 @@ function compare(kind: string, implemented: Set<string>, documented: Set<string>
 it("matches the documented API headings to registered methods, push events and HTTP routes", async () => {
 	const t = await startTestCore();
 	try {
-		// The Windows-only module registers its handlers in the constructor.
-		// List the same API on other platforms without starting the sandbox.
-		if (process.platform !== "win32") {
+		// Both desktop builds have already registered their native sandbox RPCs.
+		// Other test hosts use the Windows API inventory without starting WSL.
+		if (process.platform !== "win32" && process.platform !== "darwin") {
 			const { Sandbox } = await import("../src/sandbox/sandbox.ts");
 			new Sandbox(t.core);
 		}
@@ -76,6 +76,7 @@ it("matches the documented API headings to registered methods, push events and H
 				documented[kind === "method" ? "methods" : kind === "event" ? "events" : "routes"].add(name);
 			}
 		}
+		if (process.platform !== "win32") documented.methods.delete("sandbox.setGitCompatibility");
 		compare("JSON-RPC 方法", methods, documented.methods);
 		compare("推送事件", events, documented.events);
 		compare("HTTP 前缀", routes, documented.routes);

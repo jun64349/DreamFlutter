@@ -97,7 +97,9 @@ export const MINIMAL_TOOLS = [HOST_SHELL_TOOL, "read_image", "working_directory"
 export const SANDBOX_HOME = "/workspace";
 
 /** A sandbox session runs Bash and Python, with read-only access to managed job output. */
-export const SANDBOX_TOOLS = () => [...STANDARD_TOOLS.filter((t) => t !== HOST_SHELL_TOOL && t !== "job_list" && t !== "job_kill"), "bash", "python"];
+export const SANDBOX_TOOLS = (nativeWindows = false) => nativeWindows
+	? [...STANDARD_TOOLS, "python"]
+	: [...STANDARD_TOOLS.filter((t) => t !== HOST_SHELL_TOOL && t !== "job_list" && t !== "job_kill"), "bash", "python"];
 
 export const STANDARD_TOOLS = [
 	"ask_user_question",
@@ -298,7 +300,8 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			}
 			return path;
 		};
-		const sandboxShell = sandbox ? new SandboxShell(sandbox.distro, sandbox.ready, sandbox.seatbelt) : undefined;
+		const nativeWindows = sandbox?.appContainer !== undefined;
+		const sandboxShell = sandbox && !nativeWindows ? new SandboxShell(sandbox.distro, sandbox.ready, sandbox.seatbelt) : undefined;
 		const backgroundSources = currentToolEnvironment();
 		let currentModel: Model<never> | undefined;
 		let running = false;
@@ -337,7 +340,8 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 						...gitTools(state, sandbox),
 						globTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
 						grepTool(state, sandbox ? "rg" : ripgrepPath(options.agentDir)),
-						...(sandboxShell && sandbox ? [withBashJobs(sandboxBashTool(sandboxShell), sandboxShell, sandbox, jobs, backgroundSources),
+						...(nativeWindows && sandbox ? [pwshTool(state, jobs), ...jobTools(jobs), pythonTool(pi, state, sandbox, jobs)]
+							: sandboxShell && sandbox ? [withBashJobs(sandboxBashTool(sandboxShell), sandboxShell, sandbox, jobs, backgroundSources),
 							...jobTools(jobs).filter(tool => tool.name === "job_output"), pythonTool(pi, state, sandbox, jobs)]
 							: [...jobTools(jobs).sort((a, b) => (a.name < b.name ? -1 : 1)), process.platform === "win32" ? pwshTool(state, jobs) : posixShellTool(state, jobs)]),
 						readTool(state),
@@ -376,6 +380,10 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 			shellJobsBySession.set(ctx.sessionManager, jobs);
 			const branch = ctx.sessionManager.getBranch() as Entry[];
 			state.cwd = lastCustom<{ cwd: string }>(branch, CWD_ENTRY)?.cwd ?? (sandbox ? (sandbox.workspaceDir ?? SANDBOX_HOME) : ctx.cwd);
+			if (nativeWindows && sandbox?.workspaceDir) {
+				try { state.cwd = state.env.resolve(sandbox.workspaceDir, state.cwd); }
+				catch { state.cwd = sandbox.workspaceDir; }
+			}
 			state.planMode = lastCustom<{ on: boolean }>(branch, PLAN_ENTRY)?.on === true;
 			state.todos = lastCustom<{ todos: TodoItem[] }>(branch, TODO_ENTRY)?.todos ?? null;
 			turn = branch.filter((e) => e.type === "message" && e.message?.role === "user").length;
@@ -412,7 +420,7 @@ export function harnessExtension(options: HarnessOptions): ExtensionFactory {
 				active.has("show_card") ? RICH_OUTPUT_GUIDANCE : "",
 				// The workbench: shipped tools, and .dreamflutter with the workspace notes (read fresh every run).
 				sandbox ? "" : WORKBENCH_IDENTITY,
-				sandbox ? sandboxEnvironmentText(sandbox.workspaceDir) : workspaceGuidance(prepareWorkspace(cwd).notes),
+				sandbox ? sandboxEnvironmentText(sandbox.workspaceDir, nativeWindows) : workspaceGuidance(prepareWorkspace(cwd).notes),
 				options.butterflyStyle?.() ?? "",
 			];
 			return sections.filter((s) => s.length > 0).join("\n\n");

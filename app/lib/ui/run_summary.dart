@@ -18,7 +18,7 @@ import 'settings_layout.dart' show CardSurface;
 import 'artifact_widgets.dart';
 import 'conversation_panel.dart';
 import 'details_panel_widgets.dart';
-import 'message_widgets.dart' show DiffView, editDiff, toolPath;
+import 'message_widgets.dart' show DiffView, editDiff;
 import 'side_chat_view.dart';
 import 'workspace_path.dart';
 import 'git_file_diff.dart';
@@ -35,7 +35,7 @@ List<ToolRun> _conversationTools(AgentController agent) {
   return [for (final id in ids) ?transcript.tool(id)];
 }
 
-typedef _PanelFile = ({String path, ToolRun? run, bool changed, bool read});
+typedef _PanelFile = ({String path, ToolRun? run, bool changed, bool deliverable, int lastWrite});
 
 int _compareFileNames(_PanelFile a, _PanelFile b) =>
     p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase());
@@ -75,7 +75,8 @@ class _RunPanelState extends State<RunPanel> {
   int _generation = 0;
   final _collapsedSections = <_WorkbenchSection>{};
   String _fileFilter = '全部';
-  String _fileSort = '名字';
+  String _fileSort = '优先';
+  bool _showAllFiles = false;
   @override
   void initState() {
     super.initState();
@@ -94,7 +95,7 @@ class _RunPanelState extends State<RunPanel> {
   @override
   void didUpdateWidget(RunPanel old) {
     super.didUpdateWidget(old);
-    if (old.sessionFile != widget.sessionFile) { _run = null; _task = null; _artifacts = []; _git = null; if (_preview != null) { _preview = null; _previewClosedLater(); } unawaited(_load()); }
+    if (old.sessionFile != widget.sessionFile) { _showAllFiles = false; _run = null; _task = null; _artifacts = []; _git = null; if (_preview != null) { _preview = null; _previewClosedLater(); } unawaited(_load()); }
   }
   @override
   void dispose() { _agent.workRevision.removeListener(_load); _agent.contextFocus.removeListener(_showContext); if (_preview != null) _previewClosedLater(); super.dispose(); }
@@ -189,7 +190,7 @@ class _RunPanelState extends State<RunPanel> {
     ]),
   );
 
-  Widget _fileRow(String path, ToolRun? run, bool changed, {bool read = false}) {
+  Widget _fileRow(String path, ToolRun? run, bool changed) {
     final colors = context.colors;
     final folder = p.dirname(relativeWorkspacePath(_agent.workspace, path)).replaceAll('\\', '/');
     final extension = p.extension(path).replaceFirst('.', '').toUpperCase();
@@ -199,7 +200,7 @@ class _RunPanelState extends State<RunPanel> {
       'CSV' => const Color(0xFFB5793F),
       _ => fileTypeColor(context, path),
     };
-    final status = read ? '读过' : changed ? '改了' : '新建';
+    final status = changed ? '改了' : '新建';
     final caption = folder == '.' || folder.isEmpty ? status : '$folder · $status';
     final hover = colors.ink.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? .07 : .06);
     return GestureDetector(
@@ -232,10 +233,18 @@ class _RunPanelState extends State<RunPanel> {
     );
   }
 
-  Widget _fileSection(List<_PanelFile> files, List<_PanelFile> reads) {
+  Widget _fileSection(List<_PanelFile> files) {
     final colors = context.colors;
-    final visibleFiles = [if (_fileFilter != '读过') ...files, ...reads];
+    final visibleFiles = files.where((file) => switch (_fileFilter) {
+      '新建' => !file.changed, '修改' => file.changed, _ => true,
+    }).toList();
     visibleFiles.sort((a, b) {
+      if (_fileSort == '优先') {
+        if (a.deliverable != b.deliverable) return a.deliverable ? -1 : 1;
+        if (a.changed != b.changed) return a.changed ? 1 : -1;
+        final byWrite = b.lastWrite.compareTo(a.lastWrite);
+        if (byWrite != 0) return byWrite;
+      }
       final byType = _fileSort == '类型' ? p.extension(a.path).compareTo(p.extension(b.path)) : 0;
       return byType == 0 ? _compareFileNames(a, b) : byType;
     });
@@ -250,23 +259,27 @@ class _RunPanelState extends State<RunPanel> {
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 0, 0, 4),
           child: Row(children: [
-            Expanded(child: Text('${files.length} 个改动 · ${reads.length} 个读过', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted))),
+            Expanded(child: Text('${files.length} 个改动', style: context.text.bodySmall?.copyWith(fontSize: 12, color: colors.muted))),
             const SizedBox(width: 4),
             PopupMenuButton<String>(
               tooltip: '只看某类', style: toolbarButtonStyle, icon: ProtoIcon('filter', size: 14, color: colors.ink2),
-              initialValue: _fileFilter, onSelected: (value) => setState(() => _fileFilter = value),
-              itemBuilder: (_) => const [PopupMenuItem(value: '全部', child: Text('全部文件')), PopupMenuItem(value: '读过', child: Text('读过的文件'))],
+              initialValue: _fileFilter, onSelected: (value) => setState(() { _fileFilter = value; _showAllFiles = false; }),
+              itemBuilder: (_) => const [PopupMenuItem(value: '全部', child: Text('全部改动')), PopupMenuItem(value: '新建', child: Text('新建的文件')), PopupMenuItem(value: '修改', child: Text('修改的文件'))],
             ),
             const SizedBox(width: 4),
             PopupMenuButton<String>(
               tooltip: '排序', style: toolbarButtonStyle, icon: ProtoIcon('sort', size: 14, color: colors.ink2),
               initialValue: _fileSort, onSelected: (value) => setState(() => _fileSort = value),
-              itemBuilder: (_) => const [PopupMenuItem(value: '名字', child: Text('按名字')), PopupMenuItem(value: '类型', child: Text('按类型'))],
+              itemBuilder: (_) => const [PopupMenuItem(value: '优先', child: Text('优先看交付文件')), PopupMenuItem(value: '名字', child: Text('按名字')), PopupMenuItem(value: '类型', child: Text('按类型'))],
             ),
           ]),
         ),
-      if (visibleFiles.isEmpty) _sectionNote('这个对话还没有这类文件'),
-      for (final file in visibleFiles) _fileRow(file.path, file.run, file.changed, read: file.read),
+      if (visibleFiles.isEmpty) _sectionNote(files.isEmpty ? '这个对话还没有文件改动' : '没有这类改动'),
+      for (final file in _showAllFiles ? visibleFiles : visibleFiles.take(3)) _fileRow(file.path, file.run, file.changed),
+      if (visibleFiles.length > 3) Align(alignment: Alignment.centerLeft, child: TextButton(
+        onPressed: () => setState(() => _showAllFiles = !_showAllFiles),
+        child: Text(_showAllFiles ? '收起' : '展开其余 ${visibleFiles.length - 3} 个文件'),
+      )),
     ]);
   }
 
@@ -275,7 +288,7 @@ class _RunPanelState extends State<RunPanel> {
     child: Text(text, style: context.text.bodySmall?.copyWith(fontSize: 12.5, color: context.colors.muted)),
   );
 
-  Widget _workbenchBody(List<_PanelFile> files, List<_PanelFile> reads) {
+  Widget _workbenchBody(List<_PanelFile> files) {
     final jobs = GoalScope.of(context);
     final activeJobs = jobs != null && jobs.jobs.isNotEmpty ? jobs : null;
     final colors = context.colors;
@@ -297,7 +310,7 @@ class _RunPanelState extends State<RunPanel> {
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(_error!, style: TextStyle(color: colors.danger))),
-          section(_WorkbenchSection.files, _fileSection(files, reads)),
+          section(_WorkbenchSection.files, _fileSection(files)),
           section(_WorkbenchSection.git, _gitSection()),
           section(
             _WorkbenchSection.jobs,
@@ -403,39 +416,44 @@ class _RunPanelState extends State<RunPanel> {
     final side = agent.sideChat;
     final tools = _conversationTools(agent);
     String full(String path) => fullWorkspacePath(agent.workspace, path);
-    final changes = <String, ToolRun?>{};
-    for (final path in _run?.files ?? <String>[]) { changes[full(path)] = null; }
-    for (final tool in tools.where((r) => r.name == 'edit' || r.name == 'write')) {
-      final path = tool.args['file_path'] ?? tool.args['path'];
-      if (path is String && tool.status == ToolStatus.done) changes[full(path)] = tool;
+    String key(String path) => Platform.isWindows ? path.toLowerCase() : path;
+    final paths = <String, String>{};
+    final writes = <String, ToolRun>{};
+    final lastWrite = <String, int>{};
+    final attempted = <String>{};
+    final created = {for (final path in _git?.createdPaths ?? <String>{}) key(full(path))};
+    final modified = {for (final path in _git?.modifiedPaths ?? <String>{}) key(full(path))};
+    for (final path in _run?.files ?? <String>[]) { paths[key(full(path))] = full(path); }
+    for (final (index, tool) in tools.indexed) {
+      if (tool.name != 'write' && tool.name != 'edit') continue;
+      final argument = tool.args['file_path'] ?? tool.args['path'];
+      if (argument is! String) continue;
+      final path = full(argument), id = key(path);
+      attempted.add(id);
+      if (tool.status != ToolStatus.done) continue;
+      paths[id] = path;
+      writes[id] = tool;
+      lastWrite[id] = index;
+      if (tool.details['created'] == true) created.add(id);
     }
-    final products = <String>{for (final row in _artifacts) if (row['path'] is String) full(row['path'] as String)};
-    bool matches(Set<String>? paths, String path) => paths?.any((value) => SessionStore.samePath(value, path)) ?? false;
-    for (final entry in changes.entries) {
-      final created = matches(_git?.createdPaths, entry.key) || entry.value?.details['created'] == true;
-      final modified = matches(_git?.modifiedPaths, entry.key) || entry.value?.name == 'edit' && !created || entry.value?.details['created'] == false;
-      if (modified) { products.removeWhere((path) => SessionStore.samePath(path, entry.key)); }
-      else if (created || entry.value?.name == 'write') { products.add(entry.key); }
+    // Older run summaries recorded a file when a tool started, even if it later failed.
+    paths.removeWhere((id, _) => attempted.contains(id) && !writes.containsKey(id));
+    final deliverables = <String>{};
+    for (final artifact in _artifacts) {
+      if (artifact['path'] case final String value) {
+        final path = full(value), id = key(path);
+        paths[id] = path;
+        deliverables.add(id);
+      }
     }
-    for (final path in products.toList()) {
-      if (matches(_git?.modifiedPaths, path)) { products.remove(path); changes.putIfAbsent(path, () => null); }
+    final files = <_PanelFile>[];
+    for (final entry in paths.entries) {
+      final id = entry.key, run = writes[id];
+      final isNew = created.contains(id) || (run?.details['created'] != false &&
+          (run?.name == 'write' || (run == null && deliverables.contains(id))));
+      files.add((path: entry.value, run: run, changed: modified.contains(id) || !isNew,
+          deliverable: deliverables.contains(id), lastWrite: lastWrite[id] ?? -1));
     }
-    final createdTools = {for (final e in changes.entries) e.key: e.value};
-    changes.removeWhere((path, _) => products.any((product) => SessionStore.samePath(path, product)));
-    // Keep new and changed files together, with their kind's icon and the existing preview/menu.
-    final files = <_PanelFile>[
-      for (final entry in changes.entries) (path: entry.key, run: entry.value, changed: true, read: false),
-      for (final path in products) (path: path, run: createdTools[path], changed: false, read: false),
-    ];
-    final read = <String, ToolRun?>{};
-    for (final tool in tools.where((tool) => tool.status == ToolStatus.done && const {'read', 'read_image'}.contains(tool.name))) {
-      final path = toolPath(tool);
-      if (path != null) read[full(path)] = tool;
-    }
-    for (final file in files) { read.removeWhere((path, _) => SessionStore.samePath(path, file.path)); }
-    final reads = <_PanelFile>[
-      for (final entry in read.entries) (path: entry.key, run: entry.value, changed: false, read: true),
-    ];
     final colors = context.colors;
     final Widget? overlay;
     if (side != null) {
@@ -452,7 +470,7 @@ class _RunPanelState extends State<RunPanel> {
     final Widget body;
     if (!agent.sandbox) {
       body = Stack(fit: StackFit.expand, children: [
-        Visibility(visible: overlay == null, maintainState: true, child: _workbenchBody(files, reads)),
+        Visibility(visible: overlay == null, maintainState: true, child: _workbenchBody(files)),
         AnimatedSwitcher(
           duration: AppTokens.motion(context, AppTokens.panel),
           child: overlay ?? const SizedBox.shrink(),

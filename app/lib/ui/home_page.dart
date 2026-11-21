@@ -47,12 +47,19 @@ class _HomePageState extends State<HomePage> {
   bool _onKey(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
     final agent = AgentScope.read(context);
+    final keys = HardwareKeyboard.instance;
+    if (Platform.isWindows && event.physicalKey == PhysicalKeyboardKey.keyU &&
+        !keys.isMetaPressed && !keys.isAltPressed && agent.backend.isConnected &&
+        (ModalRoute.of(context)?.isCurrent ?? true) && !_overlaySections.contains(agent.section) &&
+        agent.desktopPlugins.opensSpending('KeyU', control: HeldKeys.control, shift: HeldKeys.shift)) {
+      agent.showSection(AppSection.spending);
+      return true;
+    }
     if (event.logicalKey == LogicalKeyboardKey.escape && _overlaySections.contains(agent.section)) {
       agent.showSection(_baseSection);
       return true;
     }
     if (event.logicalKey != LogicalKeyboardKey.keyB) return false;
-    final keys = HardwareKeyboard.instance;
     if (!HeldKeys.primaryOnly || keys.isAltPressed || keys.isShiftPressed) return false;
     if (MediaQuery.sizeOf(context).width / agent.zoom < 860) {
       final scaffold = _scaffoldKey.currentState;

@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'backend.dart';
 import 'attention.dart';
+import 'desktop_plugins.dart';
 import 'cards.dart';
 import 'mentions.dart';
 import 'memory_ui.dart';
@@ -160,6 +161,9 @@ class AgentController extends ChangeNotifier {
   final Preferences preferences;
   final SessionStore sessionStore;
   final AgentBackend backend;
+  DesktopPlugins? _desktopPlugins;
+  DesktopPlugins get desktopPlugins =>
+      parentController?.desktopPlugins ?? (_desktopPlugins ??= DesktopPlugins(backend));
   AttentionState? _attention;
   AttentionState get attention => main._attention ??= AttentionState(main.backend, onCountChanged: main._attentionChanged);
   void _attentionChanged(){final value=_attention;if(value?.available??false){pendingInbox=value!.total;pendingMemories=0;pendingProposals=0;}_notify();}
@@ -648,6 +652,7 @@ class AgentController extends ChangeNotifier {
 
   void _applyHello(Json hello) {
     coreInfo = hello;
+    if (!sandbox && Platform.isWindows) unawaited(desktopPlugins.refresh(reconnect: true));
     final sessionsDir = hello['sessionDir'];
     if (sessionsDir is String && sessionsDir.isNotEmpty) sessionStore.sessionsDir = sessionsDir;
     coreSettings = asJsonMap(hello['settings']);
@@ -759,6 +764,8 @@ class AgentController extends ChangeNotifier {
   void _onBackendEvent(Json message) {
     if (sandbox && _mainOnlyEvents.contains(message['event'])) return;
     switch (message['event']) {
+      case 'plugins.changed':
+        if (!sandbox && Platform.isWindows) unawaited(desktopPlugins.refresh());
       case 'memory.unsaved':
         final id = message['sessionId'] as String?;
         if (id != null) {
@@ -1151,6 +1158,7 @@ class AgentController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _attention?.dispose();
+    _desktopPlugins?.dispose();
     if (!sandbox) gardenDeletions.dispose();
     backupJob.dispose();
     restoreResult.dispose();
@@ -1177,6 +1185,7 @@ class AgentController extends ChangeNotifier {
       incognito: incognito,
       requestedAgentMode: agentMode,
       sandbox: sandbox,
+      frameStreamedText: !sandbox,
       launch: backend.launch,
       onToast: _toast,
       onSettled: _onRuntimeSettled,
@@ -1283,12 +1292,12 @@ class AgentController extends ChangeNotifier {
   Future<void> newSession({bool forceNew = false}) async {
     if (forceNew || sandbox && _active?.slotId != null && butterflySlotHasPlan?.call(_active!.slotId!) == true) { await _activate(await _spawn()); return; }
     final current = _active;
-    if (current != null && current.isPristine && current.isReady && !current.incognito) return; // already on a blank session
+    if (current != null && current.isPristine && current.isReady && !current.incognito && !current.readOnly) return; // already on a blank session
     final idleOther = _runtimes
-        .where((r) => r != current && r.isPristine && r.isReady && !r.incognito && SessionStore.samePath(r.workspace, workspace))
+        .where((r) => r != current && r.isPristine && r.isReady && !r.incognito && !r.readOnly && SessionStore.samePath(r.workspace, workspace))
         .firstOrNull;
     if (idleOther != null) return _activate(idleOther);
-    if (current != null && current.isReady && !current.isRunning && !current.incognito && SessionStore.samePath(current.workspace, workspace)) {
+    if (current != null && current.isReady && !current.isRunning && !current.incognito && !current.readOnly && SessionStore.samePath(current.workspace, workspace)) {
       await current.newSessionInPlace();
       _notify();
       return;
@@ -1315,7 +1324,7 @@ class AgentController extends ChangeNotifier {
     final summary = _diskSessions.where((s) => SessionStore.samePath(s.path, path)).firstOrNull;
     final cwd = summary?.cwd ?? workspace;
     // A temporary chat stays temporary: saved history opens in a normal runtime.
-    if (current != null && current.isReady && !current.isRunning && !current.incognito && SessionStore.samePath(current.workspace, cwd)) {
+    if (current != null && current.isReady && !current.isRunning && !current.incognito && !current.readOnly && SessionStore.samePath(current.workspace, cwd)) {
       if (await current.switchInPlace(path)) {
         _unseen.remove(_key(path));
         _notify();
@@ -1325,6 +1334,34 @@ class AgentController extends ChangeNotifier {
     }
     final runtime = await _spawn(sessionPath: path, cwd: cwd);
     await _activate(runtime);
+  }
+
+  bool _continuingLegacy = false;
+  bool get continuingLegacy => _continuingLegacy;
+
+  Future<void> continueLegacy({SessionRuntime? sourceRuntime}) async {
+    final source = sourceRuntime ?? _active;
+    final sourceSlotId = source?.slotId;
+    if (source == null || sourceSlotId == null || !source.readOnly || continuingLegacy) return;
+    _continuingLegacy = true;
+    _notify();
+    final runtime = _newRuntime(source.workspace);
+    try {
+      await runtime.start(continueFromSlotId: sourceSlotId);
+      if (!runtime.isReady) {
+        await _closeInCore(runtime);
+        _toast('没有打开新会话：${runtime.statusDetail}');
+        return;
+      }
+      if (_active == source || sideChat?.runtime == source) {
+        if (sideChat?.runtime == source) closeSideChat();
+        await _activate(runtime);
+      }
+      await refreshSessions();
+    } finally {
+      _continuingLegacy = false;
+      _notify();
+    }
   }
 
   Future<void> setWorkspace(String directory) async {
@@ -1540,13 +1577,13 @@ class AgentController extends ChangeNotifier {
 
   Future<void> editMessage(UserItem item) async {
     final runtime = _active;
-    if (runtime == null || runtime.isRunning) return;
+    if (runtime == null || runtime.isRunning || runtime.readOnly) return;
     await runtime.editMessage(item);
   }
 
   Future<void> regenerate(UserItem item, {PiModel? model}) async {
     final runtime = _active;
-    if (runtime == null || runtime.isRunning) return;
+    if (runtime == null || runtime.isRunning || runtime.readOnly) return;
     await runtime.regenerate(item, model: model);
   }
 
@@ -1656,7 +1693,9 @@ class AgentController extends ChangeNotifier {
   }
 
   void clearComposerQuote() {
-    _active?.composerQuote = null;
+    final active = _active;
+    if (active == null || active.composerQuote == null) return;
+    active.composerQuote = null;
     _notify();
   }
 
@@ -1666,7 +1705,7 @@ class AgentController extends ChangeNotifier {
   SideChat? sideChat;
 
   /// Saved parents fork their file; private parents use T-07's live slot.
-  bool get canOpenSideChat => _active?.isReady == true && (_active?.sessionPath != null || (_active?.incognito == true && _active?.slotId != null));
+  bool get canOpenSideChat => _active?.isReady == true && _active?.readOnly != true && (_active?.sessionPath != null || (_active?.incognito == true && _active?.slotId != null));
 
   /// Opens a side conversation about [quote] in the details panel: an in-memory copy of the
   /// session so far, so asking there neither interrupts nor adds to the conversation.

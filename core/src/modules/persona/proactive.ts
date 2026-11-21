@@ -5,6 +5,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { samePath, RpcError, type Core } from "../../core.ts";
 import { Gateway, GROUP_PROVIDER } from "../../gateway/gateway.ts";
 import { estimate } from "../../ledger/rules.ts";
+import { DSH_ENTRY } from "../../dsh/session-legacy.ts";
+import { completeModel } from "../llm.ts";
 import { finite, withLedgerContext } from "../../ledger/types.ts";
 import { readSessionEntries } from "../../pi/session-metadata.ts";
 import { SANDBOX_ENTRY } from "../../pi/host.ts";
@@ -105,7 +107,7 @@ export class ProactiveChat {
 	}
 
 	private ordinary(slot: Slot): boolean {
-		return slot.started && slot.sandboxed && !slot.unattended && !slot.incognito && !slot.isSideConversation &&
+		return slot.started && !slot.info().readOnly && slot.sandboxed && !slot.unattended && !slot.incognito && !slot.isSideConversation &&
 			samePath(slot.cwd, this.core.paths.butterflyDir);
 	}
 
@@ -185,6 +187,7 @@ export class ProactiveChat {
 			if (!this.core.isProjectTrusted(cwd) || this.interruption()) return undefined;
 			try {
 				const entries = readSessionEntries(path);
+				if (this.core.dshBackend && !entries.some(entry => entry.type === "custom" && entry.customType === DSH_ENTRY)) continue;
 				if (!entries.some(entry => entry.type === "custom" && entry.customType === SANDBOX_ENTRY && entry.data?.sandbox === true) ||
 					!entries.some(entry => entry.type === "message" && entry.message?.role === "user")) continue;
 			} catch { continue; }
@@ -252,7 +255,7 @@ export class ProactiveChat {
 		try {
 			const signal = AbortSignal.any([this.shutdown.signal, AbortSignal.timeout(30_000)]);
 			answer = await withLedgerContext({ purpose: "auxiliary", slotId: slot.slotId, runId: this.ledgerRun(refId), workspace: slot.cwd, sessionId: session.sessionId },
-				() => session.modelRuntime.completeSimple(model, { systemPrompt, messages: [user] }, { maxTokens: maxOutput, thinkingLevel: "off", signal } as never));
+				() => completeModel(this.core, session.modelRuntime, model, { systemPrompt, messages: [user] }, { maxTokens: maxOutput, signal }));
 		} finally {
 			this.settleCost(refId, estimateUsd, answer);
 		}
@@ -267,11 +270,8 @@ export class ProactiveChat {
 
 		const at = this.clock();
 		const message = { ...answer, content, timestamp: at, dfProactiveRef: refId };
-		const manager = session.sessionManager;
-		db.run("UPDATE butterfly_proactive SET state='sending', sent_at=?, sent_day=?, session_file=? WHERE ref_id=?", at, localDay(at), file, refId);
-		const entryId = manager.appendMessage(message);
+		const entryId = await slot.appendProactiveMessage(message, () => db.run("UPDATE butterfly_proactive SET state='sending', sent_at=?, sent_day=?, session_file=? WHERE ref_id=?", at, localDay(at), file, refId));
 		db.run("UPDATE butterfly_proactive SET state='sent', entry_id=? WHERE ref_id=?", entryId, refId);
-		session.agent.state.messages = manager.buildSessionProjection().messages;
 		slot.lastActivity = Date.now();
 		for (const client of this.core.clients) if (client.attached.has(slot.slotId)) {
 			try { client.send({ event: "slot.record", slotId: slot.slotId, record: { type: "message_end", message, entryId } }); }

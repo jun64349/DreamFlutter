@@ -1,4 +1,4 @@
-import type { AssistantMessage, Message, Model, Tool } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Context, Message, Model, Tool } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 /**
@@ -97,6 +97,7 @@ export const PROPOSE_TOOL: Tool = {
  */
 export async function runMemoryAgent(options: {
 	runtime: ModelRuntime;
+	complete?: (context: Context, options: { maxTokens: number; signal?: AbortSignal }) => Promise<AssistantMessage>;
 	model: Model<never>;
 	system: string;
 	input: string;
@@ -128,7 +129,10 @@ export async function runMemoryAgent(options: {
 		}
 		let answer: AssistantMessage;
 		try {
-			answer = (await waitForMemory(() => options.runtime.completeSimple(options.model, { systemPrompt: options.system, messages, tools: [QUERY_TOOL, PROPOSE_TOOL] }, { maxTokens: 4096, signal: options.signal } as never), options.waitSignal)) as AssistantMessage;
+			const context = { systemPrompt: options.system, messages, tools: [QUERY_TOOL, PROPOSE_TOOL] };
+			const call = { maxTokens: 4096, signal: options.signal };
+			answer = await waitForMemory(() => options.complete ? options.complete(context, call)
+				: options.runtime.completeSimple(options.model, context, call), options.waitSignal);
 		} catch (error) {
 			// Preserve earlier calls so the job can bill them even when transport throws.
 			run.stoppedBy = "error";

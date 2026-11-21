@@ -4,12 +4,13 @@ import { writeArchive } from "../backup/archive.ts";
 import type { Core } from "../core.ts";
 import { redact } from "../security/redaction.ts";
 import { buildInfo, piVersion } from "./installation.ts";
+import { dshVersion } from "../dsh/plugins/catalog.ts";
 
 export async function exportDiagnostics(core: Core, appRoot: string): Promise<{ path: string; files: number }> {
   const output = join(core.paths.dataDir, "updates", "diagnostics"); mkdirSync(output, { recursive: true });
   const path = join(output, `DreamFlutter-diagnostics-${Date.now()}.zip`);
   const encode = (value: unknown) => Buffer.from(redact(typeof value === "string" ? value : JSON.stringify(value, null, 2), true));
-  const buffers = [{ name: "summary.json", data: encode({ exportedAt: new Date().toISOString(), application: buildInfo(appRoot), core: (await core.call("core.hello", {} ) as any).version, pi: piVersion(appRoot), platform: process.platform, arch: process.arch, node: process.version, settings: core.settings.get() }) }];
+  const buffers = [{ name: "summary.json", data: encode({ exportedAt: new Date().toISOString(), application: buildInfo(appRoot), core: (await core.call("core.hello", {} ) as any).version, dsh: dshVersion, pi: piVersion(appRoot), platform: process.platform, arch: process.arch, node: process.version, settings: core.settings.get() }) }];
   const directory = join(core.paths.logFile, "..");
   const logs = existsSync(directory) ? readdirSync(directory).filter((name) => /^core\.log(?:\.\d+)?$/.test(name)).sort().slice(0, 3) : [];
   for (const name of logs) {

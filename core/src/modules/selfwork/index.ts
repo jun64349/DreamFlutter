@@ -14,7 +14,7 @@ import { GoalsModule } from "../goals.ts";
 import { estimateGoalCost } from "../goals/budget.ts";
 import { selfworkDeliverable, type SelfworkDelivery, type SelfworkDraft } from "../goals/selfwork.ts";
 import type { Goal } from "../goals/types.ts";
-import { Llm, parseJsonAnswer } from "../llm.ts";
+import { completeModel, Llm, parseJsonAnswer } from "../llm.ts";
 import { MemoryModule } from "../memory.ts";
 import { localDay, SessionIndex } from "../session-index.ts";
 import type { TrialRunner } from "../skill-trial.ts";
@@ -397,9 +397,9 @@ export class SelfworkModule implements CoreModule {
 			let answer: AssistantMessage;
 			try {
 				answer = await withLedgerContext({ purpose: "auxiliary", workspace: this.core.paths.butterflyDir, runId: this.ledgerId(run), slotId: null, sessionId: null },
-					() => runtime.completeSimple(model, {
+					() => completeModel(this.core, runtime, model, {
 						systemPrompt, messages: [{ role: "user", content: material, timestamp: this.clock() }],
-					}, { signal, maxTokens, thinkingLevel: "off" } as never));
+					}, { signal, maxTokens }));
 			} finally { this.settle(run); }
 			if (signal.aborted || answer.stopReason === "aborted") { this.finish(run.id, "stopped", "interrupted"); return; }
 			if (answer.stopReason === "error") { this.finish(run.id, "skipped", "failed"); return; }

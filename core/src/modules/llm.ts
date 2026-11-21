@@ -1,11 +1,19 @@
 import { join } from "node:path";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Core } from "../core.ts";
 import { classifyFailure, isChannelFailure } from "../gateway/classify.ts";
 import { textOf } from "../runs.ts";
-import { withLedgerContext, type LedgerContext } from "../ledger/types.ts";
+import { ledgerContext, withLedgerContext, type LedgerContext } from "../ledger/types.ts";
 import { purposeModel, type ModelPurpose } from "../settings.ts";
+
+/** Use the caller's guarded transport and ledger scope for an auxiliary request. */
+export function completeModel(core: Core, runtime: ModelRuntime, model: Model<Api>, context: Context,
+	options: { signal?: AbortSignal; maxTokens?: number }): Promise<AssistantMessage> {
+	const backend = core.dshBackend;
+	return backend ? backend.complete(runtime, model, context, { ...options, ledger: ledgerContext() })
+		: runtime.completeSimple(model, context, options);
+}
 
 /**
  * One-off model calls the core makes for itself (titles, memory extraction,
@@ -74,18 +82,16 @@ export class Llm {
 		if (!model) throw new Error("没有可用的模型");
 		const signal = AbortSignal.timeout(options.timeoutMs ?? 60_000);
 		this.core.ledger?.install(runtime, () => ({ purpose: "auxiliary" }));
-		const ask = () => withLedgerContext({ purpose: "auxiliary", workspace: null, sessionId: null, runId: null, slotId: null, ...options.context }, () =>
-			runtime.completeSimple(
-				model,
-				{ systemPrompt: options.system, messages: [{ role: "user", content: prompt as never, timestamp: Date.now() }] },
-				{ maxTokens: options.maxTokens ?? 1024, signal } as never,
-			));
+		const ledger: LedgerContext = { purpose: "auxiliary", workspace: null, sessionId: null, runId: null, slotId: null, ...options.context };
+		const ask = () => withLedgerContext(ledger, () => completeModel(this.core, runtime, model,
+			{ systemPrompt: options.system, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] },
+			{ maxTokens: options.maxTokens ?? 1024, signal }));
 		let message = await ask();
 		// A model group: when a channel failed before answering anything, it is resting
 		// now, so asking again goes to the next one.
 		const switchable = (m: typeof message) =>
 			m.stopReason === "error" && isChannelFailure(classifyFailure(m.errorMessage)) && !m.content.some((c) => (c.type === "text" ? c.text : c.type === "thinking" ? c.thinking : "x"));
-		for (let attempt = 1; attempt < 3 && switchable(message) && (model as { api?: string }).api === "pi-virtual" && !signal.aborted; attempt++) {
+		for (let attempt = 1; attempt < 3 && !this.core.dshBackend && switchable(message) && (model as { api?: string }).api === "pi-virtual" && !signal.aborted; attempt++) {
 			message = await ask();
 		}
 		if (message.stopReason === "error" || message.stopReason === "aborted") {

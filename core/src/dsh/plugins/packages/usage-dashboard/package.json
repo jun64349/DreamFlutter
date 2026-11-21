@@ -1,0 +1,13 @@
+{
+  "name": "@dreamflutter/dsh-usage-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.ts" },
+  "engines": { "dsh": "0.2.2-rc.5" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.json" } },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-session-stats": "0.2.2-rc.5"
+  }
+}
